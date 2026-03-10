@@ -1,0 +1,214 @@
+[gd_scene format=3 uid="uid://ciodm3kdmwqjx"]
+
+[ext_resource type="Script" uid="uid://fxrmjijno84s" path="res://combat/board/CombatScene.gd" id="1_dyoly"]
+[ext_resource type="Script" uid="uid://bx36mhvgq0wax" path="res://combat/board/TurnManager.gd" id="2_fi7n0"]
+[ext_resource type="Script" uid="uid://bu6yta5qm7qry" path="res://combat/board/BoardSlot.gd" id="3_2ubrw"]
+[ext_resource type="PackedScene" path="res://combat/ui/HandDisplay.tscn" id="4_handdisplay"]
+[ext_resource type="Script" path="res://combat/board/EnemyAI.gd" id="5_enemyai"]
+
+[node name="CombatScene" type="Node2D" unique_id=220153093]
+script = ExtResource("1_dyoly")
+
+[node name="TurnManager" type="Node" parent="." unique_id=2126401951]
+script = ExtResource("2_fi7n0")
+
+[node name="EnemyAI" type="Node" parent="." unique_id=987654321]
+script = ExtResource("5_enemyai")
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=178167502]
+
+[node name="EssenceLabel" type="Label" parent="UI" unique_id=1142137504]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 280.0
+offset_bottom = 50.0
+text = "Essence: 0 / 0"
+
+[node name="ManaLabel" type="Label" parent="UI" unique_id=1297931993]
+offset_left = 20.0
+offset_top = 55.0
+offset_right = 280.0
+offset_bottom = 85.0
+text = "Mana: 0 / 0"
+
+[node name="EnemyHP" type="Label" parent="UI" unique_id=1552478699]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -60.0
+offset_top = 20.0
+offset_right = 60.0
+offset_bottom = 50.0
+grow_horizontal = 2
+text = "Enemy HP: 30"
+
+[node name="EnemyBoard" type="HBoxContainer" parent="UI" unique_id=1964722887]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -475.0
+offset_top = 60.0
+offset_right = 475.0
+offset_bottom = 260.0
+grow_horizontal = 2
+alignment = 1
+
+[node name="Slot0" type="Panel" parent="UI/EnemyBoard" unique_id=392646361]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot1" type="Panel" parent="UI/EnemyBoard" unique_id=127902150]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot2" type="Panel" parent="UI/EnemyBoard" unique_id=1193857156]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot3" type="Panel" parent="UI/EnemyBoard" unique_id=1449365361]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot4" type="Panel" parent="UI/EnemyBoard" unique_id=2076951495]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="PlayerHP" type="Label" parent="UI" unique_id=688869080]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -60.0
+offset_top = 430.0
+offset_right = 60.0
+offset_bottom = 460.0
+grow_horizontal = 2
+text = "Player HP: 30"
+
+[node name="PlayerBoard" type="HBoxContainer" parent="UI" unique_id=1790611747]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -475.0
+offset_top = 470.0
+offset_right = 475.0
+offset_bottom = 670.0
+grow_horizontal = 2
+alignment = 1
+
+[node name="Slot0" type="Panel" parent="UI/PlayerBoard" unique_id=811926]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot1" type="Panel" parent="UI/PlayerBoard" unique_id=2070538687]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot2" type="Panel" parent="UI/PlayerBoard" unique_id=1652926465]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot3" type="Panel" parent="UI/PlayerBoard" unique_id=218125180]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="Slot4" type="Panel" parent="UI/PlayerBoard" unique_id=2062713556]
+custom_minimum_size = Vector2(180, 195)
+layout_mode = 2
+script = ExtResource("3_2ubrw")
+
+[node name="EndTurnButton" type="Button" parent="UI" unique_id=2114928843]
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = -180.0
+offset_top = -35.0
+offset_right = -10.0
+offset_bottom = 35.0
+grow_horizontal = 0
+grow_vertical = 2
+text = "End Turn"
+
+[node name="HandDisplay" parent="UI" instance=ExtResource("4_handdisplay")]
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = -500.0
+offset_top = -210.0
+offset_right = 500.0
+offset_bottom = -30.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="EnemyHeroButton" type="Button" parent="UI"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -110.0
+offset_top = 15.0
+offset_right = 110.0
+offset_bottom = 58.0
+grow_horizontal = 2
+text = "Attack Enemy Hero"
+visible = false
+
+[node name="TrapZoneLabel" type="Label" parent="UI"]
+anchor_left = 0.0
+offset_left = 20.0
+offset_top = 290.0
+offset_right = 270.0
+offset_bottom = 460.0
+autowrap_mode = 3
+text = ""
+
+[node name="HeroPowerButton" type="Button" parent="UI"]
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = -180.0
+offset_top = 50.0
+offset_right = -10.0
+offset_bottom = 120.0
+grow_horizontal = 0
+grow_vertical = 2
+text = "Hero Power\n(2 Mana): Summon Spirit"
+
+[node name="GameOverPanel" type="Panel" parent="UI"]
+anchor_left = 0.0
+anchor_right = 1.0
+anchor_top = 0.0
+anchor_bottom = 1.0
+visible = false
+
+[node name="GameOverLabel" type="Label" parent="UI/GameOverPanel"]
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 0.4
+anchor_bottom = 0.4
+offset_left = -200.0
+offset_top = -50.0
+offset_right = 200.0
+offset_bottom = 30.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 48
+text = "VICTORY!"
+
+[node name="RestartButton" type="Button" parent="UI/GameOverPanel"]
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = -110.0
+offset_top = 10.0
+offset_right = 110.0
+offset_bottom = 50.0
+grow_horizontal = 2
+text = "Play Again"

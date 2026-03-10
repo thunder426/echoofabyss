@@ -1,0 +1,74 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://combat/ui/CardVisual.gd" id="1"]
+
+[node name="CardVisual" type="Control"]
+custom_minimum_size = Vector2(120, 180)
+size = Vector2(120, 180)
+script = ExtResource("1")
+
+[node name="Background" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ArtRect" type="TextureRect" parent="."]
+layout_mode = 0
+offset_right = 120.0
+offset_bottom = 72.0
+expand_mode = 1
+stretch_mode = 5
+
+[node name="CostLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 32.0
+offset_bottom = 22.0
+text = "0"
+
+[node name="NameLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 75.0
+offset_right = 116.0
+offset_bottom = 92.0
+text = "Card Name"
+clip_text = true
+
+[node name="TypeLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 94.0
+offset_right = 116.0
+offset_bottom = 108.0
+text = "Minion"
+
+[node name="DescLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 110.0
+offset_right = 116.0
+offset_bottom = 150.0
+autowrap_mode = 3
+text = ""
+
+[node name="StatsRow" type="HBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 153.0
+offset_right = 116.0
+offset_bottom = 175.0
+
+[node name="AtkLabel" type="Label" parent="StatsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "0"
+
+[node name="HpLabel" type="Label" parent="StatsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "0"
