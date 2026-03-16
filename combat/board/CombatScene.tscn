@@ -17,37 +17,145 @@ script = ExtResource("5_enemyai")
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=178167502]
 
+[node name="Background" type="ColorRect" parent="UI" unique_id=100000001]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.05, 0.05, 0.10, 1)
+
 [node name="EssenceLabel" type="Label" parent="UI" unique_id=1142137504]
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 280.0
 offset_bottom = 50.0
 text = "Essence: 0 / 0"
+theme_override_colors/font_color = Color(0.75, 0.35, 1.0, 1)
+theme_override_font_sizes/font_size = 16
 
 [node name="ManaLabel" type="Label" parent="UI" unique_id=1297931993]
 offset_left = 20.0
-offset_top = 55.0
+offset_top = 52.0
 offset_right = 280.0
-offset_bottom = 85.0
+offset_bottom = 82.0
 text = "Mana: 0 / 0"
+theme_override_colors/font_color = Color(0.25, 0.60, 1.0, 1)
+theme_override_font_sizes/font_size = 16
+
+[node name="EnemyNameLabel" type="Label" parent="UI" unique_id=100000010]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -200.0
+offset_top = 8.0
+offset_right = 200.0
+offset_bottom = 34.0
+grow_horizontal = 2
+horizontal_alignment = 1
+text = "Enemy"
+theme_override_colors/font_color = Color(1.0, 0.55, 0.55, 1)
+theme_override_font_sizes/font_size = 20
 
 [node name="EnemyHP" type="Label" parent="UI" unique_id=1552478699]
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -60.0
-offset_top = 20.0
-offset_right = 60.0
-offset_bottom = 50.0
+offset_left = -80.0
+offset_top = 34.0
+offset_right = 80.0
+offset_bottom = 58.0
 grow_horizontal = 2
 text = "Enemy HP: 30"
+theme_override_colors/font_color = Color(1.0, 0.30, 0.30, 1)
+theme_override_font_sizes/font_size = 16
 
-[node name="EnemyBoard" type="HBoxContainer" parent="UI" unique_id=1964722887]
+[node name="FightLabel" type="Label" parent="UI" unique_id=100000011]
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 20.0
+offset_right = -10.0
+offset_bottom = 50.0
+horizontal_alignment = 2
+text = "Fight 1 / 3"
+theme_override_colors/font_color = Color(0.55, 0.55, 0.65, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="TurnLabel" type="Label" parent="UI"]
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 52.0
+offset_right = -10.0
+offset_bottom = 76.0
+horizontal_alignment = 2
+text = "Turn 1  |  Deck: 15"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.62, 1)
+theme_override_font_sizes/font_size = 15
+
+[node name="EnemyTrapSlotsRow" type="HBoxContainer" parent="UI"]
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -475.0
 offset_top = 60.0
 offset_right = 475.0
-offset_bottom = 260.0
+offset_bottom = 120.0
+grow_horizontal = 2
+alignment = 1
+
+[node name="TrapSlot0" type="Panel" parent="UI/EnemyTrapSlotsRow"]
+custom_minimum_size = Vector2(180, 56)
+layout_mode = 2
+
+[node name="SlotLabel" type="Label" parent="UI/EnemyTrapSlotsRow/TrapSlot0"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "[ — ]"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="TrapSlot1" type="Panel" parent="UI/EnemyTrapSlotsRow"]
+custom_minimum_size = Vector2(180, 56)
+layout_mode = 2
+
+[node name="SlotLabel" type="Label" parent="UI/EnemyTrapSlotsRow/TrapSlot1"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "[ — ]"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="TrapSlot2" type="Panel" parent="UI/EnemyTrapSlotsRow"]
+custom_minimum_size = Vector2(180, 56)
+layout_mode = 2
+
+[node name="SlotLabel" type="Label" parent="UI/EnemyTrapSlotsRow/TrapSlot2"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "[ — ]"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="EnemyBoard" type="HBoxContainer" parent="UI" unique_id=1964722887]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -475.0
+offset_top = 123.0
+offset_right = 475.0
+offset_bottom = 323.0
 grow_horizontal = 2
 alignment = 1
 
@@ -79,12 +187,14 @@ script = ExtResource("3_2ubrw")
 [node name="PlayerHP" type="Label" parent="UI" unique_id=688869080]
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -60.0
+offset_left = -80.0
 offset_top = 430.0
-offset_right = 60.0
+offset_right = 80.0
 offset_bottom = 460.0
 grow_horizontal = 2
 text = "Player HP: 30"
+theme_override_colors/font_color = Color(1.0, 0.30, 0.30, 1)
+theme_override_font_sizes/font_size = 16
 
 [node name="PlayerBoard" type="HBoxContainer" parent="UI" unique_id=1790611747]
 anchor_left = 0.5
@@ -121,18 +231,55 @@ custom_minimum_size = Vector2(180, 195)
 layout_mode = 2
 script = ExtResource("3_2ubrw")
 
-[node name="EndTurnButton" type="Button" parent="UI" unique_id=2114928843]
+[node name="EndTurnPanel" type="Panel" parent="UI"]
 anchor_left = 1.0
 anchor_right = 1.0
 anchor_top = 0.5
 anchor_bottom = 0.5
-offset_left = -180.0
-offset_top = -35.0
+offset_left = -185.0
+offset_top = -120.0
 offset_right = -10.0
-offset_bottom = 35.0
+offset_bottom = 16.0
 grow_horizontal = 0
 grow_vertical = 2
-text = "End Turn"
+
+[node name="ETHeader" type="Label" parent="UI/EndTurnPanel"]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 171.0
+offset_bottom = 19.0
+horizontal_alignment = 1
+text = "END TURN"
+theme_override_colors/font_color = Color(0.45, 0.45, 0.58, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="ETSubLabel" type="Label" parent="UI/EndTurnPanel"]
+offset_left = 4.0
+offset_top = 21.0
+offset_right = 171.0
+offset_bottom = 35.0
+horizontal_alignment = 1
+text = "Choose resource growth:"
+theme_override_colors/font_color = Color(0.58, 0.58, 0.68, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="EndTurnEssenceButton" type="Button" parent="UI/EndTurnPanel"]
+offset_left = 6.0
+offset_top = 38.0
+offset_right = 169.0
+offset_bottom = 76.0
+text = "+1 Essence"
+theme_override_colors/font_color = Color(0.80, 0.50, 1.0, 1)
+theme_override_font_sizes/font_size = 16
+
+[node name="EndTurnManaButton" type="Button" parent="UI/EndTurnPanel"]
+offset_left = 6.0
+offset_top = 82.0
+offset_right = 169.0
+offset_bottom = 120.0
+text = "+1 Mana"
+theme_override_colors/font_color = Color(0.30, 0.65, 1.0, 1)
+theme_override_font_sizes/font_size = 16
 
 [node name="HandDisplay" parent="UI" instance=ExtResource("4_handdisplay")]
 anchor_left = 0.5
@@ -157,27 +304,216 @@ grow_horizontal = 2
 text = "Attack Enemy Hero"
 visible = false
 
-[node name="TrapZoneLabel" type="Label" parent="UI"]
-anchor_left = 0.0
-offset_left = 20.0
-offset_top = 290.0
-offset_right = 270.0
-offset_bottom = 460.0
+[node name="CombatLogPanel" type="Panel" parent="UI"]
+offset_left = 12.0
+offset_top = 80.0
+offset_right = 462.0
+offset_bottom = 282.0
+
+[node name="LogHeader" type="Label" parent="UI/CombatLogPanel"]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 446.0
+offset_bottom = 20.0
+text = "COMBAT LOG"
+theme_override_colors/font_color = Color(0.40, 0.40, 0.52, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="LogScroll" type="ScrollContainer" parent="UI/CombatLogPanel"]
+offset_left = 4.0
+offset_top = 22.0
+offset_right = 446.0
+offset_bottom = 196.0
+
+[node name="LogContainer" type="VBoxContainer" parent="UI/CombatLogPanel/LogScroll"]
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(420, 0)
+
+[node name="EnvironmentSlot" type="Panel" parent="UI"]
+offset_left = 12.0
+offset_top = 285.0
+offset_right = 178.0
+offset_bottom = 475.0
+
+[node name="HeaderLabel" type="Label" parent="UI/EnvironmentSlot"]
+offset_left = 5.0
+offset_top = 5.0
+offset_right = 161.0
+offset_bottom = 23.0
+horizontal_alignment = 1
+text = "ENVIRONMENT"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="SlotNameLabel" type="Label" parent="UI/EnvironmentSlot"]
+offset_left = 5.0
+offset_top = 27.0
+offset_right = 161.0
+offset_bottom = 57.0
+horizontal_alignment = 1
+text = "No Environment"
+theme_override_colors/font_color = Color(0.70, 0.70, 0.75, 1)
+theme_override_font_sizes/font_size = 14
+
+[node name="SlotDescLabel" type="Label" parent="UI/EnvironmentSlot"]
+offset_left = 5.0
+offset_top = 62.0
+offset_right = 161.0
+offset_bottom = 185.0
 autowrap_mode = 3
 text = ""
+theme_override_colors/font_color = Color(0.60, 0.75, 0.62, 1)
+theme_override_font_sizes/font_size = 11
 
-[node name="HeroPowerButton" type="Button" parent="UI"]
+[node name="DeckSlot" type="Panel" parent="UI"]
+offset_left = 12.0
+offset_top = 482.0
+offset_right = 178.0
+offset_bottom = 548.0
+
+[node name="DeckHeaderLabel" type="Label" parent="UI/DeckSlot"]
+offset_left = 5.0
+offset_top = 5.0
+offset_right = 161.0
+offset_bottom = 25.0
+horizontal_alignment = 1
+text = "DECK"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="DeckCountLabel" type="Label" parent="UI/DeckSlot"]
+offset_left = 5.0
+offset_top = 28.0
+offset_right = 161.0
+offset_bottom = 60.0
+horizontal_alignment = 1
+text = "15 cards"
+theme_override_colors/font_color = Color(0.75, 0.75, 0.85, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="TrapSlotsRow" type="HBoxContainer" parent="UI"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -475.0
+offset_top = 678.0
+offset_right = 475.0
+offset_bottom = 778.0
+grow_horizontal = 2
+alignment = 1
+
+[node name="TrapSlot0" type="Panel" parent="UI/TrapSlotsRow"]
+custom_minimum_size = Vector2(180, 96)
+layout_mode = 2
+
+[node name="SlotLabel" type="Label" parent="UI/TrapSlotsRow/TrapSlot0"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "[ — ]"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="TrapSlot1" type="Panel" parent="UI/TrapSlotsRow"]
+custom_minimum_size = Vector2(180, 96)
+layout_mode = 2
+
+[node name="SlotLabel" type="Label" parent="UI/TrapSlotsRow/TrapSlot1"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "[ — ]"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="TrapSlot2" type="Panel" parent="UI/TrapSlotsRow"]
+custom_minimum_size = Vector2(180, 96)
+layout_mode = 2
+
+[node name="SlotLabel" type="Label" parent="UI/TrapSlotsRow/TrapSlot2"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "[ — ]"
+theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="HeroPowerPanel" type="Panel" parent="UI"]
 anchor_left = 1.0
 anchor_right = 1.0
 anchor_top = 0.5
 anchor_bottom = 0.5
-offset_left = -180.0
-offset_top = 50.0
+offset_left = -185.0
+offset_top = 48.0
 offset_right = -10.0
-offset_bottom = 120.0
+offset_bottom = 182.0
 grow_horizontal = 0
 grow_vertical = 2
-text = "Hero Power\n(2 Mana): Summon Spirit"
+
+[node name="HPHeader" type="Label" parent="UI/HeroPowerPanel"]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 171.0
+offset_bottom = 18.0
+horizontal_alignment = 1
+text = "HERO POWER"
+theme_override_colors/font_color = Color(0.45, 0.45, 0.58, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="HPNameLabel" type="Label" parent="UI/HeroPowerPanel"]
+offset_left = 4.0
+offset_top = 20.0
+offset_right = 171.0
+offset_bottom = 40.0
+horizontal_alignment = 1
+text = "Summon Spirit"
+theme_override_colors/font_color = Color(0.80, 0.60, 1.0, 1)
+theme_override_font_sizes/font_size = 15
+
+[node name="HPDescLabel" type="Label" parent="UI/HeroPowerPanel"]
+offset_left = 4.0
+offset_top = 42.0
+offset_right = 171.0
+offset_bottom = 86.0
+horizontal_alignment = 1
+autowrap_mode = 3
+text = "Summon a 1/2 Wandering Spirit."
+theme_override_colors/font_color = Color(0.70, 0.70, 0.80, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="HPUseButton" type="Button" parent="UI/HeroPowerPanel"]
+offset_left = 8.0
+offset_top = 90.0
+offset_right = 167.0
+offset_bottom = 124.0
+text = "Use  (2M)"
+theme_override_font_sizes/font_size = 14
+
+[node name="HPUsedLabel" type="Label" parent="UI/HeroPowerPanel"]
+offset_left = 4.0
+offset_top = 90.0
+offset_right = 171.0
+offset_bottom = 124.0
+horizontal_alignment = 1
+vertical_alignment = 1
+visible = false
+text = "✓ Used this turn"
+theme_override_colors/font_color = Color(0.40, 0.80, 0.45, 1)
+theme_override_font_sizes/font_size = 13
 
 [node name="GameOverPanel" type="Panel" parent="UI"]
 anchor_left = 0.0

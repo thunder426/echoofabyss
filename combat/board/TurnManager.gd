@@ -51,7 +51,7 @@ var player_board: Array[MinionInstance] = []
 var enemy_board: Array[MinionInstance] = []
 
 # Max hand size
-const HAND_SIZE_MAX: int = 8
+const HAND_SIZE_MAX: int = 10
 
 # ---------------------------------------------------------------------------
 # Combat start
@@ -63,8 +63,8 @@ func start_combat(deck: Array[CardData]) -> void:
 	player_deck.shuffle()
 	player_hand.clear()
 	turn_number = 0
-	essence_max = 0
-	mana_max = 0
+	essence_max = 1
+	mana_max = 1
 	# Draw opening hand (3 cards)
 	for i in 3:
 		_draw_card()
@@ -77,7 +77,6 @@ func start_combat(deck: Array[CardData]) -> void:
 func begin_player_turn() -> void:
 	is_player_turn = true
 	turn_number += 1
-	_grow_resources()
 	_refill_resources()
 	_draw_card()
 	_unexhaust_minions(player_board)
@@ -106,13 +105,42 @@ func end_enemy_turn() -> void:
 # Resource management
 # ---------------------------------------------------------------------------
 
-func _grow_resources() -> void:
-	essence_max = mini(essence_max + 1, ESSENCE_MAX_CAP)
-	mana_max = mini(mana_max + 1, MANA_MAX_CAP)
-
 func _refill_resources() -> void:
 	essence = essence_max
 	mana = mana_max
+
+## Grow Essence maximum by 1 (called by CombatScene when player clicks End Turn + Essence)
+func grow_essence_max() -> void:
+	essence_max = mini(essence_max + 1, ESSENCE_MAX_CAP)
+
+## Grow Mana maximum by 1 (called by CombatScene when player clicks End Turn + Mana)
+func grow_mana_max() -> void:
+	mana_max = mini(mana_max + 1, MANA_MAX_CAP)
+
+## True if the player can afford a card with these dual costs
+func can_afford(e: int, m: int) -> bool:
+	return essence >= e and mana >= m
+
+## Convert all current Essence into Mana (up to mana_max cap).
+## Used by the Energy Conversion neutral spell.
+func convert_essence_to_mana() -> void:
+	var amount := essence
+	essence = 0
+	mana = mini(mana + amount, mana_max)
+	resources_changed.emit(essence, essence_max, mana, mana_max)
+
+## Grant bonus Essence this turn (ignores essence_max cap since it's temporary).
+## Used by Essence Surge; resets naturally when the turn ends and _refill_resources() runs.
+func gain_essence(amount: int) -> void:
+	essence += amount
+	resources_changed.emit(essence, essence_max, mana, mana_max)
+
+## Convert all current Mana into Essence (up to essence_max cap)
+func convert_mana_to_essence() -> void:
+	var amount := mana
+	mana = 0
+	essence = mini(essence + amount, essence_max)
+	resources_changed.emit(essence, essence_max, mana, mana_max)
 
 ## Attempt to spend Abyss Essence. Returns false if not enough.
 func spend_essence(amount: int) -> bool:
@@ -133,6 +161,22 @@ func spend_mana(amount: int) -> bool:
 # ---------------------------------------------------------------------------
 # Card draw
 # ---------------------------------------------------------------------------
+
+## Remove a card from the tracked hand (call whenever a card is played).
+func remove_from_hand(card: CardData) -> void:
+	player_hand.erase(card)
+
+## Public wrapper — lets CombatScene draw an extra card (e.g. Ancient Tome relic).
+func draw_card() -> void:
+	_draw_card()
+
+## Add a specific card directly to the player's hand (e.g. Abyssal Arcanist, Void Archmagus).
+## Burns silently if the hand is already full.
+func add_to_hand(card: CardData) -> void:
+	if player_hand.size() >= HAND_SIZE_MAX:
+		return
+	player_hand.append(card)
+	card_drawn.emit(card)
 
 func _draw_card() -> void:
 	if player_deck.is_empty():
@@ -156,4 +200,4 @@ func _unexhaust_minions(board: Array[MinionInstance]) -> void:
 
 func _clear_temp_buffs(board: Array[MinionInstance]) -> void:
 	for minion in board:
-		minion.temp_atk_bonus = 0
+		BuffSystem.expire_temp(minion)

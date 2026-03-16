@@ -49,18 +49,30 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 # Damage application
 # ---------------------------------------------------------------------------
 
-## Reduce a minion's HP. Emit minion_vanished if HP reaches 0.
+## Reduce a minion's HP, shield absorbs first. Emit minion_vanished if HP reaches 0.
 func _deal_damage(minion: MinionInstance, damage: int) -> void:
 	if damage <= 0:
 		return
-	minion.current_health -= damage
-	if minion.current_health <= 0:
-		minion.current_health = 0
-		minion_vanished.emit(minion)
+	# Shield absorbs damage before HP
+	if minion.current_shield > 0:
+		var absorbed := mini(damage, minion.current_shield)
+		minion.current_shield -= absorbed
+		damage -= absorbed
+	if damage > 0:
+		minion.current_health -= damage
+		if minion.current_health <= 0:
+			minion.current_health = 0
+			minion_vanished.emit(minion)
 
 ## Apply spell damage to a minion (same flow as combat damage).
 func apply_spell_damage(minion: MinionInstance, damage: int) -> void:
 	_deal_damage(minion, damage)
+
+## Instantly kill a minion, bypassing shield and health checks.
+## Fires minion_vanished so On Death effects and board cleanup happen normally.
+func kill_minion(minion: MinionInstance) -> void:
+	minion.current_health = 0
+	minion_vanished.emit(minion)
 
 # ---------------------------------------------------------------------------
 # Board helpers

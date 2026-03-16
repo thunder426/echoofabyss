@@ -47,6 +47,7 @@ func add_card(card_data: CardData) -> void:
 	var visual: CardVisual = card_visual_scene.instantiate()
 	add_child(visual)
 	visual.setup(card_data)
+	visual.apply_talent_overlay()
 	visual.card_clicked.connect(_on_card_clicked)
 	_card_visuals.append(visual)
 
@@ -66,19 +67,20 @@ func deselect_current() -> void:
 		_selected_visual.deselect()
 		_selected_visual = null
 
-## Update which cards appear greyed out based on available resources
+## Update which cards appear greyed out based on available resources.
+## Accounts for piercing_void talent adding +1 Mana to Void Imps.
 func refresh_playability(essence: int, mana: int) -> void:
+	var piercing_void_active := GameManager.has_talent("piercing_void")
 	for visual in _card_visuals:
 		if visual.card_data == null:
 			continue
 		var affordable: bool
-		match visual.card_data.cost_type:
-			Enums.CostType.ESSENCE:
-				affordable = essence >= visual.card_data.cost
-			Enums.CostType.MANA:
-				affordable = mana >= visual.card_data.cost
-			_:
-				affordable = true
+		if visual.card_data is MinionCardData:
+			var md := visual.card_data as MinionCardData
+			var extra_mana := 1 if (md.id == "void_imp" and piercing_void_active) else 0
+			affordable = essence >= md.essence_cost and mana >= (md.mana_cost + extra_mana)
+		else:
+			affordable = mana >= visual.card_data.cost
 		visual.set_playable(affordable)
 
 # ---------------------------------------------------------------------------

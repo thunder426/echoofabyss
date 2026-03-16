@@ -1,0 +1,78 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://map/MapScene.gd" id="1"]
+
+[node name="MapScene" type="Node2D"]
+script = ExtResource("1")
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Background" type="ColorRect" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.05, 0.05, 0.10, 1)
+
+[node name="TitleLabel" type="Label" parent="UI"]
+offset_left = 0.0
+offset_top = 20.0
+offset_right = 1920.0
+offset_bottom = 65.0
+horizontal_alignment = 1
+text = "Echo of Abyss — Run Map"
+theme_override_colors/font_color = Color(0.75, 0.35, 1.0, 1)
+theme_override_font_sizes/font_size = 36
+
+[node name="ActsContainer" type="HBoxContainer" parent="UI"]
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = -615.0
+offset_top = -340.0
+offset_right = 615.0
+offset_bottom = 340.0
+grow_horizontal = 2
+grow_vertical = 2
+alignment = 1
+add_theme_constant_override = {"separation": 32}
+
+[node name="DeckInfoLabel" type="Label" parent="UI"]
+anchor_left = 0.0
+anchor_right = 0.0
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 30.0
+offset_top = -60.0
+offset_right = 500.0
+offset_bottom = -30.0
+text = "Deck: 0 cards"
+theme_override_colors/font_color = Color(0.60, 0.60, 0.70, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="RelicsLabel" type="Label" parent="UI"]
+anchor_left = 0.0
+anchor_right = 0.0
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 30.0
+offset_top = -28.0
+offset_right = 900.0
+offset_bottom = -4.0
+text = "Relics: none"
+theme_override_colors/font_color = Color(0.85, 0.70, 0.20, 1)
+theme_override_font_sizes/font_size = 16
+
+[node name="ViewDeckButton" type="Button" parent="UI"]
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = -260.0
+offset_top = -58.0
+offset_right = -20.0
+offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 0
+text = "View Deck"
+theme_override_font_sizes/font_size = 20

@@ -27,3 +27,6 @@ extends Resource
 
 ## If true this card can be offered as a permanent unlock after a final boss kill
 @export var can_unlock: bool = false
+
+## Faction this card belongs to. "neutral" or "abyss_order" (more factions added later)
+@export var faction: String = "neutral"

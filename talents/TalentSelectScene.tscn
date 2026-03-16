@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://talent_select"]
+
+[ext_resource type="Script" path="res://talents/TalentSelectScene.gd" id="1_talsel"]
+
+[node name="TalentSelectScene" type="Node"]
+script = ExtResource("1_talsel")

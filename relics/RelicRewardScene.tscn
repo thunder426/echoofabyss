@@ -1,0 +1,58 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://relics/RelicRewardScene.gd" id="1"]
+
+[node name="RelicRewardScene" type="Node2D"]
+script = ExtResource("1")
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Background" type="ColorRect" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.04, 0.04, 0.10, 1)
+
+[node name="TitleLabel" type="Label" parent="UI"]
+offset_left = 0.0
+offset_top = 30.0
+offset_right = 1920.0
+offset_bottom = 90.0
+horizontal_alignment = 1
+text = "Choose a Relic"
+theme_override_colors/font_color = Color(0.75, 0.35, 1.0, 1)
+theme_override_font_sizes/font_size = 48
+
+[node name="ActLabel" type="Label" parent="UI"]
+offset_left = 0.0
+offset_top = 95.0
+offset_right = 1920.0
+offset_bottom = 135.0
+horizontal_alignment = 1
+text = "Act 1 Complete!"
+theme_override_colors/font_color = Color(0.70, 0.70, 0.80, 1)
+theme_override_font_sizes/font_size = 24
+
+[node name="SubLabel" type="Label" parent="UI"]
+offset_left = 0.0
+offset_top = 145.0
+offset_right = 1920.0
+offset_bottom = 185.0
+horizontal_alignment = 1
+text = "Pick one — it will stay with you for the rest of this run."
+theme_override_colors/font_color = Color(0.55, 0.55, 0.65, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="RelicContainer" type="HBoxContainer" parent="UI"]
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = -610.0
+offset_top = -130.0
+offset_right = 610.0
+offset_bottom = 130.0
+grow_horizontal = 2
+grow_vertical = 2
+alignment = 1
+add_theme_constant_override = {"separation": 40}
