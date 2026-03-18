@@ -1,0 +1,196 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://cards/scenes/CardDisplay.gd" id="1"]
+[ext_resource type="FontFile" path="res://assets/fonts/cinzel/Cinzel-Bold.ttf" id="2"]
+
+[node name="CardDisplay" type="Control"]
+custom_minimum_size = Vector2(260, 364)
+size = Vector2(260, 364)
+script = ExtResource("1")
+
+[node name="FrameBorder" type="ColorRect" parent="."]
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 260.0
+offset_bottom = 364.0
+color = Color(0.65, 0.30, 1.0, 1.0)
+
+[node name="FrameBg" type="ColorRect" parent="."]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 256.0
+offset_bottom = 360.0
+color = Color(0.28, 0.12, 0.48, 1.0)
+
+[node name="ArtArea" type="TextureRect" parent="."]
+offset_left = 61.0
+offset_top = 57.0
+offset_right = 199.0
+offset_bottom = 228.0
+stretch_mode = 6
+
+[node name="ArtPlaceholder" type="Label" parent="ArtArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Art TBD"
+theme_override_colors/font_color = Color(0.5, 0.5, 0.5, 0.7)
+theme_override_font_sizes/font_size = 11
+
+[node name="FrameTexture" type="TextureRect" parent="."]
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 260.0
+offset_bottom = 364.0
+expand_mode = 1
+stretch_mode = 0
+
+[node name="NameBanner" type="ColorRect" parent="."]
+offset_left = 16.0
+offset_top = 13.0
+offset_right = 244.0
+offset_bottom = 57.0
+color = Color(0.18, 0.14, 0.32, 0.92)
+
+[node name="NameLabel" type="Label" parent="NameBanner"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_right = -4.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Card Name"
+theme_override_fonts/font = ExtResource("2")
+theme_override_colors/font_color = Color(1.0, 1.0, 1.0, 1.0)
+theme_override_colors/font_outline_color = Color(0.0, 0.0, 0.0, 1.0)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 15
+
+[node name="TypeLabel" type="Label" parent="."]
+offset_left = 16.0
+offset_top = 230.0
+offset_right = 244.0
+offset_bottom = 246.0
+horizontal_alignment = 1
+text = "Minion · Demon"
+theme_override_colors/font_color = Color(0.72, 0.62, 0.90, 1.0)
+theme_override_font_sizes/font_size = 11
+
+[node name="FactionLabel" type="Label" parent="."]
+offset_left = 16.0
+offset_top = 247.0
+offset_right = 244.0
+offset_bottom = 261.0
+horizontal_alignment = 1
+text = "⬡ Abyss Order"
+theme_override_colors/font_color = Color(0.60, 0.40, 0.85, 1.0)
+theme_override_font_sizes/font_size = 11
+
+[node name="StatsBar" type="HBoxContainer" parent="."]
+offset_left = 16.0
+offset_top = 261.0
+offset_right = 244.0
+offset_bottom = 283.0
+alignment = 1
+
+[node name="AtkLabel" type="Label" parent="StatsBar"]
+size_flags_horizontal = 3
+text = "⚔ 1.0"
+theme_override_colors/font_color = Color(1.0, 0.80, 0.30, 1.0)
+theme_override_font_sizes/font_size = 13
+
+[node name="Sep" type="Label" parent="StatsBar"]
+text = "  "
+theme_override_font_sizes/font_size = 13
+
+[node name="HpLabel" type="Label" parent="StatsBar"]
+size_flags_horizontal = 3
+text = "♥ 1.0"
+theme_override_colors/font_color = Color(0.95, 0.35, 0.35, 1.0)
+theme_override_font_sizes/font_size = 13
+
+[node name="ShieldLabel" type="Label" parent="StatsBar"]
+size_flags_horizontal = 3
+visible = false
+text = "🛡 0"
+theme_override_colors/font_color = Color(0.50, 0.80, 1.0, 1.0)
+theme_override_font_sizes/font_size = 13
+
+[node name="DescBox" type="ColorRect" parent="."]
+offset_left = 16.0
+offset_top = 283.0
+offset_right = 244.0
+offset_bottom = 335.0
+color = Color(0.08, 0.06, 0.14, 0.90)
+
+[node name="DescLabel" type="RichTextLabel" parent="DescBox"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 5.0
+offset_top = 4.0
+offset_right = -5.0
+offset_bottom = -4.0
+bbcode_enabled = true
+text = "Card description here."
+theme_override_fonts/normal_font = ExtResource("2")
+theme_override_font_sizes/normal_font_size = 11
+theme_override_font_sizes/bold_font_size = 11
+
+[node name="CostBadge" type="TextureRect" parent="."]
+offset_left = 10.0
+offset_top = 8.0
+offset_right = 60.0
+offset_bottom = 57.0
+expand_mode = 1
+stretch_mode = 5
+
+[node name="CostNumber" type="Label" parent="CostBadge"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "1"
+theme_override_fonts/font = ExtResource("2")
+theme_override_colors/font_color = Color(1.0, 1.0, 1.0, 1.0)
+theme_override_colors/font_outline_color = Color(0.0, 0.0, 0.0, 1.0)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 20
+
+[node name="ManaBadge" type="TextureRect" parent="."]
+offset_left = 55.0
+offset_top = 8.0
+offset_right = 104.0
+offset_bottom = 57.0
+visible = false
+expand_mode = 1
+stretch_mode = 5
+
+[node name="ManaNumber" type="Label" parent="ManaBadge"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "1"
+theme_override_fonts/font = ExtResource("2")
+theme_override_colors/font_color = Color(1.0, 1.0, 1.0, 1.0)
+theme_override_colors/font_outline_color = Color(0.0, 0.0, 0.0, 1.0)
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 20
+
+[node name="RarityGem" type="ColorRect" parent="."]
+offset_left = 237.0
+offset_top = 333.0
+offset_right = 255.0
+offset_bottom = 351.0
+color = Color(0.4, 0.4, 0.4, 1.0)

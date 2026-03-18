@@ -1,0 +1,14 @@
+# Godot cache and generated files
+.godot/
+
+# Export presets (contains paths, not source)
+export_presets.cfg
+
+# Mono/C# build artifacts (not used, but just in case)
+.mono/
+data_*/
+mono_crash.*.json
+
+# OS junk
+.DS_Store
+Thumbs.db

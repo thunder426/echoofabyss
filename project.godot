@@ -1,0 +1,41 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Echo of Abyss"
+config/version="0.1.0"
+run/main_scene="res://ui/MainMenu.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+config/run/main_scene="res://ui/MainMenu.tscn"
+
+[autoload]
+
+GameManager="*res://shared/scripts/GameManager.gd"
+UserProfile="*res://shared/scripts/UserProfile.gd"
+CardDatabase="*res://cards/data/CardDatabase.gd"
+RelicDatabase="*res://relics/RelicDatabase.gd"
+TalentDatabase="*res://talents/TalentDatabase.gd"
+HeroDatabase="*res://heroes/HeroDatabase.gd"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/stretch/mode="canvas_items"
+
+[gui]
+
+theme/custom="res://ui/theme/global_theme.tres"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

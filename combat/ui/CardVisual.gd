@@ -1,0 +1,876 @@
+## CardVisual.gd
+## The visual representation of a single card in the player's hand.
+##
+## Scene tree expected:
+##   CardVisual (Control)
+##   ├── Background (Panel)
+##   ├── ArtRect (TextureRect)
+##   ├── FrameTexture (TextureRect)
+##   ├── NameLabel (Label)
+##   ├── DescLabel (RichTextLabel)  ← keywords line 1 via BBCode, then description
+##   ├── RaceLabel (Label)
+##   ├── StatsRow (HBoxContainer)   ← only visible for minion cards
+##   │   ├── AtkLabel (Label)
+##   │   ├── HpLabel (Label)
+##   │   └── ShieldLabel (Label)    ← only visible when shield_max > 0
+##   ├── CostBadge (Control)
+##   │   └── CostLabel (Label)
+##   ├── ManaBadge (Control)
+##   │   └── ManaLabel (Label)
+##   └── FrameCostLabel / FrameManaLabel / FrameAtkLabel / FrameHpLabel
+class_name CardVisual
+extends Control
+
+# ---------------------------------------------------------------------------
+# Frame textures — keyed by [faction][card_type]; add entries for future factions
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Frame config — ALL per-frame settings live here (path, layout, fonts).
+# Add a new entry here to define a fully independent style for any frame PNG.
+# minion_frame: true → uses embedded cost/atk/hp overlay labels instead of badges.
+# ---------------------------------------------------------------------------
+# fmt: off
+
+## Maps faction → card_type → frame style key in _FRAME_CONFIG.
+const _FACTION_FRAME: Dictionary = {
+	"abyss_order": {
+		Enums.CardType.MINION:      "abyss_minion",
+		Enums.CardType.SPELL:       "abyss_spell",
+		Enums.CardType.TRAP:        "abyss_trap",
+		Enums.CardType.ENVIRONMENT: "abyss_env",
+	},
+}
+
+## Per-frame style config. Each entry is fully self-contained.
+## "tooltip" sub-dict controls the tooltip panel per faction + card type:
+##   anchor  : Vector2 — tooltip top-left offset as a fraction of card size.
+##             Vector2(1.0, 0.0) = right edge, top-aligned (default).
+##             Vector2(0.0, 1.0) = below card, left-aligned.
+##   w_scale : float — tooltip width as a fraction of card width.
+##   h_scale : float — tooltip height as a fraction of card height.
+const _FRAME_CONFIG: Dictionary = {
+	# ── Abyss Order minion frame — embedded stat panels, race tag bar ──────
+	"abyss_minion": {
+		"path":         "res://assets/art/frames/abyss_order/abyss_minion.png",
+		"minion_frame": true,
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6,
+			"h_scale":    0.6,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":     [0.08, 0.14, 0.92, 0.78],
+			"name":    [0.15, 0.10, 0.93, 0.15],
+			"race":    [0.05, 0.67, 0.95, 0.72],
+			"desc":    [0.16, 0.73, 0.85, 0.85],
+			"essence": [0.01, 0.07, 0.28, 0.19],
+			"mana":    [0.26, 0.01, 0.54, 0.19],
+			"atk":     [0.07, 0.88, 0.42, 0.93],
+			"hp":      [0.58, 0.88, 0.81, 0.93],
+		},
+		"fonts": {
+			"desc_normal": 14, "desc_bold": 15,
+			"shield": 11, "race": 15,
+			"essence": 28, "mana": 18, "atk": 20, "hp": 20,
+			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
+		},
+	},
+	# ── Abyss Order spell frame ─────────────────────────────────────────────
+	"abyss_spell": {
+		"path":    "res://assets/art/frames/abyss_order/abyss_spell.png",
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6,
+			"h_scale":    0.6,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":  [0.05, 0.14, 0.95, 0.70],
+			"name": [0.15, 0.10, 0.93, 0.16],
+			"desc": [0.16, 0.73, 0.85, 0.85],
+			"mana": [0.08, 0.06, 0.20, 0.20],
+		},
+		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
+	},
+	# ── Abyss Order trap frame ──────────────────────────────────────────────
+	"abyss_trap": {
+		"path":    "res://assets/art/frames/abyss_order/abyss_trap.png",
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6,
+			"h_scale":    0.6,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":  [0.05, 0.14, 0.95, 0.78],
+			"name": [0.15, 0.10, 0.93, 0.16],
+			"desc": [0.16, 0.79, 0.85, 0.90],
+			"mana": [0.06, 0.05, 0.20, 0.20],
+		},
+		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
+	},
+	# ── Abyss Order environment frame ───────────────────────────────────────
+	"abyss_env": {
+		"path":    "res://assets/art/frames/abyss_order/abyss_environment.png",
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6,
+			"h_scale":    0.6,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":  [0.08, 0.14, 0.92, 0.72],
+			"name": [0.20, 0.095, 0.97, 0.16],
+			"desc": [0.16, 0.71, 0.88, 0.90],
+			"mana": [0.06, 0.01, 0.25, 0.16],
+		},
+		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 22], [14, 20], [18, 18], [999, 16]] },
+	},
+	# ── Default — no frame PNG, uses drawn badge + Background panel ─────────
+	"default": {
+		"path":    "",
+		"tooltip": {
+			"anchor":     Vector2(1.0, 0.0),
+			"w_scale":    0.62,
+			"h_scale":    1.0,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.05, 0.03, 0.95, 0.22],
+			"body_rect":  [0.05, 0.24, 0.95, 0.97],
+		},
+		"layout": {
+			"art":     [0.08, 0.14, 0.92, 0.62],
+			"name":    [0.20, 0.03, 0.97, 0.16],
+			"race":    [0.05, 0.57, 0.95, 0.64],
+			"desc":    [0.06, 0.62, 0.94, 0.88],
+			"stats":   [0.06, 0.88, 0.94, 0.97],
+			"essence": [0.01, 0.01, 0.25, 0.19],
+			"mana":    [0.23, 0.01, 0.47, 0.19],
+		},
+		"fonts": {
+			"desc_normal": 14, "desc_bold": 15,
+			"shield": 11, "race": 15,
+			"essence": 25, "mana": 15, "atk": 11, "hp": 11,
+			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
+		},
+	},
+}
+# fmt: on
+
+# ---------------------------------------------------------------------------
+# Signals
+# ---------------------------------------------------------------------------
+
+signal card_clicked(card_visual: CardVisual)
+signal card_hovered(card_visual: CardVisual)
+signal card_unhovered(card_visual: CardVisual)
+
+# ---------------------------------------------------------------------------
+# Node references — found automatically in _ready()
+# ---------------------------------------------------------------------------
+
+var background:    Panel
+var art_rect:      TextureRect
+var video_art:     VideoStreamPlayer
+var frame_texture: TextureRect
+var cost_badge:    CostBadge
+var mana_badge:    CostBadge
+var cost_label:    Label
+var mana_label:    Label
+var name_label:    Label
+var desc_label:    RichTextLabel
+var stats_row:     Control
+var atk_label:     Label
+var hp_label:      Label
+var shield_label:  Label
+var race_label:    Label
+# Frame-embedded stat overlays — visible only for faction minion frames
+var frame_cost_label: Label
+var frame_mana_label: Label
+var frame_atk_label:  Label
+var frame_hp_label:   Label
+
+## Active frame style key — resolved from _FACTION_FRAME during setup().
+var _frame_style: String = "default"
+
+# ---------------------------------------------------------------------------
+# Card state
+# ---------------------------------------------------------------------------
+
+var card_data: CardData = null
+var is_selected: bool = false
+var is_playable: bool = true
+
+# Scale constants — hover/select uses scale so HBoxContainer layout is unaffected
+const SCALE_NORMAL   := Vector2(1.0, 1.0)
+const SCALE_HOVER    := Vector2(1.12, 1.12)
+const SCALE_SELECTED := Vector2(1.18, 1.18)
+
+# ---------------------------------------------------------------------------
+# Size modes — card dimensions and font_scale per display context.
+# Call apply_size_mode("hand") etc. before setup() on any CardVisual instance.
+# font_scale multiplies every font size from the active frame config's "fonts" dict,
+# including "name_tiers". Tooltip proportions are set per frame style above.
+# ---------------------------------------------------------------------------
+# fmt: off
+
+const _SIZE_CONFIG: Dictionary = {
+	## Default full-size card (200×300) — baseline font sizes
+	"default":        { "card_size": Vector2(200, 300), "font_scale": 0.42 },
+	## Hand cards in combat — smaller so more fit in hand
+	"hand":           { "card_size": Vector2(160, 240), "font_scale": 0.33 },
+	## Hover preview shown in bottom-left during combat
+	"combat_preview": { "card_size": Vector2(336, 504), "font_scale": 0.7  },
+	## Large preview in deck builder — the largest display
+	"deck_preview":   { "card_size": Vector2(480, 720), "font_scale": 1.0  },
+}
+# fmt: on
+
+var font_scale: float = 1.0
+var size_mode:  String = "default"
+
+# ---------------------------------------------------------------------------
+# Godot lifecycle
+# ---------------------------------------------------------------------------
+
+func _ready() -> void:
+	_find_nodes()
+	mouse_entered.connect(_on_mouse_entered)
+	mouse_exited.connect(_on_mouse_exited)
+	gui_input.connect(_on_gui_input)
+
+func _find_nodes() -> void:
+	background        = $Background               if has_node("Background")               else null
+	art_rect          = $ArtRect                  if has_node("ArtRect")                  else null
+	video_art         = $VideoArt as VideoStreamPlayer if has_node("VideoArt")            else null
+	frame_texture     = $FrameTexture             if has_node("FrameTexture")             else null
+	cost_badge        = $CostBadge as CostBadge  if has_node("CostBadge")               else null
+	mana_badge        = $ManaBadge as CostBadge  if has_node("ManaBadge")               else null
+	cost_label        = $CostBadge/CostLabel     if has_node("CostBadge/CostLabel")     else null
+	mana_label        = $ManaBadge/ManaLabel     if has_node("ManaBadge/ManaLabel")     else null
+	name_label        = $NameLabel                if has_node("NameLabel")                else null
+	desc_label        = $DescLabel as RichTextLabel if has_node("DescLabel")               else null
+	stats_row         = $StatsRow                 if has_node("StatsRow")                 else null
+	atk_label         = $StatsRow/AtkLabel        if has_node("StatsRow/AtkLabel")        else null
+	hp_label          = $StatsRow/HpLabel         if has_node("StatsRow/HpLabel")         else null
+	shield_label      = $StatsRow/ShieldLabel     if has_node("StatsRow/ShieldLabel")     else null
+	race_label        = $RaceLabel                if has_node("RaceLabel")                else null
+	frame_cost_label  = $FrameCostLabel           if has_node("FrameCostLabel")           else null
+	frame_mana_label  = $FrameManaLabel           if has_node("FrameManaLabel")           else null
+	frame_atk_label   = $FrameAtkLabel            if has_node("FrameAtkLabel")            else null
+	frame_hp_label    = $FrameHpLabel             if has_node("FrameHpLabel")             else null
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+
+func setup(data: CardData) -> void:
+	if data == null:
+		push_error("CardVisual.setup() called with null data")
+		return
+	card_data = data
+
+	# Reset frame overlay labels so reused nodes don't bleed minion state onto spells
+	if frame_cost_label: frame_cost_label.visible = false
+	if frame_mana_label: frame_mana_label.visible = false
+	if frame_atk_label:  frame_atk_label.visible  = false
+	if frame_hp_label:   frame_hp_label.visible   = false
+	if cost_badge:       cost_badge.visible        = true
+	if mana_badge:       mana_badge.visible        = false
+
+	var faction: String = data.faction if data.faction != "" else "neutral"
+	var style_key: String = _FACTION_FRAME.get(faction, {}).get(data.card_type, "default")
+	_apply_frame_config(style_key, data.card_type)
+
+	var is_minion := data.card_type == Enums.CardType.MINION
+	if is_minion:
+		var md := data as MinionCardData
+		if race_label:
+			var type_str := _minion_type_string(md.minion_type)
+			race_label.text    = type_str
+			race_label.visible = type_str != ""
+	else:
+		if race_label: race_label.visible = false
+
+	if name_label:
+		name_label.text = data.card_name
+		_fit_name_font_size(data.card_name)
+		var is_champion := data is MinionCardData and Enums.Keyword.CHAMPION in (data as MinionCardData).keywords
+		name_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.2, 1.0) if is_champion else Color(1.0, 1.0, 1.0, 1.0))
+	if desc_label:
+		var kw_str := ""
+		if data is MinionCardData:
+			kw_str = _keywords_string((data as MinionCardData).keywords)
+		desc_label.text = _build_desc_bbcode(kw_str, data.description)
+		# Shrink font after layout so content fits without scrolling
+		call_deferred("_fit_desc_font_size")
+
+	var _is_minion_frame: bool = _FRAME_CONFIG.get(_frame_style, {}).get("minion_frame", false)
+	if is_minion:
+		var md := data as MinionCardData
+		if _is_minion_frame:
+			# Frame has embedded badge + stat panels — use overlay labels only
+			if stats_row:  stats_row.visible  = false
+			if cost_badge: cost_badge.visible  = false
+			if mana_badge: mana_badge.visible  = false
+			if frame_atk_label:
+				frame_atk_label.visible = true
+				frame_atk_label.text    = str(md.atk)
+			if frame_hp_label:
+				frame_hp_label.visible = true
+				frame_hp_label.text    = str(md.health)
+			if frame_cost_label:
+				frame_cost_label.visible = true
+				frame_cost_label.text    = str(md.essence_cost)
+			if frame_mana_label:
+				if md.mana_cost > 0:
+					frame_mana_label.visible = true
+					frame_mana_label.text    = str(md.mana_cost)
+				else:
+					frame_mana_label.visible = false
+		else:
+			# Fallback: drawn badge + StatsRow
+			if stats_row: stats_row.visible = true
+			_setup_cost_badge(data)
+			if atk_label:  atk_label.text  = str(md.atk)
+			if hp_label:   hp_label.text   = str(md.health)
+			if shield_label:
+				if md.shield_max > 0:
+					shield_label.text    = "S:%d" % md.shield_max
+					shield_label.visible = true
+				else:
+					shield_label.visible = false
+	else:
+		if stats_row: stats_row.visible = false
+		if _frame_style != "default":
+			# Frame PNG has its own cost art — use a plain label overlay, no drawn badge
+			if cost_badge: cost_badge.visible = false
+			if frame_cost_label:
+				frame_cost_label.visible = true
+				frame_cost_label.text    = str(data.cost)
+		else:
+			_setup_cost_badge(data)
+
+	if data.art_video_path != "" and ResourceLoader.exists(data.art_video_path):
+		var stream := load(data.art_video_path) as VideoStream
+		if stream and video_art:
+			video_art.stream  = stream
+			video_art.visible = true
+			video_art.play()
+			if art_rect: art_rect.visible = false
+	elif art_rect and data.art_path != "":
+		if video_art: video_art.visible = false
+		var tex := load(data.art_path) as Texture2D
+		if tex:
+			art_rect.texture = tex
+			art_rect.visible = true
+
+	_apply_font_scale()
+	_refresh_playable_state()
+
+# ---------------------------------------------------------------------------
+# Frame config apply — resolves texture, layout, and _frame_style in one call
+# ---------------------------------------------------------------------------
+
+func _apply_frame_config(style_key: String, card_type: Enums.CardType) -> void:
+	var cfg: Dictionary = _FRAME_CONFIG.get(style_key, _FRAME_CONFIG["default"])
+	var path: String = cfg.get("path", "")
+
+	if path != "" and ResourceLoader.exists(path):
+		_frame_style = style_key
+		if frame_texture:
+			frame_texture.texture = load(path)
+			frame_texture.visible = true
+		if background: background.visible = false
+	else:
+		_frame_style = "default"
+		if frame_texture:
+			frame_texture.texture = null
+			frame_texture.visible = false
+		if background:
+			background.visible = true
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color(0.07, 0.07, 0.14, 1)
+			sb.border_width_left = 2; sb.border_width_top = 2
+			sb.border_width_right = 2; sb.border_width_bottom = 2
+			sb.border_color = _type_border_color(card_type)
+			sb.corner_radius_top_left = 6; sb.corner_radius_top_right = 6
+			sb.corner_radius_bottom_right = 6; sb.corner_radius_bottom_left = 6
+			background.add_theme_stylebox_override("panel", sb)
+
+	var lay: Dictionary = _FRAME_CONFIG.get(_frame_style, _FRAME_CONFIG["default"])["layout"]
+	_set_anchors(art_rect,         lay.get("art"))
+	_set_anchors(video_art,        lay.get("art"))
+	_set_anchors(name_label,       lay.get("name"))
+	_set_anchors(race_label,       lay.get("race"))
+	_set_anchors(desc_label,       lay.get("desc"))
+	_set_anchors(stats_row,        lay.get("stats"))
+	# Spell frames have no "essence" key — fall back to "mana" so frame_cost_label
+	# is positioned over the frame's cost art area.
+	_set_anchors(frame_cost_label, lay.get("essence", lay.get("mana")))
+	_set_anchors(frame_mana_label, lay.get("mana"))
+	_set_anchors(frame_atk_label,  lay.get("atk"))
+	_set_anchors(frame_hp_label,   lay.get("hp"))
+	# cost_badge: use "essence" slot if available (default/minion fallback), else "mana" (spell/trap/env)
+	_set_anchors(cost_badge,       lay.get("essence", lay.get("mana")))
+	_set_anchors(mana_badge,       lay.get("mana"))
+
+func _set_anchors(node: Control, a: Variant) -> void:
+	if node == null or a == null:
+		return
+	node.anchor_left   = a[0]
+	node.anchor_top    = a[1]
+	node.anchor_right  = a[2]
+	node.anchor_bottom = a[3]
+	node.offset_left   = 0
+	node.offset_top    = 0
+	node.offset_right  = 0
+	node.offset_bottom = 0
+
+# ---------------------------------------------------------------------------
+# Talent overlay — call after setup() during combat to reflect unlocked talents
+# ---------------------------------------------------------------------------
+
+## Updates displayed stats, cost, and description based on currently unlocked talents.
+## Only meaningful during combat; DeckBuilder previews call setup() before talents exist.
+func apply_talent_overlay() -> void:
+	if card_data == null or not (card_data is MinionCardData):
+		return
+	if card_data.id != "void_imp":
+		return
+
+	var md := card_data as MinionCardData
+	var display_atk    := md.atk
+	var display_hp     := md.health
+	var display_cost_e := md.essence_cost
+	var display_cost_m := md.mana_cost
+	var talent_notes: Array[String] = []
+
+	# Hero passive "void_imp_boost" is always-on during combat — show boosted stats
+	if HeroDatabase.has_passive(GameManager.current_hero, "void_imp_boost"):
+		display_atk += 100
+		display_hp  += 100
+		var hero := HeroDatabase.get_hero(GameManager.current_hero)
+		talent_notes.append("%s: +100/+100 on summon (always)" % (hero.hero_name if hero else "Hero"))
+
+	var unlocked: Array[String] = GameManager.unlocked_talents
+
+	if "imp_empowerment" in unlocked:
+		display_atk += 50
+		talent_notes.append("Imp Empowerment: +50 ATK on summon")
+	if "lord_of_imps" in unlocked:
+		display_atk += 100
+		display_hp  += 100
+		talent_notes.append("Lord of Imps: +100/+100 on summon")
+	if "piercing_void" in unlocked:
+		display_cost_m += 1
+		talent_notes.append("Piercing Void: 200 Void Bolt then +1 Void Mark on play")
+
+	if talent_notes.is_empty():
+		return
+
+	if atk_label:       atk_label.text       = str(display_atk)
+	if hp_label:        hp_label.text        = str(display_hp)
+	if frame_atk_label: frame_atk_label.text = str(display_atk)
+	if frame_hp_label:  frame_hp_label.text  = str(display_hp)
+	# Re-run badge setup with updated costs so the badge and fallback stay in sync
+	var overlay_data := card_data as MinionCardData
+	overlay_data = overlay_data.duplicate() as MinionCardData
+	overlay_data.essence_cost = display_cost_e
+	overlay_data.mana_cost    = display_cost_m
+	_setup_cost_badge(overlay_data)
+	if desc_label:
+		var kw_str := _keywords_string(md.keywords)
+		var full_desc := md.description + "\n─\n" + "\n".join(talent_notes)
+		desc_label.text = _build_desc_bbcode(kw_str, full_desc)
+
+# ---------------------------------------------------------------------------
+# Playability
+# ---------------------------------------------------------------------------
+
+func set_playable(playable: bool) -> void:
+	is_playable = playable
+	_refresh_playable_state()
+
+func _refresh_playable_state() -> void:
+	modulate = Color(1, 1, 1, 1) if is_playable else Color(0.5, 0.5, 0.5, 1)
+
+# ---------------------------------------------------------------------------
+# Selection — uses scale so HBoxContainer layout is never broken
+# ---------------------------------------------------------------------------
+
+func select() -> void:
+	is_selected = true
+	_update_pivot()
+	scale = SCALE_SELECTED
+
+func deselect() -> void:
+	is_selected = false
+	scale = SCALE_NORMAL
+
+# ---------------------------------------------------------------------------
+# Input
+# ---------------------------------------------------------------------------
+
+func _on_mouse_entered() -> void:
+	_update_pivot()
+	if not is_selected:
+		scale = SCALE_HOVER
+	card_hovered.emit(self)
+
+func _on_mouse_exited() -> void:
+	if not is_selected:
+		scale = SCALE_NORMAL
+	card_unhovered.emit(self)
+
+func _update_pivot() -> void:
+	# Use custom_minimum_size as fallback if the layout hasn't run yet
+	var s := size if size != Vector2.ZERO else custom_minimum_size
+	pivot_offset = s / 2.0
+
+func _on_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		card_clicked.emit(self)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+func _setup_cost_badge(data: CardData) -> void:
+	if data is MinionCardData:
+		var md := data as MinionCardData
+		_apply_badge(cost_badge, cost_label, "essence", md.essence_cost)
+		if mana_badge:
+			if md.mana_cost > 0:
+				_apply_badge(mana_badge, mana_label, "mana", md.mana_cost)
+				mana_badge.visible = true
+			else:
+				mana_badge.visible = false
+	else:
+		_apply_badge(cost_badge, cost_label, "mana", data.cost)
+		if mana_badge: mana_badge.visible = false
+
+# Draws a circular gem badge via CostBadge._draw() — no PNG needed.
+func _apply_badge(badge: CostBadge, number_label: Label, prefix: String, value: int) -> void:
+	if badge == null:
+		return
+	if prefix == "essence":
+		badge.rim_color = Color(0.70, 0.28, 1.00, 1.00)
+		badge.bg_color  = Color(0.18, 0.06, 0.32, 0.95)
+	else:  # mana
+		badge.rim_color = Color(0.25, 0.60, 1.00, 1.00)
+		badge.bg_color  = Color(0.05, 0.10, 0.35, 0.95)
+	badge.queue_redraw()
+	if number_label:
+		number_label.text = str(value)
+
+## Sets card_size, font_scale, and size_mode from _SIZE_CONFIG.
+## Call before setup() so fonts and layout reflect the correct context.
+func apply_size_mode(mode: String) -> void:
+	size_mode = mode
+	var cfg: Dictionary = _SIZE_CONFIG.get(mode, _SIZE_CONFIG["default"])
+	font_scale = cfg["font_scale"]
+	custom_minimum_size = cfg["card_size"]
+	size = cfg["card_size"]
+
+## Shrink desc font size until the content fits within the label's visible height.
+## Called deferred so the label has completed layout and content_height is accurate.
+func _fit_desc_font_size() -> void:
+	if not is_instance_valid(self) or not is_instance_valid(desc_label):
+		return
+	var f: Dictionary = _FRAME_CONFIG.get(_frame_style, _FRAME_CONFIG["default"])["fonts"]
+	var base_normal: int = roundi(f["desc_normal"] * font_scale)
+	var base_bold:   int = roundi(f["desc_bold"]   * font_scale)
+	var min_size := maxi(6, roundi(base_normal * 0.6))
+	var normal_size := base_normal
+	var bold_size   := base_bold
+	while normal_size > min_size and desc_label.get_content_height() > desc_label.size.y:
+		normal_size -= 1
+		bold_size    = maxi(min_size, bold_size - 1)
+		desc_label.add_theme_font_size_override("normal_font_size", normal_size)
+		desc_label.add_theme_font_size_override("bold_font_size",   bold_size)
+
+func _fit_name_font_size(card_name: String) -> void:
+	var tiers: Array = _FRAME_CONFIG.get(_frame_style, _FRAME_CONFIG["default"])["fonts"].get(
+		"name_tiers", [[10, 25], [14, 22], [18, 20], [999, 18]])
+	var len := card_name.length()
+	var base: int = tiers[-1][1]
+	for tier in tiers:
+		if len <= tier[0]:
+			base = tier[1]
+			break
+	name_label.add_theme_font_size_override("font_size", roundi(base * font_scale))
+
+func _apply_font_scale() -> void:
+	var s := font_scale
+	var f: Dictionary = _FRAME_CONFIG.get(_frame_style, _FRAME_CONFIG["default"])["fonts"]
+	if desc_label:
+		desc_label.add_theme_font_size_override("normal_font_size", roundi(f["desc_normal"] * s))
+		desc_label.add_theme_font_size_override("bold_font_size",   roundi(f["desc_bold"]   * s))
+	if atk_label:        atk_label.add_theme_font_size_override(       "font_size", roundi(f.get("atk",     11) * s))
+	if hp_label:         hp_label.add_theme_font_size_override(        "font_size", roundi(f.get("hp",      11) * s))
+	if shield_label:     shield_label.add_theme_font_size_override(    "font_size", roundi(f.get("shield",  11) * s))
+	if race_label:       race_label.add_theme_font_size_override(      "font_size", roundi(f.get("race",    15) * s))
+	if cost_label:       cost_label.add_theme_font_size_override(      "font_size", roundi(f.get("essence", 25) * s))
+	if mana_label:       mana_label.add_theme_font_size_override(      "font_size", roundi(f.get("mana",    15) * s))
+	# frame_cost_label: spells have no "essence" key — fall back to "mana"
+	if frame_cost_label: frame_cost_label.add_theme_font_size_override("font_size", roundi(f.get("essence", f.get("mana", 25)) * s))
+	if frame_mana_label: frame_mana_label.add_theme_font_size_override("font_size", roundi(f.get("mana",    15) * s))
+	if frame_atk_label:  frame_atk_label.add_theme_font_size_override( "font_size", roundi(f.get("atk",     20) * s))
+	if frame_hp_label:   frame_hp_label.add_theme_font_size_override(  "font_size", roundi(f.get("hp",      20) * s))
+
+## Builds BBCode for the desc box: keywords on line 1 (centered, gold, bold),
+## then description below (normal). If no keywords, just plain description.
+## Special terminology that gets highlighted violet+bold in descriptions.
+const _TRIGGER_TERMS: Array[String] = [
+	"ON PLAY", "ON DEATH", "ON SUMMON", "ON ATTACK", "ON DAMAGE", "ON HEAL",
+	"ON TURN START", "ON TURN END", "ON DRAW", "ON DISCARD",
+	"PASSIVE", "AURA", "RITUAL", "RUNE",
+]
+
+func _highlight_triggers(text: String) -> String:
+	var result := text
+	for term in _TRIGGER_TERMS:
+		result = result.replace(term, "[color=#c080ff][b]" + term + "[/b][/color]")
+	return result
+
+func _build_desc_bbcode(kw_str: String, description: String) -> String:
+	var desc := _highlight_triggers(description)
+	if kw_str == "":
+		return desc
+	return "[center][color=#c080ff][b]" + kw_str + "[/b][/color][/center]\n" + desc
+
+func _keywords_string(keywords: Array) -> String:
+	if keywords.is_empty():
+		return ""
+	var parts: Array[String] = []
+	for kw in keywords:
+		match kw:
+			Enums.Keyword.GUARD:          parts.append("Guard")
+			Enums.Keyword.SWIFT:          parts.append("Swift")
+			Enums.Keyword.LIFEDRAIN:      parts.append("Lifedrain")
+			Enums.Keyword.SHIELD_REGEN_1: parts.append("Shield Regen")
+			Enums.Keyword.SHIELD_REGEN_2: parts.append("Shield Regen+")
+			Enums.Keyword.CHAMPION:       parts.append("Champion")
+	return ", ".join(parts)
+
+func _minion_type_string(minion_type: Enums.MinionType) -> String:
+	match minion_type:
+		Enums.MinionType.DEMON:     return "Demon"
+		Enums.MinionType.SPIRIT:    return "Spirit"
+		Enums.MinionType.BEAST:     return "Beast"
+		Enums.MinionType.UNDEAD:    return "Undead"
+		Enums.MinionType.HUMAN:     return "Human"
+		Enums.MinionType.CONSTRUCT: return "Construct"
+		Enums.MinionType.GIANT:     return "Giant"
+		Enums.MinionType.UNTAGGED:  return ""
+	return ""
+
+func _type_string(card_type: Enums.CardType) -> String:
+	match card_type:
+		Enums.CardType.MINION:      return "Minion"
+		Enums.CardType.SPELL:       return "Spell"
+		Enums.CardType.TRAP:        return "Trap"
+		Enums.CardType.ENVIRONMENT: return "Environment"
+	return ""
+
+func _type_border_color(card_type: Enums.CardType) -> Color:
+	match card_type:
+		Enums.CardType.MINION:      return Color(0.55, 0.15, 0.85, 1)  # purple
+		Enums.CardType.SPELL:       return Color(0.15, 0.45, 0.85, 1)  # blue
+		Enums.CardType.TRAP:        return Color(0.85, 0.45, 0.10, 1)  # orange
+		Enums.CardType.ENVIRONMENT: return Color(0.15, 0.75, 0.35, 1)  # green
+	return Color(0.5, 0.5, 0.5, 1)
+
+# ===========================================================================
+# Keyword / Ritual Tooltip Panel
+# Shown to the right of the card in large preview contexts only.
+# Call enable_tooltip() after setup() from DeckBuilderScene, CollectionScene,
+# and CombatScene (combat_preview). The panel is rebuilt each call.
+# ===========================================================================
+
+var _tooltip: Control = null
+
+## keyword enum value → [display_name, description]
+const _KEYWORD_TOOLTIP: Dictionary = {
+	Enums.Keyword.GUARD:          ["Guard",       "Must be attacked before other targets can be chosen."],
+	Enums.Keyword.SWIFT:          ["Swift",       "Can attack enemy minions on the turn played. Cannot attack the enemy hero that turn."],
+	Enums.Keyword.LIFEDRAIN:      ["Lifedrain",   "Damage dealt to the enemy hero heals your hero by the same amount."],
+	Enums.Keyword.SHIELD_REGEN_1: ["Barrier I",   "Regenerates 1 Shield at the start of your turn."],
+	Enums.Keyword.SHIELD_REGEN_2: ["Barrier II",  "Regenerates 2 Shield at the start of your turn."],
+	Enums.Keyword.CHAMPION:       ["Champion",    "A legendary unit. Can only be summoned when its board condition is met."],
+}
+
+## RuneType enum value → display name used in the ritual tooltip
+const _RUNE_TOOLTIP_NAME: Dictionary = {
+	Enums.RuneType.VOID_RUNE:     "Void Rune",
+	Enums.RuneType.BLOOD_RUNE:    "Blood Rune",
+	Enums.RuneType.DOMINION_RUNE: "Dominion Rune",
+	Enums.RuneType.SHADOW_RUNE:   "Shadow Rune",
+}
+
+## keyword enum value → icon path shown before the keyword name in the tooltip
+const _KEYWORD_ICON: Dictionary = {
+	Enums.Keyword.GUARD:          "res://assets/art/frames/abyss_order/abyss_guard.png",
+	Enums.Keyword.SWIFT:          "res://assets/art/frames/abyss_order/abyss_swift.png",
+	Enums.Keyword.LIFEDRAIN:      "res://assets/art/frames/abyss_order/abyss_lifesteal.png",
+	Enums.Keyword.SHIELD_REGEN_1: "res://assets/art/frames/abyss_order/abyss_rune.png",
+	Enums.Keyword.SHIELD_REGEN_2: "res://assets/art/frames/abyss_order/abyss_rune.png",
+	Enums.Keyword.CHAMPION:       "res://assets/art/frames/abyss_order/abyss_corruption.png",
+}
+
+## Build and show the tooltip panel to the right of this card.
+## Call after setup() in deck builder, collection, and combat large preview contexts.
+## Shows keywords (minions) and/or ritual info (environment cards).
+## Silently does nothing and removes any existing panel if the card has neither.
+func enable_tooltip() -> void:
+	if card_data == null:
+		return
+	var has_keywords := card_data is MinionCardData \
+		and (card_data as MinionCardData).keywords.size() > 0
+	var has_rituals  := card_data is EnvironmentCardData \
+		and (card_data as EnvironmentCardData).rituals.size() > 0
+	if not has_keywords and not has_rituals:
+		_remove_tooltip()
+		return
+	_build_tooltip(has_keywords, has_rituals)
+
+func _remove_tooltip() -> void:
+	if _tooltip != null and is_instance_valid(_tooltip):
+		_tooltip.queue_free()
+	_tooltip = null
+
+func _build_tooltip(has_keywords: bool, has_rituals: bool) -> void:
+	_remove_tooltip()
+	clip_contents = false  # allow the tooltip to render outside the card rect
+
+	var frame_cfg: Dictionary = _FRAME_CONFIG.get(_frame_style, _FRAME_CONFIG["default"])
+	var tip_cfg:   Dictionary = frame_cfg.get("tooltip", {})
+	var anchor:    Vector2    = tip_cfg.get("anchor", Vector2(1.0, 0.0))
+	var card_w    := maxi(roundi(custom_minimum_size.x), 1)
+	var card_h    := maxi(roundi(custom_minimum_size.y), 1)
+	var tip_w     := roundi(card_w * float(tip_cfg.get("w_scale", 0.62)))
+	var tip_h     := roundi(card_h * float(tip_cfg.get("h_scale", 1.0)))
+	var t_size    := maxi(roundi(float(tip_cfg.get("title_font", 15)) * font_scale), 7)
+	var b_size    := maxi(roundi(float(tip_cfg.get("body_font",  11)) * font_scale), 6)
+	var tr: Array  = tip_cfg.get("title_rect", [0.05, 0.03, 0.95, 0.22])
+	var br: Array  = tip_cfg.get("body_rect",  [0.05, 0.24, 0.95, 0.97])
+
+	var bold_font := FontVariation.new()
+	bold_font.variation_embolden = 1.0  # synthetic bold; increase for heavier weight
+
+	# Root container — sized and positioned relative to the card
+	_tooltip = Control.new()
+	_tooltip.position            = Vector2(roundi(card_w * anchor.x), roundi(card_h * anchor.y))
+	_tooltip.custom_minimum_size = Vector2(tip_w, tip_h)
+	_tooltip.size                = Vector2(tip_w, tip_h)
+	_tooltip.clip_contents       = true
+	add_child(_tooltip)
+
+	# Background — explicit size, no anchors, so the layout engine can't override it
+	var bg := TextureRect.new()
+	bg.texture      = load("res://assets/art/frames/abyss_order/abyss_tooltip.png")
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
+	bg.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	bg.position     = Vector2.ZERO
+	bg.size         = Vector2(tip_w, tip_h)
+	_tooltip.add_child(bg)
+
+	# Title container — independently positioned, center-aligned
+	var title_box := VBoxContainer.new()
+	title_box.position            = Vector2(tr[0] * tip_w, tr[1] * tip_h)
+	title_box.size                = Vector2((tr[2] - tr[0]) * tip_w, (tr[3] - tr[1]) * tip_h)
+	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tooltip.add_child(title_box)
+
+	# Body container — independently positioned, left-aligned
+	var body_box := VBoxContainer.new()
+	body_box.position             = Vector2(br[0] * tip_w, br[1] * tip_h)
+	body_box.size                 = Vector2((br[2] - br[0]) * tip_w, (br[3] - br[1]) * tip_h)
+	body_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tooltip.add_child(body_box)
+
+	# --- Keywords section ---
+	if has_keywords:
+		_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
+		for kw in (card_data as MinionCardData).keywords:
+			var info: Array = _KEYWORD_TOOLTIP.get(kw, [])
+			if info.is_empty():
+				continue
+			# Icon + bold name in body_box, then plain description below
+			var icon_path: String = _KEYWORD_ICON.get(kw, "")
+			_tooltip_icon_title(body_box, info[0], t_size, bold_font, Color(0.75, 0.50, 1.00, 1.0), icon_path)
+			_tooltip_body(body_box, info[1], b_size, body_box.size.x, bold_font)
+
+	# --- Rituals section ---
+	if has_rituals:
+		if not has_keywords:
+			_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
+		for ritual in (card_data as EnvironmentCardData).rituals:
+			var body_str := "Ritual - " + ritual.ritual_name + ": " + ritual.description
+			_tooltip_body(body_box, body_str, b_size, body_box.size.x, bold_font)
+
+## Icon + bold label row (left-aligned) — used for keyword names in the body container.
+func _tooltip_icon_title(parent: VBoxContainer, text: String,
+		font_size: int, bold_font: Font, color: Color, icon_path: String) -> void:
+	var hbox := HBoxContainer.new()
+	hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_theme_constant_override("separation", 4)
+
+	if icon_path != "" and ResourceLoader.exists(icon_path):
+		var icon := TextureRect.new()
+		icon.texture             = load(icon_path)
+		icon.stretch_mode        = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.expand_mode         = TextureRect.EXPAND_IGNORE_SIZE
+		icon.custom_minimum_size = Vector2(font_size, font_size)
+		icon.size                = Vector2(font_size, font_size)
+		hbox.add_child(icon)
+
+	var lbl := Label.new()
+	lbl.text                  = text
+	lbl.horizontal_alignment  = HORIZONTAL_ALIGNMENT_LEFT
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.add_theme_font_override("font", bold_font)
+	lbl.add_theme_font_size_override("font_size", font_size)
+	lbl.add_theme_color_override("font_color", color)
+	hbox.add_child(lbl)
+	parent.add_child(hbox)
+
+## Bold center-aligned label added to the title container.
+func _tooltip_title(parent: VBoxContainer, text: String,
+		font_size: int, bold_font: Font, color: Color) -> void:
+	var lbl := Label.new()
+	lbl.text                    = text
+	lbl.horizontal_alignment    = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.size_flags_horizontal   = Control.SIZE_EXPAND_FILL
+	lbl.add_theme_font_override("font", bold_font)
+	lbl.add_theme_font_size_override("font_size", font_size)
+	lbl.add_theme_color_override("font_color", color)
+	parent.add_child(lbl)
+
+## Left-aligned body label added to the body container.
+func _tooltip_body(parent: VBoxContainer, text: String,
+		font_size: int, wrap_w: float, bold_font: Font) -> void:
+	var lbl := Label.new()
+	lbl.text                    = text
+	lbl.horizontal_alignment    = HORIZONTAL_ALIGNMENT_LEFT
+	lbl.autowrap_mode           = TextServer.AUTOWRAP_WORD_SMART
+	lbl.size_flags_horizontal   = Control.SIZE_EXPAND_FILL
+	lbl.custom_minimum_size     = Vector2(wrap_w, 0)
+	lbl.add_theme_font_override("font", bold_font)
+	lbl.add_theme_font_size_override("font_size", font_size)
+	lbl.add_theme_color_override("font_color", Color(0.80, 0.80, 0.85, 1.0))
+	parent.add_child(lbl)
