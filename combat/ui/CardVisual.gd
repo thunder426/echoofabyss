@@ -95,7 +95,7 @@ const _FRAME_CONFIG: Dictionary = {
 			"art":  [0.05, 0.14, 0.95, 0.70],
 			"name": [0.15, 0.10, 0.93, 0.16],
 			"desc": [0.16, 0.73, 0.85, 0.85],
-			"mana": [0.08, 0.06, 0.20, 0.20],
+			"mana": [0.08, 0.04, 0.20, 0.20],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
@@ -114,8 +114,8 @@ const _FRAME_CONFIG: Dictionary = {
 		"layout": {
 			"art":  [0.05, 0.14, 0.95, 0.78],
 			"name": [0.15, 0.10, 0.93, 0.16],
-			"desc": [0.16, 0.79, 0.85, 0.90],
-			"mana": [0.06, 0.05, 0.20, 0.20],
+			"desc": [0.16, 0.72, 0.85, 0.90],
+			"mana": [0.06, 0.03, 0.20, 0.20],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
@@ -506,7 +506,7 @@ func set_playable(playable: bool) -> void:
 	_refresh_playable_state()
 
 func _refresh_playable_state() -> void:
-	modulate = Color(1, 1, 1, 1) if is_playable else Color(0.5, 0.5, 0.5, 1)
+	modulate = Color(1, 1, 1, 1)
 
 # ---------------------------------------------------------------------------
 # Selection — uses scale so HBoxContainer layout is never broken
@@ -638,7 +638,7 @@ func _apply_font_scale() -> void:
 const _TRIGGER_TERMS: Array[String] = [
 	"ON PLAY", "ON DEATH", "ON SUMMON", "ON ATTACK", "ON DAMAGE", "ON HEAL",
 	"ON TURN START", "ON TURN END", "ON DRAW", "ON DISCARD",
-	"PASSIVE", "AURA", "RITUAL", "RUNE",
+	"PASSIVE", "AURA", "RITUAL", "RUNE", "CORRUPTION", "CORRUPT",
 ]
 
 func _highlight_triggers(text: String) -> String:
@@ -665,6 +665,8 @@ func _keywords_string(keywords: Array) -> String:
 			Enums.Keyword.SHIELD_REGEN_1: parts.append("Shield Regen")
 			Enums.Keyword.SHIELD_REGEN_2: parts.append("Shield Regen+")
 			Enums.Keyword.CHAMPION:       parts.append("Champion")
+			Enums.Keyword.RUNE:           parts.append("Rune")
+			Enums.Keyword.CORRUPTION:     parts.append("Corruption")
 	return ", ".join(parts)
 
 func _minion_type_string(minion_type: Enums.MinionType) -> String:
@@ -712,6 +714,8 @@ const _KEYWORD_TOOLTIP: Dictionary = {
 	Enums.Keyword.SHIELD_REGEN_1: ["Barrier I",   "Regenerates 1 Shield at the start of your turn."],
 	Enums.Keyword.SHIELD_REGEN_2: ["Barrier II",  "Regenerates 2 Shield at the start of your turn."],
 	Enums.Keyword.CHAMPION:       ["Champion",    "A legendary unit. Can only be summoned when its board condition is met."],
+	Enums.Keyword.RUNE:           ["Rune",        "Placed face-up. Provides an ongoing aura effect until consumed by a Ritual."],
+	Enums.Keyword.CORRUPTION:     ["Corruption",  "Reduces the afflicted minion's ATK by 100 per stack."],
 }
 
 ## RuneType enum value → display name used in the ritual tooltip
@@ -730,30 +734,42 @@ const _KEYWORD_ICON: Dictionary = {
 	Enums.Keyword.SHIELD_REGEN_1: "res://assets/art/frames/abyss_order/abyss_rune.png",
 	Enums.Keyword.SHIELD_REGEN_2: "res://assets/art/frames/abyss_order/abyss_rune.png",
 	Enums.Keyword.CHAMPION:       "res://assets/art/frames/abyss_order/abyss_corruption.png",
+	Enums.Keyword.RUNE:           "res://assets/art/frames/abyss_order/abyss_rune.png",
+	Enums.Keyword.CORRUPTION:     "res://assets/art/frames/abyss_order/abyss_corruption.png",
 }
 
 ## Build and show the tooltip panel to the right of this card.
 ## Call after setup() in deck builder, collection, and combat large preview contexts.
-## Shows keywords (minions) and/or ritual info (environment cards).
+## Shows keywords (minions, runes, corruption cards) and/or ritual info (environments).
 ## Silently does nothing and removes any existing panel if the card has neither.
 func enable_tooltip() -> void:
 	if card_data == null:
 		return
-	var has_keywords := card_data is MinionCardData \
-		and (card_data as MinionCardData).keywords.size() > 0
-	var has_rituals  := card_data is EnvironmentCardData \
+
+	# Collect all keywords to display
+	var keywords: Array = []
+	if card_data is MinionCardData:
+		keywords.append_array((card_data as MinionCardData).keywords)
+	# Rune cards are traps with is_rune=true
+	if card_data is TrapCardData and (card_data as TrapCardData).is_rune:
+		keywords.append(Enums.Keyword.RUNE)
+	# Any card whose description mentions CORRUPTION or CORRUPT gets the Corruption keyword
+	if ("CORRUPTION" in card_data.description or "CORRUPT" in card_data.description) and not Enums.Keyword.CORRUPTION in keywords:
+		keywords.append(Enums.Keyword.CORRUPTION)
+
+	var has_rituals := card_data is EnvironmentCardData \
 		and (card_data as EnvironmentCardData).rituals.size() > 0
-	if not has_keywords and not has_rituals:
+	if keywords.is_empty() and not has_rituals:
 		_remove_tooltip()
 		return
-	_build_tooltip(has_keywords, has_rituals)
+	_build_tooltip(keywords, has_rituals)
 
 func _remove_tooltip() -> void:
 	if _tooltip != null and is_instance_valid(_tooltip):
 		_tooltip.queue_free()
 	_tooltip = null
 
-func _build_tooltip(has_keywords: bool, has_rituals: bool) -> void:
+func _build_tooltip(keywords: Array, has_rituals: bool) -> void:
 	_remove_tooltip()
 	clip_contents = false  # allow the tooltip to render outside the card rect
 
@@ -769,8 +785,7 @@ func _build_tooltip(has_keywords: bool, has_rituals: bool) -> void:
 	var tr: Array  = tip_cfg.get("title_rect", [0.05, 0.03, 0.95, 0.22])
 	var br: Array  = tip_cfg.get("body_rect",  [0.05, 0.24, 0.95, 0.97])
 
-	var bold_font := FontVariation.new()
-	bold_font.variation_embolden = 1.0  # synthetic bold; increase for heavier weight
+	var bold_font: Font = load("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
 
 	# Root container — sized and positioned relative to the card
 	_tooltip = Control.new()
@@ -804,20 +819,19 @@ func _build_tooltip(has_keywords: bool, has_rituals: bool) -> void:
 	_tooltip.add_child(body_box)
 
 	# --- Keywords section ---
-	if has_keywords:
+	if keywords.size() > 0:
 		_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
-		for kw in (card_data as MinionCardData).keywords:
+		for kw in keywords:
 			var info: Array = _KEYWORD_TOOLTIP.get(kw, [])
 			if info.is_empty():
 				continue
-			# Icon + bold name in body_box, then plain description below
 			var icon_path: String = _KEYWORD_ICON.get(kw, "")
 			_tooltip_icon_title(body_box, info[0], t_size, bold_font, Color(0.75, 0.50, 1.00, 1.0), icon_path)
 			_tooltip_body(body_box, info[1], b_size, body_box.size.x, bold_font)
 
 	# --- Rituals section ---
 	if has_rituals:
-		if not has_keywords:
+		if keywords.is_empty():
 			_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
 		for ritual in (card_data as EnvironmentCardData).rituals:
 			var body_str := "Ritual - " + ritual.ritual_name + ": " + ritual.description

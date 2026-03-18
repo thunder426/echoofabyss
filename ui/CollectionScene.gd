@@ -7,6 +7,35 @@ const CARD_VISUAL_SCENE := preload("res://combat/ui/CardVisual.tscn")
 const PREVIEW_SIZE   := Vector2(480, 720)
 const PREVIEW_OFFSET := Vector2(16, -PREVIEW_SIZE.y / 2.0)
 
+## Maps each support card ID to its named pool.
+const _CARD_POOL: Dictionary = {
+	# Void Bolt Support Pool (requires Piercing Void talent)
+	"mark_the_target":          "Void Bolt Pool",
+	"imp_combustion":           "Void Bolt Pool",
+	"dark_ritual_of_the_abyss": "Void Bolt Pool",
+	"imp_overload":             "Void Bolt Pool",
+	"void_channeler":           "Void Bolt Pool",
+	"abyssal_sacrificer":       "Void Bolt Pool",
+	"abyssal_arcanist":         "Void Bolt Pool",
+	"void_detonation":          "Void Bolt Pool",
+	"soul_rupture":             "Void Bolt Pool",
+	"void_bolt_rain":           "Void Bolt Pool",
+	"mark_convergence":         "Void Bolt Pool",
+	"mark_collapse":            "Void Bolt Pool",
+	"void_archmagus":           "Void Bolt Pool",
+	# Common Imp Support Pool (always available for Lord Vael)
+	"abyssal_conjuring":        "Imp Pool",
+	"void_breach":              "Imp Pool",
+	"abyss_recruiter":          "Imp Pool",
+	"dark_nursery":             "Imp Pool",
+	"call_the_swarm":           "Imp Pool",
+	"imp_handler":              "Imp Pool",
+	"imp_barricade":            "Imp Pool",
+	"abyssal_taskmaster":       "Imp Pool",
+	"imp_hatchery":             "Imp Pool",
+	"imp_overseer":             "Imp Pool",
+}
+
 # ---------------------------------------------------------------------------
 # Filter state  (-1 / "" = All)
 # ---------------------------------------------------------------------------
@@ -14,6 +43,7 @@ const PREVIEW_OFFSET := Vector2(16, -PREVIEW_SIZE.y / 2.0)
 var _filter_type:   int    = -1
 var _filter_rarity: String = ""
 var _filter_status: int    = 0   # 0=All  1=Unlocked  2=Locked
+var _filter_pool:   String = ""  # "" = All
 
 # ---------------------------------------------------------------------------
 # Node refs
@@ -100,6 +130,14 @@ func _setup_filters() -> void:
 			_build_list()
 	)
 
+	_add_dropdown(row, "Pool",
+		["All Pools", "Void Bolt Pool", "Imp Pool"],
+		func(idx: int) -> void:
+			var vals := ["", "Void Bolt Pool", "Imp Pool"]
+			_filter_pool = vals[idx]
+			_build_list()
+	)
+
 func _add_dropdown(parent: HBoxContainer, label_text: String,
 		items: Array, on_change: Callable) -> void:
 	var lbl := Label.new()
@@ -153,6 +191,8 @@ func _build_list() -> void:
 			continue
 		if _filter_status == 2 and is_unlocked:
 			continue
+		if _filter_pool != "" and _CARD_POOL.get(card_id, "") != _filter_pool:
+			continue
 		visible_ids.append(card_id)
 
 	if visible_ids.is_empty():
@@ -164,9 +204,14 @@ func _build_list() -> void:
 		_container.add_child(lbl)
 		return
 
-	# --- Sort: rarity asc, then name ---
+	# --- Sort: pool asc, then rarity asc, then name ---
 	var rarity_order := {"common": 0, "rare": 1, "epic": 2, "legendary": 3}
+	var pool_order   := {"Imp Pool": 0, "Void Bolt Pool": 1}
 	visible_ids.sort_custom(func(a: String, b: String) -> bool:
+		var pa: int = pool_order.get(_CARD_POOL.get(a, ""), 99)
+		var pb: int = pool_order.get(_CARD_POOL.get(b, ""), 99)
+		if pa != pb:
+			return pa < pb
 		var ra: int = rarity_order.get(GameManager._SUPPORT_CARD_RARITIES.get(a, ""), 99)
 		var rb: int = rarity_order.get(GameManager._SUPPORT_CARD_RARITIES.get(b, ""), 99)
 		if ra != rb:
@@ -179,12 +224,14 @@ func _build_list() -> void:
 	# --- Column header ---
 	var header := HBoxContainer.new()
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_theme_constant_override("separation", 12)
-	_add_cell(header, "",        28,  HORIZONTAL_ALIGNMENT_CENTER, Color(0.55, 0.60, 0.85, 1))
-	_add_cell(header, "Rarity", 110, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
-	_add_cell(header, "Type",    60, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
-	_add_cell(header, "Name",   220, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
-	_add_cell(header, "Description", 0, HORIZONTAL_ALIGNMENT_LEFT, Color(0.55, 0.60, 0.85, 1), true)
+	_add_cell(header, "",            28,  HORIZONTAL_ALIGNMENT_CENTER, Color(0.55, 0.60, 0.85, 1))
+	_add_cell(header, "Pool",       130, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
+	_add_cell(header, "Rarity",     100, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
+	_add_cell(header, "Type",        60, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
+	_add_cell(header, "Name",       200, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
+	_add_cell(header, "Description", 500, HORIZONTAL_ALIGNMENT_LEFT,  Color(0.55, 0.60, 0.85, 1), true)
 	_container.add_child(header)
 	_container.add_child(HSeparator.new())
 
@@ -198,19 +245,23 @@ func _build_list() -> void:
 
 		var row := HBoxContainer.new()
 		row.custom_minimum_size = Vector2(0, 44)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_theme_constant_override("separation", 12)
 		if not is_unlocked:
 			row.modulate = Color(0.45, 0.45, 0.50, 1)
 
+		var pool_name: String = _CARD_POOL.get(card_id, "?")
 		_add_cell(row, "🔓" if is_unlocked else "🔒", 28, HORIZONTAL_ALIGNMENT_CENTER,
 			Color(1, 1, 1, 1))
-		_add_cell(row, rarity.capitalize(), 110, HORIZONTAL_ALIGNMENT_LEFT,
+		_add_cell(row, pool_name, 130, HORIZONTAL_ALIGNMENT_LEFT,
+			_pool_color(pool_name))
+		_add_cell(row, rarity.capitalize(), 100, HORIZONTAL_ALIGNMENT_LEFT,
 			_rarity_color(rarity))
 		_add_cell(row, _type_str(card.card_type), 60, HORIZONTAL_ALIGNMENT_LEFT,
 			Color(0.60, 0.65, 0.80, 1))
-		_add_cell(row, card.card_name, 220, HORIZONTAL_ALIGNMENT_LEFT,
+		_add_cell(row, card.card_name, 200, HORIZONTAL_ALIGNMENT_LEFT,
 			Color(0.90, 0.90, 1.00, 1))
-		_add_cell(row, card.description, 0, HORIZONTAL_ALIGNMENT_LEFT,
+		_add_cell(row, card.description, 500, HORIZONTAL_ALIGNMENT_LEFT,
 			Color(0.65, 0.65, 0.75, 1), true)
 
 		row.mouse_entered.connect(_show_preview.bind(card_id))
@@ -231,12 +282,12 @@ func _add_cell(parent: HBoxContainer, text: String, min_w: int,
 	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_font_size_override("font_size", 15)
-	lbl.clip_text = true
+	lbl.custom_minimum_size = Vector2(min_w, 0)
 	if expand:
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	else:
-		lbl.custom_minimum_size = Vector2(min_w, 0)
+		lbl.clip_text = true
 	parent.add_child(lbl)
 
 func _type_str(t: Enums.CardType) -> String:
@@ -246,6 +297,12 @@ func _type_str(t: Enums.CardType) -> String:
 		Enums.CardType.TRAP:        return "Trap"
 		Enums.CardType.ENVIRONMENT: return "Env"
 	return "?"
+
+func _pool_color(pool: String) -> Color:
+	match pool:
+		"Void Bolt Pool": return Color(0.55, 0.80, 1.00, 1)
+		"Imp Pool":       return Color(0.65, 1.00, 0.55, 1)
+	return Color(0.55, 0.55, 0.65, 1)
 
 func _rarity_color(rarity: String) -> Color:
 	match rarity:

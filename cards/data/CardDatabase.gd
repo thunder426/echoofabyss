@@ -180,7 +180,7 @@ func _register_wanderer_cards() -> void:
 	abyssal_plague.id          = "abyssal_plague"
 	abyssal_plague.card_name   = "Abyssal Plague"
 	abyssal_plague.cost        = 2
-	abyssal_plague.description = "Apply 1 Corruption to 2 random enemy minions. Deal 100 damage to all minions."
+	abyssal_plague.description = "Apply 1 CORRUPTION to 2 random enemy minions. Deal 100 damage to all minions."
 	abyssal_plague.effect_id   = "abyssal_plague_effect"
 	abyssal_plague.faction     = "abyss_order"
 	abyssal_plague.art_path    = "res://assets/art/spells/abyss_order/abyssal_plague.png"
@@ -516,7 +516,7 @@ func _register_wanderer_cards() -> void:
 	abyss_cultist.id             = "abyss_cultist"
 	abyss_cultist.card_name      = "Abyss Cultist"
 	abyss_cultist.essence_cost   = 1
-	abyss_cultist.description    = "ON PLAY: Corrupt a random enemy minion (−100 ATK)."
+	abyss_cultist.description    = "ON PLAY: CORRUPT a random enemy minion, apply 1 stack of CORRUPTION to it."
 	abyss_cultist.atk            = 100
 	abyss_cultist.health         = 300
 	abyss_cultist.minion_type    = Enums.MinionType.HUMAN
@@ -544,7 +544,7 @@ func _register_wanderer_cards() -> void:
 	corruption_weaver.id             = "corruption_weaver"
 	corruption_weaver.card_name      = "Corruption Weaver"
 	corruption_weaver.essence_cost   = 3
-	corruption_weaver.description    = "ON PLAY: Corrupt all enemy minions (−100 ATK each)."
+	corruption_weaver.description    = "ON PLAY: CORRUPT all enemy minions, apply 1 stack of CORRUPTION to them"
 	corruption_weaver.atk            = 100
 	corruption_weaver.health         = 400
 	corruption_weaver.minion_type    = Enums.MinionType.HUMAN
@@ -634,7 +634,7 @@ func _register_wanderer_cards() -> void:
 	nyx_ael.id           = "nyx_ael"
 	nyx_ael.card_name    = "Nyx'ael, Void Sovereign"
 	nyx_ael.essence_cost = 5
-	nyx_ael.description  = "Summoned from hand or deck whenver 3 void imps are in the battlefield. \nPASSIVE: At the start of your turn, Corrupt all enemies and deal 200 damage to each Corrupted enemy."
+	nyx_ael.description  = "Summoned from hand or deck whenver 3 void imps are in the battlefield. \nPASSIVE: At the start of your turn, CORRUPT all enemies and deal 200 damage to each Corrupted enemy."
 	nyx_ael.atk          = 500
 	nyx_ael.health       = 500
 	nyx_ael.minion_type  = Enums.MinionType.DEMON
@@ -1037,7 +1037,7 @@ func _register_wanderer_cards() -> void:
 	shadow_rune.id            = "shadow_rune"
 	shadow_rune.card_name     = "Shadow Rune"
 	shadow_rune.cost          = 2
-	shadow_rune.description   = "RUNE: Enemy minions enter the board with 1 stack of Corruption."
+	shadow_rune.description   = "RUNE: Enemy minions enter the board with 1 stack of CORRUPTION."
 	shadow_rune.is_rune       = true
 	shadow_rune.rune_type     = Enums.RuneType.SHADOW_RUNE
 	shadow_rune.aura_effect_id = "shadow_rune_aura"

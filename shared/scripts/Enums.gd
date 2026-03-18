@@ -37,6 +37,8 @@ enum Keyword {
 	SHIELD_REGEN_1, # Regenerate 1 Shield at the start of owner's turn (magic shield, slow)
 	SHIELD_REGEN_2, # Regenerate 2 Shield at the start of owner's turn (magic shield, fast)
 	CHAMPION,       # Named/legendary unit — gold name display, unique card
+	RUNE,           # A persistent trap placed face-up; provides an ongoing aura effect until consumed by a Ritual
+	CORRUPTION,     # Reduces the afflicted minion's ATK by 100 per stack
 }
 
 ## All game events that flow through TriggerManager.

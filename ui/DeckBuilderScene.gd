@@ -99,7 +99,7 @@ const EXCLUDED_IDS: Array[String] = [
 	# Void Bolt Support Pool — reward-only, never in starter deck build
 	"mark_the_target", "imp_combustion", "dark_ritual_of_the_abyss", "imp_overload",
 	"void_channeler", "abyssal_sacrificer", "abyssal_arcanist",
-	"void_detonation", "soul_rupture", "void_rain", "mark_convergence",
+	"void_detonation", "soul_rupture", "void_bolt_rain", "mark_convergence",
 	"mark_collapse", "void_archmagus", "abyss_ritual_circle",
 	# Common Imp Support Pool — reward-only, never in starter deck build
 	"abyssal_conjuring", "void_breach", "abyss_recruiter", "dark_nursery",

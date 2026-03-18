@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b5p44xgtcrxxq"
-path="res://.godot/imported/void_imp.png-ac008b0af715fee0a0c8d3d2292243b0.ctex"
+uid="uid://blfx5w51nwfnv"
+path="res://.godot/imported/abyssal_summoning_circle.png-d8b25c91086135f8f3b4af9903ca8f03.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/traps/abyss_order/void_imp.png"
-dest_files=["res://.godot/imported/void_imp.png-ac008b0af715fee0a0c8d3d2292243b0.ctex"]
+source_file="res://assets/art/environments/abyss_order/abyssal_summoning_circle.png"
+dest_files=["res://.godot/imported/abyssal_summoning_circle.png-d8b25c91086135f8f3b4af9903ca8f03.ctex"]
 
 [params]
 

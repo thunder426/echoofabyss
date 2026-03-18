@@ -14,6 +14,10 @@ var owner: String = ""
 ## The primary minion involved — summoned, dying, attacking, etc.
 var minion: MinionInstance = null
 
+## The player-chosen target for targeted on-play effects (void_netter, soul_collector, etc.)
+## Null for untargeted effects or enemy-owned plays.
+var target: MinionInstance = null
+
 ## The card played or drawn (for ON_PLAYER_CARD_DRAWN, ON_PLAYER_MINION_SUMMONED, etc.)
 var card: CardData = null
 

@@ -74,6 +74,14 @@ var selected_attacker: MinionInstance = null
 # Card the player is currently trying to play (dragged or clicked from hand)
 var pending_play_card: CardData = null
 
+# Player-chosen target for targeted on-play effects (set after clicking a valid target,
+# before clicking the placement slot). Cleared after the minion is placed or deselected.
+var pending_minion_target: MinionInstance = null
+
+# True while waiting for the player to click a valid target before choosing a placement slot.
+# False when no valid targets existed (skip straight to placement) or after target is chosen.
+var _awaiting_minion_target: bool = false
+
 # Active global environment
 var active_environment: EnvironmentCardData = null
 
@@ -375,6 +383,8 @@ func _on_end_turn_mana_pressed() -> void:
 func _do_end_turn() -> void:
 	selected_attacker = null
 	pending_play_card = null
+	pending_minion_target = null
+	_awaiting_minion_target = false
 	if hand_display:
 		hand_display.deselect_current()
 	turn_manager.end_player_turn()
@@ -405,10 +415,20 @@ func _on_hand_card_selected(card_data: CardData) -> void:
 		return
 
 	if card_data is MinionCardData:
-		_highlight_empty_player_slots()
+		var mc := card_data as MinionCardData
+		if mc.on_play_requires_target and _has_valid_minion_on_play_targets(mc):
+			_awaiting_minion_target = true
+			_highlight_minion_on_play_targets(mc)
+		else:
+			# No valid targets (or card doesn't need one) — go straight to placement.
+			# Effect will fire but resolve with null target (logs "no targets" and skips).
+			_awaiting_minion_target = false
+			_highlight_empty_player_slots()
 
 func _on_hand_card_deselected() -> void:
 	pending_play_card = null
+	pending_minion_target = null
+	_awaiting_minion_target = false
 	_clear_all_highlights()
 
 # ---------------------------------------------------------------------------
@@ -543,10 +563,17 @@ func _rune_type_name(rune_type: int) -> String:
 # ---------------------------------------------------------------------------
 
 func _on_player_slot_clicked_empty(slot: BoardSlot) -> void:
-	# If a minion card is pending to be played, place it here
+	# If a minion card is pending to be played, place it here.
+	# For targeted cards, pending_minion_target holds the player's chosen target
+	# (set when they clicked a valid target slot before choosing placement).
 	if pending_play_card and pending_play_card is MinionCardData:
-		_try_play_minion(pending_play_card as MinionCardData, slot)
+		# Still waiting for player to click a valid target — ignore slot clicks until then
+		if _awaiting_minion_target:
+			return
+		_try_play_minion(pending_play_card as MinionCardData, slot, pending_minion_target)
+		pending_minion_target = null
 		pending_play_card = null
+		_awaiting_minion_target = false
 		_clear_all_highlights()
 
 func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -> void:
@@ -557,6 +584,14 @@ func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) 
 		var spell := pending_play_card as SpellCardData
 		if spell.requires_target and _is_valid_spell_target(minion, spell.target_type):
 			_apply_targeted_spell(spell, minion)
+			return
+	# If a targeted minion card is waiting for a friendly target, store it and show placement slots
+	if pending_play_card is MinionCardData:
+		var mc := pending_play_card as MinionCardData
+		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, mc.on_play_target_type):
+			pending_minion_target = minion
+			_awaiting_minion_target = false
+			_highlight_empty_player_slots()
 			return
 	# Select this minion as the attacker if it can attack
 	if minion.can_attack():
@@ -574,6 +609,14 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 		var spell := pending_play_card as SpellCardData
 		if spell.requires_target and _is_valid_spell_target(minion, spell.target_type):
 			_apply_targeted_spell(spell, minion)
+			return
+	# If a targeted minion card is waiting for an enemy target, store it and show placement slots
+	if pending_play_card is MinionCardData:
+		var mc := pending_play_card as MinionCardData
+		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, mc.on_play_target_type):
+			pending_minion_target = minion
+			_awaiting_minion_target = false
+			_highlight_empty_player_slots()
 			return
 	if selected_attacker == null:
 		return
@@ -599,7 +642,7 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 # Minion play
 # ---------------------------------------------------------------------------
 
-func _try_play_minion(card: MinionCardData, slot: BoardSlot) -> void:
+func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
 	if not slot.is_empty():
 		return
 	# Talent: piercing_void — Void Imps cost +1 Mana
@@ -610,11 +653,11 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot) -> void:
 	var instance := MinionInstance.create(card, "player")
 	player_board.append(instance)
 	slot.place_minion(instance)
-	# Fire ON_PLAYER_MINION_SUMMONED — handlers in _setup_triggers() apply all
-	# hero passives, relics, talents, and board synergies in priority order.
+	# Fire ON_PLAYER_MINION_PLAYED — carries the player-chosen target for targeted battle cries.
 	var play_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
 	play_ctx.minion = instance
 	play_ctx.card   = card
+	play_ctx.target = on_play_target
 	trigger_manager.fire(play_ctx)
 	var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
 	summon_ctx.minion = instance
@@ -626,7 +669,8 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot) -> void:
 		hand_display.deselect_current()
 
 ## owner is "player" (default) or "enemy" — all board/hero references are resolved relative to owner.
-func _resolve_on_play_effect(effect_id: String, source: MinionInstance, owner: String = "player") -> void:
+## target is the player-chosen minion for targeted battle cries; null means pick randomly (AI / untargeted).
+func _resolve_on_play_effect(effect_id: String, source: MinionInstance, owner: String = "player", target: MinionInstance = null) -> void:
 	match effect_id:
 		"deal_1_enemy_hero":
 			# piercing_void replaces the 100 direct damage with 200 Void Bolt (player-only talent)
@@ -647,19 +691,25 @@ func _resolve_on_play_effect(effect_id: String, source: MinionInstance, owner: S
 			if target:
 				_corrupt_minion(target)
 		"void_netter_damage":
-			var target := _find_random_minion(_opponent_board(owner))
-			if target:
-				combat_manager.apply_spell_damage(target, 200)
+			var chosen := target if target != null else _find_random_minion(_opponent_board(owner))
+			if chosen:
+				_log("  Void Netter strikes %s for 200 damage." % chosen.card_data.card_name, _LogType.PLAYER)
+				combat_manager.apply_spell_damage(chosen, 200)
 		"corruption_weaver_corrupt_all":
 			for m in _opponent_board(owner).duplicate():
 				_corrupt_minion(m)
 		"soul_collector_execute":
-			var target := _find_random_corrupted_minion(_opponent_board(owner))
-			if target:
-				_log("  Soul Collector devours Corrupted %s!" % target.card_data.card_name, _LogType.DEATH)
-				combat_manager.kill_minion(target)
+			var chosen := target if target != null else _find_random_corrupted_minion(_opponent_board(owner))
+			if chosen:
+				_log("  Soul Collector devours Corrupted %s!" % chosen.card_data.card_name, _LogType.DEATH)
+				combat_manager.kill_minion(chosen)
 			else:
 				_log("  Soul Collector: no Corrupted targets.", _LogType.PLAYER)
+		"runic_void_imp_damage":
+			var chosen := target if target != null else _find_random_minion(_opponent_board(owner))
+			if chosen:
+				_log("  Runic Void Imp fires a Void Bolt at %s!" % chosen.card_data.card_name, _LogType.PLAYER)
+				combat_manager.apply_spell_damage(chosen, 300)
 		"void_devourer_sacrifice":
 			_resolve_void_devourer_sacrifice(source, owner)
 		# --- Neutral Core Set ---
@@ -1138,6 +1188,44 @@ func _on_hero_healed(target: String, amount: int) -> void:
 # ---------------------------------------------------------------------------
 # Targeted spell helpers
 # ---------------------------------------------------------------------------
+
+## Returns true if at least one valid target exists for this card's on-play target type.
+## If false, the card skips targeting and goes straight to placement (effect fires but does nothing).
+func _has_valid_minion_on_play_targets(card: MinionCardData) -> bool:
+	var hits_enemy    := card.on_play_target_type in ["enemy_minion", "corrupted_enemy_minion"]
+	var hits_friendly := card.on_play_target_type in ["friendly_minion"]
+	if hits_enemy:
+		for slot in enemy_slots:
+			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
+				return true
+	if hits_friendly:
+		for slot in player_slots:
+			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
+				return true
+	return false
+
+## Highlight valid target slots for a targeted minion on-play effect (battle cry).
+## Step 1 of the two-click flow: player clicks card → sees valid targets highlighted.
+## Step 2: player clicks a valid target → pending_minion_target set → placement slots shown.
+func _highlight_minion_on_play_targets(card: MinionCardData) -> void:
+	_clear_all_highlights()
+	var hits_enemy    := card.on_play_target_type in ["enemy_minion", "corrupted_enemy_minion"]
+	var hits_friendly := card.on_play_target_type in ["friendly_minion"]
+	if hits_enemy:
+		for slot in enemy_slots:
+			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
+				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+	if hits_friendly:
+		for slot in player_slots:
+			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
+				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+
+func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String) -> bool:
+	match target_type:
+		"enemy_minion":           return true
+		"corrupted_enemy_minion": return BuffSystem.has_type(minion, Enums.BuffType.CORRUPTION)
+		"friendly_minion":        return true
+	return false
 
 ## Highlight player slots that have a minion matching the spell's target_type
 func _highlight_spell_targets(spell: SpellCardData) -> void:
@@ -2575,7 +2663,7 @@ func _handler_player_minion_on_play_effect(ctx: EventContext) -> void:
 		return
 	var effect_id: String = (minion.card_data as MinionCardData).on_play_effect
 	if not effect_id.is_empty():
-		_resolve_on_play_effect(effect_id, minion, "player")
+		_resolve_on_play_effect(effect_id, minion, "player", ctx.target)
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_SUMMONED — on-summon effect resolver (fires for ALL player summons)
