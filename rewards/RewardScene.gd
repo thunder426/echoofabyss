@@ -61,13 +61,6 @@ const REWARD_POOL: Array[String] = [
 	"battlefield_salvage", "shockwave",
 ]
 
-## Cards unlocked by the piercing_void talent.
-const PIERCING_VOID_POOL: Array[String] = [
-	"mark_the_target", "imp_combustion", "dark_ritual_of_the_abyss", "imp_overload",
-	"void_channeler", "abyssal_sacrificer", "abyssal_arcanist",
-	"void_detonation", "soul_rupture", "void_rain", "mark_convergence",
-	"mark_collapse", "void_archmagus",
-]
 
 # ---------------------------------------------------------------------------
 # Special reward types
@@ -127,7 +120,7 @@ func _build_card_pool() -> Array[String]:
 				pool.append(card_id)
 	# Add piercing_void talent cards
 	if GameManager.has_talent("piercing_void"):
-		for card_id in PIERCING_VOID_POOL:
+		for card_id in CardDatabase.get_card_ids_in_pools(["vael_piercing_void"]):
 			if card_id in GameManager.permanent_unlocks and card_id not in VARIANT_CORE_UNITS:
 				pool.append(card_id)
 	return pool

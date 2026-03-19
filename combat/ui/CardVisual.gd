@@ -49,6 +49,66 @@ const _FACTION_FRAME: Dictionary = {
 ##   w_scale : float — tooltip width as a fraction of card width.
 ##   h_scale : float — tooltip height as a fraction of card height.
 const _FRAME_CONFIG: Dictionary = {
+	# ── Abyss Order dual-cost minion frame (essence + mana) ────────────────
+	"abyss_dual_minion": {
+		"path":         "res://assets/art/frames/abyss_order/abyss_dual_minion.png",
+		"minion_frame": true,
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6,
+			"h_scale":    0.6,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":     [0.08, 0.14, 0.92, 0.78],
+			"name":    [0.15, 0.09, 0.93, 0.14],
+			"race":    [0.05, 0.65, 0.95, 0.72],
+			"desc":    [0.17, 0.72, 0.85, 0.85],
+			"essence": [0.01, 0.05, 0.28, 0.18],
+			"mana":    [0.75, 0.05, 0.99, 0.18],
+			"atk":     [0.08, 0.87, 0.42, 0.94],
+			"hp":      [0.58, 0.87, 0.80, 0.94],
+		},
+		"fonts": {
+			"desc_normal": 14, "desc_bold": 15,
+			"shield": 11, "race": 15,
+			"essence": 28, "mana": 28, "atk": 20, "hp": 20,
+			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
+		},
+	},
+	# ── Abyss Order dual-cost minion frame (hand size) ──────────────────────
+	"abyss_dual_minion_small": {
+		"path":         "res://assets/art/frames/abyss_order/abyss_dual_minion.png",
+		"minion_frame": true,
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6,
+			"h_scale":    0.6,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":     [0.08, 0.14, 0.92, 0.78],
+			"name":    [0.15, 0.12, 0.93, 0.15],
+			"race":    [0.05, 0.72, 0.95, 0.72],
+			"desc":    [0.16, 0.76, 0.85, 0.85],
+			"essence": [0.01, 0.07, 0.28, 0.19],
+			"mana":    [0.26, 0.01, 0.54, 0.19],
+			"atk":     [0.10, 0.89, 0.42, 0.93],
+			"hp":      [0.58, 0.89, 0.81, 0.93],
+		},
+		"fonts": {
+			"desc_normal": 14, "desc_bold": 15,
+			"shield": 11, "race": 15,
+			"essence": 28, "mana": 18, "atk": 20, "hp": 20,
+			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
+		},
+	},
 	# ── Abyss Order minion frame (hand size) — less glowy variant ──────────
 	"abyss_minion_small": {
 		"path":         "res://assets/art/frames/abyss_order/abyss_minion_small.png",
@@ -314,7 +374,9 @@ func setup(data: CardData) -> void:
 	card_data = data
 
 	# Reset frame overlay labels so reused nodes don't bleed minion state onto spells
-	if frame_cost_label: frame_cost_label.visible = false
+	if frame_cost_label:
+		frame_cost_label.visible = false
+		frame_cost_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
 	if frame_mana_label: frame_mana_label.visible = false
 	if frame_atk_label:  frame_atk_label.visible  = false
 	if frame_hp_label:   frame_hp_label.visible   = false
@@ -323,8 +385,11 @@ func setup(data: CardData) -> void:
 
 	var faction: String = data.faction if data.faction != "" else "neutral"
 	var style_key: String = _FACTION_FRAME.get(faction, {}).get(data.card_type, "default")
-	# Use the less-glowy small variant when displaying in hand
-	if size_mode == "hand" and style_key == "abyss_minion":
+	# Dual-cost minions use a dedicated frame; hand size gets its own small variant
+	var is_dual := data is MinionCardData and (data as MinionCardData).mana_cost > 0
+	if style_key == "abyss_minion" and is_dual:
+		style_key = "abyss_dual_minion"
+	elif size_mode == "hand" and style_key == "abyss_minion":
 		style_key = "abyss_minion_small"
 	_apply_frame_config(style_key, data.card_type)
 
@@ -476,6 +541,19 @@ func _set_anchors(node: Control, a: Variant) -> void:
 # ---------------------------------------------------------------------------
 # Talent overlay — call after setup() during combat to reflect unlocked talents
 # ---------------------------------------------------------------------------
+
+## Apply a mana cost discount to non-minion cards (spells/traps/envs).
+## Shows the effective cost in green when discounted, white otherwise.
+## Call after setup() whenever the board discount changes.
+func apply_cost_discount(discount: int) -> void:
+	if card_data == null or card_data is MinionCardData:
+		return
+	var effective := maxi(0, card_data.cost - discount)
+	var discounted := discount > 0 and card_data.cost > 0
+	var color := Color(0.3, 1.0, 0.3, 1.0) if discounted else Color(1.0, 1.0, 1.0, 1.0)
+	if frame_cost_label and frame_cost_label.visible:
+		frame_cost_label.text = str(effective)
+		frame_cost_label.add_theme_color_override("font_color", color)
 
 ## Updates displayed stats, cost, and description based on currently unlocked talents.
 ## Only meaningful during combat; DeckBuilder previews call setup() before talents exist.

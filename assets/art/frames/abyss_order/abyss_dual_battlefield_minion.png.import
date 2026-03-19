@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dcq3igchbkt24"
-path="res://.godot/imported/demon_minion.png-769f1103ce628f9abaa25c8ea1b38a10.ctex"
+uid="uid://b0haqlk4xpvaj"
+path="res://.godot/imported/abyss_dual_battlefield_minion.png-d8a5072ac1eb7fe324d107af5587dbcb.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/frames/abyss_order/demon_minion.png"
-dest_files=["res://.godot/imported/demon_minion.png-769f1103ce628f9abaa25c8ea1b38a10.ctex"]
+source_file="res://assets/art/frames/abyss_order/abyss_dual_battlefield_minion.png"
+dest_files=["res://.godot/imported/abyss_dual_battlefield_minion.png-d8a5072ac1eb7fe324d107af5587dbcb.ctex"]
 
 [params]
 

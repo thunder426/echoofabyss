@@ -12,6 +12,7 @@ extends Control
 const _FRAME_PATH: Dictionary = {
 	"abyss_order": {
 		Enums.CardType.MINION:      "res://assets/art/frames/abyss_order/frame_minion.png",
+		"dual_minion":              "res://assets/art/frames/abyss_order/abyss_dual_minion.png",
 		Enums.CardType.SPELL:       "res://assets/art/frames/abyss_order/frame_spell.png",
 		Enums.CardType.TRAP:        "res://assets/art/frames/abyss_order/frame_trap.png",
 		Enums.CardType.ENVIRONMENT: "res://assets/art/frames/abyss_order/frame_environment.png",
@@ -90,7 +91,7 @@ func setup(card: CardData) -> void:
 	var faction: String = card.faction if card.faction != "" else "neutral"
 
 	# -- Frame texture or fallback ColorRects --
-	_apply_frame(faction, card.card_type)
+	_apply_frame(faction, card)
 
 	# -- Card art --
 	if card.art_path != "" and ResourceLoader.exists(card.art_path):
@@ -141,18 +142,18 @@ func setup(card: CardData) -> void:
 	_desc_label.text = desc
 
 	# -- Rarity gem --
-	var rarity: String = ""
-	if card.can_unlock:
-		rarity = GameManager._SUPPORT_CARD_RARITIES.get(card.id, "common")
-	_rarity_gem.color = _RARITY_COLOR.get(rarity, Color(0.4, 0.4, 0.4, 1.0))
+	_rarity_gem.color = _RARITY_COLOR.get(card.rarity, Color(0.4, 0.4, 0.4, 1.0))
 
 # ---------------------------------------------------------------------------
 # Frame helper — loads faction frame texture or falls back to ColorRects
 # ---------------------------------------------------------------------------
 
-func _apply_frame(faction: String, card_type: Enums.CardType) -> void:
+func _apply_frame(faction: String, card: CardData) -> void:
 	var faction_frames: Dictionary = _FRAME_PATH.get(faction, {})
-	var path: String = faction_frames.get(card_type, "")
+	var is_dual := card is MinionCardData and (card as MinionCardData).mana_cost > 0
+	var frame_key = "dual_minion" if is_dual else card.card_type
+	# Fall back to the standard minion frame if no dual frame exists for this faction
+	var path: String = faction_frames.get(frame_key, faction_frames.get(card.card_type, ""))
 
 	if path != "" and ResourceLoader.exists(path):
 		# Custom frame PNG — hide fallback ColorRects, clear banner/desc backgrounds
@@ -170,7 +171,7 @@ func _apply_frame(faction: String, card_type: Enums.CardType) -> void:
 		_frame_bg.visible      = true
 		_frame_border.color    = _FACTION_BORDER.get(faction, _FACTION_BORDER["neutral"])
 		_frame_bg.color        = _FACTION_COLOR.get(faction, _FACTION_COLOR["neutral"])
-		_name_bg.color         = _TYPE_COLOR.get(card_type, _TYPE_COLOR[Enums.CardType.MINION])
+		_name_bg.color         = _TYPE_COLOR.get(card.card_type, _TYPE_COLOR[Enums.CardType.MINION])
 		_desc_bg.color         = Color(0.08, 0.06, 0.14, 0.90)
 
 # ---------------------------------------------------------------------------

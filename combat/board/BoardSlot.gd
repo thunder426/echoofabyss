@@ -43,11 +43,13 @@ const _CFG: Dictionary = {
 	# Minion art window — sits BEHIND the frame PNG
 	"art":    { "pos": Vector2( 14,  26), "size": Vector2(152, 116) },
 
-	# Essence cost — top-left badge area
-	"cost":   { "pos": Vector2(  1,  7), "size": Vector2( 30,  24), "font_size": 12 },
+	# Essence cost — top-left gem (single and dual cost minions)
+	"cost":      { "pos": Vector2(  1,  7), "size": Vector2( 30,  24), "font_size": 12 },
+	# Mana cost — top-right gem (dual cost minions only)
+	"mana_cost": { "pos": Vector2(148,  7), "size": Vector2( 30,  24), "font_size": 12 },
 
-	# Card name — small text beside the cost badge
-	"name":   { "pos": Vector2( 75,   4), "size": Vector2(128,  14), "font_size": 10 },
+	# Card name — centered across full card width; long names drop to font_size_long
+	"name":   { "pos": Vector2(  0,   4), "size": Vector2(179,  14), "font_size": 10, "font_size_long": 8, "long_threshold": 13 },
 
 	# ATK  — bottom-left
 	"atk":    { "pos": Vector2(  28, 165), "size": Vector2( 52,  30), "font_size": 12 },
@@ -72,8 +74,9 @@ const _STATUS_FONT_SIZE := 9
 var _frame_rect:  TextureRect
 var _art_rect:    TextureRect
 var _overlay:     ColorRect
-var _cost_label:  Label
-var _name_label:  Label
+var _cost_label:      Label
+var _mana_cost_label: Label
+var _name_label:      Label
 var _atk_label:   Label
 var _hp_label:    Label
 var _status_bar:  HBoxContainer
@@ -154,8 +157,9 @@ func _build_visuals() -> void:
 	add_child(_overlay)
 
 	# --- Labels (hidden until occupied) ---
-	_cost_label = _make_label("cost", Color(1.00, 0.85, 0.30, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
-	_name_label = _make_label("name", Color(1.00, 1.00, 1.00, 1), HORIZONTAL_ALIGNMENT_LEFT,   true)
+	_cost_label      = _make_label("cost",      Color(1.00, 0.85, 0.30, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
+	_mana_cost_label = _make_label("mana_cost", Color(0.40, 0.75, 1.00, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
+	_name_label      = _make_label("name",      Color(1.00, 1.00, 1.00, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
 	_atk_label  = _make_label("atk",  Color(1.00, 0.75, 0.25, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
 	_hp_label   = _make_label("hp",   Color(0.35, 1.00, 0.50, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
 
@@ -263,6 +267,13 @@ func _show_occupied_state() -> void:
 		_:                          _overlay.color = Color(0, 0, 0, 0)
 
 	_frame_rect.visible = true
+	# Swap frame for dual-cost minions
+	var _md_check := minion.card_data as MinionCardData
+	var _is_dual  := _md_check != null and _md_check.mana_cost > 0
+	var _frame_path := "res://assets/art/frames/abyss_order/abyss_dual_battlefield_minion.png" \
+		if _is_dual else "res://assets/art/frames/abyss_order/abyss_battlefield_minion.png"
+	if ResourceLoader.exists(_frame_path):
+		_frame_rect.texture = load(_frame_path)
 	_set_labels_visible(true)
 
 	# Art — prefer battlefield_art_path when set, fall back to art_path
@@ -276,17 +287,25 @@ func _show_occupied_state() -> void:
 	else:
 		_art_rect.texture = null
 
-	# Cost
+	# Cost — essence always top-left; mana top-right for dual-cost minions only
 	var md := minion.card_data as MinionCardData
 	if md:
-		_cost_label.text = str(md.essence_cost)
-		if md.mana_cost > 0:
-			_cost_label.text += "/%d" % md.mana_cost
+		_cost_label.text      = str(md.essence_cost)
+		_mana_cost_label.text = str(md.mana_cost) if md.mana_cost > 0 else ""
+		_mana_cost_label.visible = md.mana_cost > 0
 	else:
-		_cost_label.text = ""
+		_cost_label.text         = ""
+		_mana_cost_label.text    = ""
+		_mana_cost_label.visible = false
 
-	# Name
-	_name_label.text = minion.card_data.card_name
+	# Name — smaller font for long names
+	var _card_name := minion.card_data.card_name
+	_name_label.text = _card_name
+	var _name_cfg := _CFG["name"]
+	var _name_fs: int = _name_cfg["font_size_long"] \
+		if _card_name.length() >= _name_cfg["long_threshold"] \
+		else _name_cfg["font_size"]
+	_name_label.add_theme_font_size_override("font_size", _name_fs)
 
 	# ATK — tinted darker when corrupted
 	var corruption_total := BuffSystem.sum_type(minion, Enums.BuffType.CORRUPTION)
@@ -321,6 +340,8 @@ func _show_occupied_state() -> void:
 
 func _set_labels_visible(v: bool) -> void:
 	_cost_label.visible = v
+	if not v:
+		_mana_cost_label.visible = false  # shown per-minion only when dual-cost
 	_name_label.visible = v
 	_atk_label.visible  = v
 	_hp_label.visible   = v

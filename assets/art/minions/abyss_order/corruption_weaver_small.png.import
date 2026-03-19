@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ddsn84tl664rl"
-path="res://.godot/imported/frame_minion.png-9fd666e74b48c68f8483e22a04269e93.ctex"
+uid="uid://btn8pikatwqfi"
+path="res://.godot/imported/corruption_weaver_small.png-64e29d8a97e0c1e027712c870671389a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/frames/abyss_order/frame_minion.png"
-dest_files=["res://.godot/imported/frame_minion.png-9fd666e74b48c68f8483e22a04269e93.ctex"]
+source_file="res://assets/art/minions/abyss_order/corruption_weaver_small.png"
+dest_files=["res://.godot/imported/corruption_weaver_small.png-64e29d8a97e0c1e027712c870671389a.ctex"]
 
 [params]
 

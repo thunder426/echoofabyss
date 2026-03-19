@@ -30,8 +30,9 @@ signal card_unhovered()
 ## Path to the CardVisual scene to instantiate for each card drawn
 @export var card_visual_scene: PackedScene
 
-## Separation between cards in pixels (HBoxContainer theme override)
-@export var card_spacing: int = 8
+## Overlap between adjacent cards in pixels — negative means cards overlap.
+## Positive values add a gap. Adjust to taste.
+@export var card_spacing: int = -48
 
 # ---------------------------------------------------------------------------
 # State
@@ -39,6 +40,13 @@ signal card_unhovered()
 
 var _card_visuals: Array[CardVisual] = []
 var _selected_visual: CardVisual = null
+
+# ---------------------------------------------------------------------------
+# Godot lifecycle
+# ---------------------------------------------------------------------------
+
+func _ready() -> void:
+	add_theme_constant_override("separation", card_spacing)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -56,8 +64,13 @@ func add_card(card_data: CardData) -> void:
 	visual.setup(card_data)
 	visual.apply_talent_overlay()
 	visual.card_clicked.connect(_on_card_clicked)
-	visual.mouse_entered.connect(func() -> void: card_hovered.emit(card_data))
-	visual.mouse_exited.connect(func() -> void: card_unhovered.emit())
+	visual.mouse_entered.connect(func() -> void:
+		visual.z_index = 2
+		card_hovered.emit(card_data))
+	visual.mouse_exited.connect(func() -> void:
+		if _selected_visual != visual:
+			visual.z_index = 0
+		card_unhovered.emit())
 	_card_visuals.append(visual)
 
 ## Remove a specific card from the hand (called after it is played)
@@ -74,7 +87,14 @@ func remove_card(card_data: CardData) -> void:
 func deselect_current() -> void:
 	if _selected_visual:
 		_selected_visual.deselect()
+		_selected_visual.z_index = 0
 		_selected_visual = null
+
+## Update mana cost display on non-minion hand cards to reflect a discount.
+## Pass 0 to reset all costs to their base values (white color).
+func refresh_spell_costs(discount: int) -> void:
+	for visual in _card_visuals:
+		visual.apply_cost_discount(discount)
 
 ## Update which cards appear greyed out based on available resources.
 ## Accounts for piercing_void talent adding +1 Mana to Void Imps.
@@ -100,6 +120,7 @@ func _on_card_clicked(visual: CardVisual) -> void:
 	# Clicking the already-selected card deselects it
 	if _selected_visual == visual:
 		visual.deselect()
+		visual.z_index = 0
 		_selected_visual = null
 		card_deselected.emit()
 		return
@@ -107,8 +128,10 @@ func _on_card_clicked(visual: CardVisual) -> void:
 	# Deselect the previous card
 	if _selected_visual:
 		_selected_visual.deselect()
+		_selected_visual.z_index = 0
 
 	# Select the new card
 	_selected_visual = visual
+	visual.z_index = 3
 	visual.select()
 	card_selected.emit(visual.card_data)

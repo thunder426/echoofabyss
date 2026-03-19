@@ -35,13 +35,9 @@ extends CardData
 ## Mirrors SpellCardData.target_type — e.g. "enemy_minion", "corrupted_enemy_minion".
 @export var on_play_target_type: String = ""
 
-## Effect triggered when this minion is played from hand (On Play).
-## Does NOT fire when summoned by a spell, trap, or other effect.
-@export var on_play_effect: String = ""
-
-## Effect triggered whenever this minion enters the board from ANY source
-## (hand play, spell effect, trap effect, token generation, etc.) (On Summon).
-@export var on_summon_effect: String = ""
+## Declarative effect steps fired when this minion is played from hand (On Play).
+## Uses EffectResolver. Does NOT fire when summoned by a spell, trap, or other effect.
+@export var on_play_effect_steps: Array = []
 
 ## Effect triggered when this minion is destroyed (On Death).
 @export var on_death_effect: String = ""

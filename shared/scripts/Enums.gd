@@ -94,6 +94,7 @@ enum RuneType {
 	BLOOD_RUNE,     # Sacrifice / demon synergy — aura: restore 100 HP when friendly minion dies
 	DOMINION_RUNE,  # Board control / buff synergy — aura: all friendly Demons +100 ATK
 	SHADOW_RUNE,    # Corruption synergy — aura: enemy minions enter with 1 Corruption
+	SOUL_RUNE,      # Demon sacrifice synergy — aura: friendly Demon death on enemy turn → Spirit token
 }
 
 ## Phase of a combat turn

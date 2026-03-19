@@ -34,8 +34,14 @@ extends Resource
 ## a cropped / differently-framed version optimised for the smaller slot.
 @export var battlefield_art_path: String = ""
 
-## If true this card can be offered as a permanent unlock after a final boss kill
-@export var can_unlock: bool = false
-
 ## Faction this card belongs to. "neutral" or "abyss_order" (more factions added later)
 @export var faction: String = "neutral"
+
+## Card pool this card belongs to. Controls where it appears (deck builder, collection).
+## "" = token/internal; "abyss_core" / "neutral_core" = starter deck pool;
+## "vael_common" / "vael_piercing_void" = Lord Vael unlock pools.
+@export var pool: String = ""
+
+## Rarity used for boss drop roll chances. "" for non-unlock cards.
+## Values: "common", "rare", "epic", "legendary"
+@export var rarity: String = ""

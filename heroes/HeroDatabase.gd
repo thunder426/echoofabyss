@@ -95,11 +95,11 @@ func _register_lord_vael() -> void:
 	h.talent_branch_ids = ["swarm", "rune_master", "void_bolt"]
 
 	# Cards available in the reward pool once permanently unlocked (boss drops).
-	# Mirrors the Common Imp Support Pool defined in GameManager._SUPPORT_CARD_RARITIES.
+	# Mirrors the "vael_common" pool in CardDatabase.
 	h.hero_reward_pool = [
-		"abyssal_conjuring", "void_breach", "abyss_recruiter", "dark_nursery",
-		"call_the_swarm", "imp_handler", "imp_barricade",
-		"abyssal_taskmaster", "imp_hatchery", "imp_overseer",
+		"imp_recruiter", "blood_pact",
+		"soul_taskmaster", "soul_shatter",
+		"void_amplifier", "soul_rune",
 	]
 
 	h.flavor = "\"The Abyss does not consume — it remembers.\"\n— Lord Vael, at the Rift Convergence"

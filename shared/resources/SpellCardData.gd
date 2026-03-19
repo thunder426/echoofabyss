@@ -11,8 +11,12 @@ extends CardData
 ## e.g. "friendly_minion", "enemy_minion", "any_minion", "enemy_hero"
 @export var target_type: String = ""
 
-## Effect ID resolved when this spell is cast. References EffectDatabase.
+## Effect ID resolved when this spell is cast. Used when effect_steps is empty (legacy path).
 @export var effect_id: String = ""
+
+## Declarative effect steps. When non-empty, EffectResolver runs these instead
+## of dispatching through the legacy _resolve_spell_effect match chain.
+@export var effect_steps: Array = []
 
 func _init() -> void:
 	card_type = Enums.CardType.SPELL

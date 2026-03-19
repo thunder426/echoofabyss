@@ -12,7 +12,7 @@ func _ready() -> void:
 		"shadow_hound",    # Minion (essence, Abyss Order)
 		"dark_surge",      # Spell (mana)
 		"dominion_rune",   # Rune (mana)
-		"void_bolt_rain",  # Environment (mana)
+		"abyss_ritual_circle",  # Environment (mana)
 	]
 
 	var x := 40

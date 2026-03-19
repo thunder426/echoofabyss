@@ -7,35 +7,6 @@ const CARD_VISUAL_SCENE := preload("res://combat/ui/CardVisual.tscn")
 const PREVIEW_SIZE   := Vector2(480, 720)
 const PREVIEW_OFFSET := Vector2(16, -PREVIEW_SIZE.y / 2.0)
 
-## Maps each support card ID to its named pool.
-const _CARD_POOL: Dictionary = {
-	# Void Bolt Support Pool (requires Piercing Void talent)
-	"mark_the_target":          "Void Bolt Pool",
-	"imp_combustion":           "Void Bolt Pool",
-	"dark_ritual_of_the_abyss": "Void Bolt Pool",
-	"imp_overload":             "Void Bolt Pool",
-	"void_channeler":           "Void Bolt Pool",
-	"abyssal_sacrificer":       "Void Bolt Pool",
-	"abyssal_arcanist":         "Void Bolt Pool",
-	"void_detonation":          "Void Bolt Pool",
-	"soul_rupture":             "Void Bolt Pool",
-	"void_bolt_rain":           "Void Bolt Pool",
-	"mark_convergence":         "Void Bolt Pool",
-	"mark_collapse":            "Void Bolt Pool",
-	"void_archmagus":           "Void Bolt Pool",
-	# Common Imp Support Pool (always available for Lord Vael)
-	"abyssal_conjuring":        "Imp Pool",
-	"void_breach":              "Imp Pool",
-	"abyss_recruiter":          "Imp Pool",
-	"dark_nursery":             "Imp Pool",
-	"call_the_swarm":           "Imp Pool",
-	"imp_handler":              "Imp Pool",
-	"imp_barricade":            "Imp Pool",
-	"abyssal_taskmaster":       "Imp Pool",
-	"imp_hatchery":             "Imp Pool",
-	"imp_overseer":             "Imp Pool",
-}
-
 # ---------------------------------------------------------------------------
 # Filter state  (-1 / "" = All)
 # ---------------------------------------------------------------------------
@@ -131,9 +102,9 @@ func _setup_filters() -> void:
 	)
 
 	_add_dropdown(row, "Pool",
-		["All Pools", "Void Bolt Pool", "Imp Pool"],
+		["All Pools", "Vael Pool", "Void Bolt Pool"],
 		func(idx: int) -> void:
-			var vals := ["", "Void Bolt Pool", "Imp Pool"]
+			var vals := ["", "vael_common", "vael_piercing_void"]
 			_filter_pool = vals[idx]
 			_build_list()
 	)
@@ -168,30 +139,25 @@ func _build_list() -> void:
 	for child in _container.get_children():
 		child.queue_free()
 
-	var all_ids: Array[String] = []
-	for card_id in GameManager._SUPPORT_CARD_RARITIES.keys():
-		all_ids.append(card_id)
-
 	var unlocked := GameManager.permanent_unlocks
 
 	# --- Filter ---
 	var visible_ids: Array[String] = []
-	for card_id in all_ids:
+	for card_id in CardDatabase.get_card_ids_in_pools(["vael_common", "vael_piercing_void"]):
 		var card := CardDatabase.get_card(card_id)
 		if not card:
 			continue
-		var rarity: String = GameManager._SUPPORT_CARD_RARITIES.get(card_id, "")
-		var is_unlocked    := card_id in unlocked
+		var is_unlocked := card_id in unlocked
 
 		if _filter_type != -1 and card.card_type != _filter_type:
 			continue
-		if _filter_rarity != "" and rarity != _filter_rarity:
+		if _filter_rarity != "" and card.rarity != _filter_rarity:
 			continue
 		if _filter_status == 1 and not is_unlocked:
 			continue
 		if _filter_status == 2 and is_unlocked:
 			continue
-		if _filter_pool != "" and _CARD_POOL.get(card_id, "") != _filter_pool:
+		if _filter_pool != "" and card.pool != _filter_pool:
 			continue
 		visible_ids.append(card_id)
 
@@ -206,18 +172,18 @@ func _build_list() -> void:
 
 	# --- Sort: pool asc, then rarity asc, then name ---
 	var rarity_order := {"common": 0, "rare": 1, "epic": 2, "legendary": 3}
-	var pool_order   := {"Imp Pool": 0, "Void Bolt Pool": 1}
+	var pool_order   := {"vael_common": 0, "vael_piercing_void": 1}
 	visible_ids.sort_custom(func(a: String, b: String) -> bool:
-		var pa: int = pool_order.get(_CARD_POOL.get(a, ""), 99)
-		var pb: int = pool_order.get(_CARD_POOL.get(b, ""), 99)
-		if pa != pb:
-			return pa < pb
-		var ra: int = rarity_order.get(GameManager._SUPPORT_CARD_RARITIES.get(a, ""), 99)
-		var rb: int = rarity_order.get(GameManager._SUPPORT_CARD_RARITIES.get(b, ""), 99)
-		if ra != rb:
-			return ra < rb
 		var ca := CardDatabase.get_card(a)
 		var cb := CardDatabase.get_card(b)
+		var pa: int = pool_order.get(ca.pool if ca else "", 99)
+		var pb: int = pool_order.get(cb.pool if cb else "", 99)
+		if pa != pb:
+			return pa < pb
+		var ra: int = rarity_order.get(ca.rarity if ca else "", 99)
+		var rb: int = rarity_order.get(cb.rarity if cb else "", 99)
+		if ra != rb:
+			return ra < rb
 		return (ca.card_name if ca else a) < (cb.card_name if cb else b)
 	)
 
@@ -240,7 +206,6 @@ func _build_list() -> void:
 		var card        := CardDatabase.get_card(card_id)
 		if not card:
 			continue
-		var rarity      : String = GameManager._SUPPORT_CARD_RARITIES.get(card_id, "?")
 		var is_unlocked := card_id in unlocked
 
 		var row := HBoxContainer.new()
@@ -250,13 +215,13 @@ func _build_list() -> void:
 		if not is_unlocked:
 			row.modulate = Color(0.45, 0.45, 0.50, 1)
 
-		var pool_name: String = _CARD_POOL.get(card_id, "?")
+		var pool_display: String = _pool_display_name(card.pool)
 		_add_cell(row, "🔓" if is_unlocked else "🔒", 28, HORIZONTAL_ALIGNMENT_CENTER,
 			Color(1, 1, 1, 1))
-		_add_cell(row, pool_name, 130, HORIZONTAL_ALIGNMENT_LEFT,
-			_pool_color(pool_name))
-		_add_cell(row, rarity.capitalize(), 100, HORIZONTAL_ALIGNMENT_LEFT,
-			_rarity_color(rarity))
+		_add_cell(row, pool_display, 130, HORIZONTAL_ALIGNMENT_LEFT,
+			_pool_color(card.pool))
+		_add_cell(row, card.rarity.capitalize(), 100, HORIZONTAL_ALIGNMENT_LEFT,
+			_rarity_color(card.rarity))
 		_add_cell(row, _type_str(card.card_type), 60, HORIZONTAL_ALIGNMENT_LEFT,
 			Color(0.60, 0.65, 0.80, 1))
 		_add_cell(row, card.card_name, 200, HORIZONTAL_ALIGNMENT_LEFT,
@@ -298,10 +263,16 @@ func _type_str(t: Enums.CardType) -> String:
 		Enums.CardType.ENVIRONMENT: return "Env"
 	return "?"
 
+func _pool_display_name(pool: String) -> String:
+	match pool:
+		"vael_common":         return "Vael Pool"
+		"vael_piercing_void":  return "Void Bolt Pool"
+	return pool
+
 func _pool_color(pool: String) -> Color:
 	match pool:
-		"Void Bolt Pool": return Color(0.55, 0.80, 1.00, 1)
-		"Imp Pool":       return Color(0.65, 1.00, 0.55, 1)
+		"vael_piercing_void": return Color(0.55, 0.80, 1.00, 1)
+		"vael_common":        return Color(0.65, 1.00, 0.55, 1)
 	return Color(0.55, 0.55, 0.65, 1)
 
 func _rarity_color(rarity: String) -> Color:

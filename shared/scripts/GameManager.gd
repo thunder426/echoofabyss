@@ -10,39 +10,6 @@ const TOTAL_FIGHTS := 15
 ## 0-based indices of the boss fight in each act.
 const BOSS_INDICES: Array[int] = [2, 5, 8, 14]
 
-# ---------------------------------------------------------------------------
-# Support pool rarity table — used for boss drop rolls.
-# Keys match card IDs in CardDatabase. Only cards that can be permanently
-# unlocked need an entry here.
-# ---------------------------------------------------------------------------
-const _SUPPORT_CARD_RARITIES: Dictionary = {
-	# Piercing Void pool (Lord Vael)
-	"mark_the_target":            "common",
-	"imp_combustion":             "common",
-	"dark_ritual_of_the_abyss":   "common",
-	"imp_overload":               "common",
-	"void_channeler":             "rare",
-	"abyssal_sacrificer":         "rare",
-	"abyssal_arcanist":           "rare",
-	"void_detonation":            "rare",
-	"soul_rupture":               "rare",
-	"void_bolt_rain":             "epic",
-	"mark_convergence":           "epic",
-	"mark_collapse":              "epic",
-	"void_archmagus":             "legendary",
-	# Common Imp Support Pool (Lord Vael, no talent requirement)
-	"abyssal_conjuring":          "common",
-	"void_breach":                "common",
-	"abyss_recruiter":            "common",
-	"dark_nursery":               "common",
-	"call_the_swarm":             "rare",
-	"imp_handler":                "rare",
-	"imp_barricade":              "rare",
-	"abyssal_taskmaster":         "epic",
-	"imp_hatchery":               "epic",
-	"imp_overseer":               "legendary",
-}
-
 ## Per-rarity unlock chance (rolled once per eligible card per boss kill).
 const _UNLOCK_CHANCE: Dictionary = {
 	"common":    0.60,
@@ -184,17 +151,9 @@ func grant_boss_unlocks(act_number: int) -> void:
 	# Gather all support pool cards relevant to the current hero + talents.
 	var candidates: Array[String] = []
 	if current_hero == "lord_vael":
-		# Common Imp Support Pool is always available for Lord Vael
-		for id in ["abyssal_conjuring", "void_breach", "abyss_recruiter", "dark_nursery",
-				"call_the_swarm", "imp_handler", "imp_barricade",
-				"abyssal_taskmaster", "imp_hatchery", "imp_overseer"]:
-			candidates.append(id)
+		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_common"]))
 	if has_talent("piercing_void"):
-		for id in ["mark_the_target", "imp_combustion", "dark_ritual_of_the_abyss", "imp_overload",
-				"void_channeler", "abyssal_sacrificer", "abyssal_arcanist",
-				"void_detonation", "soul_rupture", "void_bolt_rain", "mark_convergence",
-				"mark_collapse", "void_archmagus"]:
-			candidates.append(id)
+		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_piercing_void"]))
 	# Future support pools (other heroes / talents) appended here.
 
 	# Roll each candidate that is eligible and not yet unlocked.
@@ -202,7 +161,10 @@ func grant_boss_unlocks(act_number: int) -> void:
 	for card_id in candidates:
 		if card_id in permanent_unlocks:
 			continue  # already unlocked
-		var rarity: String = _SUPPORT_CARD_RARITIES.get(card_id, "")
+		var card := CardDatabase.get_card(card_id)
+		if not card:
+			continue
+		var rarity: String = card.rarity
 		if rarity not in eligible:
 			continue
 		var chance: float = _UNLOCK_CHANCE.get(rarity, 0.0)

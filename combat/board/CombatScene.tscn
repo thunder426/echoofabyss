@@ -41,31 +41,6 @@ text = "Mana: 0 / 0"
 theme_override_colors/font_color = Color(0.25, 0.60, 1.0, 1)
 theme_override_font_sizes/font_size = 16
 
-[node name="EnemyNameLabel" type="Label" parent="UI" unique_id=100000010]
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -200.0
-offset_top = 8.0
-offset_right = 200.0
-offset_bottom = 34.0
-grow_horizontal = 2
-horizontal_alignment = 1
-text = "Enemy"
-theme_override_colors/font_color = Color(1.0, 0.55, 0.55, 1)
-theme_override_font_sizes/font_size = 20
-
-[node name="EnemyHP" type="Label" parent="UI" unique_id=1552478699]
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -80.0
-offset_top = 34.0
-offset_right = 80.0
-offset_bottom = 58.0
-grow_horizontal = 2
-text = "Enemy HP: 30"
-theme_override_colors/font_color = Color(1.0, 0.30, 0.30, 1)
-theme_override_font_sizes/font_size = 16
-
 [node name="FightLabel" type="Label" parent="UI" unique_id=100000011]
 anchor_right = 1.0
 offset_left = -220.0
@@ -92,9 +67,9 @@ theme_override_font_sizes/font_size = 15
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -475.0
-offset_top = 60.0
+offset_top = 175.0
 offset_right = 475.0
-offset_bottom = 120.0
+offset_bottom = 220.0
 grow_horizontal = 2
 alignment = 1
 
@@ -153,9 +128,9 @@ theme_override_font_sizes/font_size = 12
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -475.0
-offset_top = 123.0
+offset_top = 233.0
 offset_right = 475.0
-offset_bottom = 323.0
+offset_bottom = 433.0
 grow_horizontal = 2
 alignment = 1
 
@@ -184,25 +159,13 @@ custom_minimum_size = Vector2(180, 195)
 layout_mode = 2
 script = ExtResource("3_2ubrw")
 
-[node name="PlayerHP" type="Label" parent="UI" unique_id=688869080]
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -80.0
-offset_top = 430.0
-offset_right = 80.0
-offset_bottom = 460.0
-grow_horizontal = 2
-text = "Player HP: 30"
-theme_override_colors/font_color = Color(1.0, 0.30, 0.30, 1)
-theme_override_font_sizes/font_size = 16
-
 [node name="PlayerBoard" type="HBoxContainer" parent="UI" unique_id=1790611747]
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -475.0
-offset_top = 470.0
+offset_top = 465.0
 offset_right = 475.0
-offset_bottom = 670.0
+offset_bottom = 665.0
 grow_horizontal = 2
 alignment = 1
 
@@ -292,17 +255,6 @@ offset_right = 500.0
 offset_bottom = -30.0
 grow_horizontal = 2
 grow_vertical = 0
-
-[node name="EnemyHeroButton" type="Button" parent="UI"]
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -110.0
-offset_top = 15.0
-offset_right = 110.0
-offset_bottom = 58.0
-grow_horizontal = 2
-text = "Attack Enemy Hero"
-visible = false
 
 [node name="CombatLogPanel" type="Panel" parent="UI"]
 offset_left = 12.0
@@ -395,9 +347,9 @@ theme_override_font_sizes/font_size = 18
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -475.0
-offset_top = 678.0
+offset_top = 670.0
 offset_right = 475.0
-offset_bottom = 778.0
+offset_bottom = 740.0
 grow_horizontal = 2
 alignment = 1
 

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bccisk8oh8lrc"
-path="res://.godot/imported/human_minion.png-65cdda52af8e2a06201892a85b2364ae.ctex"
+uid="uid://cnl0gi2xslb5h"
+path="res://.godot/imported/abyssal_brute_small.png-32c019f411fe62b0c4e09f4208f27c00.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/frames/abyss_order/human_minion.png"
-dest_files=["res://.godot/imported/human_minion.png-65cdda52af8e2a06201892a85b2364ae.ctex"]
+source_file="res://assets/art/minions/abyss_order/abyssal_brute_small.png"
+dest_files=["res://.godot/imported/abyssal_brute_small.png-32c019f411fe62b0c4e09f4208f27c00.ctex"]
 
 [params]
 

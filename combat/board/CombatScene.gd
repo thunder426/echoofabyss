@@ -20,12 +20,9 @@ var essence_label: Label
 var mana_label: Label
 var end_turn_essence_button: Button
 var end_turn_mana_button: Button
-var player_hp_label: Label
-var enemy_hp_label: Label
-var enemy_name_label: Label
+var end_turn_button: Button  # shown at soft cap instead of the two-choice buttons
 var fight_label: Label
 var hand_display: HandDisplay
-var enemy_hero_button: Button
 var environment_slot: Panel
 var environment_slot_name: Label
 var environment_slot_desc: Label
@@ -48,8 +45,15 @@ var _large_preview: CardVisual = null
 var _enemy_status_panel: Panel = null
 var _enemy_status_hp_label: Label = null
 var _enemy_status_essence_label: Label = null
+var _enemy_status_mana_label: Label = null
+var _enemy_status_hand_label: Label = null
 var _enemy_status_marks_label: Label = null
+var _enemy_hero_attack_hint: Label = null
 var enemy_hp_max: int = 0
+
+# Player hero status panel (built programmatically)
+var _player_status_panel: Panel = null
+var _player_status_hp_label: Label = null
 
 # ---------------------------------------------------------------------------
 # Internal state
@@ -147,18 +151,11 @@ func _ready() -> void:
 
 	# HP resets to full at the start of every new combat
 	player_hp = GameManager.player_hp_max
-	if player_hp_label:
-		player_hp_label.text = "HP: %d" % player_hp
 
 	# Override enemy HP / name / fight number from current encounter
 	if GameManager.current_enemy != null:
 		enemy_hp = GameManager.current_enemy.hp
 		enemy_hp_max = enemy_hp
-		if enemy_hp_label:
-			enemy_hp_label.text = "HP: %d" % enemy_hp
-		if enemy_name_label:
-			var prefix := "⚔ BOSS: " if GameManager.is_boss_fight() else ""
-			enemy_name_label.text = prefix + GameManager.current_enemy.enemy_name
 		if fight_label:
 			fight_label.text = "Fight %d / %d" % [GameManager.run_node_index + 1, GameManager.TOTAL_FIGHTS]
 
@@ -171,8 +168,12 @@ func _ready() -> void:
 	turn_manager.start_combat(deck)
 	_setup_hero_passives_panel()
 	_setup_enemy_status_panel()
+	_setup_player_status_panel()
 	_setup_large_preview()
 	_setup_triggers()
+	_setup_cheat_panel()
+	if TestConfig.enabled:
+		_apply_test_config.call_deferred()
 
 func _find_nodes() -> void:
 	turn_manager            = $TurnManager
@@ -181,12 +182,20 @@ func _find_nodes() -> void:
 	mana_label             = $UI/ManaLabel
 	end_turn_essence_button = $UI/EndTurnPanel/EndTurnEssenceButton
 	end_turn_mana_button   = $UI/EndTurnPanel/EndTurnManaButton
-	player_hp_label        = $UI/PlayerHP
-	enemy_hp_label    = $UI/EnemyHP
-	enemy_name_label  = $UI/EnemyNameLabel if has_node("UI/EnemyNameLabel") else null
-	fight_label       = $UI/FightLabel     if has_node("UI/FightLabel")     else null
+	# Single button shown when at soft cap
+	end_turn_button = Button.new()
+	end_turn_button.text = "End Turn"
+	end_turn_button.add_theme_color_override("font_color", Color(1.0, 0.85, 0.30, 1))
+	end_turn_button.add_theme_font_size_override("font_size", 18)
+	end_turn_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	end_turn_button.offset_top    = 38.0
+	end_turn_button.offset_bottom = -16.0
+	end_turn_button.offset_left   = 6.0
+	end_turn_button.offset_right  = -6.0
+	end_turn_button.visible = false
+	$UI/EndTurnPanel.add_child(end_turn_button)
+	fight_label       = $UI/FightLabel if has_node("UI/FightLabel") else null
 	hand_display      = $UI/HandDisplay
-	enemy_hero_button = $UI/EnemyHeroButton
 	if has_node("UI/EnvironmentSlot"):
 		environment_slot      = $UI/EnvironmentSlot
 		environment_slot_name = $UI/EnvironmentSlot/SlotNameLabel if $UI/EnvironmentSlot.has_node("SlotNameLabel") else null
@@ -274,13 +283,13 @@ func _connect_ui() -> void:
 		end_turn_essence_button.pressed.connect(_on_end_turn_essence_pressed)
 	if end_turn_mana_button:
 		end_turn_mana_button.pressed.connect(_on_end_turn_mana_pressed)
+	if end_turn_button:
+		end_turn_button.pressed.connect(_do_end_turn)
 	if hand_display:
 		hand_display.card_selected.connect(_on_hand_card_selected)
 		hand_display.card_hovered.connect(_show_large_preview)
 		hand_display.card_unhovered.connect(_hide_large_preview)
 		hand_display.card_deselected.connect(_on_hand_card_deselected)
-	if enemy_hero_button:
-		enemy_hero_button.pressed.connect(_on_enemy_hero_button_pressed)
 	if _hp_panel:
 		_hp_panel.mouse_entered.connect(_on_hero_passives_hover_enter)
 		_hp_panel.mouse_exited.connect(_on_hero_passives_hover_exit)
@@ -313,6 +322,9 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		end_turn_essence_button.disabled = not is_player_turn
 	if end_turn_mana_button:
 		end_turn_mana_button.disabled = not is_player_turn
+	if end_turn_button:
+		end_turn_button.disabled = not is_player_turn
+	_refresh_end_turn_mode()
 	# Update turn counter and remaining deck count
 	if turn_label:
 		turn_label.text = "Turn %d  |  Deck: %d" % [turn_manager.turn_number, turn_manager.player_deck.size()]
@@ -359,11 +371,23 @@ func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: 
 		mana_label.text = "Mana: %d / %d" % [mana, mana_max]
 	if hand_display:
 		hand_display.refresh_playability(essence, mana)
-	var at_cap := (essence_max + mana_max) >= TurnManager.COMBINED_RESOURCE_CAP
+	_refresh_hand_spell_costs()
+	# NOTE: end-turn button mode is NOT updated here — temp gains (gain_mana, gain_essence)
+	# also fire this signal and must not flip the button layout.
+	# Use _refresh_end_turn_mode() only when permanent max values change.
+
+## Update end-turn panel layout based on permanent resource max values.
+## Call only after grow_essence_max / grow_mana_max or at turn start.
+func _refresh_end_turn_mode() -> void:
+	var at_cap := (turn_manager.essence_max + turn_manager.mana_max) >= TurnManager.COMBINED_RESOURCE_CAP
 	if end_turn_essence_button:
-		end_turn_essence_button.disabled = at_cap
+		end_turn_essence_button.visible = not at_cap
 	if end_turn_mana_button:
-		end_turn_mana_button.disabled = at_cap
+		end_turn_mana_button.visible = not at_cap
+	if has_node("UI/EndTurnPanel/ETSubLabel"):
+		$UI/EndTurnPanel/ETSubLabel.visible = not at_cap
+	if end_turn_button:
+		end_turn_button.visible = at_cap
 
 func _on_card_drawn(card_data: CardData) -> void:
 	if hand_display:
@@ -454,6 +478,7 @@ func _on_hand_card_deselected() -> void:
 	pending_play_card = null
 	pending_minion_target = null
 	_awaiting_minion_target = false
+	_tear_down_trap_env_targeting()
 	_clear_all_highlights()
 
 # ---------------------------------------------------------------------------
@@ -467,7 +492,10 @@ func _try_play_spell(spell: SpellCardData) -> void:
 			hand_display.deselect_current()
 		return
 	_log("You cast: %s" % spell.card_name)
-	_resolve_spell_effect(spell.effect_id, null)
+	if not spell.effect_steps.is_empty():
+		EffectResolver.run(spell.effect_steps, EffectContext.make(self, "player"))
+	else:
+		_resolve_spell_effect(spell.effect_id, null)
 	turn_manager.remove_from_hand(spell)
 	if hand_display:
 		hand_display.remove_card(spell)
@@ -580,6 +608,7 @@ func _rune_type_name(rune_type: int) -> String:
 		Enums.RuneType.VOID_RUNE:     return "Void Rune"
 		Enums.RuneType.BLOOD_RUNE:    return "Blood Rune"
 		Enums.RuneType.DOMINION_RUNE: return "Dominion Rune"
+		Enums.RuneType.SOUL_RUNE:     return "Soul Rune"
 		Enums.RuneType.SHADOW_RUNE:   return "Shadow Rune"
 	return "Unknown Rune"
 
@@ -685,115 +714,23 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: Min
 	play_ctx.minion = instance
 	play_ctx.card   = card
 	play_ctx.target = on_play_target
+	turn_manager.remove_from_hand(card)
+	if hand_display:
+		hand_display.remove_card(card)
+		hand_display.deselect_current()
 	trigger_manager.fire(play_ctx)
 	var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
 	summon_ctx.minion = instance
 	summon_ctx.card   = card
 	trigger_manager.fire(summon_ctx)
-	turn_manager.remove_from_hand(card)
-	if hand_display:
-		hand_display.remove_card(card)
-		hand_display.deselect_current()
+	_refresh_hand_spell_costs()
 
-## owner is "player" (default) or "enemy" — all board/hero references are resolved relative to owner.
-## target is the player-chosen minion for targeted battle cries; null means pick randomly (AI / untargeted).
-func _resolve_on_play_effect(effect_id: String, source: MinionInstance, owner: String = "player", target: MinionInstance = null) -> void:
-	match effect_id:
-		"deal_1_enemy_hero":
-			# piercing_void replaces the 100 direct damage with 200 Void Bolt (player-only talent)
-			if owner == "player" and _has_talent("piercing_void"):
-				pass  # handled in _try_play_minion for player; no-op here
-			else:
-				_on_hero_damaged(_opponent_of(owner), 100)
-		"shadow_hound_atk_bonus":
-			var bonus := 0
-			for minion in _friendly_board(owner):
-				if minion != source and minion.card_data.minion_type == Enums.MinionType.DEMON:
-					bonus += 100
-			if bonus > 0:
-				BuffSystem.apply(source, Enums.BuffType.ATK_BONUS, bonus, "shadow_hound")
-				_refresh_slot_for(source)
-		"abyss_cultist_corrupt":
-			var chosen := _find_random_minion(_opponent_board(owner))
-			if chosen:
-				_corrupt_minion(chosen)
-		"void_netter_damage":
-			var chosen := target if target != null else _find_random_minion(_opponent_board(owner))
-			if chosen:
-				_log("  Void Netter strikes %s for 200 damage." % chosen.card_data.card_name, _LogType.PLAYER)
-				combat_manager.apply_spell_damage(chosen, 200)
-		"corruption_weaver_corrupt_all":
-			for m in _opponent_board(owner).duplicate():
-				_corrupt_minion(m)
-		"soul_collector_execute":
-			var chosen := target if target != null else _find_random_corrupted_minion(_opponent_board(owner))
-			if chosen:
-				_log("  Soul Collector devours Corrupted %s!" % chosen.card_data.card_name, _LogType.DEATH)
-				combat_manager.kill_minion(chosen)
-			else:
-				_log("  Soul Collector: no Corrupted targets.", _LogType.PLAYER)
-		"runic_void_imp_damage":
-			var chosen := target if target != null else _find_random_minion(_opponent_board(owner))
-			if chosen:
-				_log("  Runic Void Imp fires a Void Bolt at %s!" % chosen.card_data.card_name, _LogType.PLAYER)
-				combat_manager.apply_spell_damage(chosen, 300)
-		"void_devourer_sacrifice":
-			_resolve_void_devourer_sacrifice(source, owner)
-		# --- Neutral Core Set ---
-		"draw_1_card":
-			if owner == "player":
-				turn_manager.draw_card()
-			else:
-				enemy_ai._draw_cards(1)
-		"destroy_random_enemy_trap":
-			if owner == "player":
-				# Enemy traps not yet implemented — no-op stub.
-				_log("  Trapbreaker: no enemy traps to destroy.", _LogType.PLAYER)
-		"spell_taxer_effect":
-			if owner == "player":
-				# Enemy's spells cost +1 extra essence on their next turn.
-				_spell_tax_for_enemy_turn += 1
-				_log("  Spell Taxer: enemy spells cost +1 next turn.", _LogType.PLAYER)
-		"saboteur_adept_effect":
-			if owner == "player":
-				# Enemy traps not yet implemented — no-op stub.
-				_log("  Saboteur Adept: enemy traps blocked this turn (not yet active).", _LogType.PLAYER)
-		# --- Void Bolt Support Pool ---
-		"abyssal_arcanist_effect":
-			var bolt := CardDatabase.get_card("void_bolt")
-			if bolt:
-				if owner == "player":
-					turn_manager.add_to_hand(bolt)
-				else:
-					enemy_ai.add_to_hand(bolt)
-				_log("  Abyssal Arcanist: Void Bolt added to hand.", _LogType.PLAYER)
-		# (lord_vael is now a hero, not a minion card — no on_play_effect needed)
-		# --- Common Imp Support Pool ---
-		"abyss_recruiter_effect":
-			var imp_card := CardDatabase.get_card("void_imp")
-			if imp_card:
-				if owner == "player":
-					turn_manager.add_to_hand(imp_card)
-				else:
-					enemy_ai.add_to_hand(imp_card)
-				_log("  Abyss Recruiter: Void Imp added to hand.", _LogType.PLAYER)
-		"grant_taunt_to_void_imps":
-			for m in _friendly_board(owner):
-				if _is_void_imp_type(m):
-					BuffSystem.apply(m, Enums.BuffType.GRANT_GUARD, 1, "imp_overseer_aura")
-					_refresh_slot_for(m)
-			_log("  Imp Overseer: all Void Imps now have Guard.", _LogType.PLAYER)
 
 ## Fire the On Death effect of a minion that just died.
 func _resolve_on_death_effect(minion: MinionInstance) -> void:
 	match minion.card_data.on_death_effect:
-		"remove_taunt_from_void_imps":
-			# Only strip Guard if no other Imp Overseer remains on the same owner's board
-			if not _has_imp_overseer_on_board(minion.owner):
-				for m in _friendly_board(minion.owner):
-					if _is_void_imp_type(m):
-						BuffSystem.remove_source(m, "imp_overseer_aura")
-						_refresh_slot_for(m)
+		_:
+			pass
 
 ## Apply the active environment's passive effect at the start of the player's turn.
 func _apply_environment_passive(effect_id: String) -> void:
@@ -821,10 +758,6 @@ func _apply_environment_passive(effect_id: String) -> void:
 			_log("  Void Bolt Rain: enemy hero takes 100 Void Bolt damage, you take 100 damage.", _LogType.PLAYER)
 			_deal_void_bolt_damage(100)
 			_on_hero_damaged("player", 100)
-		"imp_hatchery_passive":
-			if _count_void_imps_on_board() < 2:
-				_summon_void_imp()
-				_log("  Imp Hatchery: fewer than 2 Void Imps — one summoned.", _LogType.PLAYER)
 		"abyssal_summoning_circle_passive":
 			# Passive fires on player minion death (event-driven), not turn start — handled separately.
 			pass
@@ -929,6 +862,258 @@ func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = 
 func _on_friendly_minion_died(_dead_minion: MinionInstance) -> void:
 	pass  # Handled by ON_PLAYER_MINION_DIED event handlers
 
+## Generic token summon used by EffectResolver. Summons card_id into the first empty slot for owner.
+## token_atk / token_hp / token_shield override the template defaults when non-zero.
+func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+	var data := CardDatabase.get_card(card_id) as MinionCardData
+	if data == null:
+		return
+	var slots  := player_slots if owner == "player" else enemy_slots
+	var board  := player_board if owner == "player" else enemy_board
+	for slot in slots:
+		if slot.is_empty():
+			var instance := MinionInstance.create(data, owner)
+			if token_atk    > 0: instance.current_atk    = token_atk
+			if token_hp     > 0: instance.current_health = token_hp
+			if token_shield > 0:
+				instance.current_shield = token_shield
+				BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token")
+			board.append(instance)
+			slot.place_minion(instance)
+			_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
+			var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+			var ctx   := EventContext.make(event, owner)
+			ctx.minion = instance
+			ctx.card   = data
+			trigger_manager.fire(ctx)
+			return
+
+## Count minions of a given type on the specified owner's board.
+func _count_type_on_board(type: Enums.MinionType, owner: String) -> int:
+	return _friendly_board(owner).filter(func(m: MinionInstance): return m.card_data.minion_type == type).size()
+
+## Return true if there is at least one empty player slot.
+func _has_empty_player_slot() -> bool:
+	for slot in player_slots:
+		if slot.is_empty():
+			return true
+	return false
+
+# ---------------------------------------------------------------------------
+# Test Mode (Option C) — applied after normal combat startup
+# ---------------------------------------------------------------------------
+
+func _apply_test_config() -> void:
+	# Override HP values
+	if TestConfig.player_hp > 0:
+		player_hp = TestConfig.player_hp
+
+	if TestConfig.enemy_hp > 0:
+		enemy_hp     = TestConfig.enemy_hp
+		enemy_hp_max = TestConfig.enemy_hp
+	# Add cards directly to hand
+	for id in TestConfig.hand_cards:
+		var card := CardDatabase.get_card(id)
+		if card:
+			turn_manager.add_to_hand(card)
+
+	# Pre-summon player board minions
+	for id in TestConfig.player_board_cards:
+		_summon_token(id, "player")
+
+	# Pre-summon enemy board minions
+	for id in TestConfig.enemy_board_cards:
+		_summon_token(id, "enemy")
+
+	# Override starting resources
+	if TestConfig.start_essence_max > 0:
+		turn_manager.essence_max = TestConfig.start_essence_max
+		turn_manager.essence     = TestConfig.start_essence_max
+	if TestConfig.start_mana_max > 0:
+		turn_manager.mana_max = TestConfig.start_mana_max
+		turn_manager.mana     = TestConfig.start_mana_max
+	if TestConfig.start_essence_max > 0 or TestConfig.start_mana_max > 0:
+		turn_manager.resources_changed.emit(
+			turn_manager.essence, turn_manager.essence_max,
+			turn_manager.mana,    turn_manager.mana_max)
+		_refresh_end_turn_mode()
+
+	_log("[TEST] Test config applied.", _LogType.TURN)
+	TestConfig.enabled = false  # consumed — reset so normal navigation isn't affected
+
+# ---------------------------------------------------------------------------
+# Cheat Panel (Option B) — F12 toggle, always present during combat
+# ---------------------------------------------------------------------------
+
+var _cheat_panel: CanvasLayer
+var _cheat_visible: bool = false
+var _cheat_card_input: LineEdit
+var _cheat_dmg_input:  SpinBox
+var _cheat_status_lbl: Label
+
+func _setup_cheat_panel() -> void:
+	_cheat_panel = CanvasLayer.new()
+	_cheat_panel.layer = 128
+	add_child(_cheat_panel)
+
+	var root := PanelContainer.new()
+	root.custom_minimum_size = Vector2(320, 0)
+	root.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	root.offset_left  = -330
+	root.offset_top   = 10
+	root.offset_right = -10
+	_cheat_panel.add_child(root)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	root.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "⚙ Cheat Panel  [F12]"
+	title.add_theme_color_override("font_color", Color(1, 0.85, 0.3))
+	title.add_theme_font_size_override("font_size", 14)
+	vbox.add_child(title)
+
+	vbox.add_child(HSeparator.new())
+
+	# Add card to hand
+	var hand_label := Label.new()
+	hand_label.text = "Add card to hand (ID):"
+	hand_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(hand_label)
+
+	var hand_row := HBoxContainer.new()
+	vbox.add_child(hand_row)
+	_cheat_card_input = LineEdit.new()
+	_cheat_card_input.placeholder_text = "e.g. arcane_strike"
+	_cheat_card_input.custom_minimum_size = Vector2(200, 0)
+	_cheat_card_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hand_row.add_child(_cheat_card_input)
+	var add_btn := Button.new()
+	add_btn.text = "Add"
+	add_btn.pressed.connect(_cheat_add_card)
+	hand_row.add_child(add_btn)
+
+	vbox.add_child(HSeparator.new())
+
+	# Damage / heal heroes
+	var dmg_label := Label.new()
+	dmg_label.text = "Damage / Heal heroes:"
+	dmg_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(dmg_label)
+
+	var dmg_row := HBoxContainer.new()
+	vbox.add_child(dmg_row)
+	_cheat_dmg_input = SpinBox.new()
+	_cheat_dmg_input.min_value = 0
+	_cheat_dmg_input.max_value = 99999
+	_cheat_dmg_input.value     = 500
+	_cheat_dmg_input.step      = 100
+	_cheat_dmg_input.custom_minimum_size = Vector2(110, 0)
+	dmg_row.add_child(_cheat_dmg_input)
+
+	var dmg_player := Button.new()
+	dmg_player.text = "Dmg Player"
+	dmg_player.pressed.connect(func(): _on_hero_damaged("player", int(_cheat_dmg_input.value)))
+	dmg_row.add_child(dmg_player)
+
+	var dmg_enemy := Button.new()
+	dmg_enemy.text = "Dmg Enemy"
+	dmg_enemy.pressed.connect(func(): _on_hero_damaged("enemy", int(_cheat_dmg_input.value)))
+	dmg_row.add_child(dmg_enemy)
+
+	var heal_row := HBoxContainer.new()
+	vbox.add_child(heal_row)
+	var heal_player := Button.new()
+	heal_player.text = "Heal Player"
+	heal_player.pressed.connect(func(): _on_hero_healed("player", int(_cheat_dmg_input.value)))
+	heal_row.add_child(heal_player)
+
+	var heal_enemy := Button.new()
+	heal_enemy.text = "Heal Enemy"
+	heal_enemy.pressed.connect(func(): _on_hero_healed("enemy", int(_cheat_dmg_input.value)))
+	heal_row.add_child(heal_enemy)
+
+	vbox.add_child(HSeparator.new())
+
+	# Summon token
+	var summon_label := Label.new()
+	summon_label.text = "Summon minion (ID):"
+	summon_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(summon_label)
+
+	var summon_row := HBoxContainer.new()
+	vbox.add_child(summon_row)
+	var summon_input := LineEdit.new()
+	summon_input.placeholder_text = "e.g. shadow_hound"
+	summon_input.custom_minimum_size = Vector2(160, 0)
+	summon_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	summon_row.add_child(summon_input)
+	var summon_player_btn := Button.new()
+	summon_player_btn.text = "Mine"
+	summon_player_btn.pressed.connect(func(): _summon_token(summon_input.text.strip_edges(), "player"))
+	summon_row.add_child(summon_player_btn)
+	var summon_enemy_btn := Button.new()
+	summon_enemy_btn.text = "Enemy"
+	summon_enemy_btn.pressed.connect(func(): _summon_token(summon_input.text.strip_edges(), "enemy"))
+	summon_row.add_child(summon_enemy_btn)
+
+	vbox.add_child(HSeparator.new())
+
+	# Resources
+	var res_btn := Button.new()
+	res_btn.text = "Refill Resources (Essence + Mana)"
+	res_btn.pressed.connect(func():
+		turn_manager.gain_essence(turn_manager.essence_max)
+		turn_manager.gain_mana(turn_manager.mana_max))
+	vbox.add_child(res_btn)
+
+	# Status feedback
+	_cheat_status_lbl = Label.new()
+	_cheat_status_lbl.add_theme_color_override("font_color", Color(1, 0.4, 0.4))
+	_cheat_status_lbl.add_theme_font_size_override("font_size", 11)
+	_cheat_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(_cheat_status_lbl)
+
+	# Hidden by default
+	_cheat_panel.visible = false
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F12:
+			_cheat_visible = not _cheat_visible
+			_cheat_panel.visible = _cheat_visible
+
+func _cheat_add_card() -> void:
+	var id := _cheat_card_input.text.strip_edges()
+	if id == "":
+		return
+	var card := CardDatabase.get_card(id)
+	if card == null:
+		_cheat_status_lbl.text = "Unknown card: " + id
+		return
+	turn_manager.add_to_hand(card)
+	_cheat_status_lbl.text = ""
+	_cheat_card_input.text = ""
+
+## Entry point for EffectResolver HARDCODED steps.
+func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
+	match id:
+		"void_devourer_sacrifice":
+			_resolve_void_devourer_sacrifice(ctx.source, ctx.owner)
+		"destroy_random_enemy_trap":
+			if ctx.owner == "player":
+				_log("  Trapbreaker: no enemy traps to destroy.", _LogType.PLAYER)
+		"spell_taxer_effect":
+			if ctx.owner == "player":
+				_spell_tax_for_enemy_turn += 1
+				_log("  Spell Taxer: enemy spells cost +1 next turn.", _LogType.PLAYER)
+		"saboteur_adept_effect":
+			if ctx.owner == "player":
+				_log("  Saboteur Adept: enemy traps blocked this turn (not yet active).", _LogType.PLAYER)
+		_:
+			_resolve_spell_effect(id, ctx.chosen_target, ctx.owner)
+
 ## Summon a 100/100 Void Spark into the first empty player slot.
 func _summon_void_spark() -> void:
 	for slot in player_slots:
@@ -945,6 +1130,11 @@ func _summon_void_spark() -> void:
 			ctx.card   = spark_data
 			trigger_manager.fire(ctx)
 			return
+
+## Summon a Void Spark Spirit token with the given ATK/HP into the first empty player slot.
+## Used by Soul Rune aura (stats scale with rune stacks).
+func _summon_soul_rune_spirit(atk: int, hp: int) -> void:
+	_summon_token("void_spark", "player", atk, hp)
 
 ## Summon a 100/200 Wandering Spirit token into the first empty player slot.
 func _summon_wandering_spirit() -> void:
@@ -967,9 +1157,13 @@ func _summon_wandering_spirit() -> void:
 func _summon_soldier() -> void:
 	for slot in player_slots:
 		if slot.is_empty():
-			var data := CardDatabase.get_card("soldier") as MinionCardData
-			if data == null:
-				return
+			var data := MinionCardData.new()
+			data.id          = "soldier"
+			data.card_name   = "Soldier"
+			data.atk         = 100
+			data.health      = 100
+			data.minion_type = Enums.MinionType.HUMAN
+			data.faction     = "neutral"
 			var instance := MinionInstance.create(data, "player")
 			player_board.append(instance)
 			slot.place_minion(instance)
@@ -1098,6 +1292,14 @@ func _summon_champion_card(card: MinionCardData, from_hand: bool) -> void:
 func _has_talent(id: String) -> bool:
 	return GameManager.has_talent(id)
 
+## Refresh hand card cost display and large preview to reflect the current board discount.
+func _refresh_hand_spell_costs() -> void:
+	var discount := _spell_mana_discount()
+	if hand_display:
+		hand_display.refresh_spell_costs(discount)
+	if _large_preview and _large_preview.visible:
+		_large_preview.apply_cost_discount(discount)
+
 ## Mana discount applied to all player spells — summed from all minions on board.
 ## Data-driven via MinionCardData.mana_cost_discount.
 func _spell_mana_discount() -> int:
@@ -1172,6 +1374,7 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		minion.owner)
 	ctx.minion = minion
 	trigger_manager.fire(ctx)
+	_refresh_hand_spell_costs()
 
 func _on_hero_damaged(target: String, amount: int) -> void:
 	if _combat_ended:
@@ -1183,8 +1386,7 @@ func _on_hero_damaged(target: String, amount: int) -> void:
 			_log("  Shadow Veil absorbs %d damage!" % amount, _LogType.PLAYER)
 			return
 		player_hp -= amount
-		if player_hp_label:
-			player_hp_label.text = "HP: %d" % player_hp
+		_update_player_status_panel()
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
 		if player_hp <= 0:
 			_on_defeat()
@@ -1194,8 +1396,6 @@ func _on_hero_damaged(target: String, amount: int) -> void:
 			trigger_manager.fire(_ctx)
 	else:
 		enemy_hp -= amount
-		if enemy_hp_label:
-			enemy_hp_label.text = "HP: %d" % enemy_hp
 		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], _LogType.DAMAGE)
 		_update_enemy_status_panel()
 		if enemy_hp <= 0:
@@ -1204,8 +1404,7 @@ func _on_hero_damaged(target: String, amount: int) -> void:
 func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":
 		player_hp = mini(player_hp + amount, GameManager.player_hp_max)
-		if player_hp_label:
-			player_hp_label.text = "HP: %d" % player_hp
+		_update_player_status_panel()
 		_log("  You heal %d HP  (HP: %d)" % [amount, player_hp], _LogType.HEAL)
 		# Eternal Hunger — deal the healed amount to the enemy hero too
 		if "eternal_hunger" in GameManager.player_relics:
@@ -1257,7 +1456,10 @@ func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String
 ## Highlight player slots that have a minion matching the spell's target_type
 func _highlight_spell_targets(spell: SpellCardData) -> void:
 	_clear_all_highlights()
-	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_demon", "friendly_void_imp", "any_minion"]
+	if spell.target_type == "trap_or_env":
+		_setup_trap_env_targeting()
+		return
+	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "any_minion"]
 	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion"]
 	if hits_friendly:
 		for slot in player_slots:
@@ -1270,6 +1472,7 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 
 func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
+		"friendly_human":    return minion.card_data.minion_type == Enums.MinionType.HUMAN
 		"friendly_demon":    return minion.card_data.minion_type == Enums.MinionType.DEMON
 		"friendly_minion":   return true
 		"friendly_void_imp": return _minion_has_tag(minion, "void_imp")
@@ -1285,7 +1488,12 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 			hand_display.deselect_current()
 		return
 	_log("You cast: %s → %s" % [spell.card_name, target.card_data.card_name])
-	_resolve_spell_effect(spell.effect_id, target)
+	if not spell.effect_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		ctx.chosen_target = target
+		EffectResolver.run(spell.effect_steps, ctx)
+	else:
+		_resolve_spell_effect(spell.effect_id, target)
 	turn_manager.remove_from_hand(spell)
 	if hand_display:
 		hand_display.remove_card(spell)
@@ -1299,227 +1507,78 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 ## Apply a spell's effect. target is null for untargeted spells.
 ## owner is "player" (default) or "enemy" — board/hero references are resolved relative to owner.
 func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: String = "player") -> void:
+	# Called only from _resolve_hardcoded() fallback for effects that cannot be declarative.
 	match effect_id:
-		# --- Enemy-pool spells (work correctly via owner-aware helpers) ---
-		"shadow_bolt_effect":
-			_on_hero_damaged(_opponent_of(owner), 300)
-		"void_barrage_effect":
-			for m in _opponent_board(owner).duplicate():
-				combat_manager.apply_spell_damage(m, 100)
-		"soul_leech_effect":
-			if target:
-				BuffSystem.apply(target, Enums.BuffType.ATK_BONUS, 100, "soul_leech")
-				target.current_health += 100
-				_refresh_slot_for(target)
-				_on_hero_healed(owner, 100)
-		"dark_surge_effect":
-			for minion in _friendly_board(owner):
-				if minion.card_data.minion_type == Enums.MinionType.DEMON:
-					BuffSystem.apply(minion, Enums.BuffType.TEMP_ATK, 100, "dark_surge", true)
-					_refresh_slot_for(minion)
-		"flux_siphon_effect":
-			if owner == "player":
-				turn_manager.convert_mana_to_essence()
-		# Void Bolt card ecosystem (player-only — void marks track enemy hero)
-		"void_bolt_effect":
-			if owner == "player":
-				_deal_void_bolt_damage(300)
-				if _has_talent("piercing_void"):
-					_apply_void_mark(1)
-		# --- Core Spells (Abyss Order) ---
-		"abyssal_sacrifice_effect":
-			# Destroy a friendly minion. Draw 2 cards (player only).
-			if target:
-				_log("  Abyssal Sacrifice: %s destroyed." % target.card_data.card_name, _LogType.PLAYER)
-				combat_manager.kill_minion(target)
-				if owner == "player":
-					turn_manager.draw_card()
-					turn_manager.draw_card()
-		"corrupting_mist_effect":
-			# Apply 1 Corruption to all opponent minions.
-			for m in _opponent_board(owner).duplicate():
-				_corrupt_minion(m)
-		"abyssal_fury_effect":
-			# Give a friendly Demon +200 ATK permanently and grant it Lifedrain.
-			if target:
-				BuffSystem.apply(target, Enums.BuffType.ATK_BONUS,      200, "abyssal_fury")
-				BuffSystem.apply(target, Enums.BuffType.GRANT_LIFEDRAIN, 1,   "abyssal_fury")
-				_refresh_slot_for(target)
-				_log("  Abyssal Fury: %s gains +200 ATK and Lifedrain." % target.card_data.card_name, _LogType.PLAYER)
-		"abyssal_reinforcement_effect":
-			# Summon two 100/100 Void Sparks. Draw 1 card (player only).
-			if owner == "player":
-				_summon_void_spark()
-				_summon_void_spark()
-				turn_manager.draw_card()
-		"corruption_collapse_effect":
-			# Destroy all Corrupted opponent minions.
-			for m in _opponent_board(owner).duplicate():
-				if BuffSystem.has_type(m, Enums.BuffType.CORRUPTION):
-					_log("  Corruption Collapse: %s destroyed." % m.card_data.card_name, _LogType.DEATH)
-					combat_manager.kill_minion(m)
-		"abyssal_purge_effect":
-			# Deal 200 damage to all opponent minions.
-			for m in _opponent_board(owner).duplicate():
-				combat_manager.apply_spell_damage(m, 200)
-		# --- Neutral Spells (player-only — traps/environment not yet for enemy) ---
-		"cyclone_effect":
-			if owner == "player":
-				if not active_traps.is_empty():
-					var removed := active_traps[randi() % active_traps.size()]
-					active_traps.erase(removed)
-					if removed.is_rune:
-						_remove_rune_aura(removed)
-					_update_trap_display()
-					_log("  Cyclone: %s trap removed." % removed.card_name, _LogType.PLAYER)
-				elif active_environment:
-					_log("  Cyclone: %s dispelled." % active_environment.card_name, _LogType.PLAYER)
-					_unregister_env_rituals()
-					active_environment = null
-					_update_environment_display()
-				else:
-					_log("  Cyclone: nothing to destroy.", _LogType.PLAYER)
-		"hurricane_effect":
-			if owner == "player":
-				if not active_traps.is_empty():
-					_log("  Hurricane: all traps swept away.", _LogType.PLAYER)
-					for t in active_traps:
-						if t.is_rune:
-							_remove_rune_aura(t)
-					active_traps.clear()
-					_update_trap_display()
-				if active_environment:
-					_log("  Hurricane: %s dispelled." % active_environment.card_name, _LogType.PLAYER)
-					_unregister_env_rituals()
-					active_environment = null
-					_update_environment_display()
-		"arcane_strike_effect":
-			if target:
-				_log("  Arcane Strike: %s takes 200 damage." % target.card_data.card_name, _LogType.PLAYER)
-				combat_manager.apply_spell_damage(target, 200)
-		"precision_strike_effect":
-			if target:
-				_log("  Precision Strike: %s takes 400 damage." % target.card_data.card_name, _LogType.PLAYER)
-				combat_manager.apply_spell_damage(target, 400)
-		"tactical_planning_effect":
-			if owner == "player":
-				turn_manager.draw_card()
-		"emergency_reinforcements_effect":
-			if owner == "player":
-				_summon_soldier()
-				_summon_soldier()
-		"energy_conversion_effect":
-			if owner == "player":
-				var converted := turn_manager.essence
-				turn_manager.convert_essence_to_mana()
-				_log("  Energy Conversion: %d Essence → Mana." % converted, _LogType.PLAYER)
-		"essence_surge_effect":
-			if owner == "player":
-				turn_manager.gain_essence(3)
-				_log("  Essence Surge: +3 Essence this turn.", _LogType.PLAYER)
-		"battlefield_tactics_effect":
-			if target:
-				BuffSystem.apply(target, Enums.BuffType.TEMP_ATK, 200, "battlefield_tactics", true)
-				_refresh_slot_for(target)
-				_log("  Battlefield Tactics: %s gains +200 ATK this turn." % target.card_data.card_name, _LogType.PLAYER)
-		"reinforced_armor_effect":
-			if target:
-				BuffSystem.apply(target, Enums.BuffType.SHIELD_BONUS, 300, "reinforced_armor")
-				target.current_shield += 300
-				_refresh_slot_for(target)
-				_log("  Reinforced Armor: %s gains +300 Shield." % target.card_data.card_name, _LogType.PLAYER)
-		"shield_break_effect":
-			if target:
-				_log("  Shield Break: %s shield removed." % target.card_data.card_name, _LogType.PLAYER)
-				target.current_shield = 0
-				_refresh_slot_for(target)
-		"purge_effect":
-			if target:
-				if target.owner == _opponent_of(owner):
-					# Dispel: remove all buffs from an opponent minion
-					BuffSystem.dispel(target)
-					_log("  Purge: buffs removed from %s." % target.card_data.card_name, _LogType.PLAYER)
-				else:
-					# Cleanse: remove all debuffs from a friendly minion
-					BuffSystem.cleanse(target)
-					_log("  Purge: debuffs cleansed from %s." % target.card_data.card_name, _LogType.PLAYER)
-				_refresh_slot_for(target)
-		"battlefield_salvage_effect":
-			if target:
-				_log("  Battlefield Salvage: %s sacrificed — draw 2 cards." % target.card_data.card_name, _LogType.PLAYER)
-				combat_manager.kill_minion(target)
-				if owner == "player":
-					turn_manager.draw_card()
-					turn_manager.draw_card()
-		"shockwave_effect":
-			_log("  Shockwave: all minions take 200 damage.", _LogType.PLAYER)
-			for m in player_board.duplicate():
-				combat_manager.apply_spell_damage(m, 200)
-			for m in enemy_board.duplicate():
-				combat_manager.apply_spell_damage(m, 200)
-		# --- Void Bolt Support Pool spells (player-only — void mark system) ---
-		"mark_the_target_effect":
-			if owner == "player":
-				_apply_void_mark(2)
-				turn_manager.draw_card()
-		"imp_combustion_effect":
-			if owner == "player":
-				if target and _minion_has_tag(target, "void_imp"):
-					combat_manager.kill_minion(target)
-					_deal_void_bolt_damage(200)
-		"dark_ritual_effect":
-			if owner == "player":
-				if target and _minion_has_tag(target, "void_imp"):
-					combat_manager.kill_minion(target)
-					turn_manager.draw_card()
-					turn_manager.draw_card()
-		"imp_overload_effect":
-			if owner == "player":
-				for _i in 2:
-					for slot in player_slots:
-						if slot.is_empty():
-							var imp_data := CardDatabase.get_card("void_imp") as MinionCardData
-							if imp_data == null:
-								break
-							var instance := MinionInstance.create(imp_data, "player")
-							player_board.append(instance)
-							slot.place_minion(instance)
-							_temp_imps.append(instance)
-							_log("  Imp Overload: temp Void Imp summoned (dies end of turn).", _LogType.PLAYER)
-							break
 		"void_detonation_effect":
 			if owner == "player":
 				var bonus_per_mark := 50
 				var total_base := 150 + enemy_void_marks * bonus_per_mark
 				_log("  Void Detonation: %d Void Bolt dmg (150 + %d×%d marks)." % [total_base, bonus_per_mark, enemy_void_marks], _LogType.PLAYER)
 				_deal_void_bolt_damage(total_base)
-		"mark_convergence_effect":
-			if owner == "player":
-				if enemy_void_marks > 0:
-					_apply_void_mark(enemy_void_marks)
-					_log("  Mark Convergence: Void Marks doubled to ×%d." % enemy_void_marks, _LogType.PLAYER)
-				else:
-					_log("  Mark Convergence: no Void Marks to double.", _LogType.PLAYER)
-		# --- Common Imp Support Pool spells (player-only — summon tokens into player board) ---
-		"abyssal_conjuring_effect":
-			if owner == "player":
-				if player_board.is_empty():
-					_summon_void_imp()
-					_log("  Abyssal Conjuring: board empty — Void Imp summoned.", _LogType.PLAYER)
-				else:
-					_summon_void_spark()
-					_log("  Abyssal Conjuring: board occupied — Void Spark summoned.", _LogType.PLAYER)
-		"call_the_swarm_effect":
-			if owner == "player":
-				_summon_void_imp()
-				_summon_void_imp()
-				_log("  Call the Swarm: 2 Void Imps summoned.", _LogType.PLAYER)
-		"void_breach_effect":
-			if owner == "player":
-				var breach_imp := CardDatabase.get_card("void_imp")
-				if breach_imp:
-					turn_manager.add_to_hand(breach_imp)
-					_log("  Void Breach: Void Imp added to hand.", _LogType.PLAYER)
+
+# ---------------------------------------------------------------------------
+# Cyclone / trap-or-env targeting
+# ---------------------------------------------------------------------------
+
+## Stored gui_input connections so they can be disconnected cleanly.
+var _active_trap_env_connections: Array = []  # Array[{node: Control, cb: Callable}]
+
+func _setup_trap_env_targeting() -> void:
+	_tear_down_trap_env_targeting()
+	for i in trap_slot_panels.size():
+		if i < active_traps.size():
+			var cb := func(ev: InputEvent) -> void: _on_trap_env_input(ev, i, null)
+			trap_slot_panels[i].gui_input.connect(cb)
+			_active_trap_env_connections.append({node = trap_slot_panels[i], cb = cb})
+			trap_slot_panels[i].modulate = Color(1.3, 1.3, 0.5)
+	if environment_slot and active_environment:
+		var env := active_environment
+		var cb := func(ev: InputEvent) -> void: _on_trap_env_input(ev, -1, env)
+		environment_slot.gui_input.connect(cb)
+		_active_trap_env_connections.append({node = environment_slot, cb = cb})
+		environment_slot.modulate = Color(1.3, 1.3, 0.5)
+
+func _tear_down_trap_env_targeting() -> void:
+	for c in _active_trap_env_connections:
+		if is_instance_valid(c.node):
+			if c.node.gui_input.is_connected(c.cb):
+				c.node.gui_input.disconnect(c.cb)
+			c.node.modulate = Color.WHITE
+	_active_trap_env_connections.clear()
+
+func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
+	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
+		return
+	var spell := pending_play_card as SpellCardData
+	if spell == null:
+		return
+	var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
+	if not _pay_card_cost(0, effective_cost):
+		if hand_display:
+			hand_display.deselect_current()
+		return
+	if trap_idx >= 0 and trap_idx < active_traps.size():
+		var trap := active_traps[trap_idx]
+		_log("You cast: %s → %s" % [spell.card_name, trap.card_name])
+		if trap.is_rune:
+			_remove_rune_aura(trap)
+		active_traps.erase(trap)
+		_update_trap_display()
+		_log("  Cyclone: %s removed." % trap.card_name, _LogType.PLAYER)
+	elif env_data != null and active_environment == env_data:
+		_log("You cast: %s → %s" % [spell.card_name, active_environment.card_name])
+		_log("  Cyclone: %s dispelled." % active_environment.card_name, _LogType.PLAYER)
+		_unregister_env_rituals()
+		active_environment = null
+		_update_environment_display()
+	var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+	spell_ctx.card = spell
+	trigger_manager.fire(spell_ctx)
+	turn_manager.remove_from_hand(spell)
+	pending_play_card = null
+	_tear_down_trap_env_targeting()
+	if hand_display:
+		hand_display.deselect_current()
 
 # ---------------------------------------------------------------------------
 # Trap helpers
@@ -1605,20 +1664,6 @@ func _resolve_trap_effect(effect_id: String, triggering_minion: MinionInstance =
 			# Deal 200 damage to all enemy minions.
 			for m in enemy_board.duplicate():
 				combat_manager.apply_spell_damage(m, 200)
-		# --- Common Imp Support Pool traps ---
-		"dark_nursery_effect":
-			# Summon a Void Imp when a friendly minion dies on the enemy's turn.
-			# The trap already only fires when is_player_turn == false (in _on_minion_vanished).
-			_summon_void_imp()
-			_log("  Dark Nursery: friendly death → Void Imp summoned.", _LogType.TRAP)
-		"imp_barricade_effect":
-			# Summon a Void Imp and redirect the attacking enemy minion to it.
-			var barricade_imp := _summon_void_imp()
-			if barricade_imp != null:
-				enemy_ai.redirect_attack_target = barricade_imp
-				_log("  Imp Barricade: Void Imp summoned — attack redirected!", _LogType.TRAP)
-			else:
-				_log("  Imp Barricade: no free slot for Void Imp.", _LogType.TRAP)
 		# --- Void Bolt Support Pool traps ---
 		"soul_rupture_effect":
 			# Only fires if the minion that died was a Void Imp.
@@ -1668,9 +1713,7 @@ func _show_trap_triggered_vfx(trap: TrapCardData, slot_idx: int) -> void:
 ## Called by EnemyAI's minion_summoned signal.
 func _on_enemy_minion_summoned(minion: MinionInstance) -> void:
 	_log("Enemy summons: %s" % minion.card_data.card_name, _LogType.ENEMY)
-	# ON_PLAY and ON_SUMMON effects are resolved by _handler_enemy_minion_on_play /
-	# _handler_enemy_minion_on_summon_effect registered in _setup_triggers() — do NOT
-	# call _resolve_on_play_effect here or effects would fire twice.
+	# ON_PLAY effects are resolved by _handler_enemy_minion_on_play registered in _setup_triggers().
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 	ctx.minion = minion
 	trigger_manager.fire(ctx)
@@ -1683,7 +1726,10 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	ctx.card = spell
 	trigger_manager.fire(ctx)
 	if not _spell_cancelled:
-		_resolve_spell_effect(spell.effect_id, null, "enemy")
+		if not spell.effect_steps.is_empty():
+			EffectResolver.run(spell.effect_steps, EffectContext.make(self, "enemy"))
+		elif not spell.effect_id.is_empty():
+			_resolve_spell_effect(spell.effect_id, null, "enemy")
 	_spell_cancelled = false
 
 func _update_trap_display() -> void:
@@ -1780,6 +1826,26 @@ func _apply_rune_aura(rune: TrapCardData) -> void:
 					_log("  Shadow Rune: %s enters with %d Corruption." % [ctx.minion.card_data.card_name, stacks], _LogType.PLAYER)
 			trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, h, 20)
 			entries.append({event = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, handler = h})
+		"soul_rune_aura":
+			var spirit_atk := 100 * mult
+			var spirit_hp  := 100 * mult
+			var fired := [false]
+			var death_h := func(ctx: EventContext):
+				if fired[0]:
+					return
+				if turn_manager.is_player_turn:
+					return
+				if ctx.minion == null or ctx.minion.card_data.minion_type != Enums.MinionType.DEMON:
+					return
+				fired[0] = true
+				_summon_soul_rune_spirit(spirit_atk, spirit_hp)
+				_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [spirit_atk, spirit_hp], _LogType.PLAYER)
+			var reset_h := func(_ctx: EventContext):
+				fired[0] = false
+			trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, death_h, 20)
+			trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, reset_h, 20)
+			entries.append({event = Enums.TriggerEvent.ON_PLAYER_MINION_DIED, handler = death_h})
+			entries.append({event = Enums.TriggerEvent.ON_ENEMY_TURN_START, handler = reset_h})
 	if not entries.is_empty():
 		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
 
@@ -1886,18 +1952,20 @@ func _resolve_ritual_effect(effect_id: String) -> void:
 			turn_manager.draw_card()
 			turn_manager.gain_mana(1)
 		"demon_ascendant":
-			# Deal 200 damage to 2 random enemy minions, then Special Summon a 500/500 Demon.
+			# Deal 200 damage to 2 random enemy minions, then Special Summon a 500/500 Void Demon.
 			_log("  Demon Ascendant: deal 200 damage to 2 random enemy minions.", _LogType.PLAYER)
 			for _i in 2:
 				var target_m := _find_random_enemy_minion()
 				if target_m:
 					combat_manager.apply_spell_damage(target_m, 200)
-			_log("  Demon Ascendant: Special Summon a 500/500 Demon Ascendant!", _LogType.PLAYER)
+			_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", _LogType.PLAYER)
 			for slot in player_slots:
 				if slot.is_empty():
-					var demon_data := CardDatabase.get_card("ritual_demon") as MinionCardData
+					var demon_data := CardDatabase.get_card("void_demon") as MinionCardData
 					if demon_data:
 						var instance := MinionInstance.create(demon_data, "player")
+						instance.current_atk    = 500
+						instance.current_health = 500
 						player_board.append(instance)
 						slot.place_minion(instance)
 						# Special Summon: do NOT fire ON_PLAYER_MINION_SUMMONED (no on-play effects)
@@ -1947,9 +2015,32 @@ func _apply_slot_style(panel: Panel, bg: Color, border: Color) -> void:
 # Hero attack helpers
 # ---------------------------------------------------------------------------
 
-func _show_hero_button(visible_state: bool) -> void:
-	if enemy_hero_button:
-		enemy_hero_button.visible = visible_state
+var _enemy_hero_attackable: bool = false
+
+func _show_hero_button(attackable: bool) -> void:
+	_enemy_hero_attackable = attackable
+	if not _enemy_status_panel:
+		return
+	var style := StyleBoxFlat.new()
+	style.set_corner_radius_all(6)
+	if attackable:
+		style.bg_color     = Color(0.18, 0.10, 0.10, 0.95)
+		style.border_color = Color(1.0, 0.80, 0.15, 1.0)
+		style.set_border_width_all(3)
+		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	else:
+		style.bg_color     = Color(0.08, 0.04, 0.13, 0.93)
+		style.border_color = Color(0.55, 0.20, 0.80, 1.0)
+		style.set_border_width_all(2)
+		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_enemy_status_panel.add_theme_stylebox_override("panel", style)
+	if _enemy_hero_attack_hint:
+		_enemy_hero_attack_hint.visible = attackable
+
+func _on_enemy_hero_frame_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if _enemy_hero_attackable:
+			_on_enemy_hero_button_pressed()
 
 # ---------------------------------------------------------------------------
 # Hero passives panel
@@ -2018,15 +2109,17 @@ func _setup_enemy_status_panel() -> void:
 		return
 
 	var panel := Panel.new()
-	panel.custom_minimum_size = Vector2(240, 130)
-	panel.anchor_left   = 1.0
-	panel.anchor_right  = 1.0
-	panel.anchor_top    = 0.0
-	panel.anchor_bottom = 0.0
-	panel.offset_left   = -258.0
-	panel.offset_right  = -10.0
-	panel.offset_top    = 6.0
-	panel.offset_bottom = 145.0
+	panel.custom_minimum_size = Vector2(300, 165)
+	panel.anchor_left    = 0.5
+	panel.anchor_right   = 0.5
+	panel.anchor_top     = 0.0
+	panel.anchor_bottom  = 0.0
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.offset_left    = -150.0
+	panel.offset_right   = 150.0
+	panel.offset_top     = 5.0
+	panel.offset_bottom  = 170.0
+	panel.mouse_filter   = Control.MOUSE_FILTER_IGNORE
 
 	var style := StyleBoxFlat.new()
 	style.bg_color     = Color(0.08, 0.04, 0.13, 0.93)
@@ -2037,6 +2130,7 @@ func _setup_enemy_status_panel() -> void:
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_theme_constant_override("separation", 5)
 	vbox.add_theme_constant_override("margin_left", 6)
 	vbox.add_theme_constant_override("margin_right", 6)
@@ -2046,12 +2140,14 @@ func _setup_enemy_status_panel() -> void:
 
 	# Portrait row
 	var portrait_row := HBoxContainer.new()
+	portrait_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(portrait_row)
 
 	var portrait := ColorRect.new()
 	portrait.custom_minimum_size = Vector2(44, 44)
 	portrait.color = Color(0.25, 0.08, 0.45, 1)
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait_row.add_child(portrait)
 
 	var initial_label := Label.new()
@@ -2060,6 +2156,7 @@ func _setup_enemy_status_panel() -> void:
 	initial_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	initial_label.add_theme_font_size_override("font_size", 24)
 	initial_label.add_theme_color_override("font_color", Color(0.85, 0.60, 1.0, 1))
+	initial_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if GameManager.current_enemy:
 		initial_label.text = GameManager.current_enemy.enemy_name.left(1)
 	portrait.add_child(initial_label)
@@ -2069,30 +2166,58 @@ func _setup_enemy_status_panel() -> void:
 	name_lbl.add_theme_font_size_override("font_size", 14)
 	name_lbl.add_theme_color_override("font_color", Color(0.90, 0.65, 1.0, 1))
 	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if GameManager.current_enemy:
 		var prefix := "⚔ BOSS\n" if GameManager.is_boss_fight() else ""
 		name_lbl.text = prefix + GameManager.current_enemy.enemy_name
 	portrait_row.add_child(name_lbl)
 
-	vbox.add_child(HSeparator.new())
+	var sep := HSeparator.new()
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(sep)
 
 	_enemy_status_hp_label = Label.new()
 	_enemy_status_hp_label.add_theme_font_size_override("font_size", 13)
 	_enemy_status_hp_label.add_theme_color_override("font_color", Color(0.95, 0.40, 0.40, 1))
+	_enemy_status_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_enemy_status_hp_label)
 
 	_enemy_status_essence_label = Label.new()
 	_enemy_status_essence_label.add_theme_font_size_override("font_size", 13)
-	_enemy_status_essence_label.add_theme_color_override("font_color", Color(0.45, 0.80, 1.0, 1))
+	_enemy_status_essence_label.add_theme_color_override("font_color", Color(0.70, 0.40, 1.0, 1))
+	_enemy_status_essence_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_enemy_status_essence_label)
+
+	_enemy_status_mana_label = Label.new()
+	_enemy_status_mana_label.add_theme_font_size_override("font_size", 13)
+	_enemy_status_mana_label.add_theme_color_override("font_color", Color(0.30, 0.65, 1.0, 1))
+	_enemy_status_mana_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_enemy_status_mana_label)
+
+	_enemy_status_hand_label = Label.new()
+	_enemy_status_hand_label.add_theme_font_size_override("font_size", 13)
+	_enemy_status_hand_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.85, 1))
+	_enemy_status_hand_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_enemy_status_hand_label)
 
 	_enemy_status_marks_label = Label.new()
 	_enemy_status_marks_label.add_theme_font_size_override("font_size", 13)
 	_enemy_status_marks_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.15, 1))
 	_enemy_status_marks_label.visible = false
+	_enemy_status_marks_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_enemy_status_marks_label)
 
+	_enemy_hero_attack_hint = Label.new()
+	_enemy_hero_attack_hint.text = "▶  Click to Attack"
+	_enemy_hero_attack_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_enemy_hero_attack_hint.add_theme_font_size_override("font_size", 12)
+	_enemy_hero_attack_hint.add_theme_color_override("font_color", Color(1.0, 0.85, 0.20, 1.0))
+	_enemy_hero_attack_hint.visible = false
+	_enemy_hero_attack_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_enemy_hero_attack_hint)
+
 	_enemy_status_panel = panel
+	panel.gui_input.connect(_on_enemy_hero_frame_input)
 	ui_root.add_child(panel)
 	_update_enemy_status_panel()
 
@@ -2105,12 +2230,112 @@ func _update_enemy_status_panel() -> void:
 		var ess_max := enemy_ai.essence_max if enemy_ai else 0
 		var ess_cur := enemy_ai.essence if enemy_ai else 0
 		_enemy_status_essence_label.text = "◆ Essence: %d / %d" % [ess_cur, ess_max]
+	if _enemy_status_mana_label:
+		var mana_max := enemy_ai.mana_max if enemy_ai else 0
+		var mana_cur := enemy_ai.mana if enemy_ai else 0
+		_enemy_status_mana_label.text = "◈ Mana: %d / %d" % [mana_cur, mana_max]
+	if _enemy_status_hand_label:
+		var hand_size := enemy_ai.hand.size() if enemy_ai else 0
+		_enemy_status_hand_label.text = "🂠 Hand: %d" % hand_size
 	if _enemy_status_marks_label:
 		if enemy_void_marks > 0:
 			_enemy_status_marks_label.text = "☠ Void Mark: ×%d" % enemy_void_marks
 			_enemy_status_marks_label.visible = true
 		else:
 			_enemy_status_marks_label.visible = false
+
+# ---------------------------------------------------------------------------
+# Player hero status panel (bottom-right)
+# ---------------------------------------------------------------------------
+
+func _setup_player_status_panel() -> void:
+	var ui_root: Node = get_node_or_null("UI")
+	if not ui_root:
+		return
+
+	var panel := Panel.new()
+	panel.custom_minimum_size = Vector2(240, 140)
+	panel.anchor_left   = 1.0
+	panel.anchor_right  = 1.0
+	panel.anchor_top    = 1.0
+	panel.anchor_bottom = 1.0
+	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	panel.grow_vertical   = Control.GROW_DIRECTION_BEGIN
+	panel.offset_left   = -250.0
+	panel.offset_right  = -10.0
+	panel.offset_top    = -150.0
+	panel.offset_bottom = -10.0
+	panel.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.06, 0.06, 0.14, 0.93)
+	style.border_color = Color(0.35, 0.55, 0.90, 1.0)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_theme_constant_override("separation", 5)
+	vbox.add_theme_constant_override("margin_left", 6)
+	vbox.add_theme_constant_override("margin_right", 6)
+	vbox.add_theme_constant_override("margin_top", 5)
+	vbox.add_theme_constant_override("margin_bottom", 5)
+	panel.add_child(vbox)
+
+	# Portrait row
+	var portrait_row := HBoxContainer.new()
+	portrait_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(portrait_row)
+
+	var portrait := ColorRect.new()
+	portrait.custom_minimum_size = Vector2(40, 40)
+	portrait.color = Color(0.08, 0.15, 0.38, 1)
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait_row.add_child(portrait)
+
+	var initial_label := Label.new()
+	initial_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	initial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	initial_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	initial_label.add_theme_font_size_override("font_size", 20)
+	initial_label.add_theme_color_override("font_color", Color(0.60, 0.80, 1.0, 1))
+	initial_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var hero := HeroDatabase.get_hero(GameManager.current_hero)
+	if hero:
+		initial_label.text = hero.hero_name.left(1)
+	portrait.add_child(initial_label)
+
+	var name_lbl := Label.new()
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", Color(0.65, 0.85, 1.0, 1))
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if hero:
+		name_lbl.text = hero.hero_name
+	portrait_row.add_child(name_lbl)
+
+	var sep := HSeparator.new()
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(sep)
+
+	_player_status_hp_label = Label.new()
+	_player_status_hp_label.add_theme_font_size_override("font_size", 13)
+	_player_status_hp_label.add_theme_color_override("font_color", Color(0.95, 0.40, 0.40, 1))
+	_player_status_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_player_status_hp_label)
+
+	_player_status_panel = panel
+	ui_root.add_child(panel)
+	_update_player_status_panel()
+
+func _update_player_status_panel() -> void:
+	if not _player_status_hp_label:
+		return
+	_player_status_hp_label.text = "❤ HP: %d / %d" % [player_hp, GameManager.player_hp_max]
 
 # ---------------------------------------------------------------------------
 # Large card preview (hover over hand cards or board slots)
@@ -2136,6 +2361,7 @@ func _show_large_preview(card_data: CardData) -> void:
 		return
 	_large_preview.setup(card_data)
 	_large_preview.enable_tooltip()
+	_large_preview.apply_cost_discount(_spell_mana_discount())
 	_large_preview.visible = true
 
 func _hide_large_preview() -> void:
@@ -2198,6 +2424,8 @@ func _disable_combat_buttons() -> void:
 		end_turn_essence_button.disabled = true
 	if end_turn_mana_button:
 		end_turn_mana_button.disabled = true
+	if end_turn_button:
+		end_turn_button.disabled = true
 	_show_hero_button(false)
 
 func _on_restart_pressed() -> void:
@@ -2377,8 +2605,6 @@ func _setup_triggers() -> void:
 		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handler_talent_imp_warband,          25)
 	# Board synergies always registered — handlers check board state at fire time
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handler_board_synergies_on_summon,        30)
-	# on_summon_effect fires last (after all buff/synergy handlers have applied)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handler_player_minion_on_summon_effect,   35)
 
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_MINION_DIED  (priority: 0=board passives, 5=deathrattle, 10=talents, 20=traps)
@@ -2399,7 +2625,6 @@ func _setup_triggers() -> void:
 	# ON_ENEMY_MINION_SUMMONED — on-play (priority 5) and on-summon (priority 6), before traps (30)
 	# -----------------------------------------------------------------------
 	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_enemy_minion_on_play,          5)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_enemy_minion_on_summon_effect, 6)
 
 	# -----------------------------------------------------------------------
 	# Trap routing for enemy actions  (priority 30 — after any future pre-trap passives)
@@ -2616,14 +2841,12 @@ func _handler_board_synergies_on_summon(ctx: EventContext) -> void:
 ## Resolve a persistent board passive triggered when a friendly minion is summoned.
 func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionInstance, summoned: MinionInstance) -> void:
 	match passive_id:
-		"buff_void_imp_on_summon":
-			if _is_void_imp_type(summoned):
+		"void_amplifier_buff_demon":
+			if summoned.card_data.minion_type == Enums.MinionType.DEMON and summoned != passive_owner:
+				BuffSystem.apply(summoned, Enums.BuffType.ATK_BONUS, 100, "void_amplifier")
 				summoned.current_health += 100
-				_log("  Imp Handler: %s gains +100 HP." % summoned.card_data.card_name, _LogType.PLAYER)
-		"void_imp_taunt_aura":
-			if _is_void_imp_type(summoned):
-				BuffSystem.apply(summoned, Enums.BuffType.GRANT_GUARD, 1, "imp_overseer_aura")
 				_refresh_slot_for(summoned)
+				_log("  Void Amplifier: %s enters with +100 ATK / +100 HP." % summoned.card_data.card_name, _LogType.PLAYER)
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_DIED handlers
@@ -2662,11 +2885,11 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 			if _is_void_imp_type(dead):
 				_log("  Abyssal Sacrificer: %s died → 1 Void Mark." % dead.card_data.card_name, _LogType.PLAYER)
 				_apply_void_mark(1)
-		"gain_atk_on_void_imp_death":
-			if _is_void_imp_type(dead):
-				BuffSystem.apply(passive_owner, Enums.BuffType.ATK_BONUS, 100, "taskmaster_stack")
+		"soul_taskmaster_gain_atk":
+			if dead.card_data.minion_type == Enums.MinionType.DEMON and dead != passive_owner:
+				BuffSystem.apply(passive_owner, Enums.BuffType.ATK_BONUS, 50, "soul_taskmaster_stack")
 				_refresh_slot_for(passive_owner)
-				_log("  Abyssal Taskmaster: Void Imp died → Taskmaster gains +100 ATK.", _LogType.PLAYER)
+				_log("  Soul Taskmaster: Demon died → gains +50 ATK.", _LogType.PLAYER)
 
 func _handler_talent_death_bolt(ctx: EventContext) -> void:
 	if not _is_void_imp_type(ctx.minion):
@@ -2683,30 +2906,23 @@ func _trap_check_friendly_death(ctx: EventContext) -> void:
 # ON_PLAYER_MINION_PLAYED — on-play (battle cry) resolver (fires only for hand plays)
 # ---------------------------------------------------------------------------
 
-## Resolve the on_play_effect (battle cry) of a player minion played from hand.
+## Resolve the on_play_effect_steps (battle cry) of a player minion played from hand.
 ## Registered at priority 10 — after hand-play talent effects (priority 0).
 func _handler_player_minion_on_play_effect(ctx: EventContext) -> void:
 	var minion: MinionInstance = ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
-	var effect_id: String = (minion.card_data as MinionCardData).on_play_effect
-	if not effect_id.is_empty():
-		_resolve_on_play_effect(effect_id, minion, "player", ctx.target)
+	var mc := minion.card_data as MinionCardData
+	if not mc.on_play_effect_steps.is_empty():
+		var ectx        := EffectContext.make(self, "player")
+		ectx.source     = minion
+		ectx.chosen_target = ctx.target
+		EffectResolver.run(mc.on_play_effect_steps, ectx)
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_SUMMONED — on-summon effect resolver (fires for ALL player summons)
 # ---------------------------------------------------------------------------
 
-## Resolve the on_summon_effect of a player minion whenever it enters the board.
-## Fires from hand play, spell effects, trap effects, and token generation.
-## Registered at priority 35 — after all buff handlers (passives/talents/relics at 0–30).
-func _handler_player_minion_on_summon_effect(ctx: EventContext) -> void:
-	var minion: MinionInstance = ctx.minion
-	if minion == null or not (minion.card_data is MinionCardData):
-		return
-	var effect_id: String = (minion.card_data as MinionCardData).on_summon_effect
-	if not effect_id.is_empty():
-		_resolve_on_play_effect(effect_id, minion, "player")
 
 # ---------------------------------------------------------------------------
 # ON_ENEMY_MINION_SUMMONED — on-play / on-summon effect resolvers (fire before traps)
@@ -2718,19 +2934,12 @@ func _handler_enemy_minion_on_play(ctx: EventContext) -> void:
 	var minion: MinionInstance = ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
-	var effect_id: String = (minion.card_data as MinionCardData).on_play_effect
-	if not effect_id.is_empty():
-		_resolve_on_play_effect(effect_id, minion, "enemy")
+	var mc := minion.card_data as MinionCardData
+	if not mc.on_play_effect_steps.is_empty():
+		var ectx    := EffectContext.make(self, "enemy")
+		ectx.source = minion
+		EffectResolver.run(mc.on_play_effect_steps, ectx)
 
-## Resolve the on_summon_effect of an enemy minion (any summon source).
-## Priority 6 — after on_play, before traps.
-func _handler_enemy_minion_on_summon_effect(ctx: EventContext) -> void:
-	var minion: MinionInstance = ctx.minion
-	if minion == null or not (minion.card_data is MinionCardData):
-		return
-	var effect_id: String = (minion.card_data as MinionCardData).on_summon_effect
-	if not effect_id.is_empty():
-		_resolve_on_play_effect(effect_id, minion, "enemy")
 
 # ---------------------------------------------------------------------------
 # ON_ENEMY_MINION_SUMMONED / ON_ENEMY_SPELL_CAST / ON_ENEMY_ATTACK / ON_HERO_DAMAGED

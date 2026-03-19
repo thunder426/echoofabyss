@@ -10,8 +10,7 @@ const MAX_COPIES     := 2
 const MAX_COPIES_IMP  := 4  # Void Imp limit raised by Lord Vael Passive 2
 const MAX_COPIES_LEGENDARY := 1
 
-## Predefined starter decks for Lord Vael. Loaded directly into the deck,
-## bypassing the EXCLUDED_IDS restriction so preset-only cards (e.g. void_rain) can appear.
+## Predefined starter decks for Lord Vael. Loaded directly into the deck.
 const PREDEFINED_DECKS: Array = [
 	{
 		"id":   "swarm",
@@ -92,27 +91,8 @@ const CORE_FILL_POOL: Array[String] = [
 
 const CARD_VISUAL_SCENE := preload("res://combat/ui/CardVisual.tscn")
 
-## Card IDs that should never appear in the deck builder (hero power tokens, enemy-only, support-only).
-const EXCLUDED_IDS: Array[String] = [
-	"wandering_spirit", "void_spark", "soldier", "senior_void_imp", "ritual_demon",
-	"shadow_bolt", "void_barrage",
-	# Void Bolt Support Pool — reward-only, never in starter deck build
-	"mark_the_target", "imp_combustion", "dark_ritual_of_the_abyss", "imp_overload",
-	"void_channeler", "abyssal_sacrificer", "abyssal_arcanist",
-	"void_detonation", "soul_rupture", "void_bolt_rain", "mark_convergence",
-	"mark_collapse", "void_archmagus", "abyss_ritual_circle",
-	# Common Imp Support Pool — reward-only, never in starter deck build
-	"abyssal_conjuring", "void_breach", "abyss_recruiter", "dark_nursery",
-	"call_the_swarm", "imp_handler", "imp_barricade",
-	"abyssal_taskmaster", "imp_hatchery", "imp_overseer",
-	# Tokens and variant core units — not available in deck builder
-	"void_demon",
-	# Variant core units — special reward only
-	"runic_void_imp", "void_imp_wizard",
-]
-
-## Cards limited to 1 copy per deck (Legendary rule).
-const LEGENDARY_IDS: Array[String] = ["void_archmagus"]
+## Pools whose cards appear in the deck builder inventory.
+const DECK_BUILDER_POOLS: Array[String] = ["abyss_core", "neutral_core"]
 
 ## Preview card size shown on hover
 const PREVIEW_SIZE := Vector2(480, 720)
@@ -221,24 +201,26 @@ func _on_load_preset(preset_id: String) -> void:
 	for preset in PREDEFINED_DECKS:
 		if preset["id"] == preset_id:
 			_built_deck.clear()
-			# Only add cards that exist in the DB, are not excluded, and respect copy cap
+			# Only add cards that exist in the DB, are in a deck-builder pool, and respect copy cap
 			for card_id in preset["cards"]:
 				if _built_deck.size() >= MAX_DECK_SIZE:
 					break
-				if card_id in EXCLUDED_IDS or CardDatabase.get_card(card_id) == null:
+				var preset_card := CardDatabase.get_card(card_id)
+				if preset_card == null or preset_card.pool not in DECK_BUILDER_POOLS:
 					continue
 				var limit := MAX_COPIES_IMP if card_id == "void_imp" \
-					else (MAX_COPIES_LEGENDARY if card_id in LEGENDARY_IDS else MAX_COPIES)
+					else (MAX_COPIES_LEGENDARY if preset_card.rarity == "legendary" else MAX_COPIES)
 				if _built_deck.count(card_id) < limit:
 					_built_deck.append(card_id)
 			# Fill remaining slots from the core pool
 			for fill_id in CORE_FILL_POOL:
 				if _built_deck.size() >= MAX_DECK_SIZE:
 					break
-				if fill_id in EXCLUDED_IDS or CardDatabase.get_card(fill_id) == null:
+				var fill_card := CardDatabase.get_card(fill_id)
+				if fill_card == null or fill_card.pool not in DECK_BUILDER_POOLS:
 					continue
 				var limit := MAX_COPIES_IMP if fill_id == "void_imp" \
-					else (MAX_COPIES_LEGENDARY if fill_id in LEGENDARY_IDS else MAX_COPIES)
+					else (MAX_COPIES_LEGENDARY if fill_card.rarity == "legendary" else MAX_COPIES)
 				if _built_deck.count(fill_id) < limit:
 					_built_deck.append(fill_id)
 			_rebuild_inventory_ui()
@@ -348,9 +330,8 @@ func _on_faction_filter_changed(faction_val: String) -> void:
 # ---------------------------------------------------------------------------
 
 func _load_inventory() -> void:
-	for card_id in CardDatabase.get_all_card_ids():
-		if card_id not in EXCLUDED_IDS:
-			_inventory_ids.append(card_id)
+	for card_id in CardDatabase.get_card_ids_in_pools(DECK_BUILDER_POOLS):
+		_inventory_ids.append(card_id)
 	_inventory_ids.sort()
 
 # ---------------------------------------------------------------------------
@@ -412,7 +393,7 @@ func _rebuild_inventory_ui() -> void:
 		if not card:
 			continue
 		var count_in_deck := _built_deck.count(card_id)
-		var copy_limit    := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_LEGENDARY if card_id in LEGENDARY_IDS else MAX_COPIES)
+		var copy_limit    := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_LEGENDARY if card.rarity == "legendary" else MAX_COPIES)
 		var maxed         := count_in_deck >= copy_limit
 
 		var btn := Button.new()
@@ -552,7 +533,8 @@ func _card_type_color(card: CardData) -> Color:
 # ---------------------------------------------------------------------------
 
 func _on_add_card(card_id: String) -> void:
-	var limit := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_LEGENDARY if card_id in LEGENDARY_IDS else MAX_COPIES)
+	var add_card := CardDatabase.get_card(card_id)
+	var limit := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_LEGENDARY if add_card and add_card.rarity == "legendary" else MAX_COPIES)
 	if _built_deck.count(card_id) >= limit or _built_deck.size() >= MAX_DECK_SIZE:
 		return
 	_built_deck.append(card_id)

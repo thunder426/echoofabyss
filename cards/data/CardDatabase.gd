@@ -10,6 +10,33 @@ extends Node
 ## All registered cards keyed by their id string
 var _cards: Dictionary = {}
 
+# ---------------------------------------------------------------------------
+# Token definitions — compact table for tokens summoned by card effects.
+# Fields: id, name, atk, hp, type (Enums.MinionType key), faction, desc,
+#         shield (optional, default 0), tags (optional), art (optional)
+# ---------------------------------------------------------------------------
+const _TOKEN_DEFS: Array[Dictionary] = [
+	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token."},
+	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning."},
+]
+
+func _make_token(d: Dictionary) -> MinionCardData:
+	var c := MinionCardData.new()
+	c.id           = d["id"]
+	c.card_name    = d["name"]
+	c.essence_cost = 0
+	c.atk          = d["atk"]
+	c.health       = d["hp"]
+	c.shield_max   = d.get("shield", 0)
+	c.minion_type  = Enums.MinionType[d["type"]]
+	c.faction      = d.get("faction", "")
+	c.description  = d.get("desc", "")
+	var tags: Array[String] = []
+	tags.assign(d.get("tags", []))
+	c.minion_tags  = tags
+	c.art_path     = d.get("art", "")
+	return c
+
 func _ready() -> void:
 	_register_wanderer_cards()
 
@@ -25,6 +52,15 @@ func get_all_card_ids() -> Array[String]:
 	var ids: Array[String] = []
 	for key in _cards.keys():
 		ids.append(key as String)
+	return ids
+
+## Returns card IDs whose pool field matches any value in the given list.
+func get_card_ids_in_pools(pools: Array[String]) -> Array[String]:
+	var ids: Array[String] = []
+	for key in _cards.keys():
+		var card: CardData = _cards[key]
+		if card.pool in pools:
+			ids.append(key as String)
 	return ids
 
 ## Returns a list of CardData for a given array of ids
@@ -50,6 +86,7 @@ func _register(card: CardData) -> void:
 # ---------------------------------------------------------------------------
 
 func _register_wanderer_cards() -> void:
+	var all: Array = []
 
 	# --- Minions ---
 
@@ -61,12 +98,12 @@ func _register_wanderer_cards() -> void:
 	void_imp.atk            = 100
 	void_imp.health         = 100
 	void_imp.minion_type    = Enums.MinionType.DEMON
-	void_imp.on_play_effect = "deal_1_enemy_hero"
+	void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100, "conditions": ["no_piercing_void"]}]
 	void_imp.minion_tags    = ["void_imp", "base_void_imp"]
 	void_imp.faction        = "abyss_order"
 	void_imp.art_path             = "res://assets/art/minions/abyss_order/void_imp.png"
 	void_imp.battlefield_art_path = "res://assets/art/minions/abyss_order/void_imp_small.png"
-	_register(void_imp)
+	all.append(void_imp)
 
 	# Senior Void Imp — added to hand by Imp Evolution talent; counts as Void Imp
 	var senior_void_imp := MinionCardData.new()
@@ -77,10 +114,10 @@ func _register_wanderer_cards() -> void:
 	senior_void_imp.atk          = 400
 	senior_void_imp.health       = 300
 	senior_void_imp.minion_type  = Enums.MinionType.DEMON
-	senior_void_imp.on_play_effect = "deal_1_enemy_hero"
+	senior_void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100, "conditions": ["no_piercing_void"]}]
 	senior_void_imp.minion_tags  = ["void_imp", "senior_void_imp"]
 	senior_void_imp.faction      = "abyss_order"
-	_register(senior_void_imp)
+	all.append(senior_void_imp)
 
 	# Runic Void Imp — variant core unit; offered via special reward
 	var runic_void_imp := MinionCardData.new()
@@ -92,12 +129,12 @@ func _register_wanderer_cards() -> void:
 	runic_void_imp.atk                   = 200
 	runic_void_imp.health                = 300
 	runic_void_imp.minion_type           = Enums.MinionType.DEMON
-	runic_void_imp.on_play_effect        = "runic_void_imp_damage"
+	runic_void_imp.on_play_effect_steps  = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300}]
 	runic_void_imp.on_play_requires_target = true
 	runic_void_imp.on_play_target_type   = "enemy_minion"
 	runic_void_imp.minion_tags           = ["void_imp", "runic_void_imp"]
 	runic_void_imp.faction               = "abyss_order"
-	_register(runic_void_imp)
+	all.append(runic_void_imp)
 
 	# Void Imp Wizard — variant core unit; offered via special reward
 	var void_imp_wizard := MinionCardData.new()
@@ -109,10 +146,13 @@ func _register_wanderer_cards() -> void:
 	void_imp_wizard.atk          = 100
 	void_imp_wizard.health       = 300
 	void_imp_wizard.minion_type  = Enums.MinionType.DEMON
-	void_imp_wizard.on_play_effect = "void_imp_wizard_effect"
+	void_imp_wizard.on_play_effect_steps = [
+		{"type": "VOID_BOLT", "amount": 300},
+		{"type": "VOID_MARK", "amount": 1},
+	]
 	void_imp_wizard.minion_tags  = ["void_imp", "void_imp_wizard"]
 	void_imp_wizard.faction      = "abyss_order"
-	_register(void_imp_wizard)
+	all.append(void_imp_wizard)
 
 	var shadow_hound := MinionCardData.new()
 	shadow_hound.id             = "shadow_hound"
@@ -122,10 +162,11 @@ func _register_wanderer_cards() -> void:
 	shadow_hound.atk            = 200
 	shadow_hound.health         = 300
 	shadow_hound.minion_type    = Enums.MinionType.DEMON
-	shadow_hound.on_play_effect = "shadow_hound_atk_bonus"
+	shadow_hound.on_play_effect_steps = [{"type": "BUFF_ATK", "scope": "SELF", "amount": 100, "multiplier_key": "other_friendly_demon_count", "permanent": true}]
 	shadow_hound.faction        = "abyss_order"
-	shadow_hound.art_path       = "res://assets/art/minions/abyss_order/shadow_hound.png"
-	_register(shadow_hound)
+	shadow_hound.art_path             = "res://assets/art/minions/abyss_order/shadow_hound.png"
+	shadow_hound.battlefield_art_path = "res://assets/art/minions/abyss_order/shwdow_hound_small.png"
+	all.append(shadow_hound)
 
 	var abyssal_brute := MinionCardData.new()
 	abyssal_brute.id            = "abyssal_brute"
@@ -137,8 +178,9 @@ func _register_wanderer_cards() -> void:
 	abyssal_brute.minion_type   = Enums.MinionType.DEMON
 	abyssal_brute.keywords.append(Enums.Keyword.GUARD)
 	abyssal_brute.faction       = "abyss_order"
-	abyssal_brute.art_path      = "res://assets/art/minions/abyss_order/abyssal_brute.png"
-	_register(abyssal_brute)
+	abyssal_brute.art_path             = "res://assets/art/minions/abyss_order/abyssal_brute.png"
+	abyssal_brute.battlefield_art_path = "res://assets/art/minions/abyss_order/abyssal_brute_small.png"
+	all.append(abyssal_brute)
 
 	# Wandering Spirit — spawned by hero power, not in deck
 	var wandering_spirit := MinionCardData.new()
@@ -149,7 +191,7 @@ func _register_wanderer_cards() -> void:
 	wandering_spirit.atk          = 100
 	wandering_spirit.health       = 200
 	wandering_spirit.minion_type  = Enums.MinionType.SPIRIT
-	_register(wandering_spirit)
+	all.append(wandering_spirit)
 
 	# --- Spells ---
 
@@ -160,10 +202,13 @@ func _register_wanderer_cards() -> void:
 	dark_empowerment.description    = "Give a friendly minion +100 ATK. If it's a Demon, also give it +100 HP."
 	dark_empowerment.requires_target = true
 	dark_empowerment.target_type    = "friendly_minion"
-	dark_empowerment.effect_id      = "dark_empowerment_effect"
+	dark_empowerment.effect_steps = [
+		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 100, "permanent": true},
+		{"type": "BUFF_HP",  "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 100, "conditions": ["is_demon"]},
+	]
 	dark_empowerment.faction        = "abyss_order"
 	dark_empowerment.art_path       = "res://assets/art/spells/abyss_order/dark_empowerment.png"
-	_register(dark_empowerment)
+	all.append(dark_empowerment)
 
 	var abyssal_sacrifice := SpellCardData.new()
 	abyssal_sacrifice.id             = "abyssal_sacrifice"
@@ -172,30 +217,41 @@ func _register_wanderer_cards() -> void:
 	abyssal_sacrifice.description    = "Destroy a friendly minion. Draw 2 cards."
 	abyssal_sacrifice.requires_target = true
 	abyssal_sacrifice.target_type    = "friendly_minion"
-	abyssal_sacrifice.effect_id      = "abyssal_sacrifice_effect"
+
 	abyssal_sacrifice.faction        = "abyss_order"
 	abyssal_sacrifice.art_path       = "res://assets/art/spells/abyss_order/abyssal_sacrifice.png"
-	_register(abyssal_sacrifice)
+	abyssal_sacrifice.effect_steps = [
+		{"type": "SACRIFICE", "scope": "SINGLE_CHOSEN_FRIENDLY"},
+		{"type": "DRAW", "amount": 2},
+	]
+	all.append(abyssal_sacrifice)
 
 	var abyssal_plague := SpellCardData.new()
 	abyssal_plague.id          = "abyssal_plague"
 	abyssal_plague.card_name   = "Abyssal Plague"
 	abyssal_plague.cost        = 2
 	abyssal_plague.description = "Apply 1 CORRUPTION to 2 random enemy minions. Deal 100 damage to all minions."
-	abyssal_plague.effect_id   = "abyssal_plague_effect"
+	abyssal_plague.effect_steps = [
+		{"type": "CORRUPTION",    "scope": "SINGLE_RANDOM", "amount": 1},
+		{"type": "CORRUPTION",    "scope": "SINGLE_RANDOM", "amount": 1},
+		{"type": "DAMAGE_MINION", "scope": "ALL_BOARD",     "amount": 100},
+	]
 	abyssal_plague.faction     = "abyss_order"
 	abyssal_plague.art_path    = "res://assets/art/spells/abyss_order/abyssal_plague.png"
-	_register(abyssal_plague)
+	all.append(abyssal_plague)
 
 	var void_summoning := SpellCardData.new()
 	void_summoning.id          = "void_summoning"
 	void_summoning.card_name   = "Void Summoning"
 	void_summoning.cost        = 2
 	void_summoning.description = "Summon a 200/200 Demon. If you control any Human, summon a 300/300 Demon instead."
-	void_summoning.effect_id   = "void_summoning_effect"
+	void_summoning.effect_steps = [
+		{"type": "SUMMON", "card_id": "void_demon", "conditions": ["not_has_friendly_human"]},
+		{"type": "SUMMON", "card_id": "void_demon", "conditions": ["has_friendly_human"], "token_atk": 300, "token_hp": 300},
+	]
 	void_summoning.faction     = "abyss_order"
 	void_summoning.art_path    = "res://assets/art/spells/abyss_order/void_summoning.png"
-	_register(void_summoning)
+	all.append(void_summoning)
 
 	var void_execution := SpellCardData.new()
 	void_execution.id             = "void_execution"
@@ -204,19 +260,22 @@ func _register_wanderer_cards() -> void:
 	void_execution.description    = "Deal 400 damage to a target enemy minion. If you control any Human, deal 600 instead."
 	void_execution.requires_target = true
 	void_execution.target_type    = "enemy_minion"
-	void_execution.effect_id      = "void_execution_effect"
+	void_execution.effect_steps = [
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 400},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 200, "conditions": ["has_friendly_human"]},
+	]
 	void_execution.faction        = "abyss_order"
 	void_execution.art_path       = "res://assets/art/spells/abyss_order/void_execution.png"
-	_register(void_execution)
+	all.append(void_execution)
 
 	var flux_siphon := SpellCardData.new()
 	flux_siphon.id          = "flux_siphon"
 	flux_siphon.card_name   = "Flux Siphon"
 	flux_siphon.cost        = 0
 	flux_siphon.description = "Convert up to 3 of your remaining Mana into Essence."
-	flux_siphon.effect_id   = "flux_siphon_effect"
+	flux_siphon.effect_steps = [{"type": "CONVERT_RESOURCE", "convert_from": "mana", "convert_to": "essence"}]
 	flux_siphon.faction     = "neutral"
-	_register(flux_siphon)
+	all.append(flux_siphon)
 
 	# ---------------------------------------------------------------------------
 	# --- Neutral Core Set ---
@@ -231,7 +290,7 @@ func _register_wanderer_cards() -> void:
 	roadside_drifter.health      = 300
 	roadside_drifter.minion_type = Enums.MinionType.HUMAN
 	roadside_drifter.faction     = "neutral"
-	_register(roadside_drifter)
+	all.append(roadside_drifter)
 
 	var ashland_forager := MinionCardData.new()
 	ashland_forager.id          = "ashland_forager"
@@ -241,7 +300,7 @@ func _register_wanderer_cards() -> void:
 	ashland_forager.health      = 200
 	ashland_forager.minion_type = Enums.MinionType.BEAST
 	ashland_forager.faction     = "neutral"
-	_register(ashland_forager)
+	all.append(ashland_forager)
 
 	# 2-cost
 	var freelance_sellsword := MinionCardData.new()
@@ -252,7 +311,7 @@ func _register_wanderer_cards() -> void:
 	freelance_sellsword.health      = 200
 	freelance_sellsword.minion_type = Enums.MinionType.UNTAGGED
 	freelance_sellsword.faction     = "neutral"
-	_register(freelance_sellsword)
+	all.append(freelance_sellsword)
 
 	var traveling_merchant := MinionCardData.new()
 	traveling_merchant.id             = "traveling_merchant"
@@ -262,9 +321,9 @@ func _register_wanderer_cards() -> void:
 	traveling_merchant.atk            = 200
 	traveling_merchant.health         = 200
 	traveling_merchant.minion_type    = Enums.MinionType.HUMAN
-	traveling_merchant.on_play_effect = "draw_1_card"
+	traveling_merchant.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
 	traveling_merchant.faction        = "neutral"
-	_register(traveling_merchant)
+	all.append(traveling_merchant)
 
 	var trapbreaker_rogue := MinionCardData.new()
 	trapbreaker_rogue.id             = "trapbreaker_rogue"
@@ -274,9 +333,9 @@ func _register_wanderer_cards() -> void:
 	trapbreaker_rogue.atk            = 250
 	trapbreaker_rogue.health         = 200
 	trapbreaker_rogue.minion_type    = Enums.MinionType.HUMAN
-	trapbreaker_rogue.on_play_effect = "destroy_random_enemy_trap"
+	trapbreaker_rogue.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "destroy_random_enemy_trap"}]
 	trapbreaker_rogue.faction        = "neutral"
-	_register(trapbreaker_rogue)
+	all.append(trapbreaker_rogue)
 
 	# 3-cost
 	var caravan_guard := MinionCardData.new()
@@ -287,7 +346,7 @@ func _register_wanderer_cards() -> void:
 	caravan_guard.health      = 350
 	caravan_guard.minion_type = Enums.MinionType.UNTAGGED
 	caravan_guard.faction     = "neutral"
-	_register(caravan_guard)
+	all.append(caravan_guard)
 
 	var arena_challenger := MinionCardData.new()
 	arena_challenger.id          = "arena_challenger"
@@ -297,7 +356,7 @@ func _register_wanderer_cards() -> void:
 	arena_challenger.health      = 200
 	arena_challenger.minion_type = Enums.MinionType.UNTAGGED
 	arena_challenger.faction     = "neutral"
-	_register(arena_challenger)
+	all.append(arena_challenger)
 
 	var spell_taxer := MinionCardData.new()
 	spell_taxer.id             = "spell_taxer"
@@ -307,9 +366,9 @@ func _register_wanderer_cards() -> void:
 	spell_taxer.atk            = 250
 	spell_taxer.health         = 300
 	spell_taxer.minion_type    = Enums.MinionType.HUMAN
-	spell_taxer.on_play_effect = "spell_taxer_effect"
+	spell_taxer.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "spell_taxer_effect"}]
 	spell_taxer.faction        = "neutral"
-	_register(spell_taxer)
+	all.append(spell_taxer)
 
 	var saboteur_adept := MinionCardData.new()
 	saboteur_adept.id             = "saboteur_adept"
@@ -319,9 +378,9 @@ func _register_wanderer_cards() -> void:
 	saboteur_adept.atk            = 300
 	saboteur_adept.health         = 300
 	saboteur_adept.minion_type    = Enums.MinionType.HUMAN
-	saboteur_adept.on_play_effect = "saboteur_adept_effect"
+	saboteur_adept.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "saboteur_adept_effect"}]
 	saboteur_adept.faction        = "neutral"
-	_register(saboteur_adept)
+	all.append(saboteur_adept)
 
 	var aether_bulwark := MinionCardData.new()
 	aether_bulwark.id          = "aether_bulwark"
@@ -335,7 +394,7 @@ func _register_wanderer_cards() -> void:
 	aether_bulwark.minion_type = Enums.MinionType.CONSTRUCT
 	aether_bulwark.keywords.append(Enums.Keyword.SHIELD_REGEN_1)
 	aether_bulwark.faction     = "neutral"
-	_register(aether_bulwark)
+	all.append(aether_bulwark)
 
 	# 4-cost
 	var bulwark_automaton := MinionCardData.new()
@@ -348,7 +407,7 @@ func _register_wanderer_cards() -> void:
 	bulwark_automaton.shield_max  = 200
 	bulwark_automaton.minion_type = Enums.MinionType.CONSTRUCT
 	bulwark_automaton.faction     = "neutral"
-	_register(bulwark_automaton)
+	all.append(bulwark_automaton)
 
 	var wandering_warden := MinionCardData.new()
 	wandering_warden.id          = "wandering_warden"
@@ -362,7 +421,7 @@ func _register_wanderer_cards() -> void:
 	wandering_warden.minion_type = Enums.MinionType.UNTAGGED
 	wandering_warden.keywords.append(Enums.Keyword.SHIELD_REGEN_1)
 	wandering_warden.faction     = "neutral"
-	_register(wandering_warden)
+	all.append(wandering_warden)
 
 	# 5-cost
 	var ruins_archivist := MinionCardData.new()
@@ -373,9 +432,9 @@ func _register_wanderer_cards() -> void:
 	ruins_archivist.atk            = 450
 	ruins_archivist.health         = 500
 	ruins_archivist.minion_type    = Enums.MinionType.UNTAGGED
-	ruins_archivist.on_play_effect = "draw_1_card"
+	ruins_archivist.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
 	ruins_archivist.faction        = "neutral"
-	_register(ruins_archivist)
+	all.append(ruins_archivist)
 
 	# 6–8 cost (big threats)
 	var wildland_behemoth := MinionCardData.new()
@@ -386,7 +445,7 @@ func _register_wanderer_cards() -> void:
 	wildland_behemoth.health      = 600
 	wildland_behemoth.minion_type = Enums.MinionType.BEAST
 	wildland_behemoth.faction     = "neutral"
-	_register(wildland_behemoth)
+	all.append(wildland_behemoth)
 
 	var stone_sentinel := MinionCardData.new()
 	stone_sentinel.id          = "stone_sentinel"
@@ -396,7 +455,7 @@ func _register_wanderer_cards() -> void:
 	stone_sentinel.health      = 600
 	stone_sentinel.minion_type = Enums.MinionType.UNTAGGED
 	stone_sentinel.faction     = "neutral"
-	_register(stone_sentinel)
+	all.append(stone_sentinel)
 
 	var rift_leviathan := MinionCardData.new()
 	rift_leviathan.id          = "rift_leviathan"
@@ -406,19 +465,8 @@ func _register_wanderer_cards() -> void:
 	rift_leviathan.health      = 700
 	rift_leviathan.minion_type = Enums.MinionType.BEAST
 	rift_leviathan.faction     = "neutral"
-	_register(rift_leviathan)
+	all.append(rift_leviathan)
 
-	# --- Neutral tokens (summoned by effects, not deck-buildable) ---
-
-	var soldier := MinionCardData.new()
-	soldier.id          = "soldier"
-	soldier.card_name   = "Soldier"
-	soldier.essence_cost = 0
-	soldier.atk         = 100
-	soldier.health      = 100
-	soldier.minion_type = Enums.MinionType.HUMAN
-	soldier.faction     = "neutral"
-	_register(soldier)
 
 	# --- Neutral Core Spells ---
 
@@ -427,9 +475,9 @@ func _register_wanderer_cards() -> void:
 	energy_conversion.card_name   = "Energy Conversion"
 	energy_conversion.cost        = 0
 	energy_conversion.description = "Convert up to 3 of your remaining Essence into Mana."
-	energy_conversion.effect_id   = "energy_conversion_effect"
-	energy_conversion.faction     = "neutral"
-	_register(energy_conversion)
+	energy_conversion.faction      = "neutral"
+	energy_conversion.effect_steps = [{"type": "CONVERT_RESOURCE", "convert_from": "essence", "convert_to": "mana"}]
+	all.append(energy_conversion)
 
 	var arcane_strike := SpellCardData.new()
 	arcane_strike.id              = "arcane_strike"
@@ -438,9 +486,10 @@ func _register_wanderer_cards() -> void:
 	arcane_strike.description     = "Deal 200 damage to a target minion."
 	arcane_strike.requires_target = true
 	arcane_strike.target_type     = "any_minion"
-	arcane_strike.effect_id       = "arcane_strike_effect"
+
 	arcane_strike.faction         = "neutral"
-	_register(arcane_strike)
+	arcane_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 200}]
+	all.append(arcane_strike)
 
 	var purge := SpellCardData.new()
 	purge.id              = "purge"
@@ -449,27 +498,29 @@ func _register_wanderer_cards() -> void:
 	purge.description     = "Remove all buffs from an enemy minion, or all debuffs from a friendly minion."
 	purge.requires_target = true
 	purge.target_type     = "any_minion"
-	purge.effect_id       = "purge_effect"
 	purge.faction         = "neutral"
-	_register(purge)
+	purge.effect_steps    = [{"type": "PURGE", "scope": "SINGLE_CHOSEN"}]
+	all.append(purge)
 
 	var cyclone := SpellCardData.new()
 	cyclone.id          = "cyclone"
 	cyclone.card_name   = "Cyclone"
 	cyclone.cost        = 2
-	cyclone.description = "Destroy a target active Trap or the active Environment."
-	cyclone.effect_id   = "cyclone_effect"
-	cyclone.faction     = "neutral"
-	_register(cyclone)
+	cyclone.description    = "Destroy a target active Trap or the active Environment."
+	cyclone.requires_target = true
+	cyclone.target_type     = "trap_or_env"
+	cyclone.faction         = "neutral"
+	all.append(cyclone)
 
 	var tactical_planning := SpellCardData.new()
 	tactical_planning.id          = "tactical_planning"
 	tactical_planning.card_name   = "Tactical Planning"
 	tactical_planning.cost        = 2
 	tactical_planning.description = "Draw a card."
-	tactical_planning.effect_id   = "tactical_planning_effect"
-	tactical_planning.faction     = "neutral"
-	_register(tactical_planning)
+
+	tactical_planning.faction      = "neutral"
+	tactical_planning.effect_steps = [{"type": "DRAW", "amount": 1}]
+	all.append(tactical_planning)
 
 	var precision_strike := SpellCardData.new()
 	precision_strike.id              = "precision_strike"
@@ -478,18 +529,23 @@ func _register_wanderer_cards() -> void:
 	precision_strike.description     = "Deal 400 damage to a target minion."
 	precision_strike.requires_target = true
 	precision_strike.target_type     = "any_minion"
-	precision_strike.effect_id       = "precision_strike_effect"
+
 	precision_strike.faction         = "neutral"
-	_register(precision_strike)
+	precision_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 400}]
+	all.append(precision_strike)
 
 	var hurricane := SpellCardData.new()
 	hurricane.id          = "hurricane"
 	hurricane.card_name   = "Hurricane"
 	hurricane.cost        = 3
 	hurricane.description = "Destroy all Traps and the active Environment on the battlefield, including your own."
-	hurricane.effect_id   = "hurricane_effect"
-	hurricane.faction     = "neutral"
-	_register(hurricane)
+
+	hurricane.faction        = "neutral"
+	hurricane.effect_steps   = [
+		{"type": "DESTROY", "scope": "ALL_TRAPS"},
+		{"type": "DESTROY", "scope": "ACTIVE_ENVIRONMENT"},
+	]
+	all.append(hurricane)
 
 
 	# --- Traps: Runes only (normal traps removed) ---
@@ -505,7 +561,7 @@ func _register_wanderer_cards() -> void:
 	dark_covenant.passive_effect_id   = "dark_covenant_passive"
 	dark_covenant.faction             = "abyss_order"
 	dark_covenant.art_path            = "res://assets/art/environments/abyss_order/dark_convenant.png"
-	_register(dark_covenant)
+	all.append(dark_covenant)
 
 	# -----------------------------------------------------------------------
 	# Abyss Order — core card set
@@ -521,10 +577,11 @@ func _register_wanderer_cards() -> void:
 	abyss_cultist.atk            = 100
 	abyss_cultist.health         = 300
 	abyss_cultist.minion_type    = Enums.MinionType.HUMAN
-	abyss_cultist.on_play_effect = "abyss_cultist_corrupt"
+	abyss_cultist.on_play_effect_steps = [{"type": "CORRUPTION", "scope": "SINGLE_RANDOM", "amount": 1}]
 	abyss_cultist.faction        = "abyss_order"
-	abyss_cultist.art_path       = "res://assets/art/minions/abyss_order/abyss_cultist.png"
-	_register(abyss_cultist)
+	abyss_cultist.art_path             = "res://assets/art/minions/abyss_order/abyss_cultist.png"
+	abyss_cultist.battlefield_art_path = "res://assets/art/minions/abyss_order/abyss_cultist_small.png"
+	all.append(abyss_cultist)
 
 	var void_netter := MinionCardData.new()
 	void_netter.id             = "void_netter"
@@ -534,12 +591,13 @@ func _register_wanderer_cards() -> void:
 	void_netter.atk                     = 100
 	void_netter.health                  = 300
 	void_netter.minion_type             = Enums.MinionType.HUMAN
-	void_netter.on_play_effect          = "void_netter_damage"
+	void_netter.on_play_effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 200}]
 	void_netter.on_play_requires_target = true
 	void_netter.on_play_target_type     = "enemy_minion"
 	void_netter.faction        = "abyss_order"
-	void_netter.art_path       = "res://assets/art/minions/abyss_order/void_netter.png"
-	_register(void_netter)
+	void_netter.art_path             = "res://assets/art/minions/abyss_order/void_netter.png"
+	void_netter.battlefield_art_path = "res://assets/art/minions/abyss_order/void_netter_small.png"
+	all.append(void_netter)
 
 	var corruption_weaver := MinionCardData.new()
 	corruption_weaver.id             = "corruption_weaver"
@@ -549,10 +607,11 @@ func _register_wanderer_cards() -> void:
 	corruption_weaver.atk            = 100
 	corruption_weaver.health         = 400
 	corruption_weaver.minion_type    = Enums.MinionType.HUMAN
-	corruption_weaver.on_play_effect = "corruption_weaver_corrupt_all"
+	corruption_weaver.on_play_effect_steps = [{"type": "CORRUPTION", "scope": "ALL_ENEMY", "amount": 1}]
 	corruption_weaver.faction        = "abyss_order"
-	corruption_weaver.art_path       = "res://assets/art/minions/abyss_order/corruption_weaver.png"
-	_register(corruption_weaver)
+	corruption_weaver.art_path             = "res://assets/art/minions/abyss_order/corruption_weaver.png"
+	corruption_weaver.battlefield_art_path = "res://assets/art/minions/abyss_order/corruption_weaver_small.png"
+	all.append(corruption_weaver)
 
 	var soul_collector := MinionCardData.new()
 	soul_collector.id             = "soul_collector"
@@ -562,12 +621,13 @@ func _register_wanderer_cards() -> void:
 	soul_collector.atk                     = 300
 	soul_collector.health                  = 700
 	soul_collector.minion_type             = Enums.MinionType.HUMAN
-	soul_collector.on_play_effect          = "soul_collector_execute"
+	soul_collector.on_play_effect_steps    = [{"type": "DESTROY", "scope": "SINGLE_CHOSEN", "filter": "CORRUPTED"}]
 	soul_collector.on_play_requires_target = true
 	soul_collector.on_play_target_type     = "corrupted_enemy_minion"
 	soul_collector.faction        = "abyss_order"
-	soul_collector.art_path       = "res://assets/art/minions/abyss_order/soul_collector.png"
-	_register(soul_collector)
+	soul_collector.art_path             = "res://assets/art/minions/abyss_order/soul_collector.png"
+	soul_collector.battlefield_art_path = "res://assets/art/minions/abyss_order/soul_collector_small.png"
+	all.append(soul_collector)
 
 	# --- Swift / aggressive ---
 
@@ -582,8 +642,9 @@ func _register_wanderer_cards() -> void:
 	void_stalker.keywords.append(Enums.Keyword.SWIFT)
 	void_stalker.keywords.append(Enums.Keyword.LIFEDRAIN)
 	void_stalker.faction      = "abyss_order"
-	void_stalker.art_path     = "res://assets/art/minions/abyss_order/void_stalker.png"
-	_register(void_stalker)
+	void_stalker.art_path             = "res://assets/art/minions/abyss_order/void_stalker.png"
+	void_stalker.battlefield_art_path = "res://assets/art/minions/abyss_order/void_stalker_small.png"
+	all.append(void_stalker)
 
 	# --- Board-wide passive payoffs ---
 
@@ -597,8 +658,9 @@ func _register_wanderer_cards() -> void:
 	void_spawner.minion_type  = Enums.MinionType.DEMON
 	void_spawner.passive_effect_id = "void_spark_on_friendly_death"
 	void_spawner.faction      = "abyss_order"
-	void_spawner.art_path     = "res://assets/art/minions/abyss_order/void_spawner.png"
-	_register(void_spawner)
+	void_spawner.art_path             = "res://assets/art/minions/abyss_order/void_spawner.png"
+	void_spawner.battlefield_art_path = "res://assets/art/minions/abyss_order/void_spawner_small.png"
+	all.append(void_spawner)
 
 	var abyssal_tide := MinionCardData.new()
 	abyssal_tide.id           = "abyssal_tide"
@@ -610,8 +672,9 @@ func _register_wanderer_cards() -> void:
 	abyssal_tide.minion_type  = Enums.MinionType.DEMON
 	abyssal_tide.passive_effect_id = "deal_200_hero_on_friendly_death"
 	abyssal_tide.faction      = "abyss_order"
-	abyssal_tide.art_path     = "res://assets/art/minions/abyss_order/abyssal_tide.png"
-	_register(abyssal_tide)
+	abyssal_tide.art_path             = "res://assets/art/minions/abyss_order/abyssal_tide.png"
+	abyssal_tide.battlefield_art_path = "res://assets/art/minions/abyss_order/abyssal_tide_small.png"
+	all.append(abyssal_tide)
 
 	# --- Sacrifice finisher ---
 
@@ -624,10 +687,11 @@ func _register_wanderer_cards() -> void:
 	void_devourer.health         = 600
 	void_devourer.minion_type    = Enums.MinionType.DEMON
 	void_devourer.keywords.append(Enums.Keyword.GUARD)
-	void_devourer.on_play_effect = "void_devourer_sacrifice"
+	void_devourer.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_devourer_sacrifice"}]
 	void_devourer.faction        = "abyss_order"
-	void_devourer.art_path       = "res://assets/art/minions/abyss_order/void_devourer.png"
-	_register(void_devourer)
+	void_devourer.art_path             = "res://assets/art/minions/abyss_order/void_devourer.png"
+	void_devourer.battlefield_art_path = "res://assets/art/minions/abyss_order/void_devourer_small.png"
+	all.append(void_devourer)
 
 	# --- Champion (max 1 copy, auto-summoned when 3 Void Imps are on board) ---
 
@@ -646,32 +710,12 @@ func _register_wanderer_cards() -> void:
 	nyx_ael.auto_summon_tag       = "void_imp"
 	nyx_ael.auto_summon_threshold = 3
 	nyx_ael.faction      = "abyss_order"
-	nyx_ael.art_path     = "res://assets/art/minions/abyss_order/nyx_ael.png"
-	_register(nyx_ael)
+	nyx_ael.art_path             = "res://assets/art/minions/abyss_order/nyx_ael.png"
+	nyx_ael.battlefield_art_path = "res://assets/art/minions/abyss_order/nyx_ael_small.png"
+	all.append(nyx_ael)
 
-	# --- Token (not in player deck, summoned by effects) ---
-
-	var void_demon := MinionCardData.new()
-	void_demon.id          = "void_demon"
-	void_demon.card_name   = "Void Demon"
-	void_demon.essence_cost = 0
-	void_demon.description = "Summoned by Void Summoning."
-	void_demon.atk         = 200
-	void_demon.health      = 200
-	void_demon.minion_type = Enums.MinionType.DEMON
-	void_demon.faction     = "abyss_order"
-	_register(void_demon)
-
-	var void_spark := MinionCardData.new()
-	void_spark.id           = "void_spark"
-	void_spark.card_name    = "Void Spark"
-	void_spark.essence_cost = 0
-	void_spark.description  = "Summoned by Void Spawner."
-	void_spark.atk          = 100
-	void_spark.health       = 100
-	void_spark.minion_type  = Enums.MinionType.DEMON
-	void_spark.faction      = "abyss_order"
-	_register(void_spark)
+	# --- Tokens (not in player deck, summoned by effects) ---
+	# Defined compactly via _TOKEN_DEFS at the bottom of this file; appended there.
 
 	# --- Void Bolt card ecosystem (Mana-cost, Lord Vael void_bolt branch) ---
 
@@ -680,11 +724,14 @@ func _register_wanderer_cards() -> void:
 	void_bolt_spell.card_name      = "Void Bolt"
 	void_bolt_spell.cost           = 2
 	void_bolt_spell.description    = "Deal 350 Void Bolt damage to the enemy hero."
-	void_bolt_spell.effect_id       = "void_bolt_effect"
+	void_bolt_spell.effect_steps = [
+		{"type": "VOID_BOLT", "amount": 300},
+		{"type": "VOID_MARK", "amount": 1, "conditions": ["has_piercing_void"]},
+	]
 	void_bolt_spell.requires_target = false
 	void_bolt_spell.faction         = "abyss_order"
 	void_bolt_spell.art_path        = "res://assets/art/spells/abyss_order/void_bolt.png"
-	_register(void_bolt_spell)
+	all.append(void_bolt_spell)
 
 	# --- Neutral Traps ---
 
@@ -696,7 +743,7 @@ func _register_wanderer_cards() -> void:
 	hidden_ambush.trigger     = Enums.TriggerEvent.ON_ENEMY_ATTACK
 	hidden_ambush.effect_id   = "hidden_ambush_effect"
 	hidden_ambush.faction     = "neutral"
-	_register(hidden_ambush)
+	all.append(hidden_ambush)
 
 	var smoke_veil := TrapCardData.new()
 	smoke_veil.id          = "smoke_veil"
@@ -706,7 +753,7 @@ func _register_wanderer_cards() -> void:
 	smoke_veil.trigger     = Enums.TriggerEvent.ON_ENEMY_ATTACK
 	smoke_veil.effect_id   = "smoke_veil_effect"
 	smoke_veil.faction     = "neutral"
-	_register(smoke_veil)
+	all.append(smoke_veil)
 
 	var silence_trap := TrapCardData.new()
 	silence_trap.id          = "silence_trap"
@@ -716,7 +763,7 @@ func _register_wanderer_cards() -> void:
 	silence_trap.trigger     = Enums.TriggerEvent.ON_ENEMY_SPELL_CAST
 	silence_trap.effect_id   = "silence_trap_effect"
 	silence_trap.faction     = "neutral"
-	_register(silence_trap)
+	all.append(silence_trap)
 
 	var death_trap := TrapCardData.new()
 	death_trap.id          = "death_trap"
@@ -726,7 +773,7 @@ func _register_wanderer_cards() -> void:
 	death_trap.trigger     = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
 	death_trap.effect_id   = "death_trap_effect"
 	death_trap.faction     = "neutral"
-	_register(death_trap)
+	all.append(death_trap)
 
 	# ---------------------------------------------------------------------------
 	# --- Void Bolt Support Pool (Lord Vael, Piercing Void talent only) ---
@@ -738,98 +785,36 @@ func _register_wanderer_cards() -> void:
 	mark_the_target.card_name   = "Mark the Target"
 	mark_the_target.cost        = 2
 	mark_the_target.description = "Apply 2 Void Marks to the enemy hero. Draw a card."
-	mark_the_target.effect_id   = "mark_the_target_effect"
-	mark_the_target.faction     = "abyss_order"
-	_register(mark_the_target)
 
-	var imp_combustion := SpellCardData.new()
-	imp_combustion.id             = "imp_combustion"
-	imp_combustion.card_name      = "Imp Combustion"
-	imp_combustion.cost           = 1
-	imp_combustion.description    = "Destroy a friendly Void Imp. Deal 200 Void Bolt damage to the enemy hero."
-	imp_combustion.requires_target = true
-	imp_combustion.target_type    = "friendly_void_imp"
-	imp_combustion.effect_id      = "imp_combustion_effect"
-	imp_combustion.faction        = "abyss_order"
-	_register(imp_combustion)
-
-	var dark_ritual := SpellCardData.new()
-	dark_ritual.id             = "dark_ritual_of_the_abyss"
-	dark_ritual.card_name      = "Dark Ritual of the Abyss"
-	dark_ritual.cost           = 2
-	dark_ritual.description    = "Destroy a friendly Void Imp. Draw 2 cards."
-	dark_ritual.requires_target = true
-	dark_ritual.target_type    = "friendly_void_imp"
-	dark_ritual.effect_id      = "dark_ritual_effect"
-	dark_ritual.faction        = "abyss_order"
-	_register(dark_ritual)
-
-	var imp_overload := SpellCardData.new()
-	imp_overload.id          = "imp_overload"
-	imp_overload.card_name   = "Imp Overload"
-	imp_overload.cost        = 3
-	imp_overload.description = "Summon 2 Void Imps. They die at the end of this turn."
-	imp_overload.effect_id   = "imp_overload_effect"
-	imp_overload.faction     = "abyss_order"
-	_register(imp_overload)
+	mark_the_target.faction      = "abyss_order"
+	mark_the_target.effect_steps = [
+		{"type": "VOID_MARK", "amount": 2},
+		{"type": "DRAW", "amount": 1},
+	]
+	all.append(mark_the_target)
 
 	var void_detonation := SpellCardData.new()
 	void_detonation.id          = "void_detonation"
 	void_detonation.card_name   = "Void Detonation"
 	void_detonation.cost        = 4
 	void_detonation.description = "Deal 150 Void Bolt damage to the enemy hero. Gain +50 damage per Void Mark."
-	void_detonation.effect_id   = "void_detonation_effect"
+	void_detonation.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_detonation_effect"}]
 	void_detonation.faction     = "abyss_order"
-	_register(void_detonation)
-
-	var mark_convergence := SpellCardData.new()
-	mark_convergence.id          = "mark_convergence"
-	mark_convergence.card_name   = "Mark Convergence"
-	mark_convergence.cost        = 5
-	mark_convergence.description = "Double the number of Void Marks on the enemy hero."
-	mark_convergence.effect_id   = "mark_convergence_effect"
-	mark_convergence.faction     = "abyss_order"
-	_register(mark_convergence)
+	all.append(void_detonation)
 
 	# Minions
-	var void_channeler := MinionCardData.new()
-	void_channeler.id            = "void_channeler"
-	void_channeler.card_name     = "Void Channeler"
-	void_channeler.description   = "PASSIVE: whenever Void Bolt damage is dealt, apply 1 additional Void Mark."
-	void_channeler.essence_cost  = 1
-	void_channeler.mana_cost     = 2
-	void_channeler.atk           = 100
-	void_channeler.health        = 300
-	void_channeler.minion_type   = Enums.MinionType.HUMAN
-	void_channeler.on_void_bolt_passive_effect_id = "void_mark_per_channeler"
-	void_channeler.faction       = "abyss_order"
-	_register(void_channeler)
-
-	var abyssal_sacrificer := MinionCardData.new()
-	abyssal_sacrificer.id          = "abyssal_sacrificer"
-	abyssal_sacrificer.card_name   = "Abyssal Sacrificer"
-	abyssal_sacrificer.description = "PASSIVE: whenever a friendly Void Imp dies, apply 1 Void Mark to the enemy hero."
-	abyssal_sacrificer.essence_cost = 1
-	abyssal_sacrificer.mana_cost   = 2
-	abyssal_sacrificer.atk         = 100
-	abyssal_sacrificer.health      = 300
-	abyssal_sacrificer.minion_type = Enums.MinionType.HUMAN
-	abyssal_sacrificer.passive_effect_id = "void_mark_on_void_imp_death"
-	abyssal_sacrificer.faction     = "abyss_order"
-	_register(abyssal_sacrificer)
-
 	var abyssal_arcanist := MinionCardData.new()
 	abyssal_arcanist.id            = "abyssal_arcanist"
 	abyssal_arcanist.card_name     = "Abyssal Arcanist"
 	abyssal_arcanist.description   = "ON PLAY: add a Void Bolt spell to your hand."
-	abyssal_arcanist.essence_cost  = 2
+	abyssal_arcanist.essence_cost  = 1
 	abyssal_arcanist.mana_cost     = 2
 	abyssal_arcanist.atk           = 200
 	abyssal_arcanist.health        = 300
 	abyssal_arcanist.minion_type   = Enums.MinionType.HUMAN
-	abyssal_arcanist.on_play_effect = "abyssal_arcanist_effect"
+	abyssal_arcanist.on_play_effect_steps = [{"type": "ADD_CARD", "card_id": "void_bolt"}]
 	abyssal_arcanist.faction       = "abyss_order"
-	_register(abyssal_arcanist)
+	all.append(abyssal_arcanist)
 
 	var void_archmagus := MinionCardData.new()
 	void_archmagus.id          = "void_archmagus"
@@ -843,156 +828,90 @@ func _register_wanderer_cards() -> void:
 	void_archmagus.mana_cost_discount          = 1
 	void_archmagus.on_spell_cast_passive_effect_id = "add_void_bolt_on_spell"
 	void_archmagus.faction                     = "abyss_order"
-	_register(void_archmagus)
-
-	# Traps
-	var soul_rupture := TrapCardData.new()
-	soul_rupture.id          = "soul_rupture"
-	soul_rupture.card_name   = "Soul Rupture"
-	soul_rupture.cost        = 2
-	soul_rupture.description = "Trap: When a friendly Void Imp dies during the enemy's turn, deal 250 Void Bolt damage to the enemy hero."
-	soul_rupture.trigger     = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
-	soul_rupture.effect_id   = "soul_rupture_effect"
-	soul_rupture.faction     = "abyss_order"
-	_register(soul_rupture)
-
-	var mark_collapse := TrapCardData.new()
-	mark_collapse.id          = "mark_collapse"
-	mark_collapse.card_name   = "Mark Collapse"
-	mark_collapse.cost        = 3
-	mark_collapse.description = "Trap: At the start of the enemy's turn, if the enemy hero has 5+ Void Marks, consume all marks and deal 150 Void Bolt damage per mark."
-	mark_collapse.trigger     = Enums.TriggerEvent.ON_ENEMY_TURN_START
-	mark_collapse.effect_id   = "mark_collapse_effect"
-	mark_collapse.faction     = "abyss_order"
-	_register(mark_collapse)
-
-	# Environment
-	var void_bolt_rain := EnvironmentCardData.new()
-	void_bolt_rain.id                  = "void_bolt_rain"
-	void_bolt_rain.card_name           = "Void Bolt Rain"
-	void_bolt_rain.cost                = 3
-	void_bolt_rain.description         = "At the start of every turn, deal 100 Void Bolt damage to both heroes."
-	void_bolt_rain.passive_description = "At the start of every turn, deal 100 Void Bolt damage to both heroes."
-	void_bolt_rain.passive_effect_id   = "void_bolt_rain_passive"
-	void_bolt_rain.fires_on_enemy_turn = true
-	void_bolt_rain.faction             = "abyss_order"
-	_register(void_bolt_rain)
+	all.append(void_archmagus)
 
 	# ---------------------------------------------------------------------------
 	# --- Lord Vael — Common Imp Support Pool (unlocked by defeating act bosses) ---
 	# ---------------------------------------------------------------------------
 
-	# Spells
-	var abyssal_conjuring := SpellCardData.new()
-	abyssal_conjuring.id          = "abyssal_conjuring"
-	abyssal_conjuring.card_name   = "Abyssal Conjuring"
-	abyssal_conjuring.cost        = 1
-	abyssal_conjuring.description = "If your board is empty, summon a Void Imp. Otherwise summon a Void Spark."
-	abyssal_conjuring.effect_id   = "abyssal_conjuring_effect"
-	abyssal_conjuring.faction     = "abyss_order"
-	_register(abyssal_conjuring)
-
-	var call_the_swarm := SpellCardData.new()
-	call_the_swarm.id          = "call_the_swarm"
-	call_the_swarm.card_name   = "Call the Swarm"
-	call_the_swarm.cost        = 4
-	call_the_swarm.description = "Summon 2 Void Imps."
-	call_the_swarm.effect_id   = "call_the_swarm_effect"
-	call_the_swarm.faction     = "abyss_order"
-	_register(call_the_swarm)
-
-	var void_breach := SpellCardData.new()
-	void_breach.id          = "void_breach"
-	void_breach.card_name   = "Void Breach"
-	void_breach.cost        = 2
-	void_breach.description = "Add a Void Imp to your hand."
-	void_breach.effect_id   = "void_breach_effect"
-	void_breach.faction     = "abyss_order"
-	_register(void_breach)
-
 	# Minions
-	var abyss_recruiter := MinionCardData.new()
-	abyss_recruiter.id             = "abyss_recruiter"
-	abyss_recruiter.card_name      = "Abyss Recruiter"
-	abyss_recruiter.description    = "ON PLAY: add a Void Imp to your hand."
-	abyss_recruiter.essence_cost   = 2
-	abyss_recruiter.atk            = 200
-	abyss_recruiter.health         = 300
-	abyss_recruiter.minion_type    = Enums.MinionType.HUMAN
-	abyss_recruiter.on_play_effect = "abyss_recruiter_effect"
-	abyss_recruiter.faction        = "abyss_order"
-	_register(abyss_recruiter)
+	var imp_recruiter := MinionCardData.new()
+	imp_recruiter.id             = "imp_recruiter"
+	imp_recruiter.card_name      = "Imp Recruiter"
+	imp_recruiter.description    = "ON PLAY: add a Void Imp to your hand."
+	imp_recruiter.essence_cost   = 2
+	imp_recruiter.atk            = 200
+	imp_recruiter.health         = 300
+	imp_recruiter.minion_type    = Enums.MinionType.HUMAN
+	imp_recruiter.on_play_effect_steps = [{"type": "ADD_CARD", "card_id": "void_imp"}]
+	imp_recruiter.faction        = "abyss_order"
+	all.append(imp_recruiter)
 
-	var imp_handler := MinionCardData.new()
-	imp_handler.id          = "imp_handler"
-	imp_handler.card_name   = "Imp Handler"
-	imp_handler.description = "PASSIVE: whenever a Void Imp is summoned, it gains +100 HP."
-	imp_handler.essence_cost = 3
-	imp_handler.atk         = 150
-	imp_handler.health      = 400
-	imp_handler.minion_type = Enums.MinionType.HUMAN
-	imp_handler.passive_effect_id = "buff_void_imp_on_summon"
-	imp_handler.faction     = "abyss_order"
-	_register(imp_handler)
+	var soul_taskmaster := MinionCardData.new()
+	soul_taskmaster.id                = "soul_taskmaster"
+	soul_taskmaster.card_name         = "Soul Taskmaster"
+	soul_taskmaster.description       = "PASSIVE: whenever a friendly Demon dies, this minion permanently gains +50 ATK."
+	soul_taskmaster.essence_cost      = 3
+	soul_taskmaster.atk               = 250
+	soul_taskmaster.health            = 400
+	soul_taskmaster.minion_type       = Enums.MinionType.DEMON
+	soul_taskmaster.passive_effect_id = "soul_taskmaster_gain_atk"
+	soul_taskmaster.faction           = "abyss_order"
+	all.append(soul_taskmaster)
 
-	var abyssal_taskmaster := MinionCardData.new()
-	abyssal_taskmaster.id          = "abyssal_taskmaster"
-	abyssal_taskmaster.card_name   = "Abyssal Taskmaster"
-	abyssal_taskmaster.description = "PASSIVE: whenever a friendly Void Imp dies, this minion gains +100 ATK."
-	abyssal_taskmaster.essence_cost = 3
-	abyssal_taskmaster.atk         = 300
-	abyssal_taskmaster.health      = 400
-	abyssal_taskmaster.minion_type = Enums.MinionType.DEMON
-	abyssal_taskmaster.passive_effect_id = "gain_atk_on_void_imp_death"
-	abyssal_taskmaster.faction     = "abyss_order"
-	_register(abyssal_taskmaster)
+	var void_amplifier := MinionCardData.new()
+	void_amplifier.id                = "void_amplifier"
+	void_amplifier.card_name         = "Void Amplifier"
+	void_amplifier.description       = "PASSIVE: whenever you play a Demon, it enters with +100 ATK and +100 HP."
+	void_amplifier.essence_cost      = 4
+	void_amplifier.atk               = 250
+	void_amplifier.health            = 350
+	void_amplifier.minion_type       = Enums.MinionType.HUMAN
+	void_amplifier.passive_effect_id = "void_amplifier_buff_demon"
+	void_amplifier.faction           = "abyss_order"
+	all.append(void_amplifier)
 
-	var imp_overseer := MinionCardData.new()
-	imp_overseer.id          = "imp_overseer"
-	imp_overseer.card_name   = "Imp Overseer"
-	imp_overseer.description = "PASSIVE: all friendly Void Imps have Guard."
-	imp_overseer.essence_cost = 3
-	imp_overseer.atk         = 200
-	imp_overseer.health      = 500
-	imp_overseer.minion_type = Enums.MinionType.DEMON
-	imp_overseer.minion_tags       = ["imp_overseer"]
-	imp_overseer.passive_effect_id = "void_imp_taunt_aura"
-	imp_overseer.on_summon_effect  = "grant_taunt_to_void_imps"
-	imp_overseer.on_death_effect   = "remove_taunt_from_void_imps"
-	imp_overseer.faction     = "abyss_order"
-	_register(imp_overseer)
+	# Spells
+	var blood_pact := SpellCardData.new()
+	blood_pact.id          = "blood_pact"
+	blood_pact.card_name   = "Blood Pact"
+	blood_pact.cost        = 2
+	blood_pact.description    = "Sacrifice a friendly Human. All friendly Demons permanently gain +200 ATK and +100 HP."
+	blood_pact.requires_target = true
+	blood_pact.target_type     = "friendly_human"
+	blood_pact.effect_steps    = [
+		{"type": "SACRIFICE", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "HUMAN"},
+		{"type": "BUFF_ATK",  "scope": "ALL_FRIENDLY", "filter": "DEMON", "amount": 200, "permanent": true},
+		{"type": "BUFF_HP",   "scope": "ALL_FRIENDLY", "filter": "DEMON", "amount": 100},
+	]
+	blood_pact.faction     = "abyss_order"
+	all.append(blood_pact)
 
-	# Traps
-	var dark_nursery := TrapCardData.new()
-	dark_nursery.id          = "dark_nursery"
-	dark_nursery.card_name   = "Dark Nursery"
-	dark_nursery.cost        = 2
-	dark_nursery.description = "Trap: when a friendly minion dies during the enemy's turn, summon a Void Imp."
-	dark_nursery.trigger     = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
-	dark_nursery.effect_id   = "dark_nursery_effect"
-	dark_nursery.faction     = "abyss_order"
-	_register(dark_nursery)
+	var soul_shatter := SpellCardData.new()
+	soul_shatter.id          = "soul_shatter"
+	soul_shatter.card_name   = "Soul Shatter"
+	soul_shatter.cost        = 3
+	soul_shatter.description    = "Sacrifice a friendly Demon. Deal 200 damage to all enemy minions."
+	soul_shatter.requires_target = true
+	soul_shatter.target_type     = "friendly_demon"
+	soul_shatter.effect_steps    = [
+		{"type": "SACRIFICE",     "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON"},
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY",              "amount": 200},
+	]
+	soul_shatter.faction     = "abyss_order"
+	all.append(soul_shatter)
 
-	var imp_barricade := TrapCardData.new()
-	imp_barricade.id          = "imp_barricade"
-	imp_barricade.card_name   = "Imp Barricade"
-	imp_barricade.cost        = 1
-	imp_barricade.description = "Trap: when an enemy minion attacks, summon a Void Imp and redirect that attack to it."
-	imp_barricade.trigger     = Enums.TriggerEvent.ON_ENEMY_ATTACK
-	imp_barricade.effect_id   = "imp_barricade_effect"
-	imp_barricade.faction     = "abyss_order"
-	_register(imp_barricade)
-
-	# Environment
-	var imp_hatchery := EnvironmentCardData.new()
-	imp_hatchery.id                  = "imp_hatchery"
-	imp_hatchery.card_name           = "Imp Hatchery"
-	imp_hatchery.cost                = 3
-	imp_hatchery.description         = "Environment: at the start of your turn, if you control fewer than 2 Void Imps, summon one."
-	imp_hatchery.passive_description = "At the start of your turn, if you control fewer than 2 Void Imps, summon one."
-	imp_hatchery.passive_effect_id   = "imp_hatchery_passive"
-	imp_hatchery.faction             = "abyss_order"
-	_register(imp_hatchery)
+	# Rune
+	var soul_rune := TrapCardData.new()
+	soul_rune.id             = "soul_rune"
+	soul_rune.card_name      = "Soul Rune"
+	soul_rune.cost           = 2
+	soul_rune.description    = "RUNE: Whenever a friendly Demon dies during the enemy's turn, summon a 100/100 Spirit token. Triggers once per turn."
+	soul_rune.is_rune        = true
+	soul_rune.rune_type      = Enums.RuneType.SOUL_RUNE
+	soul_rune.aura_effect_id = "soul_rune_aura"
+	soul_rune.faction        = "abyss_order"
+	all.append(soul_rune)
 
 	# ---------------------------------------------------------------------------
 	# --- Runes (Abyss Order — Trap subtype, persistent, face-up) ---
@@ -1008,7 +927,7 @@ func _register_wanderer_cards() -> void:
 	void_rune.aura_effect_id = "void_rune_aura"
 	void_rune.faction       = "abyss_order"
 	void_rune.art_path      = "res://assets/art/traps/abyss_order/void_rune.png"
-	_register(void_rune)
+	all.append(void_rune)
 
 	var blood_rune := TrapCardData.new()
 	blood_rune.id            = "blood_rune"
@@ -1020,7 +939,7 @@ func _register_wanderer_cards() -> void:
 	blood_rune.aura_effect_id = "blood_rune_aura"
 	blood_rune.faction       = "abyss_order"
 	blood_rune.art_path      = "res://assets/art/traps/abyss_order/blood_rune.png"
-	_register(blood_rune)
+	all.append(blood_rune)
 
 	var dominion_rune := TrapCardData.new()
 	dominion_rune.id            = "dominion_rune"
@@ -1032,7 +951,7 @@ func _register_wanderer_cards() -> void:
 	dominion_rune.aura_effect_id = "dominion_rune_aura"
 	dominion_rune.faction       = "abyss_order"
 	dominion_rune.art_path      = "res://assets/art/traps/abyss_order/dominion_rune.png"
-	_register(dominion_rune)
+	all.append(dominion_rune)
 
 	var shadow_rune := TrapCardData.new()
 	shadow_rune.id            = "shadow_rune"
@@ -1044,22 +963,13 @@ func _register_wanderer_cards() -> void:
 	shadow_rune.aura_effect_id = "shadow_rune_aura"
 	shadow_rune.faction       = "abyss_order"
 	shadow_rune.art_path      = "res://assets/art/traps/abyss_order/shadow_rune.png"
-	_register(shadow_rune)
+	all.append(shadow_rune)
 
 	# ---------------------------------------------------------------------------
 	# --- Ritual token (Special Summoned by ritual effects, not in any deck) ---
 	# ---------------------------------------------------------------------------
 
-	var ritual_demon := MinionCardData.new()
-	ritual_demon.id           = "ritual_demon"
-	ritual_demon.card_name    = "Demon Ascendant"
-	ritual_demon.essence_cost = 0
-	ritual_demon.description  = "Special Summoned by the Demon Ascendant ritual."
-	ritual_demon.atk          = 500
-	ritual_demon.health       = 500
-	ritual_demon.minion_type  = Enums.MinionType.DEMON
-	ritual_demon.faction      = "abyss_order"
-	_register(ritual_demon)
+	# All tokens are registered via _TOKEN_DEFS below.
 
 	# ---------------------------------------------------------------------------
 	# --- Ritual Environments (Abyss Order — core set) ---
@@ -1082,7 +992,7 @@ func _register_wanderer_cards() -> void:
 	abyssal_summoning_circle.rituals                     = [blood_dominion_ritual]
 	abyssal_summoning_circle.faction                     = "abyss_order"
 	abyssal_summoning_circle.art_path                   = "res://assets/art/environments/abyss_order/abyssal_summoning_circle.png"
-	_register(abyssal_summoning_circle)
+	all.append(abyssal_summoning_circle)
 
 	# ---------------------------------------------------------------------------
 	# --- Ritual Environments (Abyss Order — Piercing Void support pool) ---
@@ -1104,4 +1014,70 @@ func _register_wanderer_cards() -> void:
 	abyss_ritual_circle.fires_on_enemy_turn = true
 	abyss_ritual_circle.rituals             = [void_blood_ritual]
 	abyss_ritual_circle.faction             = "abyss_order"
-	_register(abyss_ritual_circle)
+	all.append(abyss_ritual_circle)
+
+	# --- Pool assignments (controls deck builder visibility and collection) ---
+	# "" = token/internal; cards with no entry stay ""
+	var _card_pools := {
+		# Abyss core (starter deck pool)
+		"void_imp": "abyss_core",         "shadow_hound": "abyss_core",
+		"abyssal_brute": "abyss_core",    "nyx_ael": "abyss_core",
+		"abyss_cultist": "abyss_core",    "void_netter": "abyss_core",
+		"corruption_weaver": "abyss_core","soul_collector": "abyss_core",
+		"void_stalker": "abyss_core",     "void_spawner": "abyss_core",
+		"abyssal_tide": "abyss_core",     "void_devourer": "abyss_core",
+		"void_bolt": "abyss_core",        "dark_empowerment": "abyss_core",
+		"abyssal_sacrifice": "abyss_core","abyssal_plague": "abyss_core",
+		"void_summoning": "abyss_core",   "void_execution": "abyss_core",
+		"dark_covenant": "abyss_core",    "abyssal_summoning_circle": "abyss_core",
+		"void_rune": "abyss_core",        "blood_rune": "abyss_core",
+		"dominion_rune": "abyss_core",    "shadow_rune": "abyss_core",
+		# Neutral core (starter deck pool)
+		"roadside_drifter": "neutral_core",  "ashland_forager": "neutral_core",
+		"freelance_sellsword": "neutral_core","traveling_merchant": "neutral_core",
+		"trapbreaker_rogue": "neutral_core", "caravan_guard": "neutral_core",
+		"arena_challenger": "neutral_core",  "spell_taxer": "neutral_core",
+		"saboteur_adept": "neutral_core",    "aether_bulwark": "neutral_core",
+		"bulwark_automaton": "neutral_core", "wandering_warden": "neutral_core",
+		"ruins_archivist": "neutral_core",   "wildland_behemoth": "neutral_core",
+		"stone_sentinel": "neutral_core",    "rift_leviathan": "neutral_core",
+		"energy_conversion": "neutral_core", "arcane_strike": "neutral_core",
+		"purge": "neutral_core",             "cyclone": "neutral_core",
+		"tactical_planning": "neutral_core", "precision_strike": "neutral_core",
+		"hurricane": "neutral_core",         "flux_siphon": "neutral_core",
+		"hidden_ambush": "neutral_core",     "smoke_veil": "neutral_core",
+		"silence_trap": "neutral_core",      "death_trap": "neutral_core",
+		# Lord Vael — Piercing Void unlock pool
+		"mark_the_target": "vael_piercing_void",
+		"void_detonation": "vael_piercing_void",
+		"abyssal_arcanist": "vael_piercing_void",
+		"void_archmagus": "vael_piercing_void",
+		"abyss_ritual_circle": "vael_piercing_void",
+		# Lord Vael — common unlock pool
+		"imp_recruiter": "vael_common",  "blood_pact": "vael_common",
+		"soul_taskmaster": "vael_common","soul_shatter": "vael_common",
+		"void_amplifier": "vael_common", "soul_rune": "vael_common",
+	}
+	# --- Rarity assignments (used for boss drop roll chances) ---
+	var _card_rarities := {
+		# Piercing Void pool
+		"mark_the_target": "common",
+		"void_detonation": "rare",
+		"abyssal_arcanist": "common",
+		"void_archmagus": "legendary",
+		"abyss_ritual_circle": "epic",
+		# Vael common pool
+		"imp_recruiter": "common",            "blood_pact": "common",
+		"soul_taskmaster": "rare",            "soul_shatter": "rare",
+		"void_amplifier": "epic",             "soul_rune": "epic",
+	}
+	# Append all token cards (pool = "", rarity = "")
+	for td in _TOKEN_DEFS:
+		all.append(_make_token(td))
+
+	for c in all:
+		c.pool   = _card_pools.get(c.id, "")
+		c.rarity = _card_rarities.get(c.id, "")
+
+	for c in all:
+		_register(c)

@@ -92,7 +92,7 @@ func _build_unlock_panel() -> void:
 		var card := CardDatabase.get_card(card_id)
 		if card == null:
 			continue
-		var rarity: String = GameManager._SUPPORT_CARD_RARITIES.get(card_id, "?")
+		var rarity: String = card.rarity if card.rarity != "" else "?"
 		var lbl := Label.new()
 		lbl.text = "  [%s]  %s — %s" % [rarity.to_upper(), card.card_name, card.description]
 		lbl.add_theme_font_size_override("font_size", 16)
