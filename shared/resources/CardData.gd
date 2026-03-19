@@ -29,6 +29,11 @@ extends Resource
 ## If set and the file exists, it overrides art_path in CardVisual.
 @export var art_video_path: String = ""
 
+## Optional dedicated art for the battlefield slot display (BoardSlot).
+## When set, BoardSlot uses this instead of art_path so you can supply
+## a cropped / differently-framed version optimised for the smaller slot.
+@export var battlefield_art_path: String = ""
+
 ## If true this card can be offered as a permanent unlock after a final boss kill
 @export var can_unlock: bool = false
 

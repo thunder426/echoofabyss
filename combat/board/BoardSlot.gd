@@ -1,69 +1,106 @@
 ## BoardSlot.gd
 ## Represents one of the 5 board slots on either side.
-## Attach this script to a Panel or Control node in the CombatScene.
-## The slot visually shows the minion occupying it (or an empty state).
+## Empty slots show the plain Panel style.
+## Occupied slots use the abyss_battlefield_minion.png frame with Cinzel Bold labels.
+##
+## Render order (bottom → top):
+##   _art_rect   — minion art sits behind the frame window
+##   _frame_rect — frame PNG overlays the art
+##   _overlay    — semi-transparent highlight tint
+##   labels      — cost / name / atk / hp / status bar (HBoxContainer of icons)
 class_name BoardSlot
 extends Panel
 
 # ---------------------------------------------------------------------------
-# Signals — CombatScene connects to these
+# Signals
 # ---------------------------------------------------------------------------
 
-## Player clicked an empty slot — they may want to play a minion here
 signal slot_clicked_empty(slot: BoardSlot)
-
-## Player clicked a slot with a minion — they may want to attack or inspect it
 signal slot_clicked_occupied(slot: BoardSlot, minion: MinionInstance)
 
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 
-## Which side this slot belongs to ("player" or "enemy")
 var slot_owner: String = "player"
-
-## Index of this slot on the board (0–4, left to right)
 var index: int = 0
-
-## The minion currently in this slot, or null if empty
 var minion: MinionInstance = null
 
 # ---------------------------------------------------------------------------
-# Visual highlight states
+# Highlight
 # ---------------------------------------------------------------------------
 
-## Highlight modes for UI feedback
 enum HighlightMode { NONE, VALID_TARGET, SELECTED, INVALID }
-
 var _highlight_mode: HighlightMode = HighlightMode.NONE
 
+# ===========================================================================
+# BATTLEFIELD TEXT CONFIG  (slot is 180 × 195 px)
+# Tweak pos / size / font_size here to align labels with the frame artwork.
+# "art" has no font_size — it is a TextureRect, not a label.
+# ===========================================================================
+# fmt: off
+const _CFG: Dictionary = {
+	# Minion art window — sits BEHIND the frame PNG
+	"art":    { "pos": Vector2( 14,  26), "size": Vector2(152, 116) },
+
+	# Essence cost — top-left badge area
+	"cost":   { "pos": Vector2(  1,  7), "size": Vector2( 30,  24), "font_size": 12 },
+
+	# Card name — small text beside the cost badge
+	"name":   { "pos": Vector2( 75,   4), "size": Vector2(128,  14), "font_size": 10 },
+
+	# ATK  — bottom-left
+	"atk":    { "pos": Vector2(  28, 165), "size": Vector2( 52,  30), "font_size": 12 },
+
+	# Status bar — bottom-center, full inner width so HBoxContainer can center icons
+	"status": { "pos": Vector2( 14, 144), "size": Vector2(152,  24) },
+
+	# HP  — bottom-right  (shows "+shield" suffix when active)
+	"hp":     { "pos": Vector2(105, 165), "size": Vector2( 52,  30), "font_size": 12 },
+}
+# fmt: on
+
+const SLOT_W := 180
+const SLOT_H := 195
+const _STATUS_ICON_SIZE := 18
+const _STATUS_FONT_SIZE := 9
+
 # ---------------------------------------------------------------------------
-# StyleBox instances — built once in _ready()
+# Visual nodes
 # ---------------------------------------------------------------------------
 
-var _style_normal: StyleBoxFlat
-var _style_valid: StyleBoxFlat
+var _frame_rect:  TextureRect
+var _art_rect:    TextureRect
+var _overlay:     ColorRect
+var _cost_label:  Label
+var _name_label:  Label
+var _atk_label:   Label
+var _hp_label:    Label
+var _status_bar:  HBoxContainer
+
+var _bold_font: Font
+
+# Empty-slot panel styles (same coloured-border look as before)
+var _style_normal:   StyleBoxFlat
+var _style_valid:    StyleBoxFlat
 var _style_selected: StyleBoxFlat
-var _style_invalid: StyleBoxFlat
-
-# ---------------------------------------------------------------------------
-# Child label nodes — created programmatically so no .tscn edits needed
-# ---------------------------------------------------------------------------
-
-var _name_label: Label
-var _type_label: Label
-var _stats_label: Label
-var _state_label: Label
+var _style_invalid:  StyleBoxFlat
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
+	_bold_font = load("res://assets/fonts/cinzel/Cinzel-Bold.ttf") \
+		if ResourceLoader.exists("res://assets/fonts/cinzel/Cinzel-Bold.ttf") else null
 	_build_styles()
-	_build_labels()
+	_build_visuals()
 	gui_input.connect(_on_gui_input)
 	_refresh_visuals()
+
+# ---------------------------------------------------------------------------
+# Empty-slot Panel styles (coloured border, dark bg)
+# ---------------------------------------------------------------------------
 
 func _build_styles() -> void:
 	_style_normal   = _make_style(Color(0.10, 0.10, 0.18, 1), Color(0.25, 0.25, 0.40, 1))
@@ -74,31 +111,85 @@ func _build_styles() -> void:
 func _make_style(bg: Color, border: Color) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
 	s.bg_color = bg
-	s.border_width_left   = 2
-	s.border_width_top    = 2
-	s.border_width_right  = 2
-	s.border_width_bottom = 2
+	s.border_width_left   = 2; s.border_width_top    = 2
+	s.border_width_right  = 2; s.border_width_bottom = 2
 	s.border_color = border
-	s.corner_radius_top_left    = 8
-	s.corner_radius_top_right   = 8
-	s.corner_radius_bottom_right = 8
-	s.corner_radius_bottom_left = 8
+	s.corner_radius_top_left    = 8; s.corner_radius_top_right   = 8
+	s.corner_radius_bottom_right = 8; s.corner_radius_bottom_left = 8
 	return s
 
-func _build_labels() -> void:
-	_name_label = _make_label(Vector2(4, 4), Vector2(172, 22), 13)
-	_type_label = _make_label(Vector2(4, 28), Vector2(172, 18), 11)
-	_stats_label = _make_label(Vector2(4, 160), Vector2(172, 20), 12)
-	_state_label = _make_label(Vector2(4, 140), Vector2(172, 18), 11)
+# ---------------------------------------------------------------------------
+# Build visual nodes
+# ---------------------------------------------------------------------------
 
-func _make_label(pos: Vector2, sz: Vector2, font_size: int) -> Label:
+func _build_visuals() -> void:
+	# --- Minion art (added FIRST = bottom layer, sits behind the frame) ---
+	_art_rect = TextureRect.new()
+	_art_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_art_rect.expand_mode  = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	_art_rect.position     = _CFG["art"]["pos"]
+	_art_rect.size         = _CFG["art"]["size"]
+	_art_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_art_rect.visible      = false
+	add_child(_art_rect)
+
+	# --- Frame PNG (added SECOND = overlays the art) ---
+	_frame_rect = TextureRect.new()
+	if ResourceLoader.exists("res://assets/art/frames/abyss_order/abyss_battlefield_minion.png"):
+		_frame_rect.texture = load("res://assets/art/frames/abyss_order/abyss_battlefield_minion.png")
+	_frame_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	_frame_rect.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	_frame_rect.position     = Vector2.ZERO
+	_frame_rect.size         = Vector2(SLOT_W, SLOT_H)
+	_frame_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_frame_rect.visible      = false
+	add_child(_frame_rect)
+
+	# --- Highlight overlay ---
+	_overlay = ColorRect.new()
+	_overlay.position     = Vector2.ZERO
+	_overlay.size         = Vector2(SLOT_W, SLOT_H)
+	_overlay.color        = Color(0, 0, 0, 0)
+	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_overlay)
+
+	# --- Labels (hidden until occupied) ---
+	_cost_label = _make_label("cost", Color(1.00, 0.85, 0.30, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
+	_name_label = _make_label("name", Color(1.00, 1.00, 1.00, 1), HORIZONTAL_ALIGNMENT_LEFT,   true)
+	_atk_label  = _make_label("atk",  Color(1.00, 0.75, 0.25, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
+	_hp_label   = _make_label("hp",   Color(0.35, 1.00, 0.50, 1), HORIZONTAL_ALIGNMENT_CENTER, true)
+
+	# --- Status bar (HBoxContainer — rebuilt each refresh) ---
+	_status_bar = HBoxContainer.new()
+	_status_bar.position = _CFG["status"]["pos"]
+	_status_bar.size     = _CFG["status"]["size"]
+	_status_bar.alignment = BoxContainer.ALIGNMENT_CENTER
+	_status_bar.add_theme_constant_override("separation", 4)
+	_status_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_status_bar.visible      = false
+	add_child(_status_bar)
+
+func _make_label(cfg_key: String, color: Color,
+		align: HorizontalAlignment, use_bold: bool) -> Label:
+	var cfg: Dictionary = _CFG[cfg_key]
 	var lbl := Label.new()
-	lbl.position = pos
-	lbl.size = sz
-	lbl.add_theme_font_size_override("font_size", font_size)
-	lbl.clip_text = true
+	lbl.position = cfg["pos"]
+	lbl.size     = cfg["size"]
+	lbl.add_theme_font_size_override("font_size", cfg["font_size"])
+	lbl.horizontal_alignment = align
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_color_override("font_color", color)
+	lbl.clip_text    = false
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lbl.visible      = false
+	if use_bold and _bold_font:
+		lbl.add_theme_font_override("font", _bold_font)
 	add_child(lbl)
 	return lbl
+
+# ---------------------------------------------------------------------------
+# Input
+# ---------------------------------------------------------------------------
 
 func _on_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -124,7 +215,7 @@ func remove_minion() -> void:
 	_refresh_visuals()
 
 # ---------------------------------------------------------------------------
-# Highlight control
+# Highlight
 # ---------------------------------------------------------------------------
 
 func set_highlight(mode: HighlightMode) -> void:
@@ -135,63 +226,142 @@ func clear_highlight() -> void:
 	set_highlight(HighlightMode.NONE)
 
 # ---------------------------------------------------------------------------
-# Visuals (placeholder — will be replaced with proper art later)
+# Visuals
 # ---------------------------------------------------------------------------
 
 func _refresh_visuals() -> void:
-	match _highlight_mode:
-		HighlightMode.VALID_TARGET:
-			add_theme_stylebox_override("panel", _style_valid)
-		HighlightMode.SELECTED:
-			add_theme_stylebox_override("panel", _style_selected)
-		HighlightMode.INVALID:
-			add_theme_stylebox_override("panel", _style_invalid)
-		_:
-			add_theme_stylebox_override("panel", _style_normal)
-
-	# Update minion info labels
-	if _name_label == null:
+	if _overlay == null:
 		return
+
 	if minion == null:
-		_name_label.text = ""
-		_type_label.text = ""
-		_stats_label.text = ""
-		_state_label.text = ""
-		return
+		_show_empty_state()
+	else:
+		_show_occupied_state()
 
+func _show_empty_state() -> void:
+	match _highlight_mode:
+		HighlightMode.VALID_TARGET: add_theme_stylebox_override("panel", _style_valid)
+		HighlightMode.SELECTED:     add_theme_stylebox_override("panel", _style_selected)
+		HighlightMode.INVALID:      add_theme_stylebox_override("panel", _style_invalid)
+		_:                          add_theme_stylebox_override("panel", _style_normal)
+	_overlay.color      = Color(0, 0, 0, 0)
+	_frame_rect.visible = false
+	_art_rect.visible   = false
+	_set_labels_visible(false)
+
+func _show_occupied_state() -> void:
+	# Transparent Panel background — frame PNG takes over
+	var blank := StyleBoxFlat.new()
+	blank.bg_color = Color(0, 0, 0, 0)
+	add_theme_stylebox_override("panel", blank)
+
+	# Highlight overlay tint
+	match _highlight_mode:
+		HighlightMode.VALID_TARGET: _overlay.color = Color(0.15, 0.80, 0.25, 0.28)
+		HighlightMode.SELECTED:     _overlay.color = Color(0.90, 0.80, 0.10, 0.32)
+		HighlightMode.INVALID:      _overlay.color = Color(0.80, 0.10, 0.10, 0.28)
+		_:                          _overlay.color = Color(0, 0, 0, 0)
+
+	_frame_rect.visible = true
+	_set_labels_visible(true)
+
+	# Art — prefer battlefield_art_path when set, fall back to art_path
+	_art_rect.visible = true
+	var art_path := minion.card_data.battlefield_art_path
+	if art_path == "":
+		art_path = minion.card_data.art_path
+	if art_path != "":
+		var tex := load(art_path) as Texture2D
+		_art_rect.texture = tex if tex else null
+	else:
+		_art_rect.texture = null
+
+	# Cost
+	var md := minion.card_data as MinionCardData
+	if md:
+		_cost_label.text = str(md.essence_cost)
+		if md.mana_cost > 0:
+			_cost_label.text += "/%d" % md.mana_cost
+	else:
+		_cost_label.text = ""
+
+	# Name
 	_name_label.text = minion.card_data.card_name
-	_type_label.text = _minion_type_string(minion.card_data.minion_type)
-	if minion.has_shield():
-		_stats_label.text = "ATK:%s  HP:%s  S:%s/%s" % [
-			str(minion.effective_atk()), str(minion.current_health),
-			str(minion.current_shield), str(minion.shield_cap())
-		]
-	else:
-		_stats_label.text = "ATK:%s  HP:%s" % [str(minion.effective_atk()), str(minion.current_health)]
+
+	# ATK — tinted darker when corrupted
 	var corruption_total := BuffSystem.sum_type(minion, Enums.BuffType.CORRUPTION)
-	if corruption_total > 0:
-		_stats_label.text += "  ☠-%d" % corruption_total
+	_atk_label.text = str(minion.effective_atk())
+	_atk_label.add_theme_color_override("font_color",
+		Color(0.70, 0.45, 0.10, 1) if corruption_total > 0 else Color(1.00, 0.75, 0.25, 1))
 
-	# Guard is always shown — it's critical targeting information
-	if minion.has_guard():
-		_state_label.add_theme_color_override("font_color", Color(1.0, 0.80, 0.2, 1))
-		_state_label.text = "[ Guard ]"
-	elif minion.owner == "player" and minion.state == Enums.MinionState.EXHAUSTED:
-		_state_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6, 1))
-		_state_label.text = "[ Exhausted ]"
-	elif minion.owner == "player" and minion.can_attack():
-		_state_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.45, 1))
-		_state_label.text = "[ Ready ]"
+	# HP — always green; blue tint when shield active
+	var hp_text := str(minion.current_health)
+	if minion.has_shield() and minion.current_shield > 0:
+		hp_text += "+%d" % minion.current_shield
+		_hp_label.add_theme_color_override("font_color", Color(0.40, 0.85, 1.00, 1))
 	else:
-		_state_label.text = ""
+		_hp_label.add_theme_color_override("font_color", Color(0.35, 1.00, 0.50, 1))
+	_hp_label.text = hp_text
 
-func _minion_type_string(t: Enums.MinionType) -> String:
-	match t:
-		Enums.MinionType.DEMON:     return "Demon"
-		Enums.MinionType.SPIRIT:    return "Spirit"
-		Enums.MinionType.BEAST:     return "Beast"
-		Enums.MinionType.UNDEAD:    return "Undead"
-		Enums.MinionType.HUMAN:     return "Human"
-		Enums.MinionType.CONSTRUCT: return "Construct"
-		Enums.MinionType.GIANT:     return "Giant"
-	return ""
+	# Status bar — clear and rebuild each refresh
+	for child in _status_bar.get_children():
+		child.queue_free()
+
+	if minion.has_guard():
+		_status_bar_add_icon("icon_guard.png")
+	if corruption_total > 0:
+		_status_bar_add_icon("icon_corruption.png")
+		_status_bar_add_count("x%d" % (corruption_total / 100), Color(0.85, 0.55, 1.00, 1))
+	if minion.owner == "player" and minion.can_attack():
+		_status_bar_add_icon("icon_ready.png")
+	elif minion.owner == "player" and minion.state == Enums.MinionState.EXHAUSTED:
+		_status_bar_add_icon("icon_tired.png")
+
+	_status_bar.visible = _status_bar.get_child_count() > 0
+
+func _set_labels_visible(v: bool) -> void:
+	_cost_label.visible = v
+	_name_label.visible = v
+	_atk_label.visible  = v
+	_hp_label.visible   = v
+	if not v:
+		_status_bar.visible = false
+
+# ---------------------------------------------------------------------------
+# Status bar helpers
+# ---------------------------------------------------------------------------
+
+func _status_bar_add_icon(filename: String) -> void:
+	var tex := _load_icon(filename)
+	if tex == null:
+		return
+	var rect := TextureRect.new()
+	rect.texture      = tex
+	rect.custom_minimum_size = Vector2(_STATUS_ICON_SIZE, _STATUS_ICON_SIZE)
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	rect.expand_mode  = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_status_bar.add_child(rect)
+
+func _status_bar_add_count(text: String, color: Color) -> void:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", _STATUS_FONT_SIZE)
+	lbl.add_theme_color_override("font_color", color)
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if _bold_font:
+		lbl.add_theme_font_override("font", _bold_font)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_status_bar.add_child(lbl)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+const _ICON_DIR := "res://assets/art/frames/abyss_order/"
+
+func _load_icon(filename: String) -> Texture2D:
+	var path := _ICON_DIR + filename
+	if ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	return null

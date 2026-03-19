@@ -64,7 +64,8 @@ func _register_wanderer_cards() -> void:
 	void_imp.on_play_effect = "deal_1_enemy_hero"
 	void_imp.minion_tags    = ["void_imp", "base_void_imp"]
 	void_imp.faction        = "abyss_order"
-	void_imp.art_path       = "res://assets/art/minions/abyss_order/void_imp.png"
+	void_imp.art_path             = "res://assets/art/minions/abyss_order/void_imp.png"
+	void_imp.battlefield_art_path = "res://assets/art/minions/abyss_order/void_imp_small.png"
 	_register(void_imp)
 
 	# Senior Void Imp — added to hand by Imp Evolution talent; counts as Void Imp

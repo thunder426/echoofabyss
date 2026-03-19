@@ -49,6 +49,36 @@ const _FACTION_FRAME: Dictionary = {
 ##   w_scale : float — tooltip width as a fraction of card width.
 ##   h_scale : float — tooltip height as a fraction of card height.
 const _FRAME_CONFIG: Dictionary = {
+	# ── Abyss Order minion frame (hand size) — less glowy variant ──────────
+	"abyss_minion_small": {
+		"path":         "res://assets/art/frames/abyss_order/abyss_minion_small.png",
+		"minion_frame": true,
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6,
+			"h_scale":    0.6,
+			"title_font": 15,
+			"body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":     [0.08, 0.14, 0.92, 0.78],
+			"name":    [0.15, 0.12, 0.93, 0.15],
+			"race":    [0.05, 0.72, 0.95, 0.72],
+			"desc":    [0.16, 0.76, 0.85, 0.85],
+			"essence": [0.01, 0.07, 0.28, 0.19],
+			"mana":    [0.26, 0.01, 0.54, 0.19],
+			"atk":     [0.10, 0.89, 0.42, 0.93],
+			"hp":      [0.58, 0.89, 0.81, 0.93],
+		},
+		"fonts": {
+			"desc_normal": 14, "desc_bold": 15,
+			"shield": 11, "race": 15,
+			"essence": 28, "mana": 18, "atk": 20, "hp": 20,
+			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
+		},
+	},
 	# ── Abyss Order minion frame — embedded stat panels, race tag bar ──────
 	"abyss_minion": {
 		"path":         "res://assets/art/frames/abyss_order/abyss_minion.png",
@@ -293,6 +323,9 @@ func setup(data: CardData) -> void:
 
 	var faction: String = data.faction if data.faction != "" else "neutral"
 	var style_key: String = _FACTION_FRAME.get(faction, {}).get(data.card_type, "default")
+	# Use the less-glowy small variant when displaying in hand
+	if size_mode == "hand" and style_key == "abyss_minion":
+		style_key = "abyss_minion_small"
 	_apply_frame_config(style_key, data.card_type)
 
 	var is_minion := data.card_type == Enums.CardType.MINION
@@ -492,10 +525,6 @@ func apply_talent_overlay() -> void:
 	overlay_data.essence_cost = display_cost_e
 	overlay_data.mana_cost    = display_cost_m
 	_setup_cost_badge(overlay_data)
-	if desc_label:
-		var kw_str := _keywords_string(md.keywords)
-		var full_desc := md.description + "\n─\n" + "\n".join(talent_notes)
-		desc_label.text = _build_desc_bbcode(kw_str, full_desc)
 
 # ---------------------------------------------------------------------------
 # Playability

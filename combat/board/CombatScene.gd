@@ -394,6 +394,10 @@ func _do_end_turn() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_hand_card_selected(card_data: CardData) -> void:
+	# Guard: card plays are only valid on the player's turn
+	if not turn_manager.is_player_turn:
+		return
+
 	selected_attacker = null
 	_clear_all_highlights()
 	pending_play_card = card_data
@@ -401,6 +405,13 @@ func _on_hand_card_selected(card_data: CardData) -> void:
 	if card_data is SpellCardData:
 		var spell := card_data as SpellCardData
 		if spell.requires_target:
+			# Check affordability before showing target highlights (Void Crystal bypasses)
+			var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
+			if not _relic_first_card_free and not turn_manager.can_afford(0, effective_cost):
+				pending_play_card = null
+				if hand_display:
+					hand_display.deselect_current()
+				return
 			_highlight_spell_targets(spell)
 		else:
 			_try_play_spell(spell)
@@ -416,6 +427,20 @@ func _on_hand_card_selected(card_data: CardData) -> void:
 
 	if card_data is MinionCardData:
 		var mc := card_data as MinionCardData
+		# Check affordability (Void Crystal relic bypasses cost for the first card)
+		var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
+		if not _relic_first_card_free and not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
+			pending_play_card = null
+			if hand_display:
+				hand_display.deselect_current()
+			return
+		# Check board space before highlighting
+		var has_empty_slot := player_slots.any(func(s: BoardSlot) -> bool: return s.is_empty())
+		if not has_empty_slot:
+			pending_play_card = null
+			if hand_display:
+				hand_display.deselect_current()
+			return
 		if mc.on_play_requires_target and _has_valid_minion_on_play_targets(mc):
 			_awaiting_minion_target = true
 			_highlight_minion_on_play_targets(mc)
@@ -585,14 +610,16 @@ func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) 
 		if spell.requires_target and _is_valid_spell_target(minion, spell.target_type):
 			_apply_targeted_spell(spell, minion)
 			return
-	# If a targeted minion card is waiting for a friendly target, store it and show placement slots
+	# If a targeted minion card is waiting for a friendly target, store it and show placement slots.
+	# If the minion card is pending but NOT awaiting a target (board was shown), block attacker
+	# selection so clicking an occupied slot doesn't accidentally select an attacker.
 	if pending_play_card is MinionCardData:
 		var mc := pending_play_card as MinionCardData
 		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, mc.on_play_target_type):
 			pending_minion_target = minion
 			_awaiting_minion_target = false
 			_highlight_empty_player_slots()
-			return
+		return  # swallow the click — don't fall through to attacker selection
 	# Select this minion as the attacker if it can attack
 	if minion.can_attack():
 		selected_attacker = minion
@@ -687,9 +714,9 @@ func _resolve_on_play_effect(effect_id: String, source: MinionInstance, owner: S
 				BuffSystem.apply(source, Enums.BuffType.ATK_BONUS, bonus, "shadow_hound")
 				_refresh_slot_for(source)
 		"abyss_cultist_corrupt":
-			var target := _find_random_minion(_opponent_board(owner))
-			if target:
-				_corrupt_minion(target)
+			var chosen := _find_random_minion(_opponent_board(owner))
+			if chosen:
+				_corrupt_minion(chosen)
 		"void_netter_damage":
 			var chosen := target if target != null else _find_random_minion(_opponent_board(owner))
 			if chosen:
@@ -2596,6 +2623,7 @@ func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionIns
 		"void_imp_taunt_aura":
 			if _is_void_imp_type(summoned):
 				BuffSystem.apply(summoned, Enums.BuffType.GRANT_GUARD, 1, "imp_overseer_aura")
+				_refresh_slot_for(summoned)
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_DIED handlers
