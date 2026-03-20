@@ -328,6 +328,8 @@ func _show_occupied_state() -> void:
 
 	if minion.has_guard():
 		_status_bar_add_icon("icon_guard.png")
+	if minion.has_deathless():
+		_status_bar_add_icon("icon_deathless.png")
 	if corruption_total > 0:
 		_status_bar_add_icon("icon_corruption.png")
 		_status_bar_add_count("x%d" % (corruption_total / 100), Color(0.85, 0.55, 1.00, 1))

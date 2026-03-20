@@ -69,12 +69,12 @@ anchor_right = 0.5
 offset_left = -475.0
 offset_top = 175.0
 offset_right = 475.0
-offset_bottom = 220.0
+offset_bottom = 271.0
 grow_horizontal = 2
 alignment = 1
 
 [node name="TrapSlot0" type="Panel" parent="UI/EnemyTrapSlotsRow"]
-custom_minimum_size = Vector2(180, 56)
+custom_minimum_size = Vector2(180, 96)
 layout_mode = 2
 
 [node name="SlotLabel" type="Label" parent="UI/EnemyTrapSlotsRow/TrapSlot0"]
@@ -91,7 +91,7 @@ theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
 theme_override_font_sizes/font_size = 12
 
 [node name="TrapSlot1" type="Panel" parent="UI/EnemyTrapSlotsRow"]
-custom_minimum_size = Vector2(180, 56)
+custom_minimum_size = Vector2(180, 96)
 layout_mode = 2
 
 [node name="SlotLabel" type="Label" parent="UI/EnemyTrapSlotsRow/TrapSlot1"]
@@ -108,7 +108,7 @@ theme_override_colors/font_color = Color(0.50, 0.50, 0.60, 1)
 theme_override_font_sizes/font_size = 12
 
 [node name="TrapSlot2" type="Panel" parent="UI/EnemyTrapSlotsRow"]
-custom_minimum_size = Vector2(180, 56)
+custom_minimum_size = Vector2(180, 96)
 layout_mode = 2
 
 [node name="SlotLabel" type="Label" parent="UI/EnemyTrapSlotsRow/TrapSlot2"]

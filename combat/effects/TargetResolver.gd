@@ -13,6 +13,10 @@ static func resolve(step: EffectStep, ctx: EffectContext) -> Array:
 	if step.filter != EffectStep.MinionFilter.NONE:
 		pool = pool.filter(func(t): return _passes_filter(step.filter, t, ctx))
 
+	# Exclude the source minion itself when requested (skip for SELF scope — source is the point)
+	if step.exclude_self and ctx.source != null and step.scope != EffectStep.TargetScope.SELF:
+		pool = pool.filter(func(t): return t != ctx.source)
+
 	match step.scope:
 		EffectStep.TargetScope.SINGLE_CHOSEN, EffectStep.TargetScope.SINGLE_CHOSEN_FRIENDLY:
 			# Player-chosen target takes priority; fall back to random if null (AI path)

@@ -61,6 +61,10 @@ func _deal_damage(minion: MinionInstance, damage: int) -> void:
 	if damage > 0:
 		minion.current_health -= damage
 		if minion.current_health <= 0:
+			if minion.has_deathless():
+				BuffSystem.remove_type(minion, Enums.BuffType.GRANT_DEATHLESS)
+				minion.current_health = 50
+				return
 			minion.current_health = 0
 			minion_vanished.emit(minion)
 

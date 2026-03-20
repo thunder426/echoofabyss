@@ -93,7 +93,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
 				var tm = ctx.scene.turn_manager
 				if step.convert_from == "mana" and step.convert_to == "essence":
-					tm.convert_mana_to_essence()
+					tm.convert_mana_to_essence(step.amount if step.amount > 0 else -1)
 				elif step.convert_from == "essence" and step.convert_to == "mana":
 					tm.convert_essence_to_mana()
 			return
@@ -150,6 +150,9 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				Enums.Keyword.LIFEDRAIN:
 					BuffSystem.apply(target, Enums.BuffType.GRANT_LIFEDRAIN, 1, step.source_tag)
 					scene._refresh_slot_for(target)
+				Enums.Keyword.DEATHLESS:
+					BuffSystem.apply(target, Enums.BuffType.GRANT_DEATHLESS, 1, step.source_tag)
+					scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.PURGE:
 			if step.purge_filter.is_empty():
@@ -177,10 +180,29 @@ static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 	match step.multiplier_key:
 		"rune_aura":  return step.amount * ctx.scene._rune_aura_multiplier()
 		"void_marks": return step.amount * ctx.scene.enemy_void_marks
-		"other_friendly_demon_count":
+		"board_count":
+			var board: Array = ctx.scene._friendly_board(ctx.owner) \
+				if step.multiplier_board == "friendly" \
+				else ctx.scene._opponent_board(ctx.owner)
 			var count := 0
-			for m in ctx.scene._friendly_board(ctx.owner):
-				if m != ctx.source and m.card_data.minion_type == Enums.MinionType.DEMON:
-					count += 1
+			for m in board:
+				if step.exclude_self and m == ctx.source:
+					continue
+				match step.multiplier_filter:
+					"tag":
+						if not ctx.scene._minion_has_tag(m, step.multiplier_tag):
+							continue
+					"race":
+						if _race_from_string(step.multiplier_tag) != m.card_data.minion_type:
+							continue
+				count += 1
 			return step.amount * count
 		_:            return step.amount
+
+static func _race_from_string(name: String) -> int:
+	match name:
+		"demon":  return Enums.MinionType.DEMON
+		"human":  return Enums.MinionType.HUMAN
+		"spirit": return Enums.MinionType.SPIRIT
+		"beast":  return Enums.MinionType.BEAST
+	return -1

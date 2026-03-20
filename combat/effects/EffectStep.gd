@@ -83,9 +83,21 @@ enum MinionFilter {
 ## If false, ATK/HP buffs are temporary (expire at turn end via TEMP_ATK).
 @export var permanent: bool = true
 
-## Optional scaling key. Resolved by EffectResolver._resolve_amount().
-## "" = no scaling, "rune_aura" = × _rune_aura_multiplier(), "void_marks" = × enemy_void_marks
+## Optional scaling key. Resolved by EffectResolver._amount().
+## "" = no scaling, "rune_aura" = × rune count, "void_marks" = × enemy void marks
+## "board_count" = × count of minions matching multiplier_board/multiplier_filter/multiplier_tag;
+##                 respects exclude_self for self-exclusion from the count.
 @export var multiplier_key: String = ""
+
+## Used with "board_count": which board to count — "friendly" or "enemy".
+@export var multiplier_board: String = ""
+
+## Used with "board_count": how to filter — "tag" (checks minion_tags) or "race" (checks minion_type).
+## Leave empty to count all minions on the board side.
+@export var multiplier_filter: String = ""
+
+## Used with "board_count": the tag name or race name to match (e.g. "void_imp", "demon").
+@export var multiplier_tag: String = ""
 
 ## Keyword enum value (Enums.Keyword) for GRANT_KEYWORD effects.
 @export var keyword: int = -1
@@ -107,6 +119,9 @@ enum MinionFilter {
 ## Empty string = remove all buffs (dispel) or all debuffs (cleanse) depending on target ownership.
 @export var purge_filter: String = ""
 
+## When true, ctx.source is excluded from the resolved target pool (used for self-granting effects).
+@export var exclude_self: bool = false
+
 # ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
@@ -120,7 +135,8 @@ static func make(type: EffectType, scope: TargetScope = TargetScope.NONE, amount
 
 ## Build an EffectStep from a plain Dictionary (used by CardDatabase for data-only definitions).
 ## Keys: "type", "scope", "filter", "amount", "permanent", "card_id", "source_tag",
-##       "multiplier_key", "conditions", "hardcoded_id", "keyword"
+##       "multiplier_key", "multiplier_board", "multiplier_filter", "multiplier_tag",
+##       "conditions", "hardcoded_id", "keyword"
 static func from_dict(d: Dictionary) -> EffectStep:
 	var s := EffectStep.new()
 	if "type"           in d: s.effect_type    = EffectType[d["type"]]
@@ -130,7 +146,10 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "permanent"      in d: s.permanent      = d["permanent"]
 	if "card_id"        in d: s.card_id        = d["card_id"]
 	if "source_tag"     in d: s.source_tag     = d["source_tag"]
-	if "multiplier_key" in d: s.multiplier_key = d["multiplier_key"]
+	if "multiplier_key"    in d: s.multiplier_key    = d["multiplier_key"]
+	if "multiplier_board"  in d: s.multiplier_board  = d["multiplier_board"]
+	if "multiplier_filter" in d: s.multiplier_filter = d["multiplier_filter"]
+	if "multiplier_tag"    in d: s.multiplier_tag    = d["multiplier_tag"]
 	if "conditions"     in d:
 		var conds: Array[String] = []
 		conds.assign(d["conditions"])
@@ -143,4 +162,5 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "convert_from"   in d: s.convert_from   = d["convert_from"]
 	if "convert_to"     in d: s.convert_to     = d["convert_to"]
 	if "purge_filter"   in d: s.purge_filter   = d["purge_filter"]
+	if "exclude_self"   in d: s.exclude_self   = d["exclude_self"]
 	return s

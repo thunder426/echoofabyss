@@ -72,24 +72,6 @@ func _register_lord_vael() -> void:
 			"● You may include up to 4 copies of Void Imp in your deck."),
 	]
 
-	h.starter_deck = [
-		# Environment
-		"abyssal_summoning_circle",
-		# Runes
-		"dominion_rune", "dominion_rune",
-		"blood_rune", "blood_rune",
-		# Minions
-		"void_imp", "void_imp",
-		"shadow_hound", "shadow_hound",
-		"void_stalker",
-		"void_spawner",
-		"abyssal_brute",
-		# Spells
-		"soul_leech", "soul_leech",
-		"abyssal_sacrifice",
-		"dark_surge",
-	]
-
 	# Branch IDs — must match TalentData.branch values registered in TalentDatabase.
 	# Display names are resolved via TalentDatabase.get_branch_display_name(id).
 	h.talent_branch_ids = ["swarm", "rune_master", "void_bolt"]

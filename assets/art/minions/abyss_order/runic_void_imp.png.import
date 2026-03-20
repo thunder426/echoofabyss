@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bpkcd85hs0yuc"
-path="res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"
+uid="uid://joglud5qqhh8"
+path="res://.godot/imported/runic_void_imp.png-ac32528dac31aa79be3b6da88251c6a0.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/icons/icon_voidmark.png"
-dest_files=["res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"]
+source_file="res://assets/art/minions/abyss_order/runic_void_imp.png"
+dest_files=["res://.godot/imported/runic_void_imp.png-ac32528dac31aa79be3b6da88251c6a0.ctex"]
 
 [params]
 

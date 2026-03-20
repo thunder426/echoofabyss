@@ -31,6 +31,9 @@ signal player_turn_cleanup(player_board: Array[MinionInstance])
 ## Combined essence_max + mana_max can never exceed this.
 const COMBINED_RESOURCE_CAP: int = 11
 
+## Absolute ceiling on current essence — conversion effects can exceed essence_max up to this.
+const ESSENCE_HARD_CAP: int = 10
+
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
@@ -142,11 +145,13 @@ func gain_mana(amount: int) -> void:
 	mana = mini(mana + amount, mana_max)
 	resources_changed.emit(essence, essence_max, mana, mana_max)
 
-## Convert all current Mana into Essence (up to essence_max cap)
-func convert_mana_to_essence() -> void:
-	var amount := mana
-	mana = 0
-	essence = mini(essence + amount, essence_max)
+## Convert up to max_convert current Mana into Essence.
+## Bypasses essence_max and the combined soft cap — only ESSENCE_HARD_CAP applies.
+## Pass max_convert = -1 to convert all remaining mana.
+func convert_mana_to_essence(max_convert: int = -1) -> void:
+	var amount := mana if max_convert < 0 else mini(mana, max_convert)
+	mana -= amount
+	essence = mini(essence + amount, ESSENCE_HARD_CAP)
 	resources_changed.emit(essence, essence_max, mana, mana_max)
 
 ## Attempt to spend Abyss Essence. Returns false if not enough.

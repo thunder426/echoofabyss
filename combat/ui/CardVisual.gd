@@ -47,27 +47,54 @@ const _FACTION_FRAME: Dictionary = {
 	},
 }
 
+## Tooltip layout config per faction. Keyed by card_data.faction; falls back to "default".
+const _FACTION_TOOLTIP_CFG: Dictionary = {
+	"abyss_order": {
+		"anchor":              Vector2(0.85, 0.25),
+		"w_scale":             0.6,  "h_scale":    0.6,
+		"title_font":          15,   "body_font":  11,
+		"title_rect":          [0.15, 0.18, 0.85, 0.30],
+		"body_rect":           [0.15, 0.30, 0.85, 0.96],
+		"desc_keyword_color":  Color(0.75, 0.50, 1.00, 1.0),  # purple — on dark card box
+		"tooltip_keyword_color": Color(0.75, 0.50, 1.00, 1.0),  # purple — on dark tooltip panel
+		"race_color":          Color(0.75, 0.50, 1.00, 1.0),  # purple
+		"name_color":          Color(1.00, 1.00, 1.00, 1.0),  # white
+		"text_color":          Color(1.00, 1.00, 1.00, 1.0),  # white
+	},
+	"neutral": {
+		"anchor":              Vector2(0.85, 0.25),
+		"w_scale":             0.6,  "h_scale":    0.6,
+		"title_font":          15,   "body_font":  11,
+		"title_rect":          [0.15, 0.165, 0.85, 0.30],
+		"body_rect":           [0.16, 0.26, 0.90, 0.96],
+		"desc_keyword_color":  Color(0.48, 0.29, 0.04, 1.0),  # dark amber-brown — on light parchment
+		"tooltip_keyword_color": Color(1.00, 0.82, 0.30, 1.0),  # bright gold — on dark brown tooltip
+		"race_color":          Color(1.00, 1.00, 1.00, 1.0),  # white
+		"name_color":          Color(1.00, 1.00, 1.00, 1.0),  # white
+		"name_outline_size":   3,
+		"name_outline_color":  Color(0.05, 0.03, 0.01, 1.0),  # near-black
+		"text_color":          Color(0.08, 0.05, 0.02, 1.0),  # near-black
+	},
+	"default": {
+		"anchor":              Vector2(1.0, 0.0),
+		"w_scale":             0.62, "h_scale":    1.0,
+		"title_font":          15,   "body_font":  11,
+		"title_rect":          [0.05, 0.03, 0.95, 0.22],
+		"body_rect":           [0.05, 0.24, 0.95, 0.97],
+		"desc_keyword_color":  Color(0.75, 0.50, 1.00, 1.0),  # purple
+		"tooltip_keyword_color": Color(0.75, 0.50, 1.00, 1.0),  # purple
+		"race_color":          Color(0.75, 0.50, 1.00, 1.0),  # purple
+		"name_color":          Color(1.00, 1.00, 1.00, 1.0),  # white
+		"text_color":          Color(1.00, 1.00, 1.00, 1.0),  # white
+	},
+}
+
 ## Per-frame style config. Each entry is fully self-contained.
-## "tooltip" sub-dict controls the tooltip panel per faction + card type:
-##   anchor  : Vector2 — tooltip top-left offset as a fraction of card size.
-##             Vector2(1.0, 0.0) = right edge, top-aligned (default).
-##             Vector2(0.0, 1.0) = below card, left-aligned.
-##   w_scale : float — tooltip width as a fraction of card width.
-##   h_scale : float — tooltip height as a fraction of card height.
 const _FRAME_CONFIG: Dictionary = {
 	# ── Abyss Order dual-cost minion frame (essence + mana) ────────────────
 	"abyss_dual_minion": {
 		"path":         "res://assets/art/frames/abyss_order/abyss_dual_minion.png",
 		"minion_frame": true,
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6,
-			"h_scale":    0.6,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":     [0.08, 0.14, 0.92, 0.78],
 			"name":    [0.15, 0.09, 0.93, 0.14],
@@ -89,15 +116,6 @@ const _FRAME_CONFIG: Dictionary = {
 	"abyss_dual_minion_small": {
 		"path":         "res://assets/art/frames/abyss_order/abyss_dual_minion.png",
 		"minion_frame": true,
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6,
-			"h_scale":    0.6,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":     [0.08, 0.14, 0.92, 0.78],
 			"name":    [0.15, 0.12, 0.93, 0.15],
@@ -119,15 +137,6 @@ const _FRAME_CONFIG: Dictionary = {
 	"abyss_minion_small": {
 		"path":         "res://assets/art/frames/abyss_order/abyss_minion_small.png",
 		"minion_frame": true,
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6,
-			"h_scale":    0.6,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":     [0.08, 0.14, 0.92, 0.78],
 			"name":    [0.15, 0.12, 0.93, 0.15],
@@ -149,15 +158,6 @@ const _FRAME_CONFIG: Dictionary = {
 	"abyss_minion": {
 		"path":         "res://assets/art/frames/abyss_order/abyss_minion.png",
 		"minion_frame": true,
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6,
-			"h_scale":    0.6,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":     [0.08, 0.14, 0.92, 0.78],
 			"name":    [0.15, 0.10, 0.93, 0.15],
@@ -178,15 +178,6 @@ const _FRAME_CONFIG: Dictionary = {
 	# ── Abyss Order spell frame ─────────────────────────────────────────────
 	"abyss_spell": {
 		"path":    "res://assets/art/frames/abyss_order/abyss_spell.png",
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6,
-			"h_scale":    0.6,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":  [0.05, 0.14, 0.95, 0.70],
 			"name": [0.15, 0.10, 0.93, 0.16],
@@ -198,15 +189,6 @@ const _FRAME_CONFIG: Dictionary = {
 	# ── Abyss Order trap frame ──────────────────────────────────────────────
 	"abyss_trap": {
 		"path":    "res://assets/art/frames/abyss_order/abyss_trap.png",
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6,
-			"h_scale":    0.6,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":  [0.05, 0.14, 0.95, 0.78],
 			"name": [0.15, 0.10, 0.93, 0.16],
@@ -218,15 +200,6 @@ const _FRAME_CONFIG: Dictionary = {
 	# ── Abyss Order environment frame ───────────────────────────────────────
 	"abyss_env": {
 		"path":    "res://assets/art/frames/abyss_order/abyss_environment.png",
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6,
-			"h_scale":    0.6,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":  [0.08, 0.14, 0.92, 0.72],
 			"name": [0.20, 0.095, 0.97, 0.16],
@@ -239,21 +212,14 @@ const _FRAME_CONFIG: Dictionary = {
 	"neutral_essence_minion": {
 		"path":         "res://assets/art/frames/neutral/neutral_essence_minion.png",
 		"minion_frame": true,
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6, "h_scale":    0.6,
-			"title_font": 15,  "body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":     [0.08, 0.14, 0.92, 0.78],
-			"name":    [0.15, 0.10, 0.93, 0.15],
-			"race":    [0.05, 0.67, 0.95, 0.72],
-			"desc":    [0.16, 0.73, 0.85, 0.85],
-			"essence": [0.01, 0.07, 0.28, 0.19],
-			"atk":     [0.07, 0.88, 0.42, 0.93],
-			"hp":      [0.58, 0.88, 0.93, 0.93],
+			"name":    [0.15, 0.03, 0.85, 0.10],
+			"race":    [0.05, 0.10, 0.95, 0.15],
+			"desc":    [0.16, 0.67, 0.85, 0.90],
+			"essence": [0.01, 0.05, 0.24, 0.10],
+			"atk":     [0.08, 0.84, 0.42, 0.91],
+			"hp":      [0.58, 0.84, 0.92, 0.91],
 		},
 		"fonts": {
 			"desc_normal": 14, "desc_bold": 15,
@@ -267,23 +233,16 @@ const _FRAME_CONFIG: Dictionary = {
 		"path":         "res://assets/art/frames/neutral/neutral_essence_mana_minion.png",
 		"minion_frame": true,
 		"has_frame_shield": true,
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6, "h_scale":    0.6,
-			"title_font": 15,  "body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":     [0.08, 0.14, 0.92, 0.78],
-			"name":    [0.15, 0.10, 0.93, 0.15],
-			"race":    [0.05, 0.67, 0.95, 0.72],
-			"desc":    [0.16, 0.73, 0.85, 0.85],
-			"essence": [0.01, 0.07, 0.28, 0.19],
-			"mana":    [0.72, 0.07, 0.99, 0.19],
-			"atk":     [0.07, 0.88, 0.35, 0.93],
-			"shield":  [0.35, 0.88, 0.65, 0.93],
-			"hp":      [0.65, 0.88, 0.93, 0.93],
+			"name":    [0.15, 0.03, 0.85, 0.10],
+			"race":    [0.05, 0.10, 0.95, 0.15],
+			"desc":    [0.16, 0.67, 0.85, 0.90],
+			"essence": [0.01, 0.05, 0.24, 0.10],
+			"mana":    [0.76, 0.05, 0.99, 0.10],
+			"atk":     [0.08, 0.85, 0.42, 0.91],
+			"shield":  [0.42, 0.85, 0.73, 0.91],
+			"hp":      [0.58, 0.85, 0.92, 0.91],
 		},
 		"fonts": {
 			"desc_normal": 14, "desc_bold": 15,
@@ -295,69 +254,39 @@ const _FRAME_CONFIG: Dictionary = {
 	# ── Neutral spell ────────────────────────────────────────────────────────
 	"neutral_spell": {
 		"path":    "res://assets/art/frames/neutral/neutral_spell.png",
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6, "h_scale":    0.6,
-			"title_font": 15,  "body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
 			"art":  [0.05, 0.14, 0.95, 0.70],
-			"name": [0.15, 0.10, 0.93, 0.16],
-			"desc": [0.16, 0.73, 0.85, 0.85],
-			"mana": [0.08, 0.04, 0.20, 0.20],
+			"name": [0.15, 0.05, 0.85, 0.10],
+			"desc": [0.16, 0.69, 0.88, 0.85],
+			"mana": [0.01, 0.06, 0.24, 0.11],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
 	# ── Neutral trap ─────────────────────────────────────────────────────────
 	"neutral_trap": {
 		"path":    "res://assets/art/frames/neutral/neutral_trap.png",
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6, "h_scale":    0.6,
-			"title_font": 15,  "body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
-			"art":  [0.05, 0.14, 0.95, 0.78],
-			"name": [0.15, 0.10, 0.93, 0.16],
-			"desc": [0.16, 0.72, 0.85, 0.90],
-			"mana": [0.06, 0.03, 0.20, 0.20],
+			"art":  [0.05, 0.14, 0.95, 0.70],
+			"name": [0.15, 0.04, 0.85, 0.09],
+			"desc": [0.16, 0.69, 0.88, 0.85],
+			"mana": [0.01, 0.05, 0.22, 0.10],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
 	# ── Neutral environment ──────────────────────────────────────────────────
 	"neutral_env": {
 		"path":    "res://assets/art/frames/neutral/neutral_environment.png",
-		"tooltip": {
-			"anchor":     Vector2(0.85, 0.25),
-			"w_scale":    0.6, "h_scale":    0.6,
-			"title_font": 15,  "body_font":  11,
-			"title_rect": [0.15, 0.18, 0.85, 0.30],
-			"body_rect":  [0.15, 0.30, 0.85, 0.96],
-		},
 		"layout": {
-			"art":  [0.08, 0.14, 0.92, 0.72],
-			"name": [0.20, 0.095, 0.97, 0.16],
-			"desc": [0.16, 0.71, 0.88, 0.90],
-			"mana": [0.06, 0.01, 0.25, 0.16],
+			"art":  [0.05, 0.14, 0.95, 0.70],
+			"name": [0.15, 0.05, 0.85, 0.10],
+			"desc": [0.16, 0.69, 0.88, 0.85],
+			"mana": [0.01, 0.06, 0.24, 0.11],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 22], [14, 20], [18, 18], [999, 16]] },
 	},
 	# ── Default — no frame PNG, uses drawn badge + Background panel ─────────
 	"default": {
 		"path":    "",
-		"tooltip": {
-			"anchor":     Vector2(1.0, 0.0),
-			"w_scale":    0.62,
-			"h_scale":    1.0,
-			"title_font": 15,
-			"body_font":  11,
-			"title_rect": [0.05, 0.03, 0.95, 0.22],
-			"body_rect":  [0.05, 0.24, 0.95, 0.97],
-		},
 		"layout": {
 			"art":     [0.08, 0.14, 0.92, 0.62],
 			"name":    [0.20, 0.03, 0.97, 0.16],
@@ -413,6 +342,8 @@ var frame_shield_label: Label
 
 ## Active frame style key — resolved from _FACTION_FRAME during setup().
 var _frame_style: String = "default"
+## Hex color string for keyword highlights in the description box — faction-specific.
+var _kw_color_hex: String = "c080ff"
 
 # ---------------------------------------------------------------------------
 # Card state
@@ -514,7 +445,7 @@ func setup(data: CardData) -> void:
 	# Neutral: swap to dual-cost frame when minion has both costs
 	elif style_key == "neutral_essence_minion" and is_dual:
 		style_key = "neutral_essence_mana_minion"
-	_apply_frame_config(style_key, data.card_type)
+	_apply_frame_config(style_key, data.card_type, data.faction)
 
 	var is_minion := data.card_type == Enums.CardType.MINION
 	if is_minion:
@@ -523,6 +454,9 @@ func setup(data: CardData) -> void:
 			var type_str := _minion_type_string(md.minion_type)
 			race_label.text    = type_str
 			race_label.visible = type_str != ""
+			var _rfaction: String = data.faction if data != null else "default"
+			var _rcfg: Dictionary = _FACTION_TOOLTIP_CFG.get(_rfaction, _FACTION_TOOLTIP_CFG["default"])
+			race_label.add_theme_color_override("font_color", _rcfg.get("race_color", Color(0.75, 0.50, 1.00, 1.0)))
 	else:
 		if race_label: race_label.visible = false
 
@@ -530,11 +464,21 @@ func setup(data: CardData) -> void:
 		name_label.text = data.card_name
 		_fit_name_font_size(data.card_name)
 		var is_champion := data is MinionCardData and Enums.Keyword.CHAMPION in (data as MinionCardData).keywords
-		name_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.2, 1.0) if is_champion else Color(1.0, 1.0, 1.0, 1.0))
+		var _nfaction: String = data.faction if data != null else "default"
+		var _ncfg: Dictionary = _FACTION_TOOLTIP_CFG.get(_nfaction, _FACTION_TOOLTIP_CFG["default"])
+		var _base_name_color: Color = _ncfg.get("name_color", Color(1.0, 1.0, 1.0, 1.0))
+		name_label.add_theme_color_override("font_color", Color(1.0, 0.82, 0.2, 1.0) if is_champion else _base_name_color)
+		var _name_outline: int = _ncfg.get("name_outline_size", 0)
+		name_label.add_theme_constant_override("outline_size", _name_outline)
+		if _name_outline > 0:
+			name_label.add_theme_color_override("font_outline_color", _ncfg.get("name_outline_color", Color(0, 0, 0, 1)))
 	if desc_label:
+		var _dfaction: String = data.faction if data != null else "default"
+		var _dcfg: Dictionary = _FACTION_TOOLTIP_CFG.get(_dfaction, _FACTION_TOOLTIP_CFG["default"])
+		desc_label.add_theme_color_override("default_color", _dcfg.get("text_color", Color(1, 1, 1, 1)))
 		var kw_str := ""
 		if data is MinionCardData:
-			kw_str = _keywords_string((data as MinionCardData).keywords)
+			kw_str = _keywords_string((data as MinionCardData).keywords, (data as MinionCardData).clan)
 		desc_label.text = _build_desc_bbcode(kw_str, data.description)
 		# Shrink font after layout so content fits without scrolling
 		call_deferred("_fit_desc_font_size")
@@ -613,9 +557,13 @@ func setup(data: CardData) -> void:
 # Frame config apply — resolves texture, layout, and _frame_style in one call
 # ---------------------------------------------------------------------------
 
-func _apply_frame_config(style_key: String, card_type: Enums.CardType) -> void:
+func _apply_frame_config(style_key: String, card_type: Enums.CardType, faction: String = "default") -> void:
 	var cfg: Dictionary = _FRAME_CONFIG.get(style_key, _FRAME_CONFIG["default"])
 	var path: String = cfg.get("path", "")
+
+	# Derive keyword highlight color from faction tooltip config
+	var tip_c: Color = _FACTION_TOOLTIP_CFG.get(faction, _FACTION_TOOLTIP_CFG["default"]).get("desc_keyword_color", Color(0.75, 0.50, 1.00, 1.0))
+	_kw_color_hex = "%02x%02x%02x" % [int(tip_c.r * 255), int(tip_c.g * 255), int(tip_c.b * 255)]
 
 	if path != "" and ResourceLoader.exists(path):
 		_frame_style = style_key
@@ -878,23 +826,23 @@ const _TRIGGER_TERMS: Array[String] = [
 	"ON PLAY", "ON DEATH", "ON SUMMON", "ON ATTACK", "ON DAMAGE", "ON HEAL",
 	"ON TURN START", "ON TURN END", "ON DRAW", "ON DISCARD",
 	"PASSIVE", "AURA", "RITUAL", "RUNE", "CORRUPTION", "CORRUPT",
+	"VOID MARKS", "VOID MARK", "DEATHLESS",
+	"VOID IMPS", "VOID IMP",  # clan name — plural before singular to avoid partial match
 ]
 
 func _highlight_triggers(text: String) -> String:
 	var result := text
 	for term in _TRIGGER_TERMS:
-		result = result.replace(term, "[color=#c080ff][b]" + term + "[/b][/color]")
+		result = result.replace(term, "[color=#" + _kw_color_hex + "][b]" + term + "[/b][/color]")
 	return result
 
 func _build_desc_bbcode(kw_str: String, description: String) -> String:
 	var desc := _highlight_triggers(description)
 	if kw_str == "":
 		return desc
-	return "[center][color=#c080ff][b]" + kw_str + "[/b][/color][/center]\n" + desc
+	return "[center][color=#" + _kw_color_hex + "][b]" + kw_str + "[/b][/color][/center]\n" + desc
 
-func _keywords_string(keywords: Array) -> String:
-	if keywords.is_empty():
-		return ""
+func _keywords_string(keywords: Array, clan: String = "") -> String:
 	var parts: Array[String] = []
 	for kw in keywords:
 		match kw:
@@ -906,6 +854,10 @@ func _keywords_string(keywords: Array) -> String:
 			Enums.Keyword.CHAMPION:       parts.append("Champion")
 			Enums.Keyword.RUNE:           parts.append("Rune")
 			Enums.Keyword.CORRUPTION:     parts.append("Corruption")
+			Enums.Keyword.DEATHLESS:      parts.append("Deathless")
+			Enums.Keyword.VOID_MARK:      pass  # display-only; not shown in keyword line
+	if clan != "":
+		parts.append("Clan: " + clan)
 	return ", ".join(parts)
 
 func _minion_type_string(minion_type: Enums.MinionType) -> String:
@@ -917,7 +869,7 @@ func _minion_type_string(minion_type: Enums.MinionType) -> String:
 		Enums.MinionType.HUMAN:     return "Human"
 		Enums.MinionType.CONSTRUCT: return "Construct"
 		Enums.MinionType.GIANT:     return "Giant"
-		Enums.MinionType.UNTAGGED:  return ""
+		Enums.MinionType.MERCENARY: return "Mercenary"
 	return ""
 
 func _type_string(card_type: Enums.CardType) -> String:
@@ -955,6 +907,9 @@ const _KEYWORD_TOOLTIP: Dictionary = {
 	Enums.Keyword.CHAMPION:       ["Champion",    "A legendary unit. Can only be summoned when its board condition is met."],
 	Enums.Keyword.RUNE:           ["Rune",        "Placed face-up. Provides an ongoing aura effect until consumed by a Ritual."],
 	Enums.Keyword.CORRUPTION:     ["Corruption",  "Reduces the afflicted minion's ATK by 100 per stack."],
+	Enums.Keyword.DEATHLESS:      ["Deathless",   "Prevents the next fatal hit once. Sets HP to 50 instead of dying. Consumed after use."],
+	Enums.Keyword.VOID_MARK:      ["Void Mark",   "A debuff stack placed on the enemy hero. Void Bolt deals bonus damage per stack."],
+	Enums.Keyword.RITUAL:         ["Ritual",      "A powerful effect triggered by consuming the required Runes on the field."],
 }
 
 ## RuneType enum value → display name used in the ritual tooltip
@@ -969,12 +924,15 @@ const _RUNE_TOOLTIP_NAME: Dictionary = {
 const _KEYWORD_ICON: Dictionary = {
 	Enums.Keyword.GUARD:          "res://assets/art/icons/icon_guard.png",
 	Enums.Keyword.SWIFT:          "res://assets/art/icons/icon_swift.png",
-	Enums.Keyword.LIFEDRAIN:      "res://assets/art/icons/icon_lifesteal.png",
+	Enums.Keyword.LIFEDRAIN:      "res://assets/art/icons/icon_lifedrain.png",
 	Enums.Keyword.SHIELD_REGEN_1: "res://assets/art/icons/icon_rune.png",
 	Enums.Keyword.SHIELD_REGEN_2: "res://assets/art/icons/icon_rune.png",
-	Enums.Keyword.CHAMPION:       "res://assets/art/icons/icon_corruption.png",
+	Enums.Keyword.CHAMPION:       "res://assets/art/icons/icon_champion.png",
 	Enums.Keyword.RUNE:           "res://assets/art/icons/icon_rune.png",
 	Enums.Keyword.CORRUPTION:     "res://assets/art/icons/icon_corruption.png",
+	Enums.Keyword.DEATHLESS:      "res://assets/art/icons/icon_deathless.png",
+	Enums.Keyword.VOID_MARK:      "res://assets/art/icons/icon_voidmark.png",
+	Enums.Keyword.RITUAL:         "res://assets/art/icons/icon_ritual.png",
 }
 
 ## Build and show the tooltip panel to the right of this card.
@@ -995,25 +953,38 @@ func enable_tooltip() -> void:
 	# Any card whose description mentions CORRUPTION or CORRUPT gets the Corruption keyword
 	if ("CORRUPTION" in card_data.description or "CORRUPT" in card_data.description) and not Enums.Keyword.CORRUPTION in keywords:
 		keywords.append(Enums.Keyword.CORRUPTION)
+	# Cards that apply or scale with Void Marks get the Void Mark tooltip entry
+	if ("VOID MARK" in card_data.description) and not Enums.Keyword.VOID_MARK in keywords:
+		keywords.append(Enums.Keyword.VOID_MARK)
+	# Cards that grant or reference Deathless get the Deathless keyword tooltip entry
+	if ("DEATHLESS" in card_data.description) and not Enums.Keyword.DEATHLESS in keywords:
+		keywords.append(Enums.Keyword.DEATHLESS)
 
 	var has_rituals := card_data is EnvironmentCardData \
 		and (card_data as EnvironmentCardData).rituals.size() > 0
-	if keywords.is_empty() and not has_rituals:
+	# Environment cards with rituals get the Ritual keyword tooltip entry
+	if has_rituals and not Enums.Keyword.RITUAL in keywords:
+		keywords.append(Enums.Keyword.RITUAL)
+	var clan: String = ""
+	if card_data is MinionCardData:
+		clan = (card_data as MinionCardData).clan
+	if keywords.is_empty() and not has_rituals and clan.is_empty():
 		_remove_tooltip()
 		return
-	_build_tooltip(keywords, has_rituals)
+	_build_tooltip(keywords, has_rituals, clan)
 
 func _remove_tooltip() -> void:
 	if _tooltip != null and is_instance_valid(_tooltip):
 		_tooltip.queue_free()
 	_tooltip = null
 
-func _build_tooltip(keywords: Array, has_rituals: bool) -> void:
+func _build_tooltip(keywords: Array, has_rituals: bool, clan: String = "") -> void:
 	_remove_tooltip()
 	clip_contents = false  # allow the tooltip to render outside the card rect
 
-	var frame_cfg: Dictionary = _FRAME_CONFIG.get(_frame_style, _FRAME_CONFIG["default"])
-	var tip_cfg:   Dictionary = frame_cfg.get("tooltip", {})
+	var faction: String = card_data.faction if card_data != null else "default"
+	var tip_cfg: Dictionary = _FACTION_TOOLTIP_CFG.get(faction, _FACTION_TOOLTIP_CFG["default"])
+	var kw_color: Color = tip_cfg.get("tooltip_keyword_color", Color(0.75, 0.50, 1.00, 1.0))
 	var anchor:    Vector2    = tip_cfg.get("anchor", Vector2(1.0, 0.0))
 	var card_w    := maxi(roundi(custom_minimum_size.x), 1)
 	var card_h    := maxi(roundi(custom_minimum_size.y), 1)
@@ -1036,7 +1007,10 @@ func _build_tooltip(keywords: Array, has_rituals: bool) -> void:
 
 	# Background — explicit size, no anchors, so the layout engine can't override it
 	var bg := TextureRect.new()
-	bg.texture      = load("res://assets/art/frames/abyss_order/abyss_tooltip.png")
+	var _tooltip_tex_path: String = "res://assets/art/frames/neutral/neutral_tooltip.png" \
+		if card_data != null and card_data.faction == "neutral" \
+		else "res://assets/art/frames/abyss_order/abyss_tooltip.png"
+	bg.texture      = load(_tooltip_tex_path)
 	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
 	bg.position     = Vector2.ZERO
@@ -1057,21 +1031,23 @@ func _build_tooltip(keywords: Array, has_rituals: bool) -> void:
 	body_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tooltip.add_child(body_box)
 
-	# --- Keywords section ---
-	if keywords.size() > 0:
+	# --- Keywords + Clan + Rituals section (single "Keywords" title) ---
+	if keywords.size() > 0 or clan != "" or has_rituals:
 		_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
-		for kw in keywords:
-			var info: Array = _KEYWORD_TOOLTIP.get(kw, [])
-			if info.is_empty():
-				continue
-			var icon_path: String = _KEYWORD_ICON.get(kw, "")
-			_tooltip_icon_title(body_box, info[0], t_size, bold_font, Color(0.75, 0.50, 1.00, 1.0), icon_path)
-			_tooltip_body(body_box, info[1], b_size, body_box.size.x, bold_font)
 
-	# --- Rituals section ---
+	for kw in keywords:
+		var info: Array = _KEYWORD_TOOLTIP.get(kw, [])
+		if info.is_empty():
+			continue
+		var icon_path: String = _KEYWORD_ICON.get(kw, "")
+		_tooltip_icon_title(body_box, info[0], t_size, bold_font, kw_color, icon_path)
+		_tooltip_body(body_box, info[1], b_size, body_box.size.x, bold_font)
+
+	if clan != "":
+		_tooltip_icon_title(body_box, "Clan: " + clan, t_size, bold_font, kw_color, "res://assets/art/icons/icon_clan.png")
+		_tooltip_body(body_box, "This minion belongs to the " + clan + " clan. Card effects that reference " + clan + "s affect it.", b_size, body_box.size.x, bold_font)
+
 	if has_rituals:
-		if keywords.is_empty():
-			_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
 		for ritual in (card_data as EnvironmentCardData).rituals:
 			var body_str := "Ritual - " + ritual.ritual_name + ": " + ritual.description
 			_tooltip_body(body_box, body_str, b_size, body_box.size.x, bold_font)

@@ -42,6 +42,10 @@ extends CardData
 ## Effect triggered when this minion is destroyed (On Death).
 @export var on_death_effect: String = ""
 
+## Declarative effect steps fired when this minion is destroyed (On Death).
+## Uses EffectResolver. Runs in addition to the legacy on_death_effect string.
+@export var on_death_effect_steps: Array = []
+
 ## Persistent board passive effect ID. Resolved by CombatScene whenever a
 ## friendly minion dies or a friendly minion is summoned. Empty = no passive.
 @export var passive_effect_id: String = ""
@@ -54,6 +58,10 @@ extends CardData
 ## E.g. "void_mark_per_channeler" for Void Channeler.
 @export var on_void_bolt_passive_effect_id: String = ""
 
+## Declarative effect steps fired at the start of the owner's turn while this minion is on board.
+## Uses EffectResolver with the minion as ctx.source.
+@export var on_turn_start_effect_steps: Array = []
+
 ## Reduces the Mana cost of all player spells by this amount while this minion is on board.
 ## Multiple minions stack (e.g. two Archmagus = -2). Floor is 0.
 @export var mana_cost_discount: int = 0
@@ -62,6 +70,10 @@ extends CardData
 ## Examples: "void_imp", "base_void_imp", "senior_void_imp", "void_champion", "imp_overseer".
 ## Add all applicable tags; CombatScene queries with _minion_has_tag() / _card_has_tag().
 @export var minion_tags: Array[String] = []
+
+## Player-facing clan label shown as "Clan: <name>" in the keyword panel and description line.
+## Clans group minions that share synergy. Empty = no clan displayed.
+@export var clan: String = ""
 
 ## If true, this card is a champion that can be auto-summoned when its condition is met.
 @export var is_champion: bool = false

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bpkcd85hs0yuc"
-path="res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"
+uid="uid://dgajfmaucdj4k"
+path="res://.godot/imported/icon_deathless copy.png-19e4122b6f599c60aad4c800f9339ce7.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/icons/icon_voidmark.png"
-dest_files=["res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"]
+source_file="res://assets/art/icons/icon_deathless copy.png"
+dest_files=["res://.godot/imported/icon_deathless copy.png-19e4122b6f599c60aad4c800f9339ce7.ctex"]
 
 [params]
 

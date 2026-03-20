@@ -26,7 +26,7 @@ enum MinionType {
 	HUMAN,
 	CONSTRUCT,
 	GIANT,
-	UNTAGGED,
+	MERCENARY,
 }
 
 ## Keywords that modify minion behaviour
@@ -39,6 +39,9 @@ enum Keyword {
 	CHAMPION,       # Named/legendary unit — gold name display, unique card
 	RUNE,           # A persistent trap placed face-up; provides an ongoing aura effect until consumed by a Ritual
 	CORRUPTION,     # Reduces the afflicted minion's ATK by 100 per stack
+	DEATHLESS,      # Prevents the next fatal damage once; sets HP to 50 and is consumed
+	VOID_MARK,      # Display-only pseudo-keyword: shown in tooltip on cards that apply Void Marks
+	RITUAL,         # Display-only pseudo-keyword: shown in tooltip on environment cards that define rituals
 }
 
 ## All game events that flow through TriggerManager.
@@ -123,6 +126,7 @@ enum BuffType {
 	# ---- Keyword grants ----
 	GRANT_GUARD,     # Grants Guard at runtime (e.g. Imp Overseer aura). Dispellable.
 	GRANT_LIFEDRAIN, # Grants Lifedrain at runtime (e.g. Abyssal Fury). Dispellable.
+	GRANT_DEATHLESS, # Grants Deathless at runtime. Consumed (removed) when it activates.
 	# ---- Debuffs ----
 	CORRUPTION,      # Stacking ATK penalty. amount = penalty per stack (100 base, 200 w/ talent).
 }

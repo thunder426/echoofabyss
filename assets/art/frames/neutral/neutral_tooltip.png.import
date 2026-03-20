@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dh5tsgmmqjhs5"
-path="res://.godot/imported/icon_lifesteal.png-4f5e6c07f6f37a968ed829c195e5270d.ctex"
+uid="uid://c8uxei6gmttis"
+path="res://.godot/imported/neutral_tooltip.png-dcf02519db6211e9438c3f578afb9803.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/icons/icon_lifesteal.png"
-dest_files=["res://.godot/imported/icon_lifesteal.png-4f5e6c07f6f37a968ed829c195e5270d.ctex"]
+source_file="res://assets/art/frames/neutral/neutral_tooltip.png"
+dest_files=["res://.godot/imported/neutral_tooltip.png-dcf02519db6211e9438c3f578afb9803.ctex"]
 
 [params]
 

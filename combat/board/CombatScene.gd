@@ -47,6 +47,7 @@ var _enemy_status_hp_label: Label = null
 var _enemy_status_essence_label: Label = null
 var _enemy_status_mana_label: Label = null
 var _enemy_status_hand_label: Label = null
+var _enemy_status_marks_row:   HBoxContainer = null
 var _enemy_status_marks_label: Label = null
 var _enemy_hero_attack_hint: Label = null
 var enemy_hp_max: int = 0
@@ -739,9 +740,11 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: Min
 		return
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
-	player_board.append(instance)
+	# Place visually first so the slot is not mistakenly taken by tokens summoned during on-play.
+	# Do NOT append to player_board yet — on-play effects should not see this minion on the board.
 	slot.place_minion(instance)
 	# Fire ON_PLAYER_MINION_PLAYED — carries the player-chosen target for targeted battle cries.
+	# The minion is not in player_board during this event, so ALL_FRIENDLY effects exclude it naturally.
 	var play_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
 	play_ctx.minion = instance
 	play_ctx.card   = card
@@ -751,6 +754,8 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: Min
 		hand_display.remove_card(card)
 		hand_display.deselect_current()
 	trigger_manager.fire(play_ctx)
+	# Now officially join the board before ON_PLAYER_MINION_SUMMONED (summon triggers expect it present).
+	player_board.append(instance)
 	var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
 	summon_ctx.minion = instance
 	summon_ctx.card   = card
@@ -983,6 +988,7 @@ func _setup_cheat_panel() -> void:
 	_cheat_card_input.placeholder_text = "e.g. arcane_strike"
 	_cheat_card_input.custom_minimum_size = Vector2(200, 0)
 	_cheat_card_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cheat_card_input.text_submitted.connect(func(_t): _cheat_add_card())
 	hand_row.add_child(_cheat_card_input)
 	var add_btn := Button.new()
 	add_btn.text = "Add"
@@ -1182,6 +1188,57 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 			_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [100 * mult, 100 * mult], _LogType.TRAP)
 		"soul_rune_reset":
 			_soul_rune_fired = false
+		# --- vael_endless_tide: Vael's Colossal Guard on-play ---
+		"colossal_guard_play":
+			pass  # Handled declaratively by on_play_effect_steps; stub for forward compat
+		# --- vael_rune_master: Runic Blast ---
+		"runic_blast":
+			var rune_count := 0
+			for t in active_traps:
+				if (t as TrapCardData).is_rune:
+					rune_count += 1
+			if rune_count >= 2:
+				_log("  Runic Blast: 2+ Runes active — 200 damage to ALL enemy minions!", _LogType.PLAYER)
+				for m in enemy_board.duplicate():
+					combat_manager.apply_spell_damage(m, 200)
+			else:
+				var target_m := _find_random_enemy_minion()
+				if target_m:
+					_log("  Runic Blast: 200 damage to %s." % target_m.card_data.card_name, _LogType.PLAYER)
+					combat_manager.apply_spell_damage(target_m, 200)
+				else:
+					_log("  Runic Blast: no enemy minions.", _LogType.PLAYER)
+		# --- vael_rune_master: Runic Echo ---
+		"runic_echo":
+			var last_rune := _find_last_non_echo_rune()
+			if last_rune and not last_rune.aura_effect_steps.is_empty():
+				_log("  Runic Echo: copies %s's effect." % last_rune.card_name, _LogType.PLAYER)
+				var eff_ctx := EffectContext.make(self, ctx.owner)
+				EffectResolver.run(last_rune.aura_effect_steps, eff_ctx)
+			else:
+				_log("  Runic Echo: no previous Rune effect to copy.", _LogType.PLAYER)
+		# --- vael_rune_master: Echo Rune aura fire (ON_PLAYER_TURN_START) ---
+		"echo_rune_fire":
+			var last_rune := _find_last_non_echo_rune()
+			if last_rune and not last_rune.aura_effect_steps.is_empty():
+				_log("  Echo Rune: fires %s's effect." % last_rune.card_name, _LogType.TRAP)
+				var eff_ctx := EffectContext.make(self, "player")
+				EffectResolver.run(last_rune.aura_effect_steps, eff_ctx)
+		# --- vael_rune_master: Rune Seeker on-play ---
+		"rune_seeker_play":
+			var found := false
+			for i in turn_manager.player_deck.size():
+				var c := turn_manager.player_deck[i]
+				if c is TrapCardData and (c as TrapCardData).is_rune:
+					turn_manager.player_deck.remove_at(i)
+					turn_manager.add_to_hand(c)
+					if hand_display:
+						hand_display.add_card(c)
+					_log("  Rune Seeker: found %s." % c.card_name, _LogType.PLAYER)
+					found = true
+					break
+			if not found:
+				_log("  Rune Seeker: no Rune in deck.", _LogType.PLAYER)
 		_:
 			_resolve_spell_effect(id, ctx.chosen_target, ctx.owner)
 
@@ -1202,48 +1259,19 @@ func _summon_void_spark() -> void:
 			trigger_manager.fire(ctx)
 			return
 
+## Return the most recently placed non-Echo Rune from active_traps (or null).
+## Used by Runic Echo and Echo Rune to copy the last placed Rune's effect.
+func _find_last_non_echo_rune() -> TrapCardData:
+	for i in range(active_traps.size() - 1, -1, -1):
+		var t := active_traps[i] as TrapCardData
+		if t.is_rune and t.id != "echo_rune":
+			return t
+	return null
+
 ## Summon a Void Spark Spirit token with the given ATK/HP into the first empty player slot.
 ## Used by Soul Rune aura (stats scale with rune stacks).
 func _summon_soul_rune_spirit(atk: int, hp: int) -> void:
 	_summon_token("void_spark", "player", atk, hp)
-
-## Summon a 100/200 Wandering Spirit token into the first empty player slot.
-func _summon_wandering_spirit() -> void:
-	for slot in player_slots:
-		if slot.is_empty():
-			var data := CardDatabase.get_card("wandering_spirit") as MinionCardData
-			if data == null:
-				return
-			var instance := MinionInstance.create(data, "player")
-			player_board.append(instance)
-			slot.place_minion(instance)
-			_log("  Wandering Spirit (100/200) summoned!", _LogType.PLAYER)
-			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-			ctx.minion = instance
-			ctx.card   = data
-			trigger_manager.fire(ctx)
-			return
-
-## Summon a 100/100 Soldier token into the first empty player slot.
-func _summon_soldier() -> void:
-	for slot in player_slots:
-		if slot.is_empty():
-			var data := MinionCardData.new()
-			data.id          = "soldier"
-			data.card_name   = "Soldier"
-			data.atk         = 100
-			data.health      = 100
-			data.minion_type = Enums.MinionType.HUMAN
-			data.faction     = "neutral"
-			var instance := MinionInstance.create(data, "player")
-			player_board.append(instance)
-			slot.place_minion(instance)
-			_log("  Soldier (100/100) summoned!", _LogType.PLAYER)
-			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-			ctx.minion = instance
-			ctx.card   = data
-			trigger_manager.fire(ctx)
-			return
 
 ## Summon a Void Imp into the first empty player slot.
 ## Fires ON_PLAYER_MINION_SUMMONED so all registered handlers (passives, talents, relics) apply.
@@ -2018,7 +2046,7 @@ func _setup_enemy_status_panel() -> void:
 		return
 
 	var panel := Panel.new()
-	panel.custom_minimum_size = Vector2(300, 165)
+	panel.custom_minimum_size = Vector2(300, 155)
 	panel.anchor_left    = 0.5
 	panel.anchor_right   = 0.5
 	panel.anchor_top     = 0.0
@@ -2027,7 +2055,7 @@ func _setup_enemy_status_panel() -> void:
 	panel.offset_left    = -150.0
 	panel.offset_right   = 150.0
 	panel.offset_top     = 5.0
-	panel.offset_bottom  = 170.0
+	panel.offset_bottom  = 160.0
 	panel.mouse_filter   = Control.MOUSE_FILTER_IGNORE
 
 	var style := StyleBoxFlat.new()
@@ -2037,24 +2065,28 @@ func _setup_enemy_status_panel() -> void:
 	style.set_corner_radius_all(6)
 	panel.add_theme_stylebox_override("panel", style)
 
-	var vbox := VBoxContainer.new()
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_theme_constant_override("separation", 5)
-	vbox.add_theme_constant_override("margin_left", 6)
-	vbox.add_theme_constant_override("margin_right", 6)
-	vbox.add_theme_constant_override("margin_top", 5)
-	vbox.add_theme_constant_override("margin_bottom", 5)
-	panel.add_child(vbox)
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left",   8)
+	margin.add_theme_constant_override("margin_right",  8)
+	margin.add_theme_constant_override("margin_top",    6)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(margin)
 
-	# Portrait row
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(vbox)
+
+	# --- Portrait + name row ---
 	var portrait_row := HBoxContainer.new()
-	portrait_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait_row.add_theme_constant_override("separation", 8)
+	portrait_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(portrait_row)
 
 	var portrait := ColorRect.new()
-	portrait.custom_minimum_size = Vector2(44, 44)
+	portrait.custom_minimum_size = Vector2(36, 36)
 	portrait.color = Color(0.25, 0.08, 0.45, 1)
 	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait_row.add_child(portrait)
@@ -2063,7 +2095,7 @@ func _setup_enemy_status_panel() -> void:
 	initial_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	initial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	initial_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	initial_label.add_theme_font_size_override("font_size", 24)
+	initial_label.add_theme_font_size_override("font_size", 20)
 	initial_label.add_theme_color_override("font_color", Color(0.85, 0.60, 1.0, 1))
 	initial_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if GameManager.current_enemy:
@@ -2072,12 +2104,13 @@ func _setup_enemy_status_panel() -> void:
 
 	var name_lbl := Label.new()
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 13)
 	name_lbl.add_theme_color_override("font_color", Color(0.90, 0.65, 1.0, 1))
 	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_lbl.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 	if GameManager.current_enemy:
-		var prefix := "⚔ BOSS\n" if GameManager.is_boss_fight() else ""
+		var prefix: String = "⚔ BOSS  " if GameManager.is_boss_fight() else ""
 		name_lbl.text = prefix + GameManager.current_enemy.enemy_name
 	portrait_row.add_child(name_lbl)
 
@@ -2085,36 +2118,73 @@ func _setup_enemy_status_panel() -> void:
 	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(sep)
 
+	# --- Two-column stats area ---
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 8)
+	cols.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(cols)
+
+	# Left column: core stats
+	var left_col := VBoxContainer.new()
+	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_col.add_theme_constant_override("separation", 3)
+	left_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cols.add_child(left_col)
+
+	# Right column: status effects
+	var right_col := VBoxContainer.new()
+	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_col.add_theme_constant_override("separation", 3)
+	right_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cols.add_child(right_col)
+
 	_enemy_status_hp_label = Label.new()
-	_enemy_status_hp_label.add_theme_font_size_override("font_size", 13)
+	_enemy_status_hp_label.add_theme_font_size_override("font_size", 12)
 	_enemy_status_hp_label.add_theme_color_override("font_color", Color(0.95, 0.40, 0.40, 1))
 	_enemy_status_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_enemy_status_hp_label)
+	left_col.add_child(_enemy_status_hp_label)
 
 	_enemy_status_essence_label = Label.new()
-	_enemy_status_essence_label.add_theme_font_size_override("font_size", 13)
+	_enemy_status_essence_label.add_theme_font_size_override("font_size", 12)
 	_enemy_status_essence_label.add_theme_color_override("font_color", Color(0.70, 0.40, 1.0, 1))
 	_enemy_status_essence_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_enemy_status_essence_label)
+	left_col.add_child(_enemy_status_essence_label)
 
 	_enemy_status_mana_label = Label.new()
-	_enemy_status_mana_label.add_theme_font_size_override("font_size", 13)
+	_enemy_status_mana_label.add_theme_font_size_override("font_size", 12)
 	_enemy_status_mana_label.add_theme_color_override("font_color", Color(0.30, 0.65, 1.0, 1))
 	_enemy_status_mana_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_enemy_status_mana_label)
+	left_col.add_child(_enemy_status_mana_label)
 
 	_enemy_status_hand_label = Label.new()
-	_enemy_status_hand_label.add_theme_font_size_override("font_size", 13)
+	_enemy_status_hand_label.add_theme_font_size_override("font_size", 12)
 	_enemy_status_hand_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.85, 1))
 	_enemy_status_hand_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_enemy_status_hand_label)
+	left_col.add_child(_enemy_status_hand_label)
+
+	# Void Mark row — right column, hidden when count is 0
+	_enemy_status_marks_row = HBoxContainer.new()
+	_enemy_status_marks_row.add_theme_constant_override("separation", 4)
+	_enemy_status_marks_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_enemy_status_marks_row.visible = false
+	right_col.add_child(_enemy_status_marks_row)
+
+	const VOIDMARK_ICON := "res://assets/art/icons/icon_voidmark.png"
+	if ResourceLoader.exists(VOIDMARK_ICON):
+		var vm_icon := TextureRect.new()
+		vm_icon.texture             = load(VOIDMARK_ICON)
+		vm_icon.stretch_mode        = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		vm_icon.expand_mode         = TextureRect.EXPAND_IGNORE_SIZE
+		vm_icon.custom_minimum_size = Vector2(14, 14)
+		vm_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		vm_icon.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+		_enemy_status_marks_row.add_child(vm_icon)
 
 	_enemy_status_marks_label = Label.new()
-	_enemy_status_marks_label.add_theme_font_size_override("font_size", 13)
+	_enemy_status_marks_label.add_theme_font_size_override("font_size", 12)
 	_enemy_status_marks_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.15, 1))
-	_enemy_status_marks_label.visible = false
 	_enemy_status_marks_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_enemy_status_marks_label)
+	_enemy_status_marks_row.add_child(_enemy_status_marks_label)
 
 	_enemy_hero_attack_hint = Label.new()
 	_enemy_hero_attack_hint.text = "▶  Click to Attack"
@@ -2146,12 +2216,13 @@ func _update_enemy_status_panel() -> void:
 	if _enemy_status_hand_label:
 		var hand_size := enemy_ai.hand.size() if enemy_ai else 0
 		_enemy_status_hand_label.text = "🂠 Hand: %d" % hand_size
-	if _enemy_status_marks_label:
+	if _enemy_status_marks_row:
 		if enemy_void_marks > 0:
-			_enemy_status_marks_label.text = "☠ Void Mark: ×%d" % enemy_void_marks
-			_enemy_status_marks_label.visible = true
+			if _enemy_status_marks_label:
+				_enemy_status_marks_label.text = "Void Mark ×%d" % enemy_void_marks
+			_enemy_status_marks_row.visible = true
 		else:
-			_enemy_status_marks_label.visible = false
+			_enemy_status_marks_row.visible = false
 
 # ---------------------------------------------------------------------------
 # Player hero status panel (bottom-right)
@@ -2467,8 +2538,7 @@ func _setup_triggers() -> void:
 	# -----------------------------------------------------------------------
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handler_player_turn_relics,      0)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handler_player_turn_environment, 10)
-	# Nyx'ael is a board-presence check — always registered, fires only if card is on board
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handler_nyx_ael_passive, 21)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handler_minion_turn_start_passives, 21)
 
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_SPELL_CAST  (priority: 0=board passives)
@@ -2544,6 +2614,11 @@ func _setup_triggers() -> void:
 	trigger_manager.register(Enums.TriggerEvent.ON_HERO_DAMAGED,          _trap_check_damage_taken, 10)
 
 	# -----------------------------------------------------------------------
+	# ON_RUNE_PLACED — board passive: Rune Warden (priority 5)
+	# -----------------------------------------------------------------------
+	trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, _handler_rune_warden_passive, 5)
+
+	# -----------------------------------------------------------------------
 	# ON_RUNE_PLACED — grand rituals from active talents (priority 0, before env rituals at 5)
 	# Env rituals are registered dynamically in _register_env_rituals().
 	# -----------------------------------------------------------------------
@@ -2586,17 +2661,13 @@ func _handler_player_turn_environment(_ctx: EventContext) -> void:
 		var ctx := EffectContext.make(self, "player")
 		EffectResolver.run(active_environment.passive_effect_steps, ctx)
 
-func _handler_nyx_ael_passive(_ctx: EventContext) -> void:
-	for m in player_board:
-		if _minion_has_tag(m, "void_champion"):
-			for enemy in enemy_board.duplicate():
-				if not BuffSystem.has_type(enemy, Enums.BuffType.CORRUPTION):
-					_corrupt_minion(enemy)
-			for enemy in enemy_board.duplicate():
-				if BuffSystem.has_type(enemy, Enums.BuffType.CORRUPTION):
-					_log("  Nyx'ael: %s takes 200 damage." % enemy.card_data.card_name, _LogType.PLAYER)
-					combat_manager.apply_spell_damage(enemy, 200)
-			break
+func _handler_minion_turn_start_passives(_ctx: EventContext) -> void:
+	for m in player_board.duplicate():
+		var mc := m.card_data as MinionCardData
+		if mc and not mc.on_turn_start_effect_steps.is_empty():
+			var ectx := EffectContext.make(self, "player")
+			ectx.source = m
+			EffectResolver.run(mc.on_turn_start_effect_steps, ectx)
 
 # ---------------------------------------------------------------------------
 # ON_ENEMY_TURN_START handlers
@@ -2763,13 +2834,24 @@ func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionIns
 # ON_PLAYER_MINION_DIED handlers
 # ---------------------------------------------------------------------------
 
+func _handler_rune_warden_passive(ctx: EventContext) -> void:
+	for m in player_board:
+		if (m.card_data as MinionCardData).passive_effect_id == "rune_warden":
+			BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 200, "rune_warden")
+			_log("  Rune Warden: +200 ATK until end of turn.", _LogType.PLAYER)
+			_refresh_slot_for(m)
+
 func _handler_minion_on_death_effect(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
-	var effect_id: String = (minion.card_data as MinionCardData).on_death_effect
-	if not effect_id.is_empty():
+	var card := minion.card_data as MinionCardData
+	if not card.on_death_effect.is_empty():
 		_resolve_on_death_effect(minion)
+	if not card.on_death_effect_steps.is_empty():
+		var eff_ctx := EffectContext.make(self, minion.owner)
+		eff_ctx.source = minion
+		EffectResolver.run(card.on_death_effect_steps, eff_ctx)
 
 func _handler_board_passives_on_player_death(ctx: EventContext) -> void:
 	var dead := ctx.minion

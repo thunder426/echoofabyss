@@ -41,9 +41,11 @@ func save() -> void:
 ## Returns true if the file existed and was parsed successfully.
 func load_profile() -> bool:
 	if not FileAccess.file_exists(SAVE_PATH):
+		_ensure_default_unlocks()
 		return false
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
+		_ensure_default_unlocks()
 		return false
 	var text := f.get_as_text()
 	f.close()
@@ -56,6 +58,7 @@ func load_profile() -> bool:
 	# Always restore permanent unlocks — needed even on New Run
 	var raw_unlocks = parsed.get("permanent_unlocks", [])
 	GameManager.permanent_unlocks.assign(raw_unlocks)
+	_ensure_default_unlocks()
 
 	# Restore run state if present
 	var run = parsed.get("run", null)
@@ -96,6 +99,7 @@ func clear_run() -> void:
 ## Called from the Main Menu "Reset All Progress" confirmation.
 func reset_all() -> void:
 	GameManager.permanent_unlocks.clear()
+	_ensure_default_unlocks()
 	GameManager.last_boss_unlocks.clear()
 	GameManager.run_active = false
 	GameManager.player_deck.clear()
@@ -107,3 +111,12 @@ func reset_all() -> void:
 	GameManager.current_enemy = null
 	if FileAccess.file_exists(SAVE_PATH):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+
+## Seeds permanent_unlocks with all common-rarity support pool cards.
+## Called on profile load and after reset so commons are always available.
+func _ensure_default_unlocks() -> void:
+	var support_pools: Array[String] = ["vael_common", "vael_piercing_void", "vael_endless_tide", "vael_rune_master"]
+	for card_id in CardDatabase.get_card_ids_in_pools(support_pools):
+		var card := CardDatabase.get_card(card_id)
+		if card and card.rarity == "common" and card_id not in GameManager.permanent_unlocks:
+			GameManager.permanent_unlocks.append(card_id)

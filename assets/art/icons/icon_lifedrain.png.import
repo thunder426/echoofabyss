@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bpkcd85hs0yuc"
-path="res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"
+uid="uid://dgr6bw25lplcm"
+path="res://.godot/imported/icon_lifedrain.png-263a42f6a79d88bb90108c8dc5665910.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/icons/icon_voidmark.png"
-dest_files=["res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"]
+source_file="res://assets/art/icons/icon_lifedrain.png"
+dest_files=["res://.godot/imported/icon_lifedrain.png-263a42f6a79d88bb90108c8dc5665910.ctex"]
 
 [params]
 

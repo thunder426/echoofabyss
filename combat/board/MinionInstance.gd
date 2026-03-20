@@ -57,6 +57,9 @@ static func create(data: MinionCardData, owner_id: String) -> MinionInstance:
 		instance.state = Enums.MinionState.SWIFT
 	else:
 		instance.state = Enums.MinionState.EXHAUSTED
+	# Apply keyword-based runtime buffs
+	if Enums.Keyword.DEATHLESS in data.keywords:
+		BuffSystem.apply(instance, Enums.BuffType.GRANT_DEATHLESS, 1, "base_keyword")
 	return instance
 
 # ---------------------------------------------------------------------------
@@ -87,6 +90,12 @@ func can_attack_hero() -> bool:
 func has_guard() -> bool:
 	return BuffSystem.has_type(self, Enums.BuffType.GRANT_GUARD) \
 		or Enums.Keyword.GUARD in card_data.keywords
+
+## True if this minion has Deathless (base keyword or granted at runtime).
+## Deathless prevents the next fatal hit (sets HP to 50) then is consumed.
+func has_deathless() -> bool:
+	return BuffSystem.has_type(self, Enums.BuffType.GRANT_DEATHLESS) \
+		or Enums.Keyword.DEATHLESS in card_data.keywords
 
 ## True if this minion has Lifedrain (base keyword or granted at runtime).
 func has_lifedrain() -> bool:

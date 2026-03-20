@@ -72,7 +72,6 @@ func start_new_run() -> void:
 	player_hp_max = 3000
 	player_hp = player_hp_max
 	core_unit_limit = 4
-	player_deck = _build_starter_deck()
 	current_enemy = get_encounter(0)
 	talent_points = 1       # initial point — spend before first fight
 	unlocked_talents = []
@@ -154,6 +153,10 @@ func grant_boss_unlocks(act_number: int) -> void:
 		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_common"]))
 	if has_talent("piercing_void"):
 		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_piercing_void"]))
+	if has_talent("imp_evolution"):
+		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_endless_tide"]))
+	if has_talent("rune_caller"):
+		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_rune_master"]))
 	# Future support pools (other heroes / talents) appended here.
 
 	# Roll each candidate that is eligible and not yet unlocked.
@@ -315,9 +318,3 @@ func _make_encounter(ename: String, ehp: int, pool: Array[String],
 		e.background_path = ebg
 	return e
 
-func _build_starter_deck() -> Array[String]:
-	var hero := HeroDatabase.get_hero(current_hero)
-	if hero == null:
-		push_error("GameManager: no HeroData for '%s', using empty deck" % current_hero)
-		return []
-	return hero.starter_deck.duplicate()

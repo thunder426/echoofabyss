@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bpkcd85hs0yuc"
-path="res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"
+uid="uid://dusvp6n6twdbi"
+path="res://.godot/imported/icon_champion.png-5c948783468e6d7d171c50295cef4d3e.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/icons/icon_voidmark.png"
-dest_files=["res://.godot/imported/icon_voidmark.png-cefba535c408892352cb9589a28d3775.ctex"]
+source_file="res://assets/art/icons/icon_champion.png"
+dest_files=["res://.godot/imported/icon_champion.png-5c948783468e6d7d171c50295cef4d3e.ctex"]
 
 [params]
 
