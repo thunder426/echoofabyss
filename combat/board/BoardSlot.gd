@@ -379,7 +379,7 @@ func _status_bar_add_count(text: String, color: Color) -> void:
 # Helpers
 # ---------------------------------------------------------------------------
 
-const _ICON_DIR := "res://assets/art/frames/abyss_order/"
+const _ICON_DIR := "res://assets/art/icons/"
 
 func _load_icon(filename: String) -> Texture2D:
 	var path := _ICON_DIR + filename

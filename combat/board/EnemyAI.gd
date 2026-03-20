@@ -92,6 +92,8 @@ func setup_deck(card_ids: Array[String]) -> void:
 		if card:
 			_deck.append(card)
 	_deck.shuffle()
+	# Draw the same opening hand size as the player (3 cards).
+	_draw_cards(3)
 
 ## Add a card directly to the enemy's hand (used by ON_PLAY effects like Abyssal Arcanist).
 func add_to_hand(card: CardData) -> void:

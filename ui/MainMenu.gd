@@ -45,7 +45,7 @@ func _on_continue_pressed() -> void:
 	elif GameManager.talent_points > 0:
 		GameManager.go_to_scene("res://talents/TalentSelectScene.tscn")
 	else:
-		GameManager.go_to_scene("res://map/MapScene.tscn")
+		GameManager.go_to_scene("res://map/EncounterLoadingScene.tscn")
 
 func _on_collection_pressed() -> void:
 	GameManager.go_to_scene("res://ui/CollectionScene.tscn")

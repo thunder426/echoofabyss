@@ -156,7 +156,7 @@ func _on_card_phase_done() -> void:
 	elif GameManager.is_act_complete():
 		GameManager.go_to_scene("res://relics/RelicRewardScene.tscn")
 	else:
-		GameManager.go_to_scene("res://map/MapScene.tscn")
+		GameManager.go_to_scene("res://map/EncounterLoadingScene.tscn")
 
 # ---------------------------------------------------------------------------
 # Phase 2 — Special reward
@@ -313,4 +313,4 @@ func _finish() -> void:
 	if GameManager.is_act_complete():
 		GameManager.go_to_scene("res://relics/RelicRewardScene.tscn")
 	else:
-		GameManager.go_to_scene("res://map/MapScene.tscn")
+		GameManager.go_to_scene("res://map/EncounterLoadingScene.tscn")

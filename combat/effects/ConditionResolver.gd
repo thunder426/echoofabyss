@@ -62,6 +62,14 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		"has_piercing_void":
 			return ctx.owner == "player" and ctx.scene._has_talent("piercing_void")
 
+		# --- Dead minion conditions (on_player_minion_died_steps context) ---
+		"dead_is_demon":
+			return ctx.dead_minion != null and ctx.dead_minion.card_data.minion_type == Enums.MinionType.DEMON
+		"dead_is_human":
+			return ctx.dead_minion != null and ctx.dead_minion.card_data.minion_type == Enums.MinionType.HUMAN
+		"dead_is_void_imp":
+			return ctx.dead_minion != null and scene._minion_has_tag(ctx.dead_minion, "void_imp")
+
 		# --- Turn timing conditions ---
 		"enemy_turn":
 			return not scene.turn_manager.is_player_turn

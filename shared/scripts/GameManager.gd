@@ -208,61 +208,111 @@ func get_talent_mana_modifier(card: CardData) -> int:
 func get_encounter(index: int) -> EnemyData:
 	match index:
 		# -- Act 1: Imp Lair --
-		0:  # Enemy
+		0:
 			return _make_encounter("Rogue Imp Pack", 1800,
-				["void_imp", "void_imp", "void_imp", "shadow_hound", "shadow_hound"])
-		1:  # Enemy
+				["void_imp", "void_imp", "void_imp", "shadow_hound", "shadow_hound"],
+				"ENCOUNTER I",
+				"The outer tunnels of the Imp Lair crawl with feral Void Imps freshly escaped from their cages. They are wild, disorganised — but their numbers are not to be underestimated.",
+				"res://assets/art/progression/backgrounds/a1_fight1_background.png")
+		1:
 			return _make_encounter("Corrupted Broodlings", 2200,
-				["void_imp", "void_imp", "void_imp", "shadow_hound", "shadow_hound", "void_bolt"])
-		2:  # Boss
+				["void_imp", "void_imp", "void_imp", "shadow_hound", "shadow_hound", "void_bolt"],
+				"ENCOUNTER II",
+				"Deeper in, the air turns thick with void energy. The broodlings here have been touched by something ancient — their eyes glow with a hunger that wasn't there before.",
+				"res://assets/art/progression/backgrounds/a1_fight2_background.png")
+		2:
 			return _make_encounter("Imp Matriarch", 3000,
-				["void_imp", "void_imp", "shadow_hound", "shadow_hound", "abyssal_brute", "void_bolt"])
+				["void_imp", "void_imp", "shadow_hound", "shadow_hound", "abyssal_brute", "void_bolt"],
+				"IMP MATRIARCH",
+				"At the heart of the lair, a monstrous Imp Matriarch holds court. She is the source of the corruption — ancient, cunning, and furious at the intrusion into her domain.",
+				"res://assets/art/progression/backgrounds/a1_fight3_background.png")
 		# -- Act 2: Abyss Dungeon --
-		3:  # Enemy
+		3:
 			return _make_encounter("Abyss Cultist Patrol", 3200,
-				["shadow_hound", "shadow_hound", "abyssal_brute", "abyssal_brute", "void_bolt"])
-		4:  # Enemy
+				["shadow_hound", "shadow_hound", "abyssal_brute", "abyssal_brute", "void_bolt"],
+				"ENCOUNTER I",
+				"The Abyss Dungeon. Cultists who willingly surrendered themselves to the void patrol these stone corridors. They have given up their names, their faces — only devotion remains.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		4:
 			return _make_encounter("Void Ritualist", 3600,
-				["shadow_hound", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"])
-		5:  # Boss
+				["shadow_hound", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				"ENCOUNTER II",
+				"A Void Ritualist performs an unending ceremony in the dungeon's depths. Runes of blood and shadow cover every wall. Whatever he is summoning, it must not be allowed to complete.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		5:
 			return _make_encounter("Corrupted Handler", 4400,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"])
+				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				"CORRUPTED HANDLER",
+				"The Handler was once a warden of this dungeon. Now something else wears his shape. His eyes are empty voids. His commands come in a language that shouldn't exist.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
 		# -- Act 3: Void Rift World --
-		6:  # Enemy
+		6:
 			return _make_encounter("Rift Stalker", 4200,
-				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"])
-		7:  # Enemy
+				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				"ENCOUNTER I",
+				"The Void Rift World — a place where reality has frayed. Rift Stalkers phase between dimensions, attacking from angles that shouldn't exist. Stay focused. Don't let it disorient you.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		7:
 			return _make_encounter("Void Aberration", 4800,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "abyssal_plague", "abyssal_plague"])
-		8:  # Boss
+				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				"ENCOUNTER II",
+				"A Void Aberration — a creature that should not exist in any plane. It was assembled from the broken remnants of things consumed by the rift. It has no purpose except destruction.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		8:
 			return _make_encounter("Void Herald", 6000,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"])
+				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				"VOID HERALD",
+				"The Void Herald speaks with the voice of the Abyss itself. It has crossed countless worlds before this one. It carries a message: the Abyss Sovereign is coming, and nothing will remain.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
 		# -- Act 4: Void Castle --
-		9:  # Enemy
+		9:
 			return _make_encounter("Void Scout", 5000,
-				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"])
-		10:  # Enemy
+				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				"ENCOUNTER I",
+				"The Void Castle looms at the edge of existence. Void Scouts patrol its outer walls — swift, precise, and utterly loyal. The Sovereign's inner sanctum is somewhere beyond.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		10:
 			return _make_encounter("Void Warband", 5500,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"])
-		11:  # Elite
+				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				"ENCOUNTER II",
+				"A full Void Warband stands between you and the castle's keep. These are the Sovereign's chosen soldiers — hardened by centuries of conquest across dying worlds.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		11:
 			return _make_encounter("Void Captain", 6200,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"])
-		12:  # Enemy
+				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				"VOID CAPTAIN",
+				"The Void Captain commands the castle's garrison. A veteran of a hundred conquests, she has never known defeat. She regards you with curiosity — a new species of prey.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		12:
 			return _make_encounter("Void Ritualist Prime", 6000,
-				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"])
-		13:  # Elite
+				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				"ENCOUNTER IV",
+				"The Ritualist Prime is the Sovereign's high priest. He has spent his eternal life weaving void energy into a prison for the soul. He will try to do the same to you.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		13:
 			return _make_encounter("Void Champion", 7000,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"])
-		14:  # Final Boss
+				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				"VOID CHAMPION",
+				"The last guardian before the throne. The Void Champion was forged from pure abyss energy — no flesh, no weakness, no mercy. Beyond him, the Sovereign waits.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+		14:
 			return _make_encounter("Abyss Sovereign", 10000,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"])
+				["abyssal_brute", "abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				"ABYSS SOVEREIGN",
+				"At last. The Abyss Sovereign — the source of all corruption, the end of all things. It has devoured worlds without count. Today, it faces something it has never encountered: defiance.",
+				"res://assets/art/progression/backgrounds/a1_combat_background.png")
 	return null
 
-func _make_encounter(ename: String, ehp: int, pool: Array[String]) -> EnemyData:
+func _make_encounter(ename: String, ehp: int, pool: Array[String],
+		etitle: String = "", estory: String = "", ebg: String = "") -> EnemyData:
 	var e := EnemyData.new()
 	e.enemy_name = ename
 	e.hp = ehp
 	e.deck = pool
+	e.title = etitle
+	e.story = estory
+	if ebg != "":
+		e.background_path = ebg
 	return e
 
 func _build_starter_deck() -> Array[String]:

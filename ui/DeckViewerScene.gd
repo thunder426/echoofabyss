@@ -112,4 +112,4 @@ func _card_color(card: CardData) -> Color:
 	return Color(0.9, 0.9, 0.9, 1)
 
 func _on_back() -> void:
-	GameManager.go_to_scene("res://map/MapScene.tscn")
+	GameManager.go_to_scene("res://map/EncounterLoadingScene.tscn")

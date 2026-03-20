@@ -39,6 +39,12 @@ const _FACTION_FRAME: Dictionary = {
 		Enums.CardType.TRAP:        "abyss_trap",
 		Enums.CardType.ENVIRONMENT: "abyss_env",
 	},
+	"neutral": {
+		Enums.CardType.MINION:      "neutral_essence_minion",
+		Enums.CardType.SPELL:       "neutral_spell",
+		Enums.CardType.TRAP:        "neutral_trap",
+		Enums.CardType.ENVIRONMENT: "neutral_env",
+	},
 }
 
 ## Per-frame style config. Each entry is fully self-contained.
@@ -229,6 +235,117 @@ const _FRAME_CONFIG: Dictionary = {
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 22], [14, 20], [18, 18], [999, 16]] },
 	},
+	# ── Neutral essence-only minion ─────────────────────────────────────────
+	"neutral_essence_minion": {
+		"path":         "res://assets/art/frames/neutral/neutral_essence_minion.png",
+		"minion_frame": true,
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6, "h_scale":    0.6,
+			"title_font": 15,  "body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":     [0.08, 0.14, 0.92, 0.78],
+			"name":    [0.15, 0.10, 0.93, 0.15],
+			"race":    [0.05, 0.67, 0.95, 0.72],
+			"desc":    [0.16, 0.73, 0.85, 0.85],
+			"essence": [0.01, 0.07, 0.28, 0.19],
+			"atk":     [0.07, 0.88, 0.42, 0.93],
+			"hp":      [0.58, 0.88, 0.93, 0.93],
+		},
+		"fonts": {
+			"desc_normal": 14, "desc_bold": 15,
+			"shield": 11, "race": 15,
+			"essence": 28, "atk": 20, "hp": 20,
+			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
+		},
+	},
+	# ── Neutral dual-cost minion (essence + mana) — shield at bottom-centre ─
+	"neutral_essence_mana_minion": {
+		"path":         "res://assets/art/frames/neutral/neutral_essence_mana_minion.png",
+		"minion_frame": true,
+		"has_frame_shield": true,
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6, "h_scale":    0.6,
+			"title_font": 15,  "body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":     [0.08, 0.14, 0.92, 0.78],
+			"name":    [0.15, 0.10, 0.93, 0.15],
+			"race":    [0.05, 0.67, 0.95, 0.72],
+			"desc":    [0.16, 0.73, 0.85, 0.85],
+			"essence": [0.01, 0.07, 0.28, 0.19],
+			"mana":    [0.72, 0.07, 0.99, 0.19],
+			"atk":     [0.07, 0.88, 0.35, 0.93],
+			"shield":  [0.35, 0.88, 0.65, 0.93],
+			"hp":      [0.65, 0.88, 0.93, 0.93],
+		},
+		"fonts": {
+			"desc_normal": 14, "desc_bold": 15,
+			"shield": 18, "race": 15,
+			"essence": 28, "mana": 28, "atk": 20, "hp": 20,
+			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
+		},
+	},
+	# ── Neutral spell ────────────────────────────────────────────────────────
+	"neutral_spell": {
+		"path":    "res://assets/art/frames/neutral/neutral_spell.png",
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6, "h_scale":    0.6,
+			"title_font": 15,  "body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":  [0.05, 0.14, 0.95, 0.70],
+			"name": [0.15, 0.10, 0.93, 0.16],
+			"desc": [0.16, 0.73, 0.85, 0.85],
+			"mana": [0.08, 0.04, 0.20, 0.20],
+		},
+		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
+	},
+	# ── Neutral trap ─────────────────────────────────────────────────────────
+	"neutral_trap": {
+		"path":    "res://assets/art/frames/neutral/neutral_trap.png",
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6, "h_scale":    0.6,
+			"title_font": 15,  "body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":  [0.05, 0.14, 0.95, 0.78],
+			"name": [0.15, 0.10, 0.93, 0.16],
+			"desc": [0.16, 0.72, 0.85, 0.90],
+			"mana": [0.06, 0.03, 0.20, 0.20],
+		},
+		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
+	},
+	# ── Neutral environment ──────────────────────────────────────────────────
+	"neutral_env": {
+		"path":    "res://assets/art/frames/neutral/neutral_environment.png",
+		"tooltip": {
+			"anchor":     Vector2(0.85, 0.25),
+			"w_scale":    0.6, "h_scale":    0.6,
+			"title_font": 15,  "body_font":  11,
+			"title_rect": [0.15, 0.18, 0.85, 0.30],
+			"body_rect":  [0.15, 0.30, 0.85, 0.96],
+		},
+		"layout": {
+			"art":  [0.08, 0.14, 0.92, 0.72],
+			"name": [0.20, 0.095, 0.97, 0.16],
+			"desc": [0.16, 0.71, 0.88, 0.90],
+			"mana": [0.06, 0.01, 0.25, 0.16],
+		},
+		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 22], [14, 20], [18, 18], [999, 16]] },
+	},
 	# ── Default — no frame PNG, uses drawn badge + Background panel ─────────
 	"default": {
 		"path":    "",
@@ -288,10 +405,11 @@ var hp_label:      Label
 var shield_label:  Label
 var race_label:    Label
 # Frame-embedded stat overlays — visible only for faction minion frames
-var frame_cost_label: Label
-var frame_mana_label: Label
-var frame_atk_label:  Label
-var frame_hp_label:   Label
+var frame_cost_label:   Label
+var frame_mana_label:   Label
+var frame_atk_label:    Label
+var frame_hp_label:     Label
+var frame_shield_label: Label
 
 ## Active frame style key — resolved from _FACTION_FRAME during setup().
 var _frame_style: String = "default"
@@ -362,6 +480,7 @@ func _find_nodes() -> void:
 	frame_mana_label  = $FrameManaLabel           if has_node("FrameManaLabel")           else null
 	frame_atk_label   = $FrameAtkLabel            if has_node("FrameAtkLabel")            else null
 	frame_hp_label    = $FrameHpLabel             if has_node("FrameHpLabel")             else null
+	frame_shield_label = $FrameShieldLabel        if has_node("FrameShieldLabel")         else null
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -379,18 +498,22 @@ func setup(data: CardData) -> void:
 		frame_cost_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
 	if frame_mana_label: frame_mana_label.visible = false
 	if frame_atk_label:  frame_atk_label.visible  = false
-	if frame_hp_label:   frame_hp_label.visible   = false
+	if frame_hp_label:    frame_hp_label.visible    = false
+	if frame_shield_label: frame_shield_label.visible = false
 	if cost_badge:       cost_badge.visible        = true
 	if mana_badge:       mana_badge.visible        = false
 
 	var faction: String = data.faction if data.faction != "" else "neutral"
 	var style_key: String = _FACTION_FRAME.get(faction, {}).get(data.card_type, "default")
-	# Dual-cost minions use a dedicated frame; hand size gets its own small variant
 	var is_dual := data is MinionCardData and (data as MinionCardData).mana_cost > 0
+	# Abyss Order: swap to dual/small variants
 	if style_key == "abyss_minion" and is_dual:
 		style_key = "abyss_dual_minion"
 	elif size_mode == "hand" and style_key == "abyss_minion":
 		style_key = "abyss_minion_small"
+	# Neutral: swap to dual-cost frame when minion has both costs
+	elif style_key == "neutral_essence_minion" and is_dual:
+		style_key = "neutral_essence_mana_minion"
 	_apply_frame_config(style_key, data.card_type)
 
 	var is_minion := data.card_type == Enums.CardType.MINION
@@ -439,6 +562,13 @@ func setup(data: CardData) -> void:
 					frame_mana_label.text    = str(md.mana_cost)
 				else:
 					frame_mana_label.visible = false
+			var _has_frame_shield: bool = _FRAME_CONFIG.get(_frame_style, {}).get("has_frame_shield", false)
+			if frame_shield_label:
+				if _has_frame_shield and md.shield_max > 0:
+					frame_shield_label.visible = true
+					frame_shield_label.text    = str(md.shield_max)
+				else:
+					frame_shield_label.visible = false
 		else:
 			# Fallback: drawn badge + StatsRow
 			if stats_row: stats_row.visible = true
@@ -520,8 +650,9 @@ func _apply_frame_config(style_key: String, card_type: Enums.CardType) -> void:
 	# is positioned over the frame's cost art area.
 	_set_anchors(frame_cost_label, lay.get("essence", lay.get("mana")))
 	_set_anchors(frame_mana_label, lay.get("mana"))
-	_set_anchors(frame_atk_label,  lay.get("atk"))
-	_set_anchors(frame_hp_label,   lay.get("hp"))
+	_set_anchors(frame_atk_label,    lay.get("atk"))
+	_set_anchors(frame_hp_label,     lay.get("hp"))
+	_set_anchors(frame_shield_label, lay.get("shield"))
 	# cost_badge: use "essence" slot if available (default/minion fallback), else "mana" (spell/trap/env)
 	_set_anchors(cost_badge,       lay.get("essence", lay.get("mana")))
 	_set_anchors(mana_badge,       lay.get("mana"))
@@ -736,8 +867,9 @@ func _apply_font_scale() -> void:
 	# frame_cost_label: spells have no "essence" key — fall back to "mana"
 	if frame_cost_label: frame_cost_label.add_theme_font_size_override("font_size", roundi(f.get("essence", f.get("mana", 25)) * s))
 	if frame_mana_label: frame_mana_label.add_theme_font_size_override("font_size", roundi(f.get("mana",    15) * s))
-	if frame_atk_label:  frame_atk_label.add_theme_font_size_override( "font_size", roundi(f.get("atk",     20) * s))
-	if frame_hp_label:   frame_hp_label.add_theme_font_size_override(  "font_size", roundi(f.get("hp",      20) * s))
+	if frame_atk_label:    frame_atk_label.add_theme_font_size_override(   "font_size", roundi(f.get("atk",    20) * s))
+	if frame_hp_label:     frame_hp_label.add_theme_font_size_override(    "font_size", roundi(f.get("hp",     20) * s))
+	if frame_shield_label: frame_shield_label.add_theme_font_size_override("font_size", roundi(f.get("shield", 18) * s))
 
 ## Builds BBCode for the desc box: keywords on line 1 (centered, gold, bold),
 ## then description below (normal). If no keywords, just plain description.
@@ -835,14 +967,14 @@ const _RUNE_TOOLTIP_NAME: Dictionary = {
 
 ## keyword enum value → icon path shown before the keyword name in the tooltip
 const _KEYWORD_ICON: Dictionary = {
-	Enums.Keyword.GUARD:          "res://assets/art/frames/abyss_order/abyss_guard.png",
-	Enums.Keyword.SWIFT:          "res://assets/art/frames/abyss_order/abyss_swift.png",
-	Enums.Keyword.LIFEDRAIN:      "res://assets/art/frames/abyss_order/abyss_lifesteal.png",
-	Enums.Keyword.SHIELD_REGEN_1: "res://assets/art/frames/abyss_order/abyss_rune.png",
-	Enums.Keyword.SHIELD_REGEN_2: "res://assets/art/frames/abyss_order/abyss_rune.png",
-	Enums.Keyword.CHAMPION:       "res://assets/art/frames/abyss_order/abyss_corruption.png",
-	Enums.Keyword.RUNE:           "res://assets/art/frames/abyss_order/abyss_rune.png",
-	Enums.Keyword.CORRUPTION:     "res://assets/art/frames/abyss_order/abyss_corruption.png",
+	Enums.Keyword.GUARD:          "res://assets/art/icons/icon_guard.png",
+	Enums.Keyword.SWIFT:          "res://assets/art/icons/icon_swift.png",
+	Enums.Keyword.LIFEDRAIN:      "res://assets/art/icons/icon_lifesteal.png",
+	Enums.Keyword.SHIELD_REGEN_1: "res://assets/art/icons/icon_rune.png",
+	Enums.Keyword.SHIELD_REGEN_2: "res://assets/art/icons/icon_rune.png",
+	Enums.Keyword.CHAMPION:       "res://assets/art/icons/icon_corruption.png",
+	Enums.Keyword.RUNE:           "res://assets/art/icons/icon_rune.png",
+	Enums.Keyword.CORRUPTION:     "res://assets/art/icons/icon_corruption.png",
 }
 
 ## Build and show the tooltip panel to the right of this card.

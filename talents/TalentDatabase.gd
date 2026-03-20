@@ -152,7 +152,11 @@ func _register_lord_vael_talents() -> void:
 		Enums.RuneType.DOMINION_RUNE,
 		Enums.RuneType.SHADOW_RUNE,
 	]
-	grand_r.effect_id = "abyssal_dominion"
+	grand_r.effect_steps = [
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY",      "amount": 300},
+		{"type": "BUFF_ATK",      "scope": "ALL_FRIENDLY", "filter": "DEMON", "amount": 200, "permanent": true, "source_tag": "abyssal_dominion"},
+		{"type": "BUFF_HP",       "scope": "ALL_FRIENDLY", "filter": "DEMON", "amount": 200},
+	]
 	abyss_convergence.grand_ritual = grand_r
 	_register(abyss_convergence)
 

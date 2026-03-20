@@ -176,4 +176,4 @@ func _on_done_pressed() -> void:
 	if not GameManager.deck_built:
 		GameManager.go_to_scene("res://ui/DeckBuilderScene.tscn")
 	else:
-		GameManager.go_to_scene("res://map/MapScene.tscn")
+		GameManager.go_to_scene("res://map/EncounterLoadingScene.tscn")

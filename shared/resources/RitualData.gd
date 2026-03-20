@@ -21,5 +21,5 @@ extends Resource
 ## 2-Rune rituals: exactly 2 entries.  Grand rituals: exactly 3 entries.
 @export var required_runes: Array[int] = []
 
-## Effect identifier resolved by CombatScene._resolve_ritual_effect().
-@export var effect_id: String = ""
+## Declarative effect steps run by EffectResolver when this ritual fires.
+@export var effect_steps: Array = []

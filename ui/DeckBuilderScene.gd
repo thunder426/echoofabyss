@@ -559,4 +559,4 @@ func _on_back() -> void:
 func _on_start_run() -> void:
 	GameManager.player_deck = _built_deck.duplicate()
 	GameManager.deck_built = true
-	GameManager.go_to_scene("res://map/MapScene.tscn")
+	GameManager.go_to_scene("res://map/EncounterLoadingScene.tscn")

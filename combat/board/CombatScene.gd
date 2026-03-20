@@ -122,8 +122,11 @@ var _combat_ended: bool = false
 ## Pending spell cost penalty to apply to the enemy on their next turn (from Spell Taxer).
 var _spell_tax_for_enemy_turn: int = 0
 
-## Set to true by Null Seal trap to skip the enemy spell's effect resolution.
+## Set to true by Silence Trap to skip the enemy spell's effect resolution.
 var _spell_cancelled: bool = false
+
+## Prevents Soul Rune from firing more than once per enemy turn.
+var _soul_rune_fired: bool = false
 
 ## Void Imps summoned by Imp Overload that must die at end of the player's turn.
 var _temp_imps: Array[MinionInstance] = []
@@ -138,6 +141,7 @@ var _imp_evolution_used_this_turn: bool = false
 func _ready() -> void:
 	trigger_manager = TriggerManager.new()
 	_find_nodes()
+	_load_combat_background()
 	_connect_turn_manager()
 	_connect_board_slots()
 	_connect_combat_manager()
@@ -174,6 +178,28 @@ func _ready() -> void:
 	_setup_cheat_panel()
 	if TestConfig.enabled:
 		_apply_test_config.call_deferred()
+
+func _load_combat_background() -> void:
+	const ACT_BACKGROUNDS := [
+		"res://assets/art/progression/backgrounds/a1_combat_background.png",
+		"res://assets/art/progression/backgrounds/a1_combat_background.png",
+		"res://assets/art/progression/backgrounds/a1_combat_background.png",
+		"res://assets/art/progression/backgrounds/a1_combat_background.png",
+	]
+	var act: int = clamp(GameManager.get_current_act() - 1, 0, ACT_BACKGROUNDS.size() - 1)
+	var path: String = ACT_BACKGROUNDS[act]
+	if not ResourceLoader.exists(path):
+		return
+	var bg_node := $UI/Background
+	var tex_rect := TextureRect.new()
+	tex_rect.name = "Background"
+	tex_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tex_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	tex_rect.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	tex_rect.texture = load(path)
+	bg_node.get_parent().add_child(tex_rect)
+	bg_node.get_parent().move_child(tex_rect, bg_node.get_index())
+	bg_node.queue_free()
 
 func _find_nodes() -> void:
 	turn_manager            = $TurnManager
@@ -555,8 +581,14 @@ func _try_play_environment(env: EnvironmentCardData) -> void:
 		var env_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, "player")
 		env_ctx.card = env
 		trigger_manager.fire(env_ctx)
+	# Run on-enter burst steps if defined
+	if not env.on_enter_effect_steps.is_empty():
+		var enter_ctx := EffectContext.make(self, "player")
+		EffectResolver.run(env.on_enter_effect_steps, enter_ctx)
 	# Apply passive immediately on the turn it is played
-	_apply_environment_passive(env.passive_effect_id)
+	if not env.passive_effect_steps.is_empty():
+		var pass_ctx := EffectContext.make(self, "player")
+		EffectResolver.run(env.passive_effect_steps, pass_ctx)
 	_update_environment_display()
 	turn_manager.remove_from_hand(env)
 	if hand_display:
@@ -732,43 +764,6 @@ func _resolve_on_death_effect(minion: MinionInstance) -> void:
 		_:
 			pass
 
-## Apply the active environment's passive effect at the start of the player's turn.
-func _apply_environment_passive(effect_id: String) -> void:
-	match effect_id:
-		"dark_covenant_passive":
-			# ATK aura: Demons +100 ATK while any Human is on board.
-			# Clear previous entries first to prevent stacking across turns.
-			for m in player_board:
-				BuffSystem.remove_source(m, "dark_covenant")
-			var has_human := player_board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.HUMAN)
-			var has_demon := player_board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.DEMON)
-			if has_human:
-				for m in player_board:
-					if m.card_data.minion_type == Enums.MinionType.DEMON:
-						BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
-						_refresh_slot_for(m)
-			# HP restore: Humans heal 100 HP per turn while any Demon is on board.
-			if has_demon:
-				for m in player_board:
-					if m.card_data.minion_type == Enums.MinionType.HUMAN:
-						m.current_health = mini(m.current_health + 100, m.card_data.health)
-						_refresh_slot_for(m)
-		"void_bolt_rain_passive":
-			# Enemy hero: Void Bolt damage (scales with Void Marks). Player hero: flat 100 damage.
-			_log("  Void Bolt Rain: enemy hero takes 100 Void Bolt damage, you take 100 damage.", _LogType.PLAYER)
-			_deal_void_bolt_damage(100)
-			_on_hero_damaged("player", 100)
-		"abyssal_summoning_circle_passive":
-			# Passive fires on player minion death (event-driven), not turn start — handled separately.
-			pass
-		"abyss_ritual_circle_passive":
-			# Deal 100 damage to a random minion (friendly or enemy) on the battlefield.
-			var all_minions: Array[MinionInstance] = []
-			all_minions.assign(player_board + enemy_board)
-			if not all_minions.is_empty():
-				var hit := all_minions[randi() % all_minions.size()]
-				_log("  Abyss Ritual Circle: 100 damage to %s." % hit.card_data.card_name, _LogType.PLAYER)
-				combat_manager.apply_spell_damage(hit, 100)
 
 # ---------------------------------------------------------------------------
 # Relic effects
@@ -1111,6 +1106,82 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 		"saboteur_adept_effect":
 			if ctx.owner == "player":
 				_log("  Saboteur Adept: enemy traps blocked this turn (not yet active).", _LogType.PLAYER)
+		# --- Environment passives ---
+		"dark_covenant_passive":
+			# Re-apply ATK aura to Demons (clear first to prevent stacking), heal Humans if Demon present.
+			for m in player_board:
+				BuffSystem.remove_source(m, "dark_covenant")
+			var has_human := player_board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.HUMAN)
+			var has_demon := player_board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.DEMON)
+			if has_human:
+				for m in player_board:
+					if m.card_data.minion_type == Enums.MinionType.DEMON:
+						BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
+						_refresh_slot_for(m)
+			if has_demon:
+				for m in player_board:
+					if m.card_data.minion_type == Enums.MinionType.HUMAN:
+						m.current_health = mini(m.current_health + 100, m.card_data.health)
+						_refresh_slot_for(m)
+		"dark_covenant_remove":
+			for m in player_board:
+				BuffSystem.remove_source(m, "dark_covenant")
+				_refresh_slot_for(m)
+		"abyss_ritual_circle_passive":
+			var all_minions: Array[MinionInstance] = []
+			all_minions.assign(player_board + enemy_board)
+			if not all_minions.is_empty():
+				var hit := all_minions[randi() % all_minions.size()]
+				_log("  Abyss Ritual Circle: 100 damage to %s." % hit.card_data.card_name, _LogType.PLAYER)
+				combat_manager.apply_spell_damage(hit, 100)
+		# --- Ritual effects ---
+		"demon_ascendant":
+			_log("  Demon Ascendant: deal 200 damage to 2 random enemy minions.", _LogType.PLAYER)
+			for _i in 2:
+				var target_m := _find_random_enemy_minion()
+				if target_m:
+					combat_manager.apply_spell_damage(target_m, 200)
+			_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", _LogType.PLAYER)
+			for slot in player_slots:
+				if slot.is_empty():
+					var demon_data := CardDatabase.get_card("void_demon") as MinionCardData
+					if demon_data:
+						var instance := MinionInstance.create(demon_data, "player")
+						instance.current_atk    = 500
+						instance.current_health = 500
+						player_board.append(instance)
+						slot.place_minion(instance)
+						# Special Summon: do NOT fire ON_PLAYER_MINION_SUMMONED (no on-play effects)
+					break
+		# --- Trap effects ---
+		"smoke_veil":
+			enemy_ai.attack_cancelled = true
+			for m in enemy_board:
+				m.state = Enums.MinionState.EXHAUSTED
+				_refresh_slot_for(m)
+			_log("  Smoke Veil: attack cancelled! All enemies exhausted.", _LogType.TRAP)
+		"silence_trap":
+			_spell_cancelled = true
+			_log("  Silence Trap: enemy spell cancelled!", _LogType.TRAP)
+		# --- Dominion Rune ---
+		"dominion_rune_place":
+			_refresh_dominion_aura(true, 100 * _rune_aura_multiplier())
+		"dominion_rune_remove":
+			_refresh_dominion_aura(false)
+		# --- Soul Rune ---
+		"soul_rune_death":
+			if _soul_rune_fired:
+				return
+			if turn_manager.is_player_turn:
+				return
+			if ctx.trigger_minion == null or ctx.trigger_minion.card_data.minion_type != Enums.MinionType.DEMON:
+				return
+			_soul_rune_fired = true
+			var mult := _rune_aura_multiplier()
+			_summon_soul_rune_spirit(100 * mult, 100 * mult)
+			_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [100 * mult, 100 * mult], _LogType.TRAP)
+		"soul_rune_reset":
+			_soul_rune_fired = false
 		_:
 			_resolve_spell_effect(id, ctx.chosen_target, ctx.owner)
 
@@ -1594,91 +1665,12 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 			continue
 		var slot_idx := active_traps.find(trap)
 		_show_trap_triggered_vfx(trap, slot_idx)
-		_resolve_trap_effect(trap.effect_id, triggering_minion)
+		var ctx := EffectContext.make(self, "player")
+		ctx.trigger_minion = triggering_minion
+		EffectResolver.run(trap.effect_steps, ctx)
 		if not trap.reusable:
 			active_traps.erase(trap)
 			_update_trap_display()
-
-## Resolve the effect of a triggered trap.
-## triggering_minion is populated for ON_ENEMY_SUMMON traps (the newly summoned minion).
-func _resolve_trap_effect(effect_id: String, triggering_minion: MinionInstance = null) -> void:
-	match effect_id:
-		"void_snare_effect":
-			_on_hero_damaged("enemy", 300)
-		"soul_cage_effect":
-			_on_hero_damaged("enemy", 200)
-		"phantom_recoil_effect":
-			_on_hero_healed("player", 400)
-		"abyss_retaliation_effect":
-			_on_hero_damaged("enemy", 400)
-		"death_bolt_trap_effect":
-			_deal_void_bolt_damage(200)
-		"corruption_surge_effect":
-			# Corrupt the summoned minion and deal 300 damage to it.
-			if triggering_minion and triggering_minion in enemy_board:
-				_corrupt_minion(triggering_minion)
-				combat_manager.apply_spell_damage(triggering_minion, 300)
-		"abyssal_claim_effect":
-			# Summon a Void Spark and deal 200 damage to the enemy hero.
-			_summon_void_spark()
-			_on_hero_damaged("enemy", 200)
-		"void_collapse_effect":
-			# Deal 200 damage to all enemy minions.
-			for m in enemy_board.duplicate():
-				combat_manager.apply_spell_damage(m, 200)
-		# --- Neutral Traps ---
-		"hidden_ambush_effect":
-			# Deal 200 damage to the attacking minion (triggering_minion).
-			if triggering_minion and triggering_minion in enemy_board:
-				combat_manager.apply_spell_damage(triggering_minion, 200)
-		"arcane_rebound_effect":
-			_on_hero_damaged("enemy", 300)
-		"null_seal_effect":
-			# Cancel the enemy spell — flag checked in _on_enemy_spell_cast.
-			_spell_cancelled = true
-			_log("  Null Seal: enemy spell cancelled!", _LogType.TRAP)
-		"gate_collapse_effect":
-			# Destroy the summoned minion (triggering_minion).
-			if triggering_minion and triggering_minion in enemy_board:
-				_log("  Gate Collapse: %s destroyed!" % triggering_minion.card_data.card_name, _LogType.TRAP)
-				combat_manager.kill_minion(triggering_minion)
-		"trap_disruption_effect":
-			# Enemy traps not implemented — no-op stub.
-			_log("  Trap Disruption: no enemy trap to disrupt.", _LogType.TRAP)
-		"smoke_veil_effect":
-			# Cancel the current attack and exhaust ALL enemy minions.
-			enemy_ai.attack_cancelled = true
-			for m in enemy_board:
-				m.state = Enums.MinionState.EXHAUSTED
-				_refresh_slot_for(m)
-			_log("  Smoke Veil: attack cancelled! All enemies exhausted.", _LogType.TRAP)
-		"hidden_cache_effect":
-			# Draw 2 cards when enemy summons a minion.
-			turn_manager.draw_card()
-			turn_manager.draw_card()
-		"trap_emergency_reinforcements_effect":
-			# Summon two 100/200 Wandering Spirits when hero takes damage.
-			_summon_wandering_spirit()
-			_summon_wandering_spirit()
-		"shock_mine_effect":
-			# Deal 200 damage to all enemy minions.
-			for m in enemy_board.duplicate():
-				combat_manager.apply_spell_damage(m, 200)
-		# --- Void Bolt Support Pool traps ---
-		"soul_rupture_effect":
-			# Only fires if the minion that died was a Void Imp.
-			if triggering_minion and _minion_has_tag(triggering_minion, "void_imp"):
-				_log("  Soul Rupture: Void Imp died → 250 Void Bolt damage!", _LogType.TRAP)
-				_deal_void_bolt_damage(250)
-		"mark_collapse_effect":
-			# Fires at start of enemy turn if ≥5 Void Marks. Consume all marks; 150 Void Bolt per mark.
-			if enemy_void_marks >= 5:
-				var marks := enemy_void_marks
-				var total_base := marks * 150
-				_log("  Mark Collapse: %d marks consumed → %d Void Bolt damage!" % [marks, total_base], _LogType.TRAP)
-				enemy_void_marks = 0
-				_update_enemy_status_panel()
-				_deal_void_bolt_damage(total_base)
 
 ## Flash the trap slot and show a floating triggered label.
 func _show_trap_triggered_vfx(trap: TrapCardData, slot_idx: int) -> void:
@@ -1775,77 +1767,43 @@ func _unregister_env_rituals() -> void:
 		trigger_manager.unregister(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h)
 	_env_ritual_handlers.clear()
 
-## Remove any persistent stat buffs left on the board by the given environment.
+## Run teardown steps for the outgoing environment (e.g. remove persistent buffs).
 ## Called when the environment is replaced mid-turn so buffs don't linger.
 func _unregister_env_aura(env: EnvironmentCardData) -> void:
-	match env.passive_effect_id:
-		"dark_covenant_passive":
-			for m in player_board:
-				BuffSystem.remove_source(m, "dark_covenant")
-				_refresh_slot_for(m)
+	if not env.on_replace_effect_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(env.on_replace_effect_steps, ctx)
 
 ## Register persistent aura event handlers for a newly placed rune.
-## Each rune type subscribes to its specific event(s) in TriggerManager.
-## Dominion Rune is a calculated ATK modifier applied/removed directly via _refresh_dominion_aura().
-## Register persistent aura event handlers for a newly placed rune.
-## _rune_aura_handlers stores Array[{event, handler}] so _remove_rune_aura
-## needs no match block — it just unregisters from the stored event.
+## _rune_aura_handlers stores Array[{event, handler}] per rune so _remove_rune_aura
+## can unregister them without a match block.
+## Each rune declares its trigger(s) and effect_steps in CardDatabase — no match needed here.
 func _apply_rune_aura(rune: TrapCardData) -> void:
 	var entries: Array = []
-	var mult := _rune_aura_multiplier()
-	match rune.aura_effect_id:
-		"void_rune_aura":
-			var dmg := 100 * mult
-			var h := func(_ctx: EventContext):
-				_log("  Void Rune: deal %d Void Bolt damage to enemy hero." % dmg, _LogType.PLAYER)
-				_deal_void_bolt_damage(dmg)
-			trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, h, 20)
-			entries.append({event = Enums.TriggerEvent.ON_PLAYER_TURN_START, handler = h})
-		"blood_rune_aura":
-			var heal := 100 * mult
-			var h := func(_ctx: EventContext):
-				_log("  Blood Rune: friendly minion died — restore %d HP." % heal, _LogType.PLAYER)
-				_on_hero_healed("player", heal)
-			trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, h, 20)
-			entries.append({event = Enums.TriggerEvent.ON_PLAYER_MINION_DIED, handler = h})
-		"dominion_rune_aura":
-			var bonus := 100 * mult
-			_refresh_dominion_aura(true, bonus)
-			var h := func(ctx: EventContext):
-				if ctx.minion != null and ctx.minion.card_data.minion_type == Enums.MinionType.DEMON:
-					BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, bonus, "dominion_rune")
-					_refresh_slot_for(ctx.minion)
-			trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h, 20)
-			entries.append({event = Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, handler = h})
-		"shadow_rune_aura":
-			var stacks := mult
-			var h := func(ctx: EventContext):
-				if ctx.minion != null:
-					for _i in stacks:
-						_corrupt_minion(ctx.minion)
-					_log("  Shadow Rune: %s enters with %d Corruption." % [ctx.minion.card_data.card_name, stacks], _LogType.PLAYER)
-			trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, h, 20)
-			entries.append({event = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, handler = h})
-		"soul_rune_aura":
-			var spirit_atk := 100 * mult
-			var spirit_hp  := 100 * mult
-			var fired := [false]
-			var death_h := func(ctx: EventContext):
-				if fired[0]:
-					return
-				if turn_manager.is_player_turn:
-					return
-				if ctx.minion == null or ctx.minion.card_data.minion_type != Enums.MinionType.DEMON:
-					return
-				fired[0] = true
-				_summon_soul_rune_spirit(spirit_atk, spirit_hp)
-				_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [spirit_atk, spirit_hp], _LogType.PLAYER)
-			var reset_h := func(_ctx: EventContext):
-				fired[0] = false
-			trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, death_h, 20)
-			trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, reset_h, 20)
-			entries.append({event = Enums.TriggerEvent.ON_PLAYER_MINION_DIED, handler = death_h})
-			entries.append({event = Enums.TriggerEvent.ON_ENEMY_TURN_START, handler = reset_h})
+
+	# Primary handler
+	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
+		var h := func(event_ctx: EventContext):
+			var ctx := EffectContext.make(self, "player")
+			ctx.trigger_minion = event_ctx.minion
+			EffectResolver.run(rune.aura_effect_steps, ctx)
+		trigger_manager.register(rune.aura_trigger, h, 20)
+		entries.append({event = rune.aura_trigger, handler = h})
+
+	# Secondary handler (e.g. Soul Rune per-turn reset)
+	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
+		var h2 := func(event_ctx: EventContext):
+			var ctx := EffectContext.make(self, "player")
+			ctx.trigger_minion = event_ctx.minion
+			EffectResolver.run(rune.aura_secondary_steps, ctx)
+		trigger_manager.register(rune.aura_secondary_trigger, h2, 20)
+		entries.append({event = rune.aura_secondary_trigger, handler = h2})
+
+	# On-place steps run immediately at placement (e.g. Dominion Rune existing-minion sweep)
+	if not rune.aura_on_place_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(rune.aura_on_place_steps, ctx)
+
 	if not entries.is_empty():
 		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
 
@@ -1859,8 +1817,9 @@ func _remove_rune_aura(rune: TrapCardData) -> void:
 				trigger_manager.unregister(entry.event, entry.handler)
 			_rune_aura_handlers.remove_at(i)
 			break
-	if rune.aura_effect_id == "dominion_rune_aura":
-		_refresh_dominion_aura(false)
+	if not rune.aura_on_remove_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(rune.aura_on_remove_steps, ctx)
 
 ## Apply or remove the Dominion Rune's ATK aura on all friendly Demons.
 ## active=true adds the bonus per-minion; active=false removes all "dominion_rune" entries.
@@ -1931,64 +1890,14 @@ func _fire_ritual(ritual: RitualData) -> void:
 				break
 	_update_trap_display()
 	_log("★ RITUAL — %s!" % ritual.ritual_name, _LogType.PLAYER)
-	_resolve_ritual_effect(ritual.effect_id)
+	var ritual_ctx := EffectContext.make(self, "player")
+	EffectResolver.run(ritual.effect_steps, ritual_ctx)
 	# Talent: ritual_surge — summon 2 Void Imps after any ritual fires
 	if _has_talent("ritual_surge"):
 		_summon_void_imp()
 		_summon_void_imp()
 		_log("  Ritual Surge: 2 Void Imps summoned!", _LogType.PLAYER)
 
-## Resolve the gameplay effect of a triggered ritual.
-## Add a new match arm here when a new ritual effect_id is designed.
-func _resolve_ritual_effect(effect_id: String) -> void:
-	match effect_id:
-		"demon_cataclysm":
-			_log("  Demon Cataclysm: deal 300 damage to all enemies.", _LogType.PLAYER)
-			for enemy in enemy_board.duplicate():
-				combat_manager.apply_spell_damage(enemy, 300)
-		"forbidden_insight":
-			_log("  Forbidden Insight: draw 2 cards, gain 1 Mana.", _LogType.PLAYER)
-			turn_manager.draw_card()
-			turn_manager.draw_card()
-			turn_manager.gain_mana(1)
-		"demon_ascendant":
-			# Deal 200 damage to 2 random enemy minions, then Special Summon a 500/500 Void Demon.
-			_log("  Demon Ascendant: deal 200 damage to 2 random enemy minions.", _LogType.PLAYER)
-			for _i in 2:
-				var target_m := _find_random_enemy_minion()
-				if target_m:
-					combat_manager.apply_spell_damage(target_m, 200)
-			_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", _LogType.PLAYER)
-			for slot in player_slots:
-				if slot.is_empty():
-					var demon_data := CardDatabase.get_card("void_demon") as MinionCardData
-					if demon_data:
-						var instance := MinionInstance.create(demon_data, "player")
-						instance.current_atk    = 500
-						instance.current_health = 500
-						player_board.append(instance)
-						slot.place_minion(instance)
-						# Special Summon: do NOT fire ON_PLAYER_MINION_SUMMONED (no on-play effects)
-					break
-		"soul_cataclysm":
-			# Deal 400 Void Bolt damage to enemy hero, restore 400 HP to player hero.
-			_log("  Soul Cataclysm: 400 Void Bolt damage to enemy hero!", _LogType.PLAYER)
-			_deal_void_bolt_damage(400)
-			_log("  Soul Cataclysm: restore 400 HP to your hero.", _LogType.PLAYER)
-			_on_hero_healed("player", 400)
-		"abyssal_dominion":
-			# Grand Ritual: 300 damage to all enemy minions + all friendly Demons +200/+200 permanently.
-			_log("  Abyssal Dominion: 300 damage to all enemy minions!", _LogType.PLAYER)
-			for enemy in enemy_board.duplicate():
-				combat_manager.apply_spell_damage(enemy, 300)
-			_log("  Abyssal Dominion: all friendly Demons gain +200 ATK and +200 HP permanently.", _LogType.PLAYER)
-			for m in player_board:
-				if m.card_data.minion_type == Enums.MinionType.DEMON:
-					BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 200, "abyssal_dominion")
-					m.current_health += 200
-					_refresh_slot_for(m)
-		_:
-			_log("  Ritual effect '%s' not yet implemented." % effect_id, _LogType.PLAYER)
 
 func _update_enemy_trap_display() -> void:
 	for i in enemy_trap_slot_panels.size():
@@ -2673,8 +2582,9 @@ func _handler_player_turn_relics(_ctx: EventContext) -> void:
 		_log("  Void Surge: all friendly minions +100 ATK this turn.", _LogType.PLAYER)
 
 func _handler_player_turn_environment(_ctx: EventContext) -> void:
-	if active_environment != null:
-		_apply_environment_passive(active_environment.passive_effect_id)
+	if active_environment != null and not active_environment.passive_effect_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(active_environment.passive_effect_steps, ctx)
 
 func _handler_nyx_ael_passive(_ctx: EventContext) -> void:
 	for m in player_board:
@@ -2693,8 +2603,9 @@ func _handler_nyx_ael_passive(_ctx: EventContext) -> void:
 # ---------------------------------------------------------------------------
 
 func _handler_enemy_turn_environment(_ctx: EventContext) -> void:
-	if active_environment != null and active_environment.fires_on_enemy_turn:
-		_apply_environment_passive(active_environment.passive_effect_id)
+	if active_environment != null and active_environment.fires_on_enemy_turn and not active_environment.passive_effect_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(active_environment.passive_effect_steps, ctx)
 
 func _trap_check_enemy_turn_start(ctx: EventContext) -> void:
 	_check_and_fire_traps(ctx.event_type)
@@ -2862,12 +2773,11 @@ func _handler_minion_on_death_effect(ctx: EventContext) -> void:
 
 func _handler_board_passives_on_player_death(ctx: EventContext) -> void:
 	var dead := ctx.minion
-	# Active environment on-death effect
-	if active_environment != null and active_environment.on_player_minion_died_effect_id != "":
-		match active_environment.on_player_minion_died_effect_id:
-			"abyssal_summoning_circle_death":
-				_log("  Abyssal Summoning Circle: %s died — deal 100 damage to enemy hero." % dead.card_data.card_name, _LogType.PLAYER)
-				_on_hero_damaged("enemy", 100)
+	# Active environment on-death steps
+	if active_environment != null and not active_environment.on_player_minion_died_steps.is_empty():
+		var eff_ctx := EffectContext.make(self, "player")
+		eff_ctx.dead_minion = dead
+		EffectResolver.run(active_environment.on_player_minion_died_steps, eff_ctx)
 	for m in player_board.duplicate():
 		var pid: String = (m.card_data as MinionCardData).passive_effect_id
 		if pid != "":
@@ -2943,8 +2853,8 @@ func _handler_enemy_minion_on_play(ctx: EventContext) -> void:
 
 # ---------------------------------------------------------------------------
 # ON_ENEMY_MINION_SUMMONED / ON_ENEMY_SPELL_CAST / ON_ENEMY_ATTACK / ON_HERO_DAMAGED
-# Trap routing handlers — delegate to _check_and_fire_traps() which handles
-# iterating active_traps and calling _resolve_trap_effect().
+# Trap routing handlers — delegate to _check_and_fire_traps() which runs
+# each matching trap's effect_steps via EffectResolver.
 # ---------------------------------------------------------------------------
 
 func _trap_check_enemy_summon(ctx: EventContext) -> void:

@@ -13,8 +13,9 @@ extends CardData
 ## Set to 0 to ignore.
 @export var trigger_threshold: int = 0
 
-## Effect ID resolved when this trap activates. References EffectDatabase.
-@export var effect_id: String = ""
+## Declarative effect steps run by EffectResolver when this trap activates.
+## Replaces the old string-based effect_id dispatch.
+@export var effect_steps: Array = []
 
 ## If true the trap resets after triggering instead of being consumed (one-use by default)
 @export var reusable: bool = false
@@ -28,10 +29,23 @@ extends CardData
 ## Only meaningful when is_rune = true.
 @export var rune_type: int = Enums.RuneType.VOID_RUNE
 
-## Aura effect identifier used by _apply_rune_aura / _remove_rune_aura in CombatScene.
-## Maps to a known string: "void_rune_aura" | "blood_rune_aura" | "dominion_rune_aura" | "shadow_rune_aura"
-## Only meaningful when is_rune = true.
-@export var aura_effect_id: String = ""
+## TriggerEvent the rune's primary aura handler listens to. -1 = no handler.
+@export var aura_trigger: int = -1
+
+## Steps run by EffectResolver when the primary aura trigger fires.
+@export var aura_effect_steps: Array = []
+
+## Optional second TriggerEvent (e.g. Soul Rune reset on enemy turn start). -1 = none.
+@export var aura_secondary_trigger: int = -1
+
+## Steps run when the secondary aura trigger fires.
+@export var aura_secondary_steps: Array = []
+
+## Steps run once immediately when the rune is placed (e.g. Dominion Rune existing-minion sweep).
+@export var aura_on_place_steps: Array = []
+
+## Steps run once when the rune is removed / destroyed (e.g. Dominion Rune buff teardown).
+@export var aura_on_remove_steps: Array = []
 
 func _init() -> void:
 	card_type = Enums.CardType.TRAP

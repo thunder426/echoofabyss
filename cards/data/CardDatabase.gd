@@ -115,8 +115,10 @@ func _register_wanderer_cards() -> void:
 	senior_void_imp.health       = 300
 	senior_void_imp.minion_type  = Enums.MinionType.DEMON
 	senior_void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100, "conditions": ["no_piercing_void"]}]
-	senior_void_imp.minion_tags  = ["void_imp", "senior_void_imp"]
-	senior_void_imp.faction      = "abyss_order"
+	senior_void_imp.minion_tags          = ["void_imp", "senior_void_imp"]
+	senior_void_imp.faction              = "abyss_order"
+	senior_void_imp.art_path             = "res://assets/art/minions/abyss_order/senior_void_imp.png"
+	senior_void_imp.battlefield_art_path = "res://assets/art/minions/abyss_order/senior_void_imp_small.png"
 	all.append(senior_void_imp)
 
 	# Runic Void Imp — variant core unit; offered via special reward
@@ -553,14 +555,15 @@ func _register_wanderer_cards() -> void:
 	# --- Environments ---
 
 	var dark_covenant := EnvironmentCardData.new()
-	dark_covenant.id                  = "dark_covenant"
-	dark_covenant.card_name           = "Dark Covenant"
-	dark_covenant.cost                = 3
-	dark_covenant.description         = "While any friendly Human is on your board, your Demons have +100 ATK.\nWhile any friendly Demon is on your board, your Humans have +100 HP."
-	dark_covenant.passive_description = "Demons have +100 ATK while a Human is present. Humans restore 100 HP each turn while a Demon is present."
-	dark_covenant.passive_effect_id   = "dark_covenant_passive"
-	dark_covenant.faction             = "abyss_order"
-	dark_covenant.art_path            = "res://assets/art/environments/abyss_order/dark_convenant.png"
+	dark_covenant.id                    = "dark_covenant"
+	dark_covenant.card_name             = "Dark Covenant"
+	dark_covenant.cost                  = 3
+	dark_covenant.description           = "While any friendly Human is on your board, your Demons have +100 ATK.\nWhile any friendly Demon is on your board, your Humans have +100 HP."
+	dark_covenant.passive_description   = "Demons have +100 ATK while a Human is present. Humans restore 100 HP each turn while a Demon is present."
+	dark_covenant.passive_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "dark_covenant_passive"}]
+	dark_covenant.on_replace_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "dark_covenant_remove"}]
+	dark_covenant.faction               = "abyss_order"
+	dark_covenant.art_path              = "res://assets/art/environments/abyss_order/dark_convenant.png"
 	all.append(dark_covenant)
 
 	# -----------------------------------------------------------------------
@@ -736,43 +739,43 @@ func _register_wanderer_cards() -> void:
 	# --- Neutral Traps ---
 
 	var hidden_ambush := TrapCardData.new()
-	hidden_ambush.id          = "hidden_ambush"
-	hidden_ambush.card_name   = "Hidden Ambush"
-	hidden_ambush.cost        = 1
-	hidden_ambush.description = "Trap: When an enemy minion attacks, deal 200 damage to that minion."
-	hidden_ambush.trigger     = Enums.TriggerEvent.ON_ENEMY_ATTACK
-	hidden_ambush.effect_id   = "hidden_ambush_effect"
-	hidden_ambush.faction     = "neutral"
+	hidden_ambush.id           = "hidden_ambush"
+	hidden_ambush.card_name    = "Hidden Ambush"
+	hidden_ambush.cost         = 1
+	hidden_ambush.description  = "Trap: When an enemy minion attacks, deal 200 damage to that minion."
+	hidden_ambush.trigger      = Enums.TriggerEvent.ON_ENEMY_ATTACK
+	hidden_ambush.effect_steps = [{"type": "DAMAGE_MINION", "scope": "TRIGGER_MINION", "amount": 200}]
+	hidden_ambush.faction      = "neutral"
 	all.append(hidden_ambush)
 
 	var smoke_veil := TrapCardData.new()
-	smoke_veil.id          = "smoke_veil"
-	smoke_veil.card_name   = "Smoke Veil"
-	smoke_veil.cost        = 3
-	smoke_veil.description = "Trap: When an enemy minion attacks, cancel that attack and exhaust all enemy minions."
-	smoke_veil.trigger     = Enums.TriggerEvent.ON_ENEMY_ATTACK
-	smoke_veil.effect_id   = "smoke_veil_effect"
-	smoke_veil.faction     = "neutral"
+	smoke_veil.id           = "smoke_veil"
+	smoke_veil.card_name    = "Smoke Veil"
+	smoke_veil.cost         = 3
+	smoke_veil.description  = "Trap: When an enemy minion attacks, cancel that attack and exhaust all enemy minions."
+	smoke_veil.trigger      = Enums.TriggerEvent.ON_ENEMY_ATTACK
+	smoke_veil.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "smoke_veil"}]
+	smoke_veil.faction      = "neutral"
 	all.append(smoke_veil)
 
 	var silence_trap := TrapCardData.new()
-	silence_trap.id          = "silence_trap"
-	silence_trap.card_name   = "Silence Trap"
-	silence_trap.cost        = 3
-	silence_trap.description = "Trap: When the enemy casts a spell, cancel that spell entirely."
-	silence_trap.trigger     = Enums.TriggerEvent.ON_ENEMY_SPELL_CAST
-	silence_trap.effect_id   = "silence_trap_effect"
-	silence_trap.faction     = "neutral"
+	silence_trap.id           = "silence_trap"
+	silence_trap.card_name    = "Silence Trap"
+	silence_trap.cost         = 3
+	silence_trap.description  = "Trap: When the enemy casts a spell, cancel that spell entirely."
+	silence_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_SPELL_CAST
+	silence_trap.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "silence_trap"}]
+	silence_trap.faction      = "neutral"
 	all.append(silence_trap)
 
 	var death_trap := TrapCardData.new()
-	death_trap.id          = "death_trap"
-	death_trap.card_name   = "Death Trap"
-	death_trap.cost        = 3
-	death_trap.description = "Trap: When the enemy summons a minion, destroy that minion immediately."
-	death_trap.trigger     = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-	death_trap.effect_id   = "death_trap_effect"
-	death_trap.faction     = "neutral"
+	death_trap.id           = "death_trap"
+	death_trap.card_name    = "Death Trap"
+	death_trap.cost         = 3
+	death_trap.description  = "Trap: When the enemy summons a minion, destroy that minion immediately."
+	death_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	death_trap.effect_steps = [{"type": "SACRIFICE", "scope": "TRIGGER_MINION"}]
+	death_trap.faction      = "neutral"
 	all.append(death_trap)
 
 	# ---------------------------------------------------------------------------
@@ -903,14 +906,17 @@ func _register_wanderer_cards() -> void:
 
 	# Rune
 	var soul_rune := TrapCardData.new()
-	soul_rune.id             = "soul_rune"
-	soul_rune.card_name      = "Soul Rune"
-	soul_rune.cost           = 2
-	soul_rune.description    = "RUNE: Whenever a friendly Demon dies during the enemy's turn, summon a 100/100 Spirit token. Triggers once per turn."
-	soul_rune.is_rune        = true
-	soul_rune.rune_type      = Enums.RuneType.SOUL_RUNE
-	soul_rune.aura_effect_id = "soul_rune_aura"
-	soul_rune.faction        = "abyss_order"
+	soul_rune.id                       = "soul_rune"
+	soul_rune.card_name                = "Soul Rune"
+	soul_rune.cost                     = 2
+	soul_rune.description              = "RUNE: Whenever a friendly Demon dies during the enemy's turn, summon a 100/100 Spirit token. Triggers once per turn."
+	soul_rune.is_rune                  = true
+	soul_rune.rune_type                = Enums.RuneType.SOUL_RUNE
+	soul_rune.aura_trigger             = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
+	soul_rune.aura_effect_steps        = [{"type": "HARDCODED", "hardcoded_id": "soul_rune_death"}]
+	soul_rune.aura_secondary_trigger   = Enums.TriggerEvent.ON_ENEMY_TURN_START
+	soul_rune.aura_secondary_steps     = [{"type": "HARDCODED", "hardcoded_id": "soul_rune_reset"}]
+	soul_rune.faction                  = "abyss_order"
 	all.append(soul_rune)
 
 	# ---------------------------------------------------------------------------
@@ -918,51 +924,57 @@ func _register_wanderer_cards() -> void:
 	# ---------------------------------------------------------------------------
 
 	var void_rune := TrapCardData.new()
-	void_rune.id            = "void_rune"
-	void_rune.card_name     = "Void Rune"
-	void_rune.cost          = 2
-	void_rune.description   = "RUNE: At the start of your turn, deal 100 Void Bolt damage to the enemy hero."
-	void_rune.is_rune       = true
-	void_rune.rune_type     = Enums.RuneType.VOID_RUNE
-	void_rune.aura_effect_id = "void_rune_aura"
-	void_rune.faction       = "abyss_order"
-	void_rune.art_path      = "res://assets/art/traps/abyss_order/void_rune.png"
+	void_rune.id               = "void_rune"
+	void_rune.card_name        = "Void Rune"
+	void_rune.cost             = 2
+	void_rune.description      = "RUNE: At the start of your turn, deal 100 Void Bolt damage to the enemy hero."
+	void_rune.is_rune          = true
+	void_rune.rune_type        = Enums.RuneType.VOID_RUNE
+	void_rune.aura_trigger     = Enums.TriggerEvent.ON_PLAYER_TURN_START
+	void_rune.aura_effect_steps = [{"type": "VOID_BOLT", "amount": 100, "multiplier_key": "rune_aura"}]
+	void_rune.faction          = "abyss_order"
+	void_rune.art_path         = "res://assets/art/traps/abyss_order/void_rune.png"
 	all.append(void_rune)
 
 	var blood_rune := TrapCardData.new()
-	blood_rune.id            = "blood_rune"
-	blood_rune.card_name     = "Blood Rune"
-	blood_rune.cost          = 2
-	blood_rune.description   = "RUNE: Whenever a friendly minion dies, restore 100 HP to your hero."
-	blood_rune.is_rune       = true
-	blood_rune.rune_type     = Enums.RuneType.BLOOD_RUNE
-	blood_rune.aura_effect_id = "blood_rune_aura"
-	blood_rune.faction       = "abyss_order"
-	blood_rune.art_path      = "res://assets/art/traps/abyss_order/blood_rune.png"
+	blood_rune.id               = "blood_rune"
+	blood_rune.card_name        = "Blood Rune"
+	blood_rune.cost             = 2
+	blood_rune.description      = "RUNE: Whenever a friendly minion dies, restore 100 HP to your hero."
+	blood_rune.is_rune          = true
+	blood_rune.rune_type        = Enums.RuneType.BLOOD_RUNE
+	blood_rune.aura_trigger     = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
+	blood_rune.aura_effect_steps = [{"type": "HEAL_HERO", "amount": 100, "multiplier_key": "rune_aura"}]
+	blood_rune.faction          = "abyss_order"
+	blood_rune.art_path         = "res://assets/art/traps/abyss_order/blood_rune.png"
 	all.append(blood_rune)
 
 	var dominion_rune := TrapCardData.new()
-	dominion_rune.id            = "dominion_rune"
-	dominion_rune.card_name     = "Dominion Rune"
-	dominion_rune.cost          = 2
-	dominion_rune.description   = "RUNE: All friendly Demons have +100 ATK."
-	dominion_rune.is_rune       = true
-	dominion_rune.rune_type     = Enums.RuneType.DOMINION_RUNE
-	dominion_rune.aura_effect_id = "dominion_rune_aura"
-	dominion_rune.faction       = "abyss_order"
-	dominion_rune.art_path      = "res://assets/art/traps/abyss_order/dominion_rune.png"
+	dominion_rune.id                = "dominion_rune"
+	dominion_rune.card_name         = "Dominion Rune"
+	dominion_rune.cost              = 2
+	dominion_rune.description       = "RUNE: All friendly Demons have +100 ATK."
+	dominion_rune.is_rune           = true
+	dominion_rune.rune_type         = Enums.RuneType.DOMINION_RUNE
+	dominion_rune.aura_trigger      = Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED
+	dominion_rune.aura_effect_steps = [{"type": "BUFF_ATK", "scope": "TRIGGER_MINION", "filter": "DEMON", "amount": 100, "multiplier_key": "rune_aura", "source_tag": "dominion_rune"}]
+	dominion_rune.aura_on_place_steps  = [{"type": "HARDCODED", "hardcoded_id": "dominion_rune_place"}]
+	dominion_rune.aura_on_remove_steps = [{"type": "HARDCODED", "hardcoded_id": "dominion_rune_remove"}]
+	dominion_rune.faction           = "abyss_order"
+	dominion_rune.art_path          = "res://assets/art/traps/abyss_order/dominion_rune.png"
 	all.append(dominion_rune)
 
 	var shadow_rune := TrapCardData.new()
-	shadow_rune.id            = "shadow_rune"
-	shadow_rune.card_name     = "Shadow Rune"
-	shadow_rune.cost          = 2
-	shadow_rune.description   = "RUNE: Enemy minions enter the board with 1 stack of CORRUPTION."
-	shadow_rune.is_rune       = true
-	shadow_rune.rune_type     = Enums.RuneType.SHADOW_RUNE
-	shadow_rune.aura_effect_id = "shadow_rune_aura"
-	shadow_rune.faction       = "abyss_order"
-	shadow_rune.art_path      = "res://assets/art/traps/abyss_order/shadow_rune.png"
+	shadow_rune.id               = "shadow_rune"
+	shadow_rune.card_name        = "Shadow Rune"
+	shadow_rune.cost             = 2
+	shadow_rune.description      = "RUNE: Enemy minions enter the board with 1 stack of CORRUPTION."
+	shadow_rune.is_rune          = true
+	shadow_rune.rune_type        = Enums.RuneType.SHADOW_RUNE
+	shadow_rune.aura_trigger     = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	shadow_rune.aura_effect_steps = [{"type": "CORRUPTION", "scope": "TRIGGER_MINION", "amount": 1, "multiplier_key": "rune_aura"}]
+	shadow_rune.faction          = "abyss_order"
+	shadow_rune.art_path         = "res://assets/art/traps/abyss_order/shadow_rune.png"
 	all.append(shadow_rune)
 
 	# ---------------------------------------------------------------------------
@@ -976,21 +988,20 @@ func _register_wanderer_cards() -> void:
 	# ---------------------------------------------------------------------------
 
 	var blood_dominion_ritual := RitualData.new()
-	blood_dominion_ritual.ritual_name   = "Demon Ascendant"
-	blood_dominion_ritual.description   = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Special Summon a 500/500 Demon."
+	blood_dominion_ritual.ritual_name    = "Demon Ascendant"
+	blood_dominion_ritual.description    = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Special Summon a 500/500 Demon."
 	blood_dominion_ritual.required_runes = [Enums.RuneType.BLOOD_RUNE, Enums.RuneType.DOMINION_RUNE]
-	blood_dominion_ritual.effect_id      = "demon_ascendant"
+	blood_dominion_ritual.effect_steps   = [{"type": "HARDCODED", "hardcoded_id": "demon_ascendant"}]
 
 	var abyssal_summoning_circle := EnvironmentCardData.new()
-	abyssal_summoning_circle.id                          = "abyssal_summoning_circle"
-	abyssal_summoning_circle.card_name                   = "Abyssal Summoning Circle"
-	abyssal_summoning_circle.cost                        = 3
-	abyssal_summoning_circle.description                 = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero. \nRITUAL: Blood + Dominion → Demon Ascendant."
-	abyssal_summoning_circle.passive_description         = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero."
-	abyssal_summoning_circle.passive_effect_id           = "abyssal_summoning_circle_passive"
-	abyssal_summoning_circle.on_player_minion_died_effect_id = "abyssal_summoning_circle_death"
-	abyssal_summoning_circle.rituals                     = [blood_dominion_ritual]
-	abyssal_summoning_circle.faction                     = "abyss_order"
+	abyssal_summoning_circle.id                         = "abyssal_summoning_circle"
+	abyssal_summoning_circle.card_name                  = "Abyssal Summoning Circle"
+	abyssal_summoning_circle.cost                       = 3
+	abyssal_summoning_circle.description                = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero. \nRITUAL: Blood + Dominion → Demon Ascendant."
+	abyssal_summoning_circle.passive_description        = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero."
+	abyssal_summoning_circle.on_player_minion_died_steps = [{"type": "DAMAGE_HERO", "amount": 200, "conditions": ["dead_is_demon"]}]
+	abyssal_summoning_circle.rituals                    = [blood_dominion_ritual]
+	abyssal_summoning_circle.faction                    = "abyss_order"
 	abyssal_summoning_circle.art_path                   = "res://assets/art/environments/abyss_order/abyssal_summoning_circle.png"
 	all.append(abyssal_summoning_circle)
 
@@ -999,10 +1010,13 @@ func _register_wanderer_cards() -> void:
 	# ---------------------------------------------------------------------------
 
 	var void_blood_ritual := RitualData.new()
-	void_blood_ritual.ritual_name   = "Soul Cataclysm"
-	void_blood_ritual.description   = "Consume Void + Blood Runes. Deal 400 Void Bolt damage to the enemy hero. Restore 400 HP to your hero."
+	void_blood_ritual.ritual_name    = "Soul Cataclysm"
+	void_blood_ritual.description    = "Consume Void + Blood Runes. Deal 400 Void Bolt damage to the enemy hero. Restore 400 HP to your hero."
 	void_blood_ritual.required_runes = [Enums.RuneType.VOID_RUNE, Enums.RuneType.BLOOD_RUNE]
-	void_blood_ritual.effect_id      = "soul_cataclysm"
+	void_blood_ritual.effect_steps   = [
+		{"type": "VOID_BOLT", "amount": 400},
+		{"type": "HEAL_HERO",  "amount": 400},
+	]
 
 	var abyss_ritual_circle := EnvironmentCardData.new()
 	abyss_ritual_circle.id                  = "abyss_ritual_circle"
@@ -1010,7 +1024,7 @@ func _register_wanderer_cards() -> void:
 	abyss_ritual_circle.cost                = 3
 	abyss_ritual_circle.description         = "Each turn, deal 100 damage to a random minion (both sides). \nRITUAL: Void + Blood → Soul Cataclysm."
 	abyss_ritual_circle.passive_description = "At the start of each turn, deal 100 damage to a random minion on the battlefield."
-	abyss_ritual_circle.passive_effect_id   = "abyss_ritual_circle_passive"
+	abyss_ritual_circle.passive_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "abyss_ritual_circle_passive"}]
 	abyss_ritual_circle.fires_on_enemy_turn = true
 	abyss_ritual_circle.rituals             = [void_blood_ritual]
 	abyss_ritual_circle.faction             = "abyss_order"

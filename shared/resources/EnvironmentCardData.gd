@@ -5,17 +5,14 @@
 class_name EnvironmentCardData
 extends CardData
 
-## Effect ID applied every turn while this environment is active.
-## References EffectDatabase for the passive logic.
-@export var passive_effect_id: String = ""
+## Steps run by EffectResolver every turn while this environment is active.
+@export var passive_effect_steps: Array = []
 
-## Effect ID triggered once when this environment is first played.
-## Leave empty for no on-play burst effect.
-@export var on_enter_effect_id: String = ""
+## Steps run once when this environment is first played (on-enter burst).
+@export var on_enter_effect_steps: Array = []
 
-## Effect ID triggered once when this environment is replaced by another.
-## Useful for "when this leaves, do X" effects.
-@export var on_replace_effect_id: String = ""
+## Steps run once when this environment is replaced by another (teardown / cleanup).
+@export var on_replace_effect_steps: Array = []
 
 ## Human-readable summary of what the passive does (shown on card)
 @export_multiline var passive_description: String = ""
@@ -30,9 +27,8 @@ extends CardData
 ## Standard environments only fire on the player's turn.
 @export var fires_on_enemy_turn: bool = false
 
-## Effect ID to apply when a friendly player minion dies while this environment is active.
-## Leave empty for no on-death environment effect.
-@export var on_player_minion_died_effect_id: String = ""
+## Steps run by EffectResolver when a friendly player minion dies while this environment is active.
+@export var on_player_minion_died_steps: Array = []
 
 func _init() -> void:
 	card_type = Enums.CardType.ENVIRONMENT
