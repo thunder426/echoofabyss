@@ -14,7 +14,7 @@ enum CardType {
 ## Which resource pool is spent to play this card
 enum CostType {
 	ESSENCE,  # Summon minions
-	MANA,     # Spells, traps, environments, hero power
+	MANA,     # Spells, traps, environments
 }
 
 ## Minion sub-types used for synergy triggers

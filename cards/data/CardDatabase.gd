@@ -288,7 +288,8 @@ func _register_wanderer_cards() -> void:
 	roadside_drifter.atk         = 100
 	roadside_drifter.health      = 300
 	roadside_drifter.minion_type = Enums.MinionType.HUMAN
-	roadside_drifter.faction     = "neutral"
+	roadside_drifter.faction  = "neutral"
+	roadside_drifter.art_path = "res://assets/art/minions/neutral/roadside_drifter.png"
 	all.append(roadside_drifter)
 
 	var ashland_forager := MinionCardData.new()
@@ -298,7 +299,8 @@ func _register_wanderer_cards() -> void:
 	ashland_forager.atk         = 200
 	ashland_forager.health      = 200
 	ashland_forager.minion_type = Enums.MinionType.BEAST
-	ashland_forager.faction     = "neutral"
+	ashland_forager.faction  = "neutral"
+	ashland_forager.art_path = "res://assets/art/minions/neutral/ashland_forager.png"
 	all.append(ashland_forager)
 
 	# 2-cost
@@ -309,7 +311,8 @@ func _register_wanderer_cards() -> void:
 	freelance_sellsword.atk         = 300
 	freelance_sellsword.health      = 200
 	freelance_sellsword.minion_type = Enums.MinionType.MERCENARY
-	freelance_sellsword.faction     = "neutral"
+	freelance_sellsword.faction  = "neutral"
+	freelance_sellsword.art_path = "res://assets/art/minions/neutral/freelance_sellsword.png"
 	all.append(freelance_sellsword)
 
 	var traveling_merchant := MinionCardData.new()
@@ -321,7 +324,8 @@ func _register_wanderer_cards() -> void:
 	traveling_merchant.health         = 200
 	traveling_merchant.minion_type    = Enums.MinionType.HUMAN
 	traveling_merchant.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
-	traveling_merchant.faction        = "neutral"
+	traveling_merchant.faction  = "neutral"
+	traveling_merchant.art_path = "res://assets/art/minions/neutral/traveling_merchant.png"
 	all.append(traveling_merchant)
 
 	var trapbreaker_rogue := MinionCardData.new()
@@ -333,7 +337,8 @@ func _register_wanderer_cards() -> void:
 	trapbreaker_rogue.health         = 200
 	trapbreaker_rogue.minion_type    = Enums.MinionType.HUMAN
 	trapbreaker_rogue.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "destroy_random_enemy_trap"}]
-	trapbreaker_rogue.faction        = "neutral"
+	trapbreaker_rogue.faction  = "neutral"
+	trapbreaker_rogue.art_path = "res://assets/art/minions/neutral/trapbreaker_rogue.png"
 	all.append(trapbreaker_rogue)
 
 	# 3-cost
@@ -344,7 +349,8 @@ func _register_wanderer_cards() -> void:
 	caravan_guard.atk         = 350
 	caravan_guard.health      = 350
 	caravan_guard.minion_type = Enums.MinionType.MERCENARY
-	caravan_guard.faction     = "neutral"
+	caravan_guard.faction  = "neutral"
+	caravan_guard.art_path = "res://assets/art/minions/neutral/caravan_guard.png"
 	all.append(caravan_guard)
 
 	var arena_challenger := MinionCardData.new()
@@ -354,7 +360,8 @@ func _register_wanderer_cards() -> void:
 	arena_challenger.atk         = 450
 	arena_challenger.health      = 200
 	arena_challenger.minion_type = Enums.MinionType.MERCENARY
-	arena_challenger.faction     = "neutral"
+	arena_challenger.faction   = "neutral"
+	arena_challenger.art_path  = "res://assets/art/minions/neutral/arena_challenger.png"
 	all.append(arena_challenger)
 
 	var spell_taxer := MinionCardData.new()
@@ -847,6 +854,8 @@ func _register_wanderer_cards() -> void:
 	imp_recruiter.minion_type    = Enums.MinionType.HUMAN
 	imp_recruiter.on_play_effect_steps = [{"type": "ADD_CARD", "card_id": "void_imp"}]
 	imp_recruiter.faction        = "abyss_order"
+	imp_recruiter.art_path             = "res://assets/art/minions/abyss_order/imp_recruiter.png"
+	imp_recruiter.battlefield_art_path = "res://assets/art/minions/abyss_order/imp_recruiter_small.png"
 	all.append(imp_recruiter)
 
 	var soul_taskmaster := MinionCardData.new()
@@ -859,6 +868,8 @@ func _register_wanderer_cards() -> void:
 	soul_taskmaster.minion_type       = Enums.MinionType.DEMON
 	soul_taskmaster.passive_effect_id = "soul_taskmaster_gain_atk"
 	soul_taskmaster.faction           = "abyss_order"
+	soul_taskmaster.art_path             = "res://assets/art/minions/abyss_order/soul_taskmaster.png"
+	soul_taskmaster.battlefield_art_path = "res://assets/art/minions/abyss_order/soul_taskmaster_small.png"
 	all.append(soul_taskmaster)
 
 	var void_amplifier := MinionCardData.new()
@@ -871,6 +882,8 @@ func _register_wanderer_cards() -> void:
 	void_amplifier.minion_type       = Enums.MinionType.HUMAN
 	void_amplifier.passive_effect_id = "void_amplifier_buff_demon"
 	void_amplifier.faction           = "abyss_order"
+	void_amplifier.art_path             = "res://assets/art/minions/abyss_order/void_amplifier.png"
+	void_amplifier.battlefield_art_path = "res://assets/art/minions/abyss_order/void_amplifier_small.png"
 	all.append(void_amplifier)
 
 	# Spells
@@ -887,6 +900,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "BUFF_HP",   "scope": "ALL_FRIENDLY", "filter": "DEMON", "amount": 100},
 	]
 	blood_pact.faction     = "abyss_order"
+	blood_pact.art_path    = "res://assets/art/spells/abyss_order/blood_pact.png"
 	all.append(blood_pact)
 
 	var soul_shatter := SpellCardData.new()
@@ -901,6 +915,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY",              "amount": 200},
 	]
 	soul_shatter.faction     = "abyss_order"
+	soul_shatter.art_path    = "res://assets/art/spells/abyss_order/soul_shatter.png"
 	all.append(soul_shatter)
 
 	# Rune
@@ -916,6 +931,7 @@ func _register_wanderer_cards() -> void:
 	soul_rune.aura_secondary_trigger   = Enums.TriggerEvent.ON_ENEMY_TURN_START
 	soul_rune.aura_secondary_steps     = [{"type": "HARDCODED", "hardcoded_id": "soul_rune_reset"}]
 	soul_rune.faction                  = "abyss_order"
+	soul_rune.art_path                 = "res://assets/art/traps/abyss_order/soul_rune.png"
 	all.append(soul_rune)
 
 	# ---------------------------------------------------------------------------
@@ -1172,6 +1188,163 @@ func _register_wanderer_cards() -> void:
 	echo_rune.faction            = "abyss_order"
 	all.append(echo_rune)
 
+	# ---------------------------------------------------------------------------
+	# --- Feral Imp Clan — Act 1 enemy-only cards (pool="feral_imp_clan", not player-visible) ---
+	# ---------------------------------------------------------------------------
+
+	var rabid_imp := MinionCardData.new()
+	rabid_imp.id           = "rabid_imp"
+	rabid_imp.card_name    = "Rabid Imp"
+	rabid_imp.essence_cost = 1
+	rabid_imp.atk          = 200
+	rabid_imp.health       = 100
+	rabid_imp.minion_type  = Enums.MinionType.DEMON
+	rabid_imp.keywords     = [Enums.Keyword.SWIFT]
+	rabid_imp.minion_tags  = ["feral_imp"]
+	rabid_imp.faction      = "abyss_order"
+	rabid_imp.clan         = "Feral Imp"
+	all.append(rabid_imp)
+
+	var brood_imp := MinionCardData.new()
+	brood_imp.id           = "brood_imp"
+	brood_imp.card_name    = "Brood Imp"
+	brood_imp.essence_cost = 2
+	brood_imp.description  = "ON DEATH: Summon two 100/100 Void Sparks."
+	brood_imp.atk          = 100
+	brood_imp.health       = 300
+	brood_imp.minion_type  = Enums.MinionType.DEMON
+	brood_imp.on_death_effect_steps = [
+		{"type": "SUMMON", "card_id": "void_spark"},
+		{"type": "SUMMON", "card_id": "void_spark"},
+	]
+	brood_imp.minion_tags  = ["feral_imp"]
+	brood_imp.faction      = "abyss_order"
+	brood_imp.clan         = "Feral Imp"
+	all.append(brood_imp)
+
+	var imp_brawler := MinionCardData.new()
+	imp_brawler.id           = "imp_brawler"
+	imp_brawler.card_name    = "Imp Brawler"
+	imp_brawler.essence_cost = 2
+	imp_brawler.description  = ""
+	imp_brawler.atk          = 300
+	imp_brawler.health       = 250
+	imp_brawler.minion_type  = Enums.MinionType.DEMON
+	imp_brawler.minion_tags  = ["feral_imp"]
+	imp_brawler.faction      = "abyss_order"
+	imp_brawler.clan         = "Feral Imp"
+	all.append(imp_brawler)
+
+	var void_touched_imp := MinionCardData.new()
+	void_touched_imp.id           = "void_touched_imp"
+	void_touched_imp.card_name    = "Void-Touched Imp"
+	void_touched_imp.essence_cost = 2
+	void_touched_imp.description  = "ON DEATH: Deal 100 damage to all enemy minions."
+	void_touched_imp.atk          = 100
+	void_touched_imp.health       = 300
+	void_touched_imp.minion_type  = Enums.MinionType.DEMON
+	void_touched_imp.on_death_effect_steps = [
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100},
+	]
+	void_touched_imp.minion_tags  = ["feral_imp"]
+	void_touched_imp.faction      = "abyss_order"
+	void_touched_imp.clan         = "Feral Imp"
+	all.append(void_touched_imp)
+
+	var frenzied_imp := MinionCardData.new()
+	frenzied_imp.id           = "frenzied_imp"
+	frenzied_imp.card_name    = "Frenzied Imp"
+	frenzied_imp.essence_cost = 3
+	frenzied_imp.description  = "ON PLAY: Deal 100 damage to a random enemy minion, plus 100 more for each other FERAL IMP on your board."
+	frenzied_imp.atk          = 300
+	frenzied_imp.health       = 300
+	frenzied_imp.minion_type  = Enums.MinionType.DEMON
+	frenzied_imp.on_play_effect_steps = [
+		{"type": "HARDCODED", "hardcoded_id": "frenzied_imp_play"},
+	]
+	frenzied_imp.minion_tags  = ["feral_imp"]
+	frenzied_imp.faction      = "abyss_order"
+	frenzied_imp.clan         = "Feral Imp"
+	all.append(frenzied_imp)
+
+	var matriarchs_broodling := MinionCardData.new()
+	matriarchs_broodling.id           = "matriarchs_broodling"
+	matriarchs_broodling.card_name    = "Matriarch's Broodling"
+	matriarchs_broodling.essence_cost = 4
+	matriarchs_broodling.description  = "GUARD.\nON DEATH: Summon a Brood Imp."
+	matriarchs_broodling.atk          = 200
+	matriarchs_broodling.health       = 500
+	matriarchs_broodling.minion_type  = Enums.MinionType.DEMON
+	matriarchs_broodling.keywords     = [Enums.Keyword.GUARD]
+	matriarchs_broodling.on_death_effect_steps = [
+		{"type": "SUMMON", "card_id": "brood_imp"},
+	]
+	matriarchs_broodling.minion_tags  = ["feral_imp"]
+	matriarchs_broodling.faction      = "abyss_order"
+	matriarchs_broodling.clan         = "Feral Imp"
+	all.append(matriarchs_broodling)
+
+	var rogue_imp_elder := MinionCardData.new()
+	rogue_imp_elder.id           = "rogue_imp_elder"
+	rogue_imp_elder.card_name    = "Rogue Imp Elder"
+	rogue_imp_elder.essence_cost = 4
+	rogue_imp_elder.description  = "PASSIVE (aura): All friendly FERAL IMP minions have +100 ATK."
+	rogue_imp_elder.atk          = 300
+	rogue_imp_elder.health       = 500
+	rogue_imp_elder.minion_type  = Enums.MinionType.DEMON
+	rogue_imp_elder.on_play_effect_steps = [
+		{"type": "BUFF_ATK", "scope": "ALL_FRIENDLY", "filter": "FERAL_IMP", "amount": 100, "permanent": true, "source_tag": "rogue_imp_elder", "exclude_self": true},
+	]
+	rogue_imp_elder.on_death_effect_steps = [
+		{"type": "HARDCODED", "hardcoded_id": "rogue_imp_elder_remove"},
+	]
+	rogue_imp_elder.minion_tags  = ["feral_imp"]
+	rogue_imp_elder.faction      = "abyss_order"
+	rogue_imp_elder.clan         = "Feral Imp"
+	all.append(rogue_imp_elder)
+
+	# Feral Imp Clan Spells
+
+	var feral_surge := SpellCardData.new()
+	feral_surge.id             = "feral_surge"
+	feral_surge.card_name      = "Feral Surge"
+	feral_surge.cost           = 1
+	feral_surge.description    = "Give a friendly FERAL IMP minion +300 ATK this turn."
+	feral_surge.requires_target = true
+	feral_surge.target_type    = "friendly_feral_imp"
+	feral_surge.effect_steps   = [
+		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "FERAL_IMP", "amount": 300, "permanent": false},
+	]
+	feral_surge.faction        = "abyss_order"
+	all.append(feral_surge)
+
+	var void_screech := SpellCardData.new()
+	void_screech.id          = "void_screech"
+	void_screech.card_name   = "Void Screech"
+	void_screech.cost        = 1
+	void_screech.description = "Deal 250 damage to the enemy hero. If you have 3+ FERAL IMP minions on board, deal 350 instead."
+	void_screech.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_screech"}]
+	void_screech.faction     = "abyss_order"
+	all.append(void_screech)
+
+	var brood_call := SpellCardData.new()
+	brood_call.id          = "brood_call"
+	brood_call.card_name   = "Brood Call"
+	brood_call.cost        = 2
+	brood_call.description = "Summon a random FERAL IMP minion."
+	brood_call.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "brood_call"}]
+	brood_call.faction     = "abyss_order"
+	all.append(brood_call)
+
+	var pack_frenzy := SpellCardData.new()
+	pack_frenzy.id          = "pack_frenzy"
+	pack_frenzy.card_name   = "Pack Frenzy"
+	pack_frenzy.cost        = 3
+	pack_frenzy.description = "All friendly FERAL IMP minions gain +250 ATK and SWIFT this turn."
+	pack_frenzy.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "pack_frenzy"}]
+	pack_frenzy.faction     = "abyss_order"
+	all.append(pack_frenzy)
+
 	# --- Pool assignments (controls deck builder visibility and collection) ---
 	# "" = token/internal; cards with no entry stay ""
 	var _card_pools := {
@@ -1221,6 +1394,13 @@ func _register_wanderer_cards() -> void:
 		"runic_blast": "vael_rune_master",       "runic_echo": "vael_rune_master",
 		"rune_warden": "vael_rune_master",        "rune_seeker": "vael_rune_master",
 		"echo_rune": "vael_rune_master",
+		# Feral Imp Clan — Act 1 enemy-only pool (not visible to players)
+		"rabid_imp": "feral_imp_clan",             "brood_imp": "feral_imp_clan",
+		"imp_brawler": "feral_imp_clan",           "void_touched_imp": "feral_imp_clan",
+		"frenzied_imp": "feral_imp_clan",          "matriarchs_broodling": "feral_imp_clan",
+		"rogue_imp_elder": "feral_imp_clan",
+		"feral_surge": "feral_imp_clan",           "void_screech": "feral_imp_clan",
+		"brood_call": "feral_imp_clan",            "pack_frenzy": "feral_imp_clan",
 	}
 	# --- Rarity assignments (used for boss drop roll chances) ---
 	var _card_rarities := {

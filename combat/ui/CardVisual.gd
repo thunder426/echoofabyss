@@ -213,7 +213,7 @@ const _FRAME_CONFIG: Dictionary = {
 		"path":         "res://assets/art/frames/neutral/neutral_essence_minion.png",
 		"minion_frame": true,
 		"layout": {
-			"art":     [0.08, 0.14, 0.92, 0.78],
+			"art":     [0.08, 0.14, 0.92, 0.63],
 			"name":    [0.15, 0.03, 0.85, 0.10],
 			"race":    [0.05, 0.10, 0.95, 0.15],
 			"desc":    [0.16, 0.67, 0.85, 0.90],
@@ -234,7 +234,7 @@ const _FRAME_CONFIG: Dictionary = {
 		"minion_frame": true,
 		"has_frame_shield": true,
 		"layout": {
-			"art":     [0.08, 0.14, 0.92, 0.78],
+			"art":     [0.08, 0.12, 0.92, 0.65],
 			"name":    [0.15, 0.03, 0.85, 0.10],
 			"race":    [0.05, 0.10, 0.95, 0.15],
 			"desc":    [0.16, 0.67, 0.85, 0.90],
@@ -827,7 +827,8 @@ const _TRIGGER_TERMS: Array[String] = [
 	"ON TURN START", "ON TURN END", "ON DRAW", "ON DISCARD",
 	"PASSIVE", "AURA", "RITUAL", "RUNE", "CORRUPTION", "CORRUPT",
 	"VOID MARKS", "VOID MARK", "DEATHLESS",
-	"VOID IMPS", "VOID IMP",  # clan name — plural before singular to avoid partial match
+	"VOID IMPS", "VOID IMP",    # clan name — plural before singular to avoid partial match
+	"FERAL IMPS", "FERAL IMP", # clan name — plural before singular to avoid partial match
 ]
 
 func _highlight_triggers(text: String) -> String:

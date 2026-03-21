@@ -2,6 +2,8 @@
 ## Represents one of the 5 board slots on either side.
 ## Empty slots show the plain Panel style.
 ## Occupied slots use the abyss_battlefield_minion.png frame with Cinzel Bold labels.
+## Abyss-order non-shielded minions use abyss_battlefield_minion_generic.png:
+##   no cost badge, no name bar — big art + status bar + ATK + HP only.
 ##
 ## Render order (bottom → top):
 ##   _art_rect   — minion art sits behind the frame window
@@ -52,13 +54,29 @@ const _CFG: Dictionary = {
 	"name":   { "pos": Vector2(  0,   4), "size": Vector2(179,  14), "font_size": 10, "font_size_long": 8, "long_threshold": 13 },
 
 	# ATK  — bottom-left
-	"atk":    { "pos": Vector2(  28, 165), "size": Vector2( 52,  30), "font_size": 12 },
+	"atk":    { "pos": Vector2(  28, 164), "size": Vector2( 52,  30), "font_size": 12 },
 
 	# Status bar — bottom-center, full inner width so HBoxContainer can center icons
-	"status": { "pos": Vector2( 14, 144), "size": Vector2(152,  24) },
+	"status": { "pos": Vector2( 14, 142), "size": Vector2(152,  24) },
 
 	# HP  — bottom-right  (shows "+shield" suffix when active)
-	"hp":     { "pos": Vector2(105, 165), "size": Vector2( 52,  30), "font_size": 12 },
+	"hp":     { "pos": Vector2(105, 164), "size": Vector2( 52,  30), "font_size": 12 },
+}
+
+# Generic frame layout (abyss_battlefield_minion_generic.png):
+# No cost badge, no name bar — art fills the top portion of the slot.
+const _CFG_GENERIC: Dictionary = {
+	# Art window — larger, starts from near top edge
+	"art":    { "pos": Vector2(  4,   4), "size": Vector2(172, 140) },
+
+	# ATK  — bottom-left (same as normal)
+	"atk":    { "pos": Vector2( 28, 163), "size": Vector2( 52,  30), "font_size": 12 },
+
+	# Status bar — bottom-center (same as normal)
+	"status": { "pos": Vector2( 14, 137), "size": Vector2(152,  23) },
+
+	# HP  — bottom-right (same as normal)
+	"hp":     { "pos": Vector2(105, 163), "size": Vector2( 52,  30), "font_size": 12 },
 }
 # fmt: on
 
@@ -73,7 +91,7 @@ const _STATUS_FONT_SIZE := 9
 
 var _frame_rect:  TextureRect
 var _art_rect:    TextureRect
-var _overlay:     ColorRect
+var _overlay:     Panel   # Border-glow highlight (transparent bg, coloured border + shadow)
 var _cost_label:      Label
 var _mana_cost_label: Label
 var _name_label:      Label
@@ -83,11 +101,7 @@ var _status_bar:  HBoxContainer
 
 var _bold_font: Font
 
-# Empty-slot panel styles (same coloured-border look as before)
-var _style_normal:   StyleBoxFlat
-var _style_valid:    StyleBoxFlat
-var _style_selected: StyleBoxFlat
-var _style_invalid:  StyleBoxFlat
+var _is_hovered: bool = false
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -99,6 +113,8 @@ func _ready() -> void:
 	_build_styles()
 	_build_visuals()
 	gui_input.connect(_on_gui_input)
+	mouse_entered.connect(_on_mouse_entered)
+	mouse_exited.connect(_on_mouse_exited)
 	_refresh_visuals()
 
 # ---------------------------------------------------------------------------
@@ -106,20 +122,7 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 func _build_styles() -> void:
-	_style_normal   = _make_style(Color(0.10, 0.10, 0.18, 1), Color(0.25, 0.25, 0.40, 1))
-	_style_valid    = _make_style(Color(0.08, 0.18, 0.10, 1), Color(0.20, 0.70, 0.25, 1))
-	_style_selected = _make_style(Color(0.20, 0.18, 0.05, 1), Color(0.85, 0.75, 0.10, 1))
-	_style_invalid  = _make_style(Color(0.18, 0.06, 0.06, 1), Color(0.70, 0.15, 0.15, 1))
-
-func _make_style(bg: Color, border: Color) -> StyleBoxFlat:
-	var s := StyleBoxFlat.new()
-	s.bg_color = bg
-	s.border_width_left   = 2; s.border_width_top    = 2
-	s.border_width_right  = 2; s.border_width_bottom = 2
-	s.border_color = border
-	s.corner_radius_top_left    = 8; s.corner_radius_top_right   = 8
-	s.corner_radius_bottom_right = 8; s.corner_radius_bottom_left = 8
-	return s
+	pass  # All highlight is handled via _overlay glow — no filled styles needed
 
 # ---------------------------------------------------------------------------
 # Build visual nodes
@@ -148,12 +151,14 @@ func _build_visuals() -> void:
 	_frame_rect.visible      = false
 	add_child(_frame_rect)
 
-	# --- Highlight overlay ---
-	_overlay = ColorRect.new()
+	# --- Highlight overlay (border-glow panel, transparent bg) ---
+	_overlay = Panel.new()
 	_overlay.position     = Vector2.ZERO
 	_overlay.size         = Vector2(SLOT_W, SLOT_H)
-	_overlay.color        = Color(0, 0, 0, 0)
 	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var _blank := StyleBoxFlat.new()
+	_blank.bg_color = Color(0, 0, 0, 0)
+	_overlay.add_theme_stylebox_override("panel", _blank)
 	add_child(_overlay)
 
 	# --- Labels (hidden until occupied) ---
@@ -202,6 +207,16 @@ func _on_gui_input(event: InputEvent) -> void:
 		else:
 			slot_clicked_occupied.emit(self, minion)
 
+func _on_mouse_entered() -> void:
+	_is_hovered = true
+	if _highlight_mode != HighlightMode.NONE:
+		_refresh_visuals()
+
+func _on_mouse_exited() -> void:
+	_is_hovered = false
+	if _highlight_mode != HighlightMode.NONE:
+		_refresh_visuals()
+
 # ---------------------------------------------------------------------------
 # Minion placement
 # ---------------------------------------------------------------------------
@@ -242,15 +257,30 @@ func _refresh_visuals() -> void:
 	else:
 		_show_occupied_state()
 
+const _ABYSS_HEROES     := ["lord_vael"]
+const _ABYSS_EMPTY_SLOT := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
+
 func _show_empty_state() -> void:
+	# Always transparent panel bg — highlight is purely a border glow
+	var blank := StyleBoxFlat.new()
+	blank.bg_color = Color(0, 0, 0, 0)
+	add_theme_stylebox_override("panel", blank)
+
+	# Abyss hero: show empty slot image
+	if GameManager.current_hero in _ABYSS_HEROES and ResourceLoader.exists(_ABYSS_EMPTY_SLOT):
+		_frame_rect.texture = load(_ABYSS_EMPTY_SLOT)
+		_frame_rect.visible = true
+	else:
+		_frame_rect.visible = false
+
+	# Border glow overlay (same as occupied slots)
 	match _highlight_mode:
-		HighlightMode.VALID_TARGET: add_theme_stylebox_override("panel", _style_valid)
-		HighlightMode.SELECTED:     add_theme_stylebox_override("panel", _style_selected)
-		HighlightMode.INVALID:      add_theme_stylebox_override("panel", _style_invalid)
-		_:                          add_theme_stylebox_override("panel", _style_normal)
-	_overlay.color      = Color(0, 0, 0, 0)
-	_frame_rect.visible = false
-	_art_rect.visible   = false
+		HighlightMode.VALID_TARGET: _set_overlay_glow(Color(0.20, 0.70, 0.25, 1))
+		HighlightMode.SELECTED:     _set_overlay_glow(Color(0.85, 0.75, 0.10, 1))
+		HighlightMode.INVALID:      _set_overlay_glow(Color(0.70, 0.15, 0.15, 1))
+		_:                          _clear_overlay()
+
+	_art_rect.visible = false
 	_set_labels_visible(false)
 
 func _show_occupied_state() -> void:
@@ -259,22 +289,52 @@ func _show_occupied_state() -> void:
 	blank.bg_color = Color(0, 0, 0, 0)
 	add_theme_stylebox_override("panel", blank)
 
-	# Highlight overlay tint
+	# Highlight: border glow on the overlay Panel (no fill tint)
 	match _highlight_mode:
-		HighlightMode.VALID_TARGET: _overlay.color = Color(0.15, 0.80, 0.25, 0.28)
-		HighlightMode.SELECTED:     _overlay.color = Color(0.90, 0.80, 0.10, 0.32)
-		HighlightMode.INVALID:      _overlay.color = Color(0.80, 0.10, 0.10, 0.28)
-		_:                          _overlay.color = Color(0, 0, 0, 0)
+		HighlightMode.VALID_TARGET: _set_overlay_glow(Color(0.20, 0.70, 0.25, 1))
+		HighlightMode.SELECTED:     _set_overlay_glow(Color(0.85, 0.75, 0.10, 1))
+		HighlightMode.INVALID:      _set_overlay_glow(Color(0.70, 0.15, 0.15, 1))
+		_:                          _clear_overlay()
 
 	_frame_rect.visible = true
-	# Swap frame for dual-cost minions
+	# Pick frame based on faction, dual-cost, and shield state
 	var _md_check := minion.card_data as MinionCardData
 	var _is_dual  := _md_check != null and _md_check.mana_cost > 0
-	var _frame_path := "res://assets/art/frames/abyss_order/abyss_dual_battlefield_minion.png" \
-		if _is_dual else "res://assets/art/frames/abyss_order/abyss_battlefield_minion.png"
+	var _has_shield := minion.has_shield() and minion.current_shield > 0
+	var _faction := minion.card_data.faction
+	var _use_generic := not _has_shield and (_faction == "abyss_order" or _faction == "neutral")
+	var _frame_path: String
+	if _use_generic:
+		_frame_path = "res://assets/art/frames/abyss_order/abyss_battlefield_minion_generic.png"
+	elif _faction == "neutral":
+		_frame_path = "res://assets/art/frames/neutral/neutral_dual_battlefield_minion.png" \
+			if _is_dual else "res://assets/art/frames/neutral/neutral_battlefield_minion.png"
+	else:
+		_frame_path = "res://assets/art/frames/abyss_order/abyss_dual_battlefield_minion.png" \
+			if _is_dual else "res://assets/art/frames/abyss_order/abyss_battlefield_minion.png"
 	if ResourceLoader.exists(_frame_path):
 		_frame_rect.texture = load(_frame_path)
-	_set_labels_visible(true)
+	_set_labels_visible(true, _use_generic)
+
+	# Reposition art rect based on which layout is active
+	if _use_generic:
+		_art_rect.position = _CFG_GENERIC["art"]["pos"]
+		_art_rect.size     = _CFG_GENERIC["art"]["size"]
+		_status_bar.position = _CFG_GENERIC["status"]["pos"]
+		_status_bar.size     = _CFG_GENERIC["status"]["size"]
+		_atk_label.position = _CFG_GENERIC["atk"]["pos"]
+		_atk_label.size     = _CFG_GENERIC["atk"]["size"]
+		_hp_label.position  = _CFG_GENERIC["hp"]["pos"]
+		_hp_label.size      = _CFG_GENERIC["hp"]["size"]
+	else:
+		_art_rect.position = _CFG["art"]["pos"]
+		_art_rect.size     = _CFG["art"]["size"]
+		_status_bar.position = _CFG["status"]["pos"]
+		_status_bar.size     = _CFG["status"]["size"]
+		_atk_label.position = _CFG["atk"]["pos"]
+		_atk_label.size     = _CFG["atk"]["size"]
+		_hp_label.position  = _CFG["hp"]["pos"]
+		_hp_label.size      = _CFG["hp"]["size"]
 
 	# Art — prefer battlefield_art_path when set, fall back to art_path
 	_art_rect.visible = true
@@ -287,12 +347,13 @@ func _show_occupied_state() -> void:
 	else:
 		_art_rect.texture = null
 
-	# Cost — essence always top-left; mana top-right for dual-cost minions only
+	# Cost — essence always top-left; mana top-right for dual-cost minions only.
+	# Generic frame hides both cost labels entirely.
 	var md := minion.card_data as MinionCardData
 	if md:
 		_cost_label.text      = str(md.essence_cost)
 		_mana_cost_label.text = str(md.mana_cost) if md.mana_cost > 0 else ""
-		_mana_cost_label.visible = md.mana_cost > 0
+		_mana_cost_label.visible = md.mana_cost > 0 and not _use_generic
 	else:
 		_cost_label.text         = ""
 		_mana_cost_label.text    = ""
@@ -340,11 +401,32 @@ func _show_occupied_state() -> void:
 
 	_status_bar.visible = _status_bar.get_child_count() > 0
 
-func _set_labels_visible(v: bool) -> void:
-	_cost_label.visible = v
-	if not v:
+func _set_overlay_glow(color: Color) -> void:
+	var border_w: int  = 4  if _is_hovered else 3
+	var shadow_sz: int = 10 if _is_hovered else 6
+	var shadow_a: float = 0.75 if _is_hovered else 0.50
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0, 0, 0, 0)
+	s.border_width_left   = border_w; s.border_width_top    = border_w
+	s.border_width_right  = border_w; s.border_width_bottom = border_w
+	s.border_color = color
+	s.corner_radius_top_left    = 8; s.corner_radius_top_right   = 8
+	s.corner_radius_bottom_right = 8; s.corner_radius_bottom_left = 8
+	s.shadow_color = Color(color.r, color.g, color.b, shadow_a)
+	s.shadow_size  = shadow_sz
+	_overlay.add_theme_stylebox_override("panel", s)
+
+func _clear_overlay() -> void:
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0, 0, 0, 0)
+	_overlay.add_theme_stylebox_override("panel", s)
+
+func _set_labels_visible(v: bool, generic: bool = false) -> void:
+	# Generic frame hides cost and name — only art, status bar, ATK, HP shown
+	_cost_label.visible = v and not generic
+	if not v or generic:
 		_mana_cost_label.visible = false  # shown per-minion only when dual-cost
-	_name_label.visible = v
+	_name_label.visible = v and not generic
 	_atk_label.visible  = v
 	_hp_label.visible   = v
 	if not v:

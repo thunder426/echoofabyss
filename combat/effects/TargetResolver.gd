@@ -69,7 +69,8 @@ static func _passes_filter(filter: EffectStep.MinionFilter, target, ctx: EffectC
 		EffectStep.MinionFilter.HUMAN:     return target.card_data.minion_type == Enums.MinionType.HUMAN
 		EffectStep.MinionFilter.SPIRIT:    return target.card_data.minion_type == Enums.MinionType.SPIRIT
 		EffectStep.MinionFilter.BEAST:     return target.card_data.minion_type == Enums.MinionType.BEAST
-		EffectStep.MinionFilter.VOID_IMP:  return ctx.scene._minion_has_tag(target, "void_imp")
+		EffectStep.MinionFilter.VOID_IMP:   return ctx.scene._minion_has_tag(target, "void_imp")
+		EffectStep.MinionFilter.FERAL_IMP:  return ctx.scene._minion_has_tag(target, "feral_imp")
 		EffectStep.MinionFilter.CORRUPTED: return BuffSystem.has_type(target, Enums.BuffType.CORRUPTION)
 		_: return true
 

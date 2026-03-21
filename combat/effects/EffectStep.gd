@@ -55,6 +55,7 @@ enum MinionFilter {
 	SPIRIT,
 	BEAST,
 	VOID_IMP,    # Has "void_imp" tag
+	FERAL_IMP,   # Has "feral_imp" tag
 	CORRUPTED,   # Has at least one CORRUPTION buff stack
 	IS_RUNE,     # Target is a TrapCardData with is_rune=true
 }

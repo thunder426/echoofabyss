@@ -32,8 +32,6 @@ var enemy_trap_slot_panels: Array[Panel] = []
 var enemy_trap_slot_labels: Array[Label]  = []
 var turn_label: Label
 var deck_count_label: Label
-var _hp_panel: Panel      = null  # Repurposed as Hero Passives info panel
-var _hp_desc_label: Label = null
 var game_over_panel: Panel
 var game_over_label: Label
 var restart_button: Button
@@ -171,7 +169,6 @@ func _ready() -> void:
 	turn_manager.enemy_board = enemy_board
 	_setup_enemy_ai()
 	turn_manager.start_combat(deck)
-	_setup_hero_passives_panel()
 	_setup_enemy_status_panel()
 	_setup_player_status_panel()
 	_setup_large_preview()
@@ -241,14 +238,6 @@ func _find_nodes() -> void:
 			enemy_trap_slot_labels.append(panel.get_child(0) as Label)
 	turn_label      = $UI/TurnLabel      if has_node("UI/TurnLabel")      else null
 	deck_count_label = $UI/DeckSlot/DeckCountLabel if has_node("UI/DeckSlot/DeckCountLabel") else null
-	if has_node("UI/HeroPowerPanel"):
-		_hp_panel      = $UI/HeroPowerPanel
-		_hp_desc_label = $UI/HeroPowerPanel/HPDescLabel if $UI/HeroPowerPanel.has_node("HPDescLabel") else null
-		# Hide the old use-button and used-label nodes if they still exist in the scene
-		if $UI/HeroPowerPanel.has_node("HPUseButton"):
-			$UI/HeroPowerPanel.get_node("HPUseButton").visible = false
-		if $UI/HeroPowerPanel.has_node("HPUsedLabel"):
-			$UI/HeroPowerPanel.get_node("HPUsedLabel").visible = false
 	game_over_panel   = $UI/GameOverPanel
 	game_over_label   = $UI/GameOverPanel/GameOverLabel
 	restart_button    = $UI/GameOverPanel/RestartButton
@@ -317,9 +306,6 @@ func _connect_ui() -> void:
 		hand_display.card_hovered.connect(_show_large_preview)
 		hand_display.card_unhovered.connect(_hide_large_preview)
 		hand_display.card_deselected.connect(_on_hand_card_deselected)
-	if _hp_panel:
-		_hp_panel.mouse_entered.connect(_on_hero_passives_hover_enter)
-		_hp_panel.mouse_exited.connect(_on_hero_passives_hover_exit)
 	if restart_button:
 		restart_button.pressed.connect(_on_restart_pressed)
 	_connect_trap_and_env_hover()
@@ -603,14 +589,13 @@ func _update_environment_display() -> void:
 	if active_environment:
 		_apply_slot_style(environment_slot, Color(0.06, 0.14, 0.09, 1), Color(0.15, 0.75, 0.35, 1))
 		if environment_slot_name:
+			environment_slot_name.visible = true
 			environment_slot_name.text = active_environment.card_name
 		if environment_slot_desc:
 			environment_slot_desc.text = active_environment.passive_description
 		environment_slot.tooltip_text = _build_environment_tooltip(active_environment)
 	else:
-		_apply_slot_style(environment_slot, Color(0.08, 0.08, 0.14, 1), Color(0.22, 0.22, 0.38, 1))
-		if environment_slot_name:
-			environment_slot_name.text = "No Environment"
+		_apply_empty_slot(environment_slot, environment_slot_name)
 		if environment_slot_desc:
 			environment_slot_desc.text = ""
 		environment_slot.tooltip_text = ""
@@ -1239,6 +1224,48 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 					break
 			if not found:
 				_log("  Rune Seeker: no Rune in deck.", _LogType.PLAYER)
+		# --- Feral Imp Clan (Act 1 enemy cards) ---
+		"frenzied_imp_play":
+			var board := _friendly_board(ctx.owner)
+			var feral_count := 0
+			for m in board:
+				if m != ctx.source and _minion_has_tag(m, "feral_imp"):
+					feral_count += 1
+			var dmg := 100 + 100 * feral_count
+			var frenzied_target := _find_random_minion(_opponent_board(ctx.owner))
+			if frenzied_target:
+				_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _LogType.ENEMY)
+				combat_manager.apply_spell_damage(frenzied_target, dmg)
+			else:
+				_log("  Frenzied Imp: no target.", _LogType.ENEMY)
+		"void_screech":
+			var owner_board := _friendly_board(ctx.owner)
+			var feral_on_board := 0
+			for m in owner_board:
+				if _minion_has_tag(m, "feral_imp"):
+					feral_on_board += 1
+			var screech_dmg := 350 if feral_on_board >= 3 else 250
+			_on_hero_damaged(_opponent_of(ctx.owner), screech_dmg)
+			_log("  Void Screech: %d damage to hero (%d feral imps)." % [screech_dmg, feral_on_board], _LogType.ENEMY)
+		"brood_call":
+			var feral_ids: Array[String] = ["rabid_imp", "brood_imp", "imp_brawler", "void_touched_imp", "frenzied_imp", "matriarchs_broodling", "rogue_imp_elder"]
+			var pick := feral_ids[randi() % feral_ids.size()]
+			_summon_token(pick, ctx.owner)
+			_log("  Brood Call: summoned %s." % pick, _LogType.ENEMY)
+		"pack_frenzy":
+			var feral_board := _friendly_board(ctx.owner).duplicate()
+			for m in feral_board:
+				if _minion_has_tag(m, "feral_imp"):
+					BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 250, "pack_frenzy")
+					if m.state == Enums.MinionState.EXHAUSTED:
+						m.state = Enums.MinionState.SWIFT
+					_refresh_slot_for(m)
+			_log("  Pack Frenzy: all Feral Imps +250 ATK and SWIFT.", _LogType.ENEMY)
+		"rogue_imp_elder_remove":
+			var elder_board := _friendly_board(ctx.owner)
+			for m in elder_board:
+				BuffSystem.remove_source(m, "rogue_imp_elder")
+				_refresh_slot_for(m)
 		_:
 			_resolve_spell_effect(id, ctx.chosen_target, ctx.owner)
 
@@ -1758,6 +1785,7 @@ func _update_trap_display() -> void:
 		var lbl   := trap_slot_labels[i]
 		if i < active_traps.size():
 			var trap := active_traps[i]
+			lbl.visible = true
 			if trap.is_rune:
 				# Rune: face-up, persistent — purple/void colour scheme
 				_apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), Color(0.65, 0.25, 0.90, 1))
@@ -1769,8 +1797,7 @@ func _update_trap_display() -> void:
 				lbl.text = trap.card_name
 				panel.tooltip_text = "%s\n─\n%s" % [trap.card_name, trap.description]
 		else:
-			_apply_slot_style(panel, Color(0.08, 0.08, 0.14, 1), Color(0.22, 0.22, 0.38, 1))
-			lbl.text = "[ — ]"
+			_apply_empty_slot(panel, lbl)
 			panel.tooltip_text = ""
 
 # ---------------------------------------------------------------------------
@@ -1931,10 +1958,13 @@ func _update_enemy_trap_display() -> void:
 	for i in enemy_trap_slot_panels.size():
 		var panel := enemy_trap_slot_panels[i]
 		var lbl   := enemy_trap_slot_labels[i]
-		_apply_slot_style(panel, Color(0.08, 0.08, 0.14, 1), Color(0.22, 0.22, 0.38, 1))
-		lbl.text = "[ — ]"
+		_apply_empty_slot(panel, lbl)
 
 func _apply_slot_style(panel: Panel, bg: Color, border: Color) -> void:
+	# Hide empty-slot image if the slot is now occupied/styled
+	var img := panel.get_node_or_null("_empty_slot_bg") as TextureRect
+	if img:
+		img.visible = false
 	var style := StyleBoxFlat.new()
 	style.bg_color            = bg
 	style.border_width_left   = 2
@@ -1947,6 +1977,40 @@ func _apply_slot_style(panel: Panel, bg: Color, border: Color) -> void:
 	style.corner_radius_bottom_right = 4
 	style.corner_radius_bottom_left  = 4
 	panel.add_theme_stylebox_override("panel", style)
+
+const _ABYSS_EMPTY_SLOT_PATH := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
+const _ABYSS_HEROES_LIST     := ["lord_vael"]
+
+## Apply the abyss empty-slot image (or fallback dark style) to a plain Panel.
+## Pass lbl=null if the panel has no text label to manage.
+func _apply_empty_slot(panel: Panel, lbl: Label) -> void:
+	var is_abyss: bool = GameManager.current_hero in _ABYSS_HEROES_LIST
+	var img := panel.get_node_or_null("_empty_slot_bg") as TextureRect
+	if is_abyss and ResourceLoader.exists(_ABYSS_EMPTY_SLOT_PATH):
+		# Transparent panel so the image shows through
+		var blank := StyleBoxFlat.new()
+		blank.bg_color = Color(0, 0, 0, 0)
+		panel.add_theme_stylebox_override("panel", blank)
+		# Create image node on first use
+		if img == null:
+			img = TextureRect.new()
+			img.name = "_empty_slot_bg"
+			img.stretch_mode = TextureRect.STRETCH_SCALE
+			img.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+			img.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			img.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			panel.add_child(img)
+		img.texture = load(_ABYSS_EMPTY_SLOT_PATH)
+		img.visible = true
+		if lbl:
+			lbl.visible = false
+	else:
+		if img:
+			img.visible = false
+		_apply_slot_style(panel, Color(0.08, 0.08, 0.14, 1), Color(0.22, 0.22, 0.38, 1))
+		if lbl:
+			lbl.text    = "[ — ]"
+			lbl.visible = true
 
 # ---------------------------------------------------------------------------
 # Hero attack helpers
@@ -1982,63 +2046,6 @@ func _on_enemy_hero_frame_input(event: InputEvent) -> void:
 # ---------------------------------------------------------------------------
 # Hero passives panel
 # ---------------------------------------------------------------------------
-
-## Initialise the panel on combat load — show compact hero name.
-func _setup_hero_passives_panel() -> void:
-	if not _hp_panel:
-		return
-	if _hp_desc_label:
-		_hp_desc_label.text = _hero_passives_compact()
-
-## Compact one-liner shown at rest.
-func _hero_passives_compact() -> String:
-	var hero := HeroDatabase.get_hero(GameManager.current_hero)
-	if hero == null:
-		return "Hero Passives"
-	var talent_count := GameManager.unlocked_talents.size()
-	if talent_count > 0:
-		return "%s  (%d talent%s)\n[ Hover for details ]" % [hero.hero_name, talent_count, "s" if talent_count != 1 else ""]
-	return "%s\n[ Hover for passives ]" % hero.hero_name
-
-## Full descriptions shown on hover.
-## Shows always-on hero passives, then each unlocked talent by branch.
-func _hero_passives_detail() -> String:
-	var hero := HeroDatabase.get_hero(GameManager.current_hero)
-	if hero == null:
-		return ""
-	var lines: Array[String] = [
-		"%s, %s" % [hero.hero_name, hero.title],
-		"━━━━━━━━━━━━━━━━━━",
-		"[Always On]",
-	]
-	for p in hero.passives:
-		lines.append(p.description)
-	var unlocked: Array[String] = GameManager.unlocked_talents
-	if unlocked.is_empty():
-		lines.append("── No talents unlocked ──")
-		return "\n".join(lines)
-	# Group by branch for readability
-	for branch_id in hero.talent_branch_ids:
-		var branch_talents := TalentDatabase.get_branch(branch_id)
-		var has_any := false
-		var branch_lines: Array[String] = []
-		for t in branch_talents:
-			if t.id in unlocked:
-				if not has_any:
-					branch_lines.append("── %s ──" % TalentDatabase.get_branch_display_name(branch_id))
-					has_any = true
-				branch_lines.append("● %s: %s" % [t.talent_name, t.description])
-		if has_any:
-			lines.append_array(branch_lines)
-	return "\n".join(lines)
-
-func _on_hero_passives_hover_enter() -> void:
-	if _hp_desc_label:
-		_hp_desc_label.text = _hero_passives_detail()
-
-func _on_hero_passives_hover_exit() -> void:
-	if _hp_desc_label:
-		_hp_desc_label.text = _hero_passives_compact()
 
 func _setup_enemy_status_panel() -> void:
 	var ui_root: Node = get_node_or_null("UI")
@@ -2604,6 +2611,7 @@ func _setup_triggers() -> void:
 	# ON_ENEMY_MINION_SUMMONED — on-play (priority 5) and on-summon (priority 6), before traps (30)
 	# -----------------------------------------------------------------------
 	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_enemy_minion_on_play,          5)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_rogue_imp_elder_aura, 7)
 
 	# -----------------------------------------------------------------------
 	# Trap routing for enemy actions  (priority 30 — after any future pre-trap passives)
@@ -2932,6 +2940,17 @@ func _handler_enemy_minion_on_play(ctx: EventContext) -> void:
 		ectx.source = minion
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
 
+
+## Apply Rogue Imp Elder +100 ATK aura to a newly summoned enemy feral imp.
+func _handler_rogue_imp_elder_aura(ctx: EventContext) -> void:
+	var summoned := ctx.minion
+	if summoned == null or not _minion_has_tag(summoned, "feral_imp"):
+		return
+	var has_elder := enemy_board.any(func(m: MinionInstance) -> bool: return m.card_data.id == "rogue_imp_elder" and m != summoned)
+	if has_elder:
+		BuffSystem.apply(summoned, Enums.BuffType.ATK_BONUS, 100, "rogue_imp_elder")
+		_refresh_slot_for(summoned)
+		_log("  Rogue Imp Elder aura: %s enters with +100 ATK." % summoned.card_data.card_name, _LogType.ENEMY)
 
 # ---------------------------------------------------------------------------
 # ON_ENEMY_MINION_SUMMONED / ON_ENEMY_SPELL_CAST / ON_ENEMY_ATTACK / ON_HERO_DAMAGED

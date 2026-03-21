@@ -27,6 +27,7 @@ func _build_ui() -> void:
 	var enemy: EnemyData = GameManager.current_enemy
 	if enemy == null:
 		push_error("EncounterLoadingScene: current_enemy is null")
+		GameManager.go_to_scene("res://ui/MainMenu.tscn")
 		return
 
 	var vp := get_viewport_rect().size
