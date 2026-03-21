@@ -74,6 +74,11 @@ var enemy_hp: int = 30
 # Currently selected attacker (if player clicked one of their minions)
 var selected_attacker: MinionInstance = null
 
+# Attack animation — captured BEFORE resolve_minion_attack so death doesn't erase them
+var _anim_pre_hp:   int       = 0
+var _anim_atk_slot: BoardSlot = null
+var _anim_def_slot: BoardSlot = null
+
 # Card the player is currently trying to play (dragged or clicked from hand)
 var pending_play_card: CardData = null
 
@@ -505,18 +510,21 @@ func _try_play_spell(spell: SpellCardData) -> void:
 			hand_display.deselect_current()
 		return
 	_log("You cast: %s" % spell.card_name)
-	if not spell.effect_steps.is_empty():
-		EffectResolver.run(spell.effect_steps, EffectContext.make(self, "player"))
-	else:
-		_resolve_spell_effect(spell.effect_id, null)
 	turn_manager.remove_from_hand(spell)
 	if hand_display:
 		hand_display.remove_card(spell)
 		hand_display.deselect_current()
 	pending_play_card = null
-	var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-	spell_ctx.card = spell
-	trigger_manager.fire(spell_ctx)
+	# Show large card preview; resolve effects on impact so damage visuals sync
+	_show_spell_cast_anim(spell, false, func() -> void:
+		if not spell.effect_steps.is_empty():
+			EffectResolver.run(spell.effect_steps, EffectContext.make(self, "player"))
+		else:
+			_resolve_spell_effect(spell.effect_id, null)
+		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+		spell_ctx.card = spell
+		trigger_manager.fire(spell_ctx)
+	)
 
 func _try_play_trap(trap: TrapCardData) -> void:
 	if active_traps.size() >= trap_slot_panels.size():
@@ -708,6 +716,11 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if CombatManager.board_has_taunt(enemy_board) and not minion.has_guard():
 		return  # Invalid target
 	_log("Your %s attacks enemy %s" % [selected_attacker.card_data.card_name, minion.card_data.card_name])
+	_anim_pre_hp   = minion.current_health
+	_anim_atk_slot = _find_slot_for(selected_attacker)
+	_anim_def_slot = _find_slot_for(minion)
+	if _anim_atk_slot: _anim_atk_slot.freeze_visuals = true
+	if _anim_def_slot: _anim_def_slot.freeze_visuals = true
 	combat_manager.resolve_minion_attack(selected_attacker, minion)
 	selected_attacker = null
 	_clear_all_highlights()
@@ -1124,14 +1137,14 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 			if not all_minions.is_empty():
 				var hit := all_minions[randi() % all_minions.size()]
 				_log("  Abyss Ritual Circle: 100 damage to %s." % hit.card_data.card_name, _LogType.PLAYER)
-				combat_manager.apply_spell_damage(hit, 100)
+				_spell_dmg(hit, 100)
 		# --- Ritual effects ---
 		"demon_ascendant":
 			_log("  Demon Ascendant: deal 200 damage to 2 random enemy minions.", _LogType.PLAYER)
 			for _i in 2:
 				var target_m := _find_random_enemy_minion()
 				if target_m:
-					combat_manager.apply_spell_damage(target_m, 200)
+					_spell_dmg(target_m, 200)
 			_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", _LogType.PLAYER)
 			for slot in player_slots:
 				if slot.is_empty():
@@ -1185,12 +1198,12 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 			if rune_count >= 2:
 				_log("  Runic Blast: 2+ Runes active — 200 damage to ALL enemy minions!", _LogType.PLAYER)
 				for m in enemy_board.duplicate():
-					combat_manager.apply_spell_damage(m, 200)
+					_spell_dmg(m, 200)
 			else:
 				var target_m := _find_random_enemy_minion()
 				if target_m:
 					_log("  Runic Blast: 200 damage to %s." % target_m.card_data.card_name, _LogType.PLAYER)
-					combat_manager.apply_spell_damage(target_m, 200)
+					_spell_dmg(target_m, 200)
 				else:
 					_log("  Runic Blast: no enemy minions.", _LogType.PLAYER)
 		# --- vael_rune_master: Runic Echo ---
@@ -1235,7 +1248,7 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 			var frenzied_target := _find_random_minion(_opponent_board(ctx.owner))
 			if frenzied_target:
 				_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _LogType.ENEMY)
-				combat_manager.apply_spell_damage(frenzied_target, dmg)
+				_spell_dmg(frenzied_target, dmg)
 			else:
 				_log("  Frenzied Imp: no target.", _LogType.ENEMY)
 		"void_screech":
@@ -1478,8 +1491,18 @@ func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 # ---------------------------------------------------------------------------
 
 func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> void:
-	_refresh_slot_for(attacker)
-	_refresh_slot_for(defender)
+	var damage: int = max(0, _anim_pre_hp - defender.current_health)
+	_anim_pre_hp = 0
+	var a := _anim_atk_slot
+	var d := _anim_def_slot
+	_anim_atk_slot = null
+	_anim_def_slot = null
+	if a and d:
+		# Refresh happens inside _play_attack_anim after the lunge completes
+		_play_attack_anim(a, d, damage, attacker, defender)
+	else:
+		_refresh_slot_for(attacker)
+		_refresh_slot_for(defender)
 	# ON_ENEMY_ATTACK traps fire BEFORE the attack (in _on_enemy_about_to_attack /
 	# _on_enemy_attacking_hero) so they can cancel it via Smoke Veil, deal damage
 	# first via Hidden Ambush, etc.
@@ -1515,8 +1538,9 @@ func _on_hero_damaged(target: String, amount: int) -> void:
 		_update_player_status_panel()
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
 		if player_hp <= 0:
-			_on_defeat()
+			_flash_hero("player", amount, _on_defeat)
 		else:
+			_flash_hero("player", amount)
 			var _ctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
 			_ctx.damage = amount
 			trigger_manager.fire(_ctx)
@@ -1525,7 +1549,9 @@ func _on_hero_damaged(target: String, amount: int) -> void:
 		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], _LogType.DAMAGE)
 		_update_enemy_status_panel()
 		if enemy_hp <= 0:
-			_on_victory()
+			_flash_hero("enemy", amount, _on_victory)
+		else:
+			_flash_hero("enemy", amount)
 
 func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":
@@ -1768,16 +1794,21 @@ func _on_enemy_minion_summoned(minion: MinionInstance) -> void:
 ## Called by EnemyAI's enemy_spell_cast signal.
 func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	_log("Enemy casts: %s" % spell.card_name, _LogType.ENEMY)
-	# Fire ON_ENEMY_SPELL_CAST BEFORE resolving the spell so Null Seal can set _spell_cancelled.
+	# Fire ON_ENEMY_SPELL_CAST BEFORE resolving so Null Seal can set _spell_cancelled.
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
 	ctx.card = spell
 	trigger_manager.fire(ctx)
-	if not _spell_cancelled:
+	var was_cancelled := _spell_cancelled
+	_spell_cancelled = false
+	if was_cancelled:
+		return
+	# Show large card preview; resolve effects on impact so damage visuals sync
+	_show_spell_cast_anim(spell, true, func() -> void:
 		if not spell.effect_steps.is_empty():
 			EffectResolver.run(spell.effect_steps, EffectContext.make(self, "enemy"))
 		elif not spell.effect_id.is_empty():
 			_resolve_spell_effect(spell.effect_id, null, "enemy")
-	_spell_cancelled = false
+	)
 
 func _update_trap_display() -> void:
 	for i in trap_slot_panels.size():
@@ -2367,7 +2398,10 @@ func _on_enemy_hero_button_pressed() -> void:
 	if not selected_attacker.can_attack_hero():
 		return
 	_log("Your %s attacks Enemy Hero" % selected_attacker.card_data.card_name)
+	var _hero_atk_slot := _find_slot_for(selected_attacker)
 	combat_manager.resolve_minion_attack_hero(selected_attacker, "enemy")
+	if _hero_atk_slot and _enemy_status_panel:
+		_play_hero_attack_anim(_hero_atk_slot, _enemy_status_panel)
 	selected_attacker = null
 	_clear_all_highlights()
 	_show_hero_button(false)
@@ -2449,6 +2483,173 @@ func _find_slot_for(minion: MinionInstance) -> BoardSlot:
 	return null
 
 # ---------------------------------------------------------------------------
+# Attack animation — lunge + flash + damage popup
+# ---------------------------------------------------------------------------
+
+func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
+		attacker: MinionInstance = null, defender: MinionInstance = null) -> void:
+	var atk_rect  := atk_slot.get_global_rect()
+	var def_rect  := def_slot.get_global_rect()
+	var direction := (def_rect.get_center() - atk_rect.get_center()).normalized()
+	var lunge_pos := atk_rect.position + direction * 55.0
+
+	var orig_parent: Control = atk_slot.get_parent()
+	var orig_index:  int     = atk_slot.get_index()
+
+	# Placeholder keeps the gap in the HBoxContainer while slot is reparented
+	var placeholder := Control.new()
+	placeholder.custom_minimum_size = Vector2(BoardSlot.SLOT_W, BoardSlot.SLOT_H)
+	placeholder.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+	orig_parent.add_child(placeholder)
+	orig_parent.move_child(placeholder, orig_index)   # inserts before slot (slot shifts +1)
+	orig_parent.remove_child(atk_slot)                # remove slot; placeholder holds the gap
+
+	# Move slot to $UI so its position is free from container layout
+	$UI.add_child(atk_slot)
+	atk_slot.position = atk_rect.position
+	atk_slot.size     = atk_rect.size
+
+	var tw := create_tween()
+	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
+	tw.tween_callback(func() -> void:
+		_flash_slot(def_slot)
+		if damage > 0:
+			_spawn_damage_popup(def_rect.get_center(), damage)
+	)
+	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
+	tw.tween_callback(func() -> void:
+		$UI.remove_child(atk_slot)
+		orig_parent.add_child(atk_slot)
+		orig_parent.move_child(atk_slot, orig_index)
+		placeholder.queue_free()
+		# Unfreeze and refresh both slots now that lunge is done
+		atk_slot.freeze_visuals = false
+		def_slot.freeze_visuals = false
+		atk_slot._refresh_visuals()
+		def_slot._refresh_visuals()
+		if attacker: _refresh_slot_for(attacker)
+		if defender: _refresh_slot_for(defender)
+	)
+
+func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Panel) -> void:
+	var atk_rect   := atk_slot.get_global_rect()
+	var hero_rect  := hero_panel.get_global_rect()
+	var direction  := (hero_rect.get_center() - atk_rect.get_center()).normalized()
+	var lunge_pos  := atk_rect.position + direction * 55.0
+
+	var orig_parent: Control = atk_slot.get_parent()
+	var orig_index:  int     = atk_slot.get_index()
+
+	var placeholder := Control.new()
+	placeholder.custom_minimum_size = Vector2(BoardSlot.SLOT_W, BoardSlot.SLOT_H)
+	placeholder.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+	orig_parent.add_child(placeholder)
+	orig_parent.move_child(placeholder, orig_index)
+	orig_parent.remove_child(atk_slot)
+
+	$UI.add_child(atk_slot)
+	atk_slot.position = atk_rect.position
+	atk_slot.size     = atk_rect.size
+
+	var tw := create_tween()
+	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
+	tw.tween_callback(func() -> void:
+		# Flash the hero panel red on impact
+		var ftw := create_tween()
+		ftw.tween_property(hero_panel, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
+		ftw.tween_property(hero_panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
+	)
+	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
+	tw.tween_callback(func() -> void:
+		$UI.remove_child(atk_slot)
+		orig_parent.add_child(atk_slot)
+		orig_parent.move_child(atk_slot, orig_index)
+		placeholder.queue_free()
+		atk_slot._refresh_visuals()
+	)
+
+func _flash_slot(slot: BoardSlot) -> void:
+	var tw := create_tween()
+	tw.tween_property(slot, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
+	tw.tween_property(slot, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
+
+## Show a large centred card visual when a spell is cast.
+## Animates in → calls on_impact (damage resolves here) → holds → fades out.
+func _show_spell_cast_anim(spell: SpellCardData, is_enemy: bool, on_impact: Callable) -> void:
+	var cv: CardVisual = CARD_VISUAL_SCENE.instantiate() as CardVisual
+	cv.apply_size_mode("combat_preview")
+	cv.setup(spell)
+	cv.z_index = 100
+	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$UI.add_child(cv)
+	# Centre on screen
+	var vp      := get_viewport().get_visible_rect().size
+	var card_sz := Vector2(336.0, 504.0)
+	cv.position     = (vp - card_sz) * 0.5
+	cv.pivot_offset = card_sz * 0.5
+	# Optional tinted outline to distinguish enemy vs player cast
+	cv.modulate = Color(1.10, 0.85, 1.00, 0.0) if not is_enemy \
+		else Color(1.10, 0.75, 0.70, 0.0)
+	cv.scale = Vector2(0.65, 0.65)
+	var tw := create_tween()
+	# Animate in
+	tw.set_parallel(true)
+	tw.tween_property(cv, "modulate:a", 1.0, 0.22)
+	tw.tween_property(cv, "scale", Vector2(1.0, 1.0), 0.22) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.set_parallel(false)
+	tw.tween_interval(0.08)
+	# Impact: resolve spell effects, flash, damage numbers
+	tw.tween_callback(on_impact)
+	# Hold so player can read the card
+	tw.tween_interval(0.55)
+	# Animate out
+	tw.tween_property(cv, "modulate:a", 0.0, 0.22)
+	tw.tween_callback(cv.queue_free)
+
+## Wrapper: apply spell damage to a minion + show flash and damage popup.
+func _spell_dmg(target: MinionInstance, damage: int) -> void:
+	var slot := _find_slot_for(target)
+	combat_manager.apply_spell_damage(target, damage)
+	if slot:
+		_flash_slot(slot)
+		_spawn_damage_popup(slot.get_global_rect().get_center(), damage)
+
+## Flash a hero status panel and show a damage number.
+## on_done (optional) is called after the flash animation completes.
+func _flash_hero(target: String, amount: int, on_done: Callable = Callable()) -> void:
+	var panel := _player_status_panel if target == "player" else _enemy_status_panel
+	if panel == null:
+		if on_done.is_valid():
+			on_done.call()
+		return
+	var tw := create_tween()
+	tw.tween_property(panel, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
+	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
+	if on_done.is_valid():
+		tw.tween_callback(on_done)
+	_spawn_damage_popup(panel.get_global_rect().get_center(), amount)
+
+func _spawn_damage_popup(screen_center: Vector2, damage: int) -> void:
+	var lbl := Label.new()
+	lbl.text = "-%d" % damage
+	lbl.add_theme_font_size_override("font_size", 28)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.22, 0.22, 1.0))
+	var bold: Font = load("res://assets/fonts/cinzel/Cinzel-Bold.ttf") \
+		if ResourceLoader.exists("res://assets/fonts/cinzel/Cinzel-Bold.ttf") else null
+	if bold:
+		lbl.add_theme_font_override("font", bold)
+	lbl.z_index = 200
+	$UI.add_child(lbl)
+	lbl.position = screen_center - Vector2(18, 18)
+
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(lbl, "position", lbl.position + Vector2(0, -72), 0.75)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.75)
+	tw.chain().tween_callback(lbl.queue_free)
+
+# ---------------------------------------------------------------------------
 # Enemy attack visuals
 # ---------------------------------------------------------------------------
 
@@ -2459,6 +2660,11 @@ func _on_enemy_about_to_attack(attacker: MinionInstance, target: MinionInstance)
 		atk_slot.set_highlight(BoardSlot.HighlightMode.SELECTED)
 	if def_slot:
 		def_slot.set_highlight(BoardSlot.HighlightMode.INVALID)
+	_anim_pre_hp   = target.current_health
+	_anim_atk_slot = _find_slot_for(attacker)
+	_anim_def_slot = _find_slot_for(target)
+	if _anim_atk_slot: _anim_atk_slot.freeze_visuals = true
+	if _anim_def_slot: _anim_def_slot.freeze_visuals = true
 	_log("Enemy %s attacks your %s" % [attacker.card_data.card_name, target.card_data.card_name], _LogType.ENEMY)
 	# Fire ON_ENEMY_ATTACK BEFORE the attack resolves (enables cancel/pre-damage traps)
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
@@ -2474,6 +2680,8 @@ func _on_enemy_attacking_hero(attacker: MinionInstance) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
 	ctx.minion = attacker
 	trigger_manager.fire(ctx)
+	if atk_slot and _player_status_panel:
+		_play_hero_attack_anim(atk_slot, _player_status_panel)
 
 enum _LogType { TURN, PLAYER, ENEMY, DAMAGE, HEAL, TRAP, DEATH }
 const _LOG_MAX := 80

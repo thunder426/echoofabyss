@@ -374,6 +374,7 @@ func _register_wanderer_cards() -> void:
 	spell_taxer.minion_type    = Enums.MinionType.HUMAN
 	spell_taxer.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "spell_taxer_effect"}]
 	spell_taxer.faction        = "neutral"
+	spell_taxer.art_path       = "res://assets/art/minions/neutral/spell_taxer.png"
 	all.append(spell_taxer)
 
 	var saboteur_adept := MinionCardData.new()
@@ -386,6 +387,7 @@ func _register_wanderer_cards() -> void:
 	saboteur_adept.minion_type    = Enums.MinionType.HUMAN
 	saboteur_adept.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "saboteur_adept_effect"}]
 	saboteur_adept.faction        = "neutral"
+	saboteur_adept.art_path       = "res://assets/art/minions/neutral/sabateur_adept.png"
 	all.append(saboteur_adept)
 
 	var aether_bulwark := MinionCardData.new()
@@ -400,6 +402,7 @@ func _register_wanderer_cards() -> void:
 	aether_bulwark.minion_type = Enums.MinionType.CONSTRUCT
 	aether_bulwark.keywords.append(Enums.Keyword.SHIELD_REGEN_1)
 	aether_bulwark.faction     = "neutral"
+	aether_bulwark.art_path    = "res://assets/art/minions/neutral/aether_bulwark.png"
 	all.append(aether_bulwark)
 
 	# 4-cost
@@ -413,6 +416,7 @@ func _register_wanderer_cards() -> void:
 	bulwark_automaton.minion_type = Enums.MinionType.CONSTRUCT
 	bulwark_automaton.keywords    = [Enums.Keyword.DEATHLESS]
 	bulwark_automaton.faction     = "neutral"
+	bulwark_automaton.art_path    = "res://assets/art/minions/neutral/bulwark_automaton.png"
 	all.append(bulwark_automaton)
 
 	var wandering_warden := MinionCardData.new()
@@ -427,6 +431,7 @@ func _register_wanderer_cards() -> void:
 	wandering_warden.minion_type = Enums.MinionType.MERCENARY
 	wandering_warden.keywords.append(Enums.Keyword.SHIELD_REGEN_1)
 	wandering_warden.faction     = "neutral"
+	wandering_warden.art_path    = "res://assets/art/minions/neutral/wandering_warden.png"
 	all.append(wandering_warden)
 
 	# 5-cost
@@ -440,6 +445,7 @@ func _register_wanderer_cards() -> void:
 	ruins_archivist.minion_type    = Enums.MinionType.MERCENARY
 	ruins_archivist.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
 	ruins_archivist.faction        = "neutral"
+	ruins_archivist.art_path       = "res://assets/art/minions/neutral/ruins_archivist.png"
 	all.append(ruins_archivist)
 
 	# 6–8 cost (big threats)
@@ -451,6 +457,7 @@ func _register_wanderer_cards() -> void:
 	wildland_behemoth.health      = 600
 	wildland_behemoth.minion_type = Enums.MinionType.BEAST
 	wildland_behemoth.faction     = "neutral"
+	wildland_behemoth.art_path    = "res://assets/art/minions/neutral/wildland_behemoth.png"
 	all.append(wildland_behemoth)
 
 	var stone_sentinel := MinionCardData.new()
@@ -461,6 +468,7 @@ func _register_wanderer_cards() -> void:
 	stone_sentinel.health      = 600
 	stone_sentinel.minion_type = Enums.MinionType.MERCENARY
 	stone_sentinel.faction     = "neutral"
+	stone_sentinel.art_path    = "res://assets/art/minions/neutral/stone_sentinel.png"
 	all.append(stone_sentinel)
 
 	var rift_leviathan := MinionCardData.new()
@@ -471,6 +479,7 @@ func _register_wanderer_cards() -> void:
 	rift_leviathan.health      = 700
 	rift_leviathan.minion_type = Enums.MinionType.BEAST
 	rift_leviathan.faction     = "neutral"
+	rift_leviathan.art_path    = "res://assets/art/minions/neutral/rift_leviathan.png"
 	all.append(rift_leviathan)
 
 

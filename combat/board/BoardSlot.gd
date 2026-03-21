@@ -101,7 +101,8 @@ var _status_bar:  HBoxContainer
 
 var _bold_font: Font
 
-var _is_hovered: bool = false
+var _is_hovered:    bool = false
+var freeze_visuals: bool = false   # Set true during lunge to prevent empty-state flash
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -249,7 +250,7 @@ func clear_highlight() -> void:
 # ---------------------------------------------------------------------------
 
 func _refresh_visuals() -> void:
-	if _overlay == null:
+	if _overlay == null or freeze_visuals:
 		return
 
 	if minion == null:
