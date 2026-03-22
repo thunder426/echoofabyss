@@ -198,12 +198,12 @@ func _register_wanderer_cards() -> void:
 	dark_empowerment.id             = "dark_empowerment"
 	dark_empowerment.card_name      = "Dark Empowerment"
 	dark_empowerment.cost           = 1
-	dark_empowerment.description    = "Give a friendly minion +100 ATK. If it's a Demon, also give it +100 HP."
+	dark_empowerment.description    = "Give a friendly minion +150 ATK permanently. If it's a Demon, also give it +150 HP."
 	dark_empowerment.requires_target = true
 	dark_empowerment.target_type    = "friendly_minion"
 	dark_empowerment.effect_steps = [
-		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 100, "permanent": true},
-		{"type": "BUFF_HP",  "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 100, "conditions": ["is_demon"]},
+		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 150, "permanent": true},
+		{"type": "BUFF_HP",  "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 150, "conditions": ["is_demon"]},
 	]
 	dark_empowerment.faction        = "abyss_order"
 	dark_empowerment.art_path       = "res://assets/art/spells/abyss_order/dark_empowerment.png"
@@ -229,11 +229,10 @@ func _register_wanderer_cards() -> void:
 	abyssal_plague.id          = "abyssal_plague"
 	abyssal_plague.card_name   = "Abyssal Plague"
 	abyssal_plague.cost        = 2
-	abyssal_plague.description = "Apply 1 CORRUPTION to 2 random enemy minions. Deal 100 damage to all minions."
+	abyssal_plague.description = "Apply 1 CORRUPTION to all enemy minions. Deal 100 damage to all enemy minions."
 	abyssal_plague.effect_steps = [
-		{"type": "CORRUPTION",    "scope": "SINGLE_RANDOM", "amount": 1},
-		{"type": "CORRUPTION",    "scope": "SINGLE_RANDOM", "amount": 1},
-		{"type": "DAMAGE_MINION", "scope": "ALL_BOARD",     "amount": 100},
+		{"type": "CORRUPTION",    "scope": "ALL_ENEMY", "amount": 1},
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100},
 	]
 	abyssal_plague.faction     = "abyss_order"
 	abyssal_plague.art_path    = "res://assets/art/spells/abyss_order/abyssal_plague.png"
@@ -243,10 +242,10 @@ func _register_wanderer_cards() -> void:
 	void_summoning.id          = "void_summoning"
 	void_summoning.card_name   = "Void Summoning"
 	void_summoning.cost        = 2
-	void_summoning.description = "Summon a 200/200 Demon. If you control any Human, summon a 300/300 Demon instead."
+	void_summoning.description = "Summon a 300/300 Demon. If you control any Human, summon a 400/400 Demon instead."
 	void_summoning.effect_steps = [
-		{"type": "SUMMON", "card_id": "void_demon", "conditions": ["not_has_friendly_human"]},
-		{"type": "SUMMON", "card_id": "void_demon", "conditions": ["has_friendly_human"], "token_atk": 300, "token_hp": 300},
+		{"type": "SUMMON", "card_id": "void_demon", "conditions": ["not_has_friendly_human"], "token_atk": 300, "token_hp": 300},
+		{"type": "SUMMON", "card_id": "void_demon", "conditions": ["has_friendly_human"],     "token_atk": 400, "token_hp": 400},
 	]
 	void_summoning.faction     = "abyss_order"
 	void_summoning.art_path    = "res://assets/art/spells/abyss_order/void_summoning.png"
@@ -256,11 +255,11 @@ func _register_wanderer_cards() -> void:
 	void_execution.id             = "void_execution"
 	void_execution.card_name      = "Void Execution"
 	void_execution.cost           = 3
-	void_execution.description    = "Deal 400 damage to a target enemy minion. If you control any Human, deal 600 instead."
+	void_execution.description    = "Deal 500 damage to a target enemy. If you control any Human, deal 700 instead."
 	void_execution.requires_target = true
-	void_execution.target_type    = "enemy_minion"
+	void_execution.target_type    = "enemy_minion_or_hero"
 	void_execution.effect_steps = [
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 400},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 500},
 		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 200, "conditions": ["has_friendly_human"]},
 	]
 	void_execution.faction        = "abyss_order"
@@ -274,6 +273,7 @@ func _register_wanderer_cards() -> void:
 	flux_siphon.description = "Convert up to 3 of your remaining Mana into Essence."
 	flux_siphon.effect_steps = [{"type": "CONVERT_RESOURCE", "convert_from": "mana", "convert_to": "essence", "amount": 3}]
 	flux_siphon.faction     = "neutral"
+	flux_siphon.art_path    = "res://assets/art/spells/neutral/flux_siphon.png"
 	all.append(flux_siphon)
 
 	# ---------------------------------------------------------------------------
@@ -320,8 +320,8 @@ func _register_wanderer_cards() -> void:
 	traveling_merchant.card_name      = "Traveling Merchant"
 	traveling_merchant.description    = "ON PLAY: draw a card."
 	traveling_merchant.essence_cost   = 2
-	traveling_merchant.atk            = 200
-	traveling_merchant.health         = 200
+	traveling_merchant.atk            = 100
+	traveling_merchant.health         = 100
 	traveling_merchant.minion_type    = Enums.MinionType.HUMAN
 	traveling_merchant.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
 	traveling_merchant.faction  = "neutral"
@@ -491,6 +491,7 @@ func _register_wanderer_cards() -> void:
 	energy_conversion.cost        = 0
 	energy_conversion.description = "Convert up to 3 of your remaining Essence into Mana."
 	energy_conversion.faction      = "neutral"
+	energy_conversion.art_path     = "res://assets/art/spells/neutral/energy_conversion.png"
 	energy_conversion.effect_steps = [{"type": "CONVERT_RESOURCE", "convert_from": "essence", "convert_to": "mana"}]
 	all.append(energy_conversion)
 
@@ -498,42 +499,46 @@ func _register_wanderer_cards() -> void:
 	arcane_strike.id              = "arcane_strike"
 	arcane_strike.card_name       = "Arcane Strike"
 	arcane_strike.cost            = 1
-	arcane_strike.description     = "Deal 200 damage to a target minion."
+	arcane_strike.description     = "Deal 300 damage to a target minion."
 	arcane_strike.requires_target = true
 	arcane_strike.target_type     = "any_minion"
 
 	arcane_strike.faction         = "neutral"
-	arcane_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 200}]
+	arcane_strike.art_path        = "res://assets/art/spells/neutral/arcane_strike.png"
+	arcane_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300}]
 	all.append(arcane_strike)
 
 	var purge := SpellCardData.new()
 	purge.id              = "purge"
 	purge.card_name       = "Purge"
 	purge.cost            = 1
-	purge.description     = "Remove all buffs from an enemy minion, or all debuffs from a friendly minion."
+	purge.description     = "Remove all runtime effects from a target minion."
 	purge.requires_target = true
 	purge.target_type     = "any_minion"
 	purge.faction         = "neutral"
+	purge.art_path        = "res://assets/art/spells/neutral/purge.png"
 	purge.effect_steps    = [{"type": "PURGE", "scope": "SINGLE_CHOSEN"}]
 	all.append(purge)
 
 	var cyclone := SpellCardData.new()
 	cyclone.id          = "cyclone"
 	cyclone.card_name   = "Cyclone"
-	cyclone.cost        = 2
+	cyclone.cost        = 1
 	cyclone.description    = "Destroy a target active Trap or the active Environment."
 	cyclone.requires_target = true
 	cyclone.target_type     = "trap_or_env"
 	cyclone.faction         = "neutral"
+	cyclone.art_path        = "res://assets/art/spells/neutral/cyclone.png"
 	all.append(cyclone)
 
 	var tactical_planning := SpellCardData.new()
 	tactical_planning.id          = "tactical_planning"
 	tactical_planning.card_name   = "Tactical Planning"
-	tactical_planning.cost        = 2
+	tactical_planning.cost        = 1
 	tactical_planning.description = "Draw a card."
 
 	tactical_planning.faction      = "neutral"
+	tactical_planning.art_path     = "res://assets/art/spells/neutral/tactical_planning.png"
 	tactical_planning.effect_steps = [{"type": "DRAW", "amount": 1}]
 	all.append(tactical_planning)
 
@@ -541,12 +546,13 @@ func _register_wanderer_cards() -> void:
 	precision_strike.id              = "precision_strike"
 	precision_strike.card_name       = "Precision Strike"
 	precision_strike.cost            = 3
-	precision_strike.description     = "Deal 400 damage to a target minion."
+	precision_strike.description     = "Deal 600 damage to a target minion."
 	precision_strike.requires_target = true
 	precision_strike.target_type     = "any_minion"
 
 	precision_strike.faction         = "neutral"
-	precision_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 400}]
+	precision_strike.art_path        = "res://assets/art/spells/neutral/precision_strike.png"
+	precision_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 600}]
 	all.append(precision_strike)
 
 	var hurricane := SpellCardData.new()
@@ -556,6 +562,7 @@ func _register_wanderer_cards() -> void:
 	hurricane.description = "Destroy all Traps and the active Environment on the battlefield, including your own."
 
 	hurricane.faction        = "neutral"
+	hurricane.art_path       = "res://assets/art/spells/neutral/hurricane.png"
 	hurricane.effect_steps   = [
 		{"type": "DESTROY", "scope": "ALL_TRAPS"},
 		{"type": "DESTROY", "scope": "ACTIVE_ENVIRONMENT"},
@@ -570,7 +577,7 @@ func _register_wanderer_cards() -> void:
 	var dark_covenant := EnvironmentCardData.new()
 	dark_covenant.id                    = "dark_covenant"
 	dark_covenant.card_name             = "Dark Covenant"
-	dark_covenant.cost                  = 3
+	dark_covenant.cost                  = 2
 	dark_covenant.description           = "While any friendly Human is on your board, your Demons have +100 ATK.\nWhile any friendly Demon is on your board, your Humans have +100 HP."
 	dark_covenant.passive_description   = "Demons have +100 ATK while a Human is present. Humans restore 100 HP each turn while a Demon is present."
 	dark_covenant.passive_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "dark_covenant_passive"}]
@@ -741,9 +748,9 @@ func _register_wanderer_cards() -> void:
 	void_bolt_spell.id             = "void_bolt"
 	void_bolt_spell.card_name      = "Void Bolt"
 	void_bolt_spell.cost           = 2
-	void_bolt_spell.description    = "Deal 350 Void Bolt damage to the enemy hero."
+	void_bolt_spell.description    = "Deal 500 Void Bolt damage to the enemy hero."
 	void_bolt_spell.effect_steps = [
-		{"type": "VOID_BOLT", "amount": 300},
+		{"type": "VOID_BOLT", "amount": 500},
 		{"type": "VOID_MARK", "amount": 1, "conditions": ["has_piercing_void"]},
 	]
 	void_bolt_spell.requires_target = false
@@ -757,39 +764,43 @@ func _register_wanderer_cards() -> void:
 	hidden_ambush.id           = "hidden_ambush"
 	hidden_ambush.card_name    = "Hidden Ambush"
 	hidden_ambush.cost         = 1
-	hidden_ambush.description  = "Trap: When an enemy minion attacks, deal 200 damage to that minion."
+	hidden_ambush.description  = "Trap: When an enemy minion attacks, deal 400 damage to that minion."
 	hidden_ambush.trigger      = Enums.TriggerEvent.ON_ENEMY_ATTACK
-	hidden_ambush.effect_steps = [{"type": "DAMAGE_MINION", "scope": "TRIGGER_MINION", "amount": 200}]
+	hidden_ambush.effect_steps = [{"type": "DAMAGE_MINION", "scope": "TRIGGER_MINION", "amount": 400}]
+	hidden_ambush.art_path     = "res://assets/art/traps/neutral/hidden_ambush.png"
 	hidden_ambush.faction      = "neutral"
 	all.append(hidden_ambush)
 
 	var smoke_veil := TrapCardData.new()
 	smoke_veil.id           = "smoke_veil"
 	smoke_veil.card_name    = "Smoke Veil"
-	smoke_veil.cost         = 3
+	smoke_veil.cost         = 2
 	smoke_veil.description  = "Trap: When an enemy minion attacks, cancel that attack and exhaust all enemy minions."
 	smoke_veil.trigger      = Enums.TriggerEvent.ON_ENEMY_ATTACK
 	smoke_veil.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "smoke_veil"}]
+	smoke_veil.art_path     = "res://assets/art/traps/neutral/smoke_veil.png"
 	smoke_veil.faction      = "neutral"
 	all.append(smoke_veil)
 
 	var silence_trap := TrapCardData.new()
 	silence_trap.id           = "silence_trap"
 	silence_trap.card_name    = "Silence Trap"
-	silence_trap.cost         = 3
+	silence_trap.cost         = 2
 	silence_trap.description  = "Trap: When the enemy casts a spell, cancel that spell entirely."
 	silence_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_SPELL_CAST
 	silence_trap.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "silence_trap"}]
+	silence_trap.art_path     = "res://assets/art/traps/neutral/silence_trap.png"
 	silence_trap.faction      = "neutral"
 	all.append(silence_trap)
 
 	var death_trap := TrapCardData.new()
 	death_trap.id           = "death_trap"
 	death_trap.card_name    = "Death Trap"
-	death_trap.cost         = 3
+	death_trap.cost         = 2
 	death_trap.description  = "Trap: When the enemy summons a minion, destroy that minion immediately."
 	death_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
 	death_trap.effect_steps = [{"type": "SACRIFICE", "scope": "TRIGGER_MINION"}]
+	death_trap.art_path     = "res://assets/art/traps/neutral/death_trap.png"
 	death_trap.faction      = "neutral"
 	all.append(death_trap)
 
@@ -815,7 +826,7 @@ func _register_wanderer_cards() -> void:
 	void_detonation.id          = "void_detonation"
 	void_detonation.card_name   = "Void Detonation"
 	void_detonation.cost        = 4
-	void_detonation.description = "Deal 150 Void Bolt damage to the enemy hero. Gain +50 damage per VOID MARK."
+	void_detonation.description = "Deal 500 Void Bolt damage to the enemy hero. Gain +50 damage per VOID MARK."
 	void_detonation.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_detonation_effect"}]
 	void_detonation.faction     = "abyss_order"
 	all.append(void_detonation)
@@ -916,13 +927,10 @@ func _register_wanderer_cards() -> void:
 	soul_shatter.id          = "soul_shatter"
 	soul_shatter.card_name   = "Soul Shatter"
 	soul_shatter.cost        = 3
-	soul_shatter.description    = "Sacrifice a friendly Demon. Deal 200 damage to all enemy minions."
+	soul_shatter.description    = "Sacrifice a friendly Demon. Deal 200 AoE to all enemy minions. Deal 300 instead if the sacrifice had 300+ HP."
 	soul_shatter.requires_target = true
 	soul_shatter.target_type     = "friendly_demon"
-	soul_shatter.effect_steps    = [
-		{"type": "SACRIFICE",     "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON"},
-		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY",              "amount": 200},
-	]
+	soul_shatter.effect_steps    = [{"type": "HARDCODED", "hardcoded_id": "soul_shatter"}]
 	soul_shatter.faction     = "abyss_order"
 	soul_shatter.art_path    = "res://assets/art/spells/abyss_order/soul_shatter.png"
 	all.append(soul_shatter)
@@ -1020,7 +1028,7 @@ func _register_wanderer_cards() -> void:
 	var abyssal_summoning_circle := EnvironmentCardData.new()
 	abyssal_summoning_circle.id                         = "abyssal_summoning_circle"
 	abyssal_summoning_circle.card_name                  = "Abyssal Summoning Circle"
-	abyssal_summoning_circle.cost                       = 3
+	abyssal_summoning_circle.cost                       = 2
 	abyssal_summoning_circle.description                = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero. \nRITUAL: Blood + Dominion → Demon Ascendant."
 	abyssal_summoning_circle.passive_description        = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero."
 	abyssal_summoning_circle.on_player_minion_died_steps = [{"type": "DAMAGE_HERO", "amount": 200, "conditions": ["dead_is_demon"]}]
@@ -1045,7 +1053,7 @@ func _register_wanderer_cards() -> void:
 	var abyss_ritual_circle := EnvironmentCardData.new()
 	abyss_ritual_circle.id                  = "abyss_ritual_circle"
 	abyss_ritual_circle.card_name           = "Abyss Ritual Circle"
-	abyss_ritual_circle.cost                = 3
+	abyss_ritual_circle.cost                = 2
 	abyss_ritual_circle.description         = "Each turn, deal 100 damage to a random minion (both sides). \nRITUAL: Void + Blood → Soul Cataclysm."
 	abyss_ritual_circle.passive_description = "At the start of each turn, deal 100 damage to a random minion on the battlefield."
 	abyss_ritual_circle.passive_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "abyss_ritual_circle_passive"}]
@@ -1148,7 +1156,7 @@ func _register_wanderer_cards() -> void:
 	runic_blast.id          = "runic_blast"
 	runic_blast.card_name   = "Runic Blast"
 	runic_blast.cost        = 2
-	runic_blast.description = "Deal 200 damage to a random enemy minion. If you have 2+ Runes, deal 200 to ALL enemy minions instead."
+	runic_blast.description = "Deal 200 damage to 2 random enemy minions. If you have 2+ Runes, deal 200 to ALL enemy minions instead."
 	runic_blast.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "runic_blast"}]
 	runic_blast.faction     = "abyss_order"
 	all.append(runic_blast)

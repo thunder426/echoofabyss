@@ -13,3 +13,7 @@ extends Resource
 @export var story: String = ""
 ## Path to the full-screen background art for the encounter loading screen.
 @export var background_path: String = "res://assets/art/progression/backgrounds/a1_combat_background.png"
+## Passive IDs active for this encounter (e.g. "feral_instinct", "pack_instinct").
+@export var passives: Array[String] = []
+## AI behaviour profile ID. "default" = generic EnemyAI logic; others are encounter-specific.
+@export var ai_profile: String = "default"

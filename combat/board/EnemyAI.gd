@@ -33,6 +33,12 @@ var player_board: Array[MinionInstance]
 var enemy_slots: Array[BoardSlot]
 var combat_manager: CombatManager
 
+## AI behaviour profile — set by CombatScene from EnemyData.ai_profile before run_turn().
+var ai_profile: String = "default"
+
+## Reference to CombatScene — used by profile-specific logic to read player board state.
+var scene: Node = null
+
 # ---------------------------------------------------------------------------
 # Resources — mirrors the player's dual system with the same combined cap
 # ---------------------------------------------------------------------------
@@ -47,6 +53,10 @@ const COMBINED_RESOURCE_CAP := 11
 
 ## Extra mana cost added to enemy spells this turn (from Spell Taxer).
 var spell_cost_penalty: int = 0
+
+## Per-card mana cost discounts keyed by card ID (e.g. {"pack_frenzy": 1}).
+## Set by CombatScene when ancient_frenzy passive is active.
+var spell_cost_discounts: Dictionary = {}
 
 ## Set to true by Smoke Veil trap to cancel the current attack.
 var attack_cancelled: bool = false
@@ -92,13 +102,16 @@ func setup_deck(card_ids: Array[String]) -> void:
 		if card:
 			_deck.append(card)
 	_deck.shuffle()
-	# Draw the same opening hand size as the player (3 cards).
-	_draw_cards(3)
+	_draw_cards(5)
 
 ## Add a card directly to the enemy's hand (used by ON_PLAY effects like Abyssal Arcanist).
 func add_to_hand(card: CardData) -> void:
 	if hand.size() < HAND_MAX:
 		hand.append(card)
+
+## Public wrapper — draw count cards from the enemy deck (used by passive effects).
+func draw_cards(count: int) -> void:
+	_draw_cards(count)
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -108,9 +121,13 @@ func run_turn() -> void:
 	_choose_resource_growth()
 	essence = essence_max
 	mana    = mana_max
-	_draw_cards(2)
-	await _play_phase()
-	await _attack_phase()
+	_draw_cards(1)
+	if ai_profile == "feral_pack":
+		await _play_phase_feral_pack()
+		await _attack_phase_feral_pack()
+	else:
+		await _play_phase()
+		await _attack_phase()
 	ai_turn_finished.emit()
 
 # ---------------------------------------------------------------------------
@@ -155,9 +172,10 @@ func _play_phase() -> void:
 		for card in hand.duplicate():
 			if card is SpellCardData:
 				var spell := card as SpellCardData
-				if spell.cost + spell_cost_penalty > mana:
+				var effective_cost: int = max(0, spell.cost + spell_cost_penalty - (spell_cost_discounts.get(spell.id, 0) as int))
+				if effective_cost > mana:
 					continue
-				mana -= spell.cost
+				mana -= effective_cost
 				hand.erase(card)
 				_discard.append(card)
 				enemy_spell_cast.emit(spell)
@@ -258,3 +276,160 @@ func _pick_player_target() -> MinionInstance:
 	if not guards.is_empty():
 		return guards[randi() % guards.size()]
 	return player_board[randi() % player_board.size()]
+
+# ---------------------------------------------------------------------------
+# Feral Pack AI profile — play phase
+# ---------------------------------------------------------------------------
+
+func _play_phase_feral_pack() -> void:
+	# Pass 1: flood the board with minions, cheapest first
+	var placed_minion := true
+	while placed_minion:
+		placed_minion = false
+		var minion_hand: Array[CardData] = []
+		for c in hand:
+			if c is MinionCardData:
+				minion_hand.append(c)
+		minion_hand.sort_custom(_sort_by_total_cost)
+		for card in minion_hand:
+			var mc := card as MinionCardData
+			if mc.essence_cost > essence or mc.mana_cost > mana:
+				continue
+			var slot := _find_empty_enemy_slot()
+			if slot == null:
+				break  # board full — stop minion pass
+			essence -= mc.essence_cost
+			mana    -= mc.mana_cost
+			var instance := MinionInstance.create(mc, "enemy")
+			enemy_board.append(instance)
+			slot.place_minion(instance)
+			hand.erase(card)
+			_discard.append(card)
+			minion_summoned.emit(instance)
+			placed_minion = true
+			if not is_inside_tree(): return
+			await get_tree().create_timer(ACTION_DELAY).timeout
+			if not is_inside_tree(): return
+			break
+
+	# Pass 2: cast affordable spells that meet their conditions
+	var cast_spell := true
+	while cast_spell:
+		cast_spell = false
+		var spell_hand: Array[CardData] = []
+		for c in hand:
+			if c is SpellCardData:
+				spell_hand.append(c)
+		spell_hand.sort_custom(_sort_by_total_cost)
+		for card in spell_hand:
+			var spell := card as SpellCardData
+			var eff_cost: int = max(0, spell.cost + spell_cost_penalty - (spell_cost_discounts.get(spell.id, 0) as int))
+			if eff_cost > mana:
+				continue
+			if not _feral_pack_can_cast(spell):
+				continue
+			mana -= eff_cost
+			hand.erase(card)
+			_discard.append(card)
+			enemy_spell_cast.emit(spell)
+			cast_spell = true
+			if not is_inside_tree(): return
+			await get_tree().create_timer(ACTION_DELAY).timeout
+			if not is_inside_tree(): return
+			break
+
+## Returns true when the feral_pack profile is allowed to cast this spell.
+func _feral_pack_can_cast(spell: SpellCardData) -> bool:
+	match spell.id:
+		"feral_surge":
+			# Only if at least one Feral Imp is already on the board
+			for m in enemy_board:
+				if m.card_data is MinionCardData and \
+						"feral_imp" in (m.card_data as MinionCardData).minion_tags:
+					return true
+			return false
+		"void_screech":
+			# Only if board is full OR no minions remain in hand
+			if _find_empty_enemy_slot() == null:
+				return true
+			for c in hand:
+				if c is MinionCardData:
+					return false  # minion still available — hold Void Screech
+			return true
+		"cyclone":
+			# Only if the player has an active Rune or Environment
+			return _player_has_rune_or_environment()
+		_:
+			return true
+
+func _player_has_rune_or_environment() -> bool:
+	if scene == null:
+		return false
+	if scene.active_environment != null:
+		return true
+	for trap in scene.active_traps:
+		if (trap as TrapCardData).is_rune:
+			return true
+	return false
+
+# ---------------------------------------------------------------------------
+# Feral Pack AI profile — attack phase
+# ---------------------------------------------------------------------------
+
+func _attack_phase_feral_pack() -> void:
+	for minion in enemy_board.duplicate():
+		if not enemy_board.has(minion):
+			continue
+		if not minion.can_attack():
+			continue
+
+		var guards := CombatManager.get_taunt_minions(player_board)
+		if not guards.is_empty():
+			# Must attack a guard. Prefer guards we survive (guard.ATK <= our HP).
+			var safe: Array[MinionInstance] = []
+			for g in guards:
+				if g.effective_atk() <= minion.current_health:
+					safe.append(g)
+			var target: MinionInstance
+			if not safe.is_empty():
+				target = safe[randi() % safe.size()]
+			else:
+				# All guards kill us — pick the lowest-ATK guard
+				target = guards[0]
+				for g in guards:
+					if g.effective_atk() < target.effective_atk():
+						target = g
+			enemy_about_to_attack.emit(minion, target)
+			if attack_cancelled:
+				attack_cancelled = false
+				continue
+			if redirect_attack_target != null:
+				target = redirect_attack_target
+				redirect_attack_target = null
+			if not enemy_board.has(minion):
+				continue
+			combat_manager.resolve_minion_attack(minion, target)
+		else:
+			# No guards — attack hero directly
+			if not minion.can_attack_hero():
+				continue
+			enemy_attacking_hero.emit(minion)
+			if attack_cancelled:
+				attack_cancelled = false
+				continue
+			if redirect_attack_target != null:
+				var barricade_target := redirect_attack_target
+				redirect_attack_target = null
+				if enemy_board.has(minion):
+					combat_manager.resolve_minion_attack(minion, barricade_target)
+				if not is_inside_tree(): return
+				await get_tree().create_timer(ACTION_DELAY).timeout
+				if not is_inside_tree(): return
+				continue
+			if not enemy_board.has(minion):
+				continue
+			combat_manager.resolve_minion_attack_hero(minion, "player")
+
+		if not is_inside_tree(): return
+		await get_tree().create_timer(ACTION_DELAY).timeout
+		if not is_inside_tree(): return

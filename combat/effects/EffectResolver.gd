@@ -123,7 +123,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 	var scene = ctx.scene
 	match step.effect_type:
 		EffectStep.EffectType.DAMAGE_MINION:
-			scene.combat_manager.apply_spell_damage(target, amount)
+			scene._spell_dmg(target, amount)
 
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
@@ -156,10 +156,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 
 		EffectStep.EffectType.PURGE:
 			if step.purge_filter.is_empty():
-				if target.owner == scene._opponent_of(ctx.owner):
-					BuffSystem.dispel(target)
-				else:
-					BuffSystem.cleanse(target)
+				BuffSystem.purge_all(target)
 			else:
 				BuffSystem.remove_type(target, Enums.BuffType[step.purge_filter])
 			scene._refresh_slot_for(target)

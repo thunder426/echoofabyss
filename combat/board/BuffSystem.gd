@@ -62,6 +62,11 @@ static func dispel(minion: MinionInstance) -> void:
 static func cleanse(minion: MinionInstance) -> void:
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return not (e.type in DEBUFF_TYPES))
 
+## Remove all runtime buff and debuff entries except SHIELD_BONUS — used by Purge effects.
+## Shield is treated as a base stat and is not stripped.
+static func purge_all(minion: MinionInstance) -> void:
+	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return e.type == Enums.BuffType.SHIELD_BONUS)
+
 ## Expire all temporary buff entries — call at the start of the owner's turn.
 static func expire_temp(minion: MinionInstance) -> void:
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return not e.is_temp)

@@ -255,7 +255,7 @@ const _FRAME_CONFIG: Dictionary = {
 	"neutral_spell": {
 		"path":    "res://assets/art/frames/neutral/neutral_spell.png",
 		"layout": {
-			"art":  [0.05, 0.14, 0.95, 0.70],
+			"art":  [0.05, 0.12, 0.95, 0.68],
 			"name": [0.15, 0.05, 0.85, 0.10],
 			"desc": [0.16, 0.69, 0.88, 0.85],
 			"mana": [0.01, 0.06, 0.24, 0.11],

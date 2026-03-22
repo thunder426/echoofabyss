@@ -104,6 +104,10 @@ var _bold_font: Font
 var _is_hovered:    bool = false
 var freeze_visuals: bool = false   # Set true during lunge to prevent empty-state flash
 
+# Status bar tooltip
+var _status_tooltip: Panel = null
+var _using_generic:  bool = false
+
 # ---------------------------------------------------------------------------
 # Godot lifecycle
 # ---------------------------------------------------------------------------
@@ -175,7 +179,7 @@ func _build_visuals() -> void:
 	_status_bar.size     = _CFG["status"]["size"]
 	_status_bar.alignment = BoxContainer.ALIGNMENT_CENTER
 	_status_bar.add_theme_constant_override("separation", 4)
-	_status_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_status_bar.mouse_filter = Control.MOUSE_FILTER_PASS
 	_status_bar.visible      = false
 	add_child(_status_bar)
 
@@ -304,6 +308,7 @@ func _show_occupied_state() -> void:
 	var _has_shield := minion.has_shield() and minion.current_shield > 0
 	var _faction := minion.card_data.faction
 	var _use_generic := not _has_shield and (_faction == "abyss_order" or _faction == "neutral")
+	_using_generic = _use_generic
 	var _frame_path: String
 	if _use_generic:
 		_frame_path = "res://assets/art/frames/abyss_order/abyss_battlefield_minion_generic.png"
@@ -385,20 +390,28 @@ func _show_occupied_state() -> void:
 	_hp_label.text = hp_text
 
 	# Status bar — clear and rebuild each refresh
+	_hide_status_tooltip()
 	for child in _status_bar.get_children():
 		child.queue_free()
 
 	if minion.has_guard():
-		_status_bar_add_icon("icon_guard.png")
+		_status_bar_add_interactive_icon("icon_guard.png", "GUARD",
+			"Must be attacked before other friendly minions.")
 	if minion.has_deathless():
-		_status_bar_add_icon("icon_deathless.png")
+		_status_bar_add_interactive_icon("icon_deathless.png", "DEATHLESS",
+			"The first time this minion would die, it survives with 1 HP.")
 	if corruption_total > 0:
-		_status_bar_add_icon("icon_corruption.png")
-		_status_bar_add_count("x%d" % (corruption_total / 100), Color(0.85, 0.55, 1.00, 1))
+		var stacks := corruption_total / 100
+		_status_bar_add_interactive_icon("icon_corruption.png", "CORRUPTION",
+			"x%d stacks — -%d ATK." % [stacks, corruption_total])
+		_status_bar_add_count("x%d" % stacks, Color(0.85, 0.55, 1.00, 1))
+	var on_death_body := _build_on_death_tooltip_body(minion)
+	if not on_death_body.is_empty():
+		_status_bar_add_interactive_icon("icon_on_death.png", "ON DEATH", on_death_body)
 	if minion.owner == "player" and minion.can_attack():
-		_status_bar_add_icon("icon_ready.png")
+		_status_bar_add_interactive_icon("icon_ready.png", "READY", "Can attack this turn.")
 	elif minion.owner == "player" and minion.state == Enums.MinionState.EXHAUSTED:
-		_status_bar_add_icon("icon_tired.png")
+		_status_bar_add_interactive_icon("icon_tired.png", "EXHAUSTED", "Cannot attack yet.")
 
 	_status_bar.visible = _status_bar.get_child_count() > 0
 
@@ -437,17 +450,24 @@ func _set_labels_visible(v: bool, generic: bool = false) -> void:
 # Status bar helpers
 # ---------------------------------------------------------------------------
 
-func _status_bar_add_icon(filename: String) -> void:
+## Add an icon wrapped in a hoverable Control that shows a tooltip on mouse-enter.
+func _status_bar_add_interactive_icon(filename: String, tip_title: String, tip_body: String) -> void:
 	var tex := _load_icon(filename)
 	if tex == null:
 		return
+	var wrapper := Control.new()
+	wrapper.custom_minimum_size = Vector2(_STATUS_ICON_SIZE, _STATUS_ICON_SIZE)
+	wrapper.mouse_filter = Control.MOUSE_FILTER_PASS
 	var rect := TextureRect.new()
-	rect.texture      = tex
+	rect.texture             = tex
 	rect.custom_minimum_size = Vector2(_STATUS_ICON_SIZE, _STATUS_ICON_SIZE)
-	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	rect.expand_mode  = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
-	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_status_bar.add_child(rect)
+	rect.stretch_mode        = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	rect.expand_mode         = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	rect.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+	wrapper.add_child(rect)
+	wrapper.mouse_entered.connect(_on_status_icon_hovered.bind(rect, tip_title, tip_body))
+	wrapper.mouse_exited.connect(_on_status_icon_exited.bind(rect))
+	_status_bar.add_child(wrapper)
 
 func _status_bar_add_count(text: String, color: Color) -> void:
 	var lbl := Label.new()
@@ -459,6 +479,95 @@ func _status_bar_add_count(text: String, color: Color) -> void:
 		lbl.add_theme_font_override("font", _bold_font)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_status_bar.add_child(lbl)
+
+## Build the on-death tooltip body for a minion — card description lines + granted effects.
+func _build_on_death_tooltip_body(m: MinionInstance) -> String:
+	var parts: Array[String] = []
+	if m.card_data is MinionCardData:
+		var mc := m.card_data as MinionCardData
+		# Extract any "ON DEATH" lines from the card description
+		for line in mc.description.split("\n"):
+			if line.strip_edges().to_upper().begins_with("ON DEATH"):
+				parts.append(line.strip_edges())
+		# Fallback: card has effect data but no matching description line
+		if parts.is_empty() and (mc.on_death_effect != "" or not mc.on_death_effect_steps.is_empty()):
+			parts.append("Triggers an effect on death.")
+	for eff in m.granted_on_death_effects:
+		var desc: String = eff.get("description", "")
+		if not desc.is_empty():
+			parts.append(desc)
+	return "\n".join(parts)
+
+# ---------------------------------------------------------------------------
+# Status bar tooltip — show/hide on icon hover
+# ---------------------------------------------------------------------------
+
+func _on_status_icon_hovered(icon: TextureRect, tip_title: String, tip_body: String) -> void:
+	icon.modulate = Color(1.5, 1.5, 1.2, 1.0)
+	_show_status_tooltip(tip_title, tip_body)
+
+func _on_status_icon_exited(icon: TextureRect) -> void:
+	icon.modulate = Color.WHITE
+	_hide_status_tooltip()
+
+func _show_status_tooltip(title: String, body: String) -> void:
+	if _status_tooltip == null or not is_instance_valid(_status_tooltip):
+		_build_status_tooltip_panel()
+	var full_text := (title + "\n" + body) if not body.is_empty() else title
+	var lbl := _status_tooltip.get_node_or_null("Label") as Label
+	if lbl:
+		lbl.text = full_text
+	# Estimate panel height from line count (wrapping at ~22 chars per line, font size 10)
+	var raw_lines := full_text.split("\n")
+	var line_count := raw_lines.size()
+	for raw in raw_lines:
+		line_count += raw.length() / 22  # extra lines from wrapping
+	var tip_h := 14 + line_count * 14
+	_status_tooltip.size = Vector2(190, tip_h)
+	# Position above status bar for player, below for enemy
+	var sb_y: int = _CFG_GENERIC["status"]["pos"].y if _using_generic else _CFG["status"]["pos"].y
+	if slot_owner == "enemy":
+		_status_tooltip.position = Vector2(-5, sb_y + 27)
+	else:
+		_status_tooltip.position = Vector2(-5, sb_y - tip_h - 4)
+	_status_tooltip.visible = true
+
+func _hide_status_tooltip() -> void:
+	if _status_tooltip != null and is_instance_valid(_status_tooltip):
+		_status_tooltip.visible = false
+
+func _build_status_tooltip_panel() -> void:
+	var p := Panel.new()
+	p.name = "StatusTooltip"
+	p.visible = false
+	p.z_index = 20
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color            = Color(0.06, 0.04, 0.10, 0.93)
+	style.border_width_left   = 1
+	style.border_width_right  = 1
+	style.border_width_top    = 1
+	style.border_width_bottom = 1
+	style.border_color                = Color(0.55, 0.40, 0.75, 0.85)
+	style.corner_radius_top_left      = 3
+	style.corner_radius_top_right     = 3
+	style.corner_radius_bottom_left   = 3
+	style.corner_radius_bottom_right  = 3
+	p.add_theme_stylebox_override("panel", style)
+	var lbl := Label.new()
+	lbl.name             = "Label"
+	lbl.position         = Vector2(7, 5)
+	lbl.size             = Vector2(176, 100)
+	lbl.autowrap_mode    = TextServer.AUTOWRAP_WORD_SMART
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.add_theme_color_override("font_color", Color(0.95, 0.90, 0.98, 1))
+	lbl.mouse_filter     = Control.MOUSE_FILTER_IGNORE
+	if _bold_font:
+		lbl.add_theme_font_override("font", _bold_font)
+	p.add_child(lbl)
+	add_child(p)
+	_status_tooltip = p
 
 # ---------------------------------------------------------------------------
 # Helpers

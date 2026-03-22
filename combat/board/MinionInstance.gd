@@ -32,6 +32,10 @@ var current_shield: int = 0
 ## Array[BuffEntry] — all active buffs and debuffs on this minion.
 var buffs: Array = []
 
+## Runtime-granted On Death effects added by passives (e.g. Feral Instinct).
+## Each entry: {"description": String, "source": String}
+var granted_on_death_effects: Array[Dictionary] = []
+
 # ---------------------------------------------------------------------------
 # Board state
 # ---------------------------------------------------------------------------

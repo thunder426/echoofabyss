@@ -213,22 +213,30 @@ func get_encounter(index: int) -> EnemyData:
 		# -- Act 1: Imp Lair --
 		0:
 			return _make_encounter("Rogue Imp Pack", 1800,
-				["void_imp", "void_imp", "void_imp", "shadow_hound", "shadow_hound"],
+				["rabid_imp", "rabid_imp", "rabid_imp", "rabid_imp",
+				"brood_imp", "brood_imp", "brood_imp",
+				"imp_brawler", "imp_brawler", "imp_brawler",
+				"feral_surge", "feral_surge",
+				"void_screech", "void_screech",
+				"cyclone"],
 				"ENCOUNTER I",
 				"The outer tunnels of the Imp Lair crawl with feral Void Imps freshly escaped from their cages. They are wild, disorganised — but their numbers are not to be underestimated.",
-				"res://assets/art/progression/backgrounds/a1_fight1_background.png")
+				"res://assets/art/progression/backgrounds/a1_fight1_background.png",
+				["feral_instinct", "pack_instinct"], "feral_pack")
 		1:
 			return _make_encounter("Corrupted Broodlings", 2200,
-				["void_imp", "void_imp", "void_imp", "shadow_hound", "shadow_hound", "void_bolt"],
+				["void_touched_imp", "void_touched_imp", "brood_imp", "brood_imp", "imp_brawler"],
 				"ENCOUNTER II",
 				"Deeper in, the air turns thick with void energy. The broodlings here have been touched by something ancient — their eyes glow with a hunger that wasn't there before.",
-				"res://assets/art/progression/backgrounds/a1_fight2_background.png")
+				"res://assets/art/progression/backgrounds/a1_fight2_background.png",
+				["feral_instinct", "corrupted_death"])
 		2:
 			return _make_encounter("Imp Matriarch", 3000,
-				["void_imp", "void_imp", "shadow_hound", "shadow_hound", "abyssal_brute", "void_bolt"],
+				["matriarchs_broodling", "matriarchs_broodling", "frenzied_imp", "frenzied_imp", "rabid_imp", "pack_frenzy"],
 				"IMP MATRIARCH",
 				"At the heart of the lair, a monstrous Imp Matriarch holds court. She is the source of the corruption — ancient, cunning, and furious at the intrusion into her domain.",
-				"res://assets/art/progression/backgrounds/a1_fight3_background.png")
+				"res://assets/art/progression/backgrounds/a1_fight3_background.png",
+				["feral_instinct", "ancient_frenzy"])
 		# -- Act 2: Abyss Dungeon --
 		3:
 			return _make_encounter("Abyss Cultist Patrol", 3200,
@@ -307,13 +315,16 @@ func get_encounter(index: int) -> EnemyData:
 	return null
 
 func _make_encounter(ename: String, ehp: int, pool: Array[String],
-		etitle: String = "", estory: String = "", ebg: String = "") -> EnemyData:
+		etitle: String = "", estory: String = "", ebg: String = "",
+		epassives: Array[String] = [], eai_profile: String = "default") -> EnemyData:
 	var e := EnemyData.new()
 	e.enemy_name = ename
 	e.hp = ehp
 	e.deck = pool
 	e.title = etitle
 	e.story = estory
+	e.passives = epassives
+	e.ai_profile = eai_profile
 	if ebg != "":
 		e.background_path = ebg
 	return e

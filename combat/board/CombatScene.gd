@@ -139,6 +139,16 @@ var _temp_imps: Array[MinionInstance] = []
 var _imp_evolution_used_this_turn: bool = false
 
 # ---------------------------------------------------------------------------
+# Enemy passive state — populated from GameManager.current_enemy.passives
+# ---------------------------------------------------------------------------
+
+## Active passive IDs for the current encounter.
+var _active_enemy_passives: Array[String] = []
+
+## True after Feral Instinct has been granted this enemy turn (resets at ON_ENEMY_TURN_START).
+var _feral_instinct_granted_this_turn: bool = false
+
+# ---------------------------------------------------------------------------
 # Godot lifecycle
 # ---------------------------------------------------------------------------
 
@@ -266,10 +276,12 @@ func _setup_enemy_ai() -> void:
 	enemy_ai.enemy_spell_cast.connect(_on_enemy_spell_cast)
 	enemy_ai.enemy_about_to_attack.connect(_on_enemy_about_to_attack)
 	enemy_ai.enemy_attacking_hero.connect(_on_enemy_attacking_hero)
-	# Load the enemy's deck from the current encounter (falls back to EnemyAI.FALLBACK_DECK)
+	# Load the enemy's deck and profile from the current encounter
 	var enemy_deck: Array[String] = []
 	if GameManager.current_enemy != null:
 		enemy_deck = GameManager.current_enemy.deck
+		enemy_ai.ai_profile = GameManager.current_enemy.ai_profile
+	enemy_ai.scene = self
 	enemy_ai.setup_deck(enemy_deck)
 
 func _connect_turn_manager() -> void:
@@ -516,7 +528,7 @@ func _try_play_spell(spell: SpellCardData) -> void:
 		hand_display.deselect_current()
 	pending_play_card = null
 	# Show large card preview; resolve effects on impact so damage visuals sync
-	_show_spell_cast_anim(spell, false, func() -> void:
+	_show_card_cast_anim(spell, false, func() -> void:
 		if not spell.effect_steps.is_empty():
 			EffectResolver.run(spell.effect_steps, EffectContext.make(self, "player"))
 		else:
@@ -547,6 +559,8 @@ func _try_play_trap(trap: TrapCardData) -> void:
 		hand_display.remove_card(trap)
 		hand_display.deselect_current()
 	pending_play_card = null
+	# Show card preview (traps have no immediate effects — they fire on trigger)
+	_show_card_cast_anim(trap, false, func() -> void: pass)
 	# Fire placement event
 	var place_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_TRAP_PLACED, "player")
 	place_ctx.card = trap
@@ -570,26 +584,23 @@ func _try_play_environment(env: EnvironmentCardData) -> void:
 		_unregister_env_aura(active_environment)
 	active_environment = env
 	_register_env_rituals(env)
-	# If this environment defines rituals, fire the scan event so handlers can check
-	# whether runes already on board satisfy a combination.
-	if not env.rituals.is_empty():
-		var env_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, "player")
-		env_ctx.card = env
-		trigger_manager.fire(env_ctx)
-	# Run on-enter burst steps if defined
-	if not env.on_enter_effect_steps.is_empty():
-		var enter_ctx := EffectContext.make(self, "player")
-		EffectResolver.run(env.on_enter_effect_steps, enter_ctx)
-	# Apply passive immediately on the turn it is played
-	if not env.passive_effect_steps.is_empty():
-		var pass_ctx := EffectContext.make(self, "player")
-		EffectResolver.run(env.passive_effect_steps, pass_ctx)
 	_update_environment_display()
 	turn_manager.remove_from_hand(env)
 	if hand_display:
 		hand_display.remove_card(env)
 		hand_display.deselect_current()
 	pending_play_card = null
+	# Show card preview; fire on-enter effects and ritual checks on impact
+	_show_card_cast_anim(env, false, func() -> void:
+		if not env.rituals.is_empty():
+			var env_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, "player")
+			env_ctx.card = env
+			trigger_manager.fire(env_ctx)
+		if not env.on_enter_effect_steps.is_empty():
+			EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(self, "player"))
+		if not env.passive_effect_steps.is_empty():
+			EffectResolver.run(env.passive_effect_steps, EffectContext.make(self, "player"))
+	)
 
 func _update_environment_display() -> void:
 	if not environment_slot:
@@ -1098,6 +1109,16 @@ func _cheat_add_card() -> void:
 ## Entry point for EffectResolver HARDCODED steps.
 func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 	match id:
+		"soul_shatter":
+			var demon := ctx.chosen_target
+			if demon == null:
+				return
+			var pre_hp: int = demon.current_health
+			combat_manager.kill_minion(demon)
+			var dmg := 300 if pre_hp >= 300 else 200
+			_log("  Soul Shatter: sacrifice had %d HP — %d AoE to all enemy minions." % [pre_hp, dmg], _LogType.PLAYER)
+			for m in enemy_board.duplicate():
+				_spell_dmg(m, dmg)
 		"void_devourer_sacrifice":
 			_resolve_void_devourer_sacrifice(ctx.source, ctx.owner)
 		"destroy_random_enemy_trap":
@@ -1200,12 +1221,11 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 				for m in enemy_board.duplicate():
 					_spell_dmg(m, 200)
 			else:
-				var target_m := _find_random_enemy_minion()
-				if target_m:
-					_log("  Runic Blast: 200 damage to %s." % target_m.card_data.card_name, _LogType.PLAYER)
-					_spell_dmg(target_m, 200)
-				else:
-					_log("  Runic Blast: no enemy minions.", _LogType.PLAYER)
+				_log("  Runic Blast: 200 damage to 2 random enemy minions.", _LogType.PLAYER)
+				for _i in 2:
+					var target_m := _find_random_enemy_minion()
+					if target_m:
+						_spell_dmg(target_m, 200)
 		# --- vael_rune_master: Runic Echo ---
 		"runic_echo":
 			var last_rune := _find_last_non_echo_rune()
@@ -1267,13 +1287,19 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 			_log("  Brood Call: summoned %s." % pick, _LogType.ENEMY)
 		"pack_frenzy":
 			var feral_board := _friendly_board(ctx.owner).duplicate()
+			var ancient_active := "ancient_frenzy" in _active_enemy_passives
 			for m in feral_board:
 				if _minion_has_tag(m, "feral_imp"):
 					BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 250, "pack_frenzy")
 					if m.state == Enums.MinionState.EXHAUSTED:
 						m.state = Enums.MinionState.SWIFT
+					if ancient_active:
+						BuffSystem.apply(m, Enums.BuffType.GRANT_LIFEDRAIN, 1, "pack_frenzy", true)
 					_refresh_slot_for(m)
-			_log("  Pack Frenzy: all Feral Imps +250 ATK and SWIFT.", _LogType.ENEMY)
+			var frenzy_msg := "  Pack Frenzy: all Feral Imps +250 ATK and SWIFT"
+			if ancient_active:
+				frenzy_msg += " and LIFEDRAIN (Ancient Frenzy)"
+			_log(frenzy_msg + ".", _LogType.ENEMY)
 		"rogue_imp_elder_remove":
 			var elder_board := _friendly_board(ctx.owner)
 			for m in elder_board:
@@ -1612,7 +1638,8 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 		_setup_trap_env_targeting()
 		return
 	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "any_minion"]
-	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion"]
+	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion", "enemy_minion_or_hero"]
+	var hits_hero     := spell.target_type == "enemy_minion_or_hero"
 	if hits_friendly:
 		for slot in player_slots:
 			if not slot.is_empty() and _is_valid_spell_target(slot.minion, spell.target_type):
@@ -1621,6 +1648,9 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 		for slot in enemy_slots:
 			if not slot.is_empty():
 				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+	if hits_hero and _enemy_status_panel:
+		_enemy_status_panel.modulate = Color(1.4, 1.1, 0.4)
+		_enemy_status_panel.gui_input.connect(_on_enemy_hero_spell_input)
 
 func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
@@ -1628,8 +1658,9 @@ func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool
 		"friendly_demon":    return minion.card_data.minion_type == Enums.MinionType.DEMON
 		"friendly_minion":   return true
 		"friendly_void_imp": return _minion_has_tag(minion, "void_imp")
-		"enemy_minion":      return true
-		"any_minion":        return true
+		"enemy_minion":           return true
+		"any_minion":             return true
+		"enemy_minion_or_hero":   return true
 	return false
 
 ## Spend mana, resolve the effect on the target, then remove the card
@@ -1640,21 +1671,64 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 			hand_display.deselect_current()
 		return
 	_log("You cast: %s → %s" % [spell.card_name, target.card_data.card_name])
-	if not spell.effect_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
-		ctx.chosen_target = target
-		EffectResolver.run(spell.effect_steps, ctx)
-	else:
-		_resolve_spell_effect(spell.effect_id, target)
 	turn_manager.remove_from_hand(spell)
 	if hand_display:
 		hand_display.remove_card(spell)
 		hand_display.deselect_current()
 	pending_play_card = null
 	_clear_all_highlights()
-	var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-	spell_ctx.card = spell
-	trigger_manager.fire(spell_ctx)
+	var captured_target: MinionInstance = target
+	_show_card_cast_anim(spell, false, func() -> void:
+		if not spell.effect_steps.is_empty():
+			var ctx := EffectContext.make(self, "player")
+			ctx.chosen_target = captured_target
+			EffectResolver.run(spell.effect_steps, ctx)
+		else:
+			_resolve_spell_effect(spell.effect_id, captured_target)
+		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+		spell_ctx.card = spell
+		trigger_manager.fire(spell_ctx)
+	)
+
+## Fired when player clicks the enemy hero panel while targeting a spell with "enemy_minion_or_hero".
+func _on_enemy_hero_spell_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
+		return
+	if not (pending_play_card is SpellCardData):
+		return
+	var spell := pending_play_card as SpellCardData
+	var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
+	if not _pay_card_cost(0, effective_cost):
+		if hand_display:
+			hand_display.deselect_current()
+		return
+	_log("You cast: %s → Enemy Hero" % spell.card_name)
+	turn_manager.remove_from_hand(spell)
+	if hand_display:
+		hand_display.remove_card(spell)
+		hand_display.deselect_current()
+	pending_play_card = null
+	_clear_all_highlights()
+	_show_card_cast_anim(spell, false, func() -> void:
+		# Compute damage: base amount + bonus if has Human
+		var base_dmg: int = 0
+		var bonus_dmg: int = 0
+		for step in spell.effect_steps:
+			var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
+			if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
+				var cond_ok := ConditionResolver.check_all(s.conditions, EffectContext.make(self, "player"), null)
+				if cond_ok:
+					if s.conditions.is_empty():
+						base_dmg += s.amount
+					else:
+						bonus_dmg += s.amount
+		var total: int = base_dmg + bonus_dmg
+		_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], _LogType.PLAYER)
+		_on_hero_damaged("enemy", total)
+		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+		spell_ctx.card = spell
+		trigger_manager.fire(spell_ctx)
+	)
 
 ## Apply a spell's effect. target is null for untargeted spells.
 ## owner is "player" (default) or "enemy" — board/hero references are resolved relative to owner.
@@ -1664,8 +1738,8 @@ func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: Str
 		"void_detonation_effect":
 			if owner == "player":
 				var bonus_per_mark := 50
-				var total_base := 150 + enemy_void_marks * bonus_per_mark
-				_log("  Void Detonation: %d Void Bolt dmg (150 + %d×%d marks)." % [total_base, bonus_per_mark, enemy_void_marks], _LogType.PLAYER)
+				var total_base := 500 + enemy_void_marks * bonus_per_mark
+				_log("  Void Detonation: %d Void Bolt dmg (500 + %d×%d marks)." % [total_base, bonus_per_mark, enemy_void_marks], _LogType.PLAYER)
 				_deal_void_bolt_damage(total_base)
 
 # ---------------------------------------------------------------------------
@@ -1709,6 +1783,11 @@ func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 		if hand_display:
 			hand_display.deselect_current()
 		return
+	turn_manager.remove_from_hand(spell)
+	pending_play_card = null
+	_tear_down_trap_env_targeting()
+	if hand_display:
+		hand_display.deselect_current()
 	if trap_idx >= 0 and trap_idx < active_traps.size():
 		var trap := active_traps[trap_idx]
 		_log("You cast: %s → %s" % [spell.card_name, trap.card_name])
@@ -1723,14 +1802,11 @@ func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 		_unregister_env_rituals()
 		active_environment = null
 		_update_environment_display()
-	var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-	spell_ctx.card = spell
-	trigger_manager.fire(spell_ctx)
-	turn_manager.remove_from_hand(spell)
-	pending_play_card = null
-	_tear_down_trap_env_targeting()
-	if hand_display:
-		hand_display.deselect_current()
+	_show_card_cast_anim(spell, false, func() -> void:
+		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+		spell_ctx.card = spell
+		trigger_manager.fire(spell_ctx)
+	)
 
 # ---------------------------------------------------------------------------
 # Trap helpers
@@ -1745,43 +1821,28 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 		if trap.trigger != trigger:
 			continue
 		var slot_idx := active_traps.find(trap)
-		_show_trap_triggered_vfx(trap, slot_idx)
-		var ctx := EffectContext.make(self, "player")
-		ctx.trigger_minion = triggering_minion
-		EffectResolver.run(trap.effect_steps, ctx)
-		if not trap.reusable:
-			active_traps.erase(trap)
-			_update_trap_display()
+		_flash_trap_slot(slot_idx)
+		_log("⚡ %s triggered!" % trap.card_name, _LogType.TRAP)
+		var captured_trap:   TrapCardData    = trap
+		var captured_minion: MinionInstance = triggering_minion
+		# Show card preview; resolve effect on impact
+		_show_card_cast_anim(captured_trap, false, func() -> void:
+			var ctx := EffectContext.make(self, "player")
+			ctx.trigger_minion = captured_minion
+			EffectResolver.run(captured_trap.effect_steps, ctx)
+			if not captured_trap.reusable:
+				active_traps.erase(captured_trap)
+				_update_trap_display()
+		)
 
-## Flash the trap slot and show a floating triggered label.
-func _show_trap_triggered_vfx(trap: TrapCardData, slot_idx: int) -> void:
-	_log("⚡ %s triggered!" % trap.card_name, _LogType.TRAP)
-	# Flash the slot panel gold then restore
+## Flash the trap slot gold to show which trap fired (card preview handles the rest).
+func _flash_trap_slot(slot_idx: int) -> void:
 	if slot_idx >= 0 and slot_idx < trap_slot_panels.size():
 		var panel := trap_slot_panels[slot_idx]
 		_apply_slot_style(panel, Color(0.35, 0.28, 0.0, 1), Color(1.0, 0.85, 0.1, 1))
-		var restore_tween := create_tween()
-		restore_tween.tween_interval(0.5)
-		restore_tween.tween_callback(_update_trap_display)
-
-	# Floating "TRAP!" label that rises and fades
-	var lbl := Label.new()
-	lbl.text = "⚡ %s!" % trap.card_name
-	lbl.add_theme_font_size_override("font_size", 24)
-	lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.15, 1))
-	lbl.z_index = 20
-	$UI.add_child(lbl)
-	# Position above the trap slot, or centre-screen as fallback
-	var start_pos: Vector2
-	if slot_idx >= 0 and slot_idx < trap_slot_panels.size():
-		start_pos = trap_slot_panels[slot_idx].global_position + Vector2(20, -30)
-	else:
-		start_pos = get_viewport().get_visible_rect().size / 2
-	lbl.position = start_pos
-	var tween := create_tween()
-	tween.tween_property(lbl, "position", start_pos + Vector2(0, -70), 0.9)
-	tween.parallel().tween_property(lbl, "modulate:a", 0.0, 0.9)
-	tween.tween_callback(lbl.queue_free)
+		var tw := create_tween()
+		tw.tween_interval(0.5)
+		tw.tween_callback(_update_trap_display)
 
 ## Called by EnemyAI's minion_summoned signal.
 func _on_enemy_minion_summoned(minion: MinionInstance) -> void:
@@ -1803,7 +1864,7 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	if was_cancelled:
 		return
 	# Show large card preview; resolve effects on impact so damage visuals sync
-	_show_spell_cast_anim(spell, true, func() -> void:
+	_show_card_cast_anim(spell, true, func() -> void:
 		if not spell.effect_steps.is_empty():
 			EffectResolver.run(spell.effect_steps, EffectContext.make(self, "enemy"))
 		elif not spell.effect_id.is_empty():
@@ -2474,6 +2535,9 @@ func _clear_all_highlights() -> void:
 		slot.clear_highlight()
 	for slot in enemy_slots:
 		slot.clear_highlight()
+	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_enemy_hero_spell_input):
+		_enemy_status_panel.gui_input.disconnect(_on_enemy_hero_spell_input)
+		_enemy_status_panel.modulate = Color.WHITE
 
 func _find_slot_for(minion: MinionInstance) -> BoardSlot:
 	var slots := player_slots if minion.owner == "player" else enemy_slots
@@ -2573,23 +2637,23 @@ func _flash_slot(slot: BoardSlot) -> void:
 	tw.tween_property(slot, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
 	tw.tween_property(slot, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
 
-## Show a large centred card visual when a spell is cast.
-## Animates in → calls on_impact (damage resolves here) → holds → fades out.
-func _show_spell_cast_anim(spell: SpellCardData, is_enemy: bool, on_impact: Callable) -> void:
+## Show a large centred card visual when a spell/trap/environment is cast or triggered.
+## Animates in → calls on_impact → holds → fades out.
+## Pass Callable() for on_impact when there are no effects to delay.
+func _show_card_cast_anim(card: CardData, is_enemy: bool, on_impact: Callable) -> void:
 	var cv: CardVisual = CARD_VISUAL_SCENE.instantiate() as CardVisual
 	cv.apply_size_mode("combat_preview")
-	cv.setup(spell)
 	cv.z_index = 100
 	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	$UI.add_child(cv)
+	# setup() must be called AFTER add_child so _ready() has run and child nodes exist
+	cv.setup(card)
 	# Centre on screen
 	var vp      := get_viewport().get_visible_rect().size
 	var card_sz := Vector2(336.0, 504.0)
 	cv.position     = (vp - card_sz) * 0.5
 	cv.pivot_offset = card_sz * 0.5
-	# Optional tinted outline to distinguish enemy vs player cast
-	cv.modulate = Color(1.10, 0.85, 1.00, 0.0) if not is_enemy \
-		else Color(1.10, 0.75, 0.70, 0.0)
+	cv.modulate = Color(1.0, 1.0, 1.0, 0.0)  # start transparent, natural colours
 	cv.scale = Vector2(0.65, 0.65)
 	var tw := create_tween()
 	# Animate in
@@ -2599,7 +2663,7 @@ func _show_spell_cast_anim(spell: SpellCardData, is_enemy: bool, on_impact: Call
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.set_parallel(false)
 	tw.tween_interval(0.08)
-	# Impact: resolve spell effects, flash, damage numbers
+	# Impact: resolve effects, flash, damage numbers
 	tw.tween_callback(on_impact)
 	# Hold so player can read the card
 	tw.tween_interval(0.55)
@@ -2611,6 +2675,7 @@ func _show_spell_cast_anim(spell: SpellCardData, is_enemy: bool, on_impact: Call
 func _spell_dmg(target: MinionInstance, damage: int) -> void:
 	var slot := _find_slot_for(target)
 	combat_manager.apply_spell_damage(target, damage)
+	_refresh_slot_for(target)
 	if slot:
 		_flash_slot(slot)
 		_spawn_damage_popup(slot.get_global_rect().get_center(), damage)
@@ -2814,6 +2879,23 @@ func _setup_triggers() -> void:
 	# ON_ENEMY_MINION_DIED  (priority: 5=deathrattle)
 	# -----------------------------------------------------------------------
 	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED, _handler_minion_on_death_effect, 5)
+
+	# -----------------------------------------------------------------------
+	# Enemy encounter passives — registered conditionally from EnemyData.passives
+	# -----------------------------------------------------------------------
+	if GameManager.current_enemy != null:
+		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
+	if "feral_instinct" in _active_enemy_passives:
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,    _handler_feral_instinct_reset,  5)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_feral_instinct_summon, 1)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,   _handler_feral_instinct_death,  4)
+	if "pack_instinct" in _active_enemy_passives:
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_pack_instinct_update, 9)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,   _handler_pack_instinct_update,  3)
+	if "corrupted_death" in _active_enemy_passives:
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,   _handler_corrupted_death,       6)
+	if "ancient_frenzy" in _active_enemy_passives:
+		enemy_ai.spell_cost_discounts["pack_frenzy"] = 1
 
 	# -----------------------------------------------------------------------
 	# ON_ENEMY_MINION_SUMMONED — on-play (priority 5) and on-summon (priority 6), before traps (30)
@@ -3159,6 +3241,66 @@ func _handler_rogue_imp_elder_aura(ctx: EventContext) -> void:
 		BuffSystem.apply(summoned, Enums.BuffType.ATK_BONUS, 100, "rogue_imp_elder")
 		_refresh_slot_for(summoned)
 		_log("  Rogue Imp Elder aura: %s enters with +100 ATK." % summoned.card_data.card_name, _LogType.ENEMY)
+
+# ---------------------------------------------------------------------------
+# Enemy encounter passive handlers
+# ---------------------------------------------------------------------------
+
+## Feral Instinct — reset grant flag at the start of each enemy turn.
+func _handler_feral_instinct_reset(_ctx: EventContext) -> void:
+	_feral_instinct_granted_this_turn = false
+
+## Feral Instinct — when the first Feral Imp is summoned this turn, grant it a death draw.
+func _handler_feral_instinct_summon(ctx: EventContext) -> void:
+	if _feral_instinct_granted_this_turn:
+		return
+	var minion := ctx.minion
+	if minion == null or not _minion_has_tag(minion, "feral_imp"):
+		return
+	_feral_instinct_granted_this_turn = true
+	minion.granted_on_death_effects.append({"description": "Draw 1 card.", "source": "feral_instinct"})
+	_refresh_slot_for(minion)
+	_log("  Feral Instinct: %s will draw 1 card on death." % minion.card_data.card_name, _LogType.ENEMY)
+
+## Feral Instinct — if this minion was granted the effect, the enemy draws 1 card when it dies.
+func _handler_feral_instinct_death(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	var has_effect := minion.granted_on_death_effects.any(
+		func(e: Dictionary) -> bool: return e.get("source") == "feral_instinct")
+	if not has_effect:
+		return
+	enemy_ai.draw_cards(1)
+	_log("  Feral Instinct: death draw triggered — enemy draws 1.", _LogType.ENEMY)
+
+## Pack Instinct — recalculate ATK aura for all Feral Imps whenever the enemy board changes.
+func _handler_pack_instinct_update(_ctx: EventContext) -> void:
+	_apply_pack_instinct_buffs()
+
+func _apply_pack_instinct_buffs() -> void:
+	var feral_imps: Array[MinionInstance] = []
+	for m in enemy_board:
+		if _minion_has_tag(m, "feral_imp"):
+			feral_imps.append(m)
+	for m in feral_imps:
+		BuffSystem.remove_source(m, "pack_instinct")
+		var others := feral_imps.size() - 1
+		if others > 0:
+			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, others * 50, "pack_instinct")
+		_refresh_slot_for(m)
+
+## Corrupted Death — when a Void-Touched Imp dies, apply 1 Corruption to all player minions.
+func _handler_corrupted_death(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null or minion.card_data.id != "void_touched_imp":
+		return
+	if player_board.is_empty():
+		return
+	for m in player_board:
+		BuffSystem.apply(m, Enums.BuffType.CORRUPTION, 1, "corrupted_death")
+		_refresh_slot_for(m)
+	_log("  Corrupted Death: Void-Touched Imp death spreads Corruption to all player minions.", _LogType.ENEMY)
 
 # ---------------------------------------------------------------------------
 # ON_ENEMY_MINION_SUMMONED / ON_ENEMY_SPELL_CAST / ON_ENEMY_ATTACK / ON_HERO_DAMAGED
