@@ -436,10 +436,12 @@ func setup(data: CardData) -> void:
 
 	var faction: String = data.faction if data.faction != "" else "neutral"
 	var style_key: String = _FACTION_FRAME.get(faction, {}).get(data.card_type, "default")
-	var is_dual := data is MinionCardData and (data as MinionCardData).mana_cost > 0
+	var _talent_mana := GameManager.get_talent_mana_modifier(data) if data is MinionCardData else 0
+	var is_dual := data is MinionCardData and \
+		((data as MinionCardData).mana_cost > 0 or _talent_mana > 0)
 	# Abyss Order: swap to dual/small variants
 	if style_key == "abyss_minion" and is_dual:
-		style_key = "abyss_dual_minion"
+		style_key = "abyss_dual_minion_small" if size_mode == "hand" else "abyss_dual_minion"
 	elif size_mode == "hand" and style_key == "abyss_minion":
 		style_key = "abyss_minion_small"
 	# Neutral: swap to dual-cost frame when minion has both costs
@@ -501,9 +503,10 @@ func setup(data: CardData) -> void:
 				frame_cost_label.visible = true
 				frame_cost_label.text    = str(md.essence_cost)
 			if frame_mana_label:
-				if md.mana_cost > 0:
+				var _frame_mana := md.mana_cost + GameManager.get_talent_mana_modifier(md)
+				if _frame_mana > 0:
 					frame_mana_label.visible = true
-					frame_mana_label.text    = str(md.mana_cost)
+					frame_mana_label.text    = str(_frame_mana)
 				else:
 					frame_mana_label.visible = false
 			var _has_frame_shield: bool = _FRAME_CONFIG.get(_frame_style, {}).get("has_frame_shield", false)
@@ -740,8 +743,9 @@ func _setup_cost_badge(data: CardData) -> void:
 		var md := data as MinionCardData
 		_apply_badge(cost_badge, cost_label, "essence", md.essence_cost)
 		if mana_badge:
-			if md.mana_cost > 0:
-				_apply_badge(mana_badge, mana_label, "mana", md.mana_cost)
+			var _mana_display := md.mana_cost + GameManager.get_talent_mana_modifier(md)
+			if _mana_display > 0:
+				_apply_badge(mana_badge, mana_label, "mana", _mana_display)
 				mana_badge.visible = true
 			else:
 				mana_badge.visible = false
