@@ -63,19 +63,46 @@ func _build_ui() -> void:
 # ---------------------------------------------------------------------------
 # Act Progression Bar
 # ---------------------------------------------------------------------------
+const BAR_H       := 130  ## Total reserved height at top (label + bar + padding)
+const BAR_W       := 400
+const BAR_IMG_H   := 56   ## Height of the progression bar image
+const BAR_TOP     := 6    ## Gap from screen top before the "ACT X" label
+const ACT_LABEL_H := 50
 
 func _add_act_bar(vp: Vector2) -> void:
 	var path := _get_progression_bar_path()
 	if path == "" or not ResourceLoader.exists(path):
 		return
 
+	var bar_x: float  = (vp.x - BAR_W) * 0.5
+	var label_y := BAR_TOP
+	var bar_y   := label_y + ACT_LABEL_H + 4
+
+	# "ACT 1" label — bold, violet, centred above the bar
+	var act_lbl := RichTextLabel.new()
+	act_lbl.bbcode_enabled = true
+	act_lbl.text = "[center][b]ACT 1[/b][/center]"
+	act_lbl.scroll_active = false
+	act_lbl.add_theme_font_size_override("bold_font_size", 40)
+	act_lbl.add_theme_font_size_override("normal_font_size", 40)
+	act_lbl.add_theme_color_override("default_color", COLOR_PURPLE)
+	act_lbl.set_position(Vector2(bar_x, label_y))
+	act_lbl.set_size(Vector2(BAR_W, ACT_LABEL_H))
+	add_child(act_lbl)
+
+	# Clip container forces the bar image to exactly BAR_W × BAR_IMG_H
+	var clip := Control.new()
+	clip.clip_contents = true
+	clip.set_position(Vector2(bar_x, bar_y))
+	clip.set_size(Vector2(BAR_W, BAR_IMG_H))
+	add_child(clip)
+
 	var bar := TextureRect.new()
 	bar.texture = load(path)
-	bar.set_position(Vector2.ZERO)
-	bar.set_size(Vector2(vp.x, 80))
-	bar.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bar.stretch_mode = TextureRect.STRETCH_SCALE
 	bar.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
-	add_child(bar)
+	clip.add_child(bar)
 
 func _get_progression_bar_path() -> String:
 	var idx := GameManager.run_node_index
@@ -95,9 +122,8 @@ func _get_progression_bar_path() -> String:
 # ---------------------------------------------------------------------------
 
 func _add_story_panel(enemy: EnemyData, vp: Vector2) -> void:
-	const BAR_H    := 80
 	const MARGIN_X := 40
-	const MARGIN_B := 60
+	const MARGIN_B := 90
 	var panel_w: float = vp.x * 0.44
 	var panel_h: float = vp.y - BAR_H - MARGIN_B
 
@@ -116,8 +142,17 @@ func _add_story_panel(enemy: EnemyData, vp: Vector2) -> void:
 	panel.add_child(margin)
 
 	var inner := VBoxContainer.new()
-	inner.add_theme_constant_override("separation", 16)
+	inner.add_theme_constant_override("separation", 12)
 	margin.add_child(inner)
+
+	# Act / encounter label (e.g. "ENCOUNTER I")
+	if enemy.title != "":
+		var act_lbl := Label.new()
+		act_lbl.text = enemy.title.to_upper()
+		act_lbl.add_theme_font_size_override("font_size", 14)
+		act_lbl.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+		act_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		inner.add_child(act_lbl)
 
 	# Fight title
 	var title_lbl := Label.new()
@@ -157,8 +192,8 @@ func _add_encounter_button(vp: Vector2) -> void:
 func _add_view_deck_button(vp: Vector2) -> void:
 	var btn := Button.new()
 	btn.text = "View Deck"
-	btn.set_position(Vector2(40, vp.y - 70))
-	btn.set_size(Vector2(160, 50))
+	btn.set_position(Vector2(40, vp.y - 75))
+	btn.set_size(Vector2(160, 46))
 	btn.add_theme_font_size_override("font_size", 16)
 	btn.pressed.connect(_on_view_deck_pressed)
 	add_child(btn)

@@ -362,6 +362,21 @@ func _feral_pack_can_cast(spell: SpellCardData) -> bool:
 		_:
 			return true
 
+## Pick the best target for a SWIFT minion with no guards present.
+## Prefers targets it can kill (our ATK >= their HP), then highest ATK among those.
+## Falls back to highest ATK target if none are killable.
+func _pick_swift_target(attacker: MinionInstance) -> MinionInstance:
+	var killable: Array[MinionInstance] = []
+	for m in player_board:
+		if attacker.effective_atk() >= m.current_health:
+			killable.append(m)
+	var pool := killable if not killable.is_empty() else player_board
+	var best: MinionInstance = pool[0]
+	for m in pool:
+		if m.effective_atk() > best.effective_atk():
+			best = m
+	return best
+
 func _player_has_rune_or_environment() -> bool:
 	if scene == null:
 		return false
@@ -409,10 +424,8 @@ func _attack_phase_feral_pack() -> void:
 			if not enemy_board.has(minion):
 				continue
 			combat_manager.resolve_minion_attack(minion, target)
-		else:
-			# No guards — attack hero directly
-			if not minion.can_attack_hero():
-				continue
+		elif minion.can_attack_hero():
+			# No guards — NORMAL minion attacks hero
 			enemy_attacking_hero.emit(minion)
 			if attack_cancelled:
 				attack_cancelled = false
@@ -429,6 +442,21 @@ func _attack_phase_feral_pack() -> void:
 			if not enemy_board.has(minion):
 				continue
 			combat_manager.resolve_minion_attack_hero(minion, "player")
+		elif not player_board.is_empty():
+			# No guards — SWIFT minion attacks: prefer killable targets, then highest ATK
+			var swift_target := _pick_swift_target(minion)
+			enemy_about_to_attack.emit(minion, swift_target)
+			if attack_cancelled:
+				attack_cancelled = false
+				continue
+			if redirect_attack_target != null:
+				swift_target = redirect_attack_target
+				redirect_attack_target = null
+			if not enemy_board.has(minion):
+				continue
+			combat_manager.resolve_minion_attack(minion, swift_target)
+		else:
+			continue
 
 		if not is_inside_tree(): return
 		await get_tree().create_timer(ACTION_DELAY).timeout

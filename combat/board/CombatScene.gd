@@ -2397,6 +2397,9 @@ func _setup_player_status_panel() -> void:
 		name_lbl.text = hero.hero_name
 	portrait_row.add_child(name_lbl)
 
+	# Talent hover icon — shows unlocked talent list on hover
+	_add_talent_hover_icon(portrait_row, panel)
+
 	var sep := HSeparator.new()
 	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(sep)
@@ -2415,6 +2418,96 @@ func _update_player_status_panel() -> void:
 	if not _player_status_hp_label:
 		return
 	_player_status_hp_label.text = "❤ HP: %d / %d" % [player_hp, GameManager.player_hp_max]
+
+func _add_talent_hover_icon(parent: HBoxContainer, anchor_panel: Control) -> void:
+	var icon_btn := Label.new()
+	icon_btn.text = "✦"
+	icon_btn.add_theme_font_size_override("font_size", 14)
+	icon_btn.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0, 0.75))
+	icon_btn.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	icon_btn.custom_minimum_size  = Vector2(18, 18)
+	icon_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	parent.add_child(icon_btn)
+
+	# Build tooltip panel (hidden until hover)
+	var tip := Panel.new()
+	tip.visible = false
+	tip.z_index  = 50
+	tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tip_style := StyleBoxFlat.new()
+	tip_style.bg_color     = Color(0.06, 0.03, 0.12, 0.96)
+	tip_style.border_color = Color(0.55, 0.30, 0.85, 0.85)
+	tip_style.set_border_width_all(1)
+	tip_style.set_corner_radius_all(5)
+	tip.add_theme_stylebox_override("panel", tip_style)
+	anchor_panel.add_child(tip)  # sibling of the status panel so it can overlap freely
+
+	var tip_vbox := VBoxContainer.new()
+	tip_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tip_vbox.add_theme_constant_override("separation", 6)
+	tip_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip.add_child(tip_vbox)
+
+	# Header
+	var header := Label.new()
+	header.text = "TALENTS"
+	header.add_theme_font_size_override("font_size", 11)
+	header.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0, 1.0))
+	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip_vbox.add_child(header)
+
+	var tip_sep := HSeparator.new()
+	tip_sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip_vbox.add_child(tip_sep)
+
+	if GameManager.unlocked_talents.is_empty():
+		var none_lbl := Label.new()
+		none_lbl.text = "No talents unlocked"
+		none_lbl.add_theme_font_size_override("font_size", 11)
+		none_lbl.add_theme_color_override("font_color", Color(0.55, 0.52, 0.60, 1))
+		none_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip_vbox.add_child(none_lbl)
+	else:
+		for tid in GameManager.unlocked_talents:
+			var td: TalentData = TalentDatabase.get_talent(tid)
+			if td == null:
+				continue
+			var row := VBoxContainer.new()
+			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tip_vbox.add_child(row)
+
+			var t_name := Label.new()
+			t_name.text = td.talent_name
+			t_name.add_theme_font_size_override("font_size", 12)
+			t_name.add_theme_color_override("font_color", Color(0.92, 0.85, 1.0, 1))
+			t_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			t_name.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			row.add_child(t_name)
+
+			var t_desc := Label.new()
+			t_desc.text = td.description
+			t_desc.add_theme_font_size_override("font_size", 10)
+			t_desc.add_theme_color_override("font_color", Color(0.65, 0.62, 0.72, 1))
+			t_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			t_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			row.add_child(t_desc)
+
+	# Size and position: above the status panel, right-aligned to it
+	tip.set_size(Vector2(220, 0))  # width fixed; height auto via content
+	tip.reset_size()               # let it shrink-wrap after children are added
+	tip.set_size(Vector2(220, tip.size.y + 16))
+	# Position relative to anchor_panel: float upward from its top-right corner
+	tip.set_position(Vector2(anchor_panel.size.x - 220, -tip.size.y - 6))
+
+	icon_btn.mouse_entered.connect(func() -> void:
+		icon_btn.add_theme_color_override("font_color", Color(0.90, 0.70, 1.0, 1.0))
+		tip.visible = true
+	)
+	icon_btn.mouse_exited.connect(func() -> void:
+		icon_btn.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0, 0.75))
+		tip.visible = false
+	)
 
 # ---------------------------------------------------------------------------
 # Large card preview (hover over hand cards or board slots)
@@ -2710,8 +2803,12 @@ func _spawn_damage_popup(screen_center: Vector2, damage: int) -> void:
 
 	var tw := create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(lbl, "position", lbl.position + Vector2(0, -72), 0.75)
-	tw.tween_property(lbl, "modulate:a", 0.0, 0.75)
+	# Rise quickly at first, then ease to a stop over 1.6s total
+	tw.tween_property(lbl, "position", lbl.position + Vector2(0, -90), 1.6) \
+		.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	# Stay fully visible for 0.9s then fade out over 0.7s
+	tw.tween_property(lbl, "modulate:a", 1.0, 0.9)
+	tw.chain().tween_property(lbl, "modulate:a", 0.0, 0.7)
 	tw.chain().tween_callback(lbl.queue_free)
 
 # ---------------------------------------------------------------------------

@@ -843,6 +843,8 @@ func _register_wanderer_cards() -> void:
 	abyssal_arcanist.minion_type   = Enums.MinionType.HUMAN
 	abyssal_arcanist.on_play_effect_steps = [{"type": "ADD_CARD", "card_id": "void_bolt"}]
 	abyssal_arcanist.faction       = "abyss_order"
+	abyssal_arcanist.art_path           = "res://assets/art/minions/abyss_order/abyssal_arcanist.png"
+	abyssal_arcanist.battlefield_art_path = "res://assets/art/minions/abyss_order/abyssal_arcanist_small.png"
 	all.append(abyssal_arcanist)
 
 	var void_archmagus := MinionCardData.new()
@@ -857,6 +859,8 @@ func _register_wanderer_cards() -> void:
 	void_archmagus.mana_cost_discount          = 1
 	void_archmagus.on_spell_cast_passive_effect_id = "add_void_bolt_on_spell"
 	void_archmagus.faction                     = "abyss_order"
+	void_archmagus.art_path             = "res://assets/art/minions/abyss_order/void_archmagus.png"
+	void_archmagus.battlefield_art_path = "res://assets/art/minions/abyss_order/void_archmagus_small.png"
 	all.append(void_archmagus)
 
 	# ---------------------------------------------------------------------------
@@ -1218,8 +1222,10 @@ func _register_wanderer_cards() -> void:
 	rabid_imp.minion_type  = Enums.MinionType.DEMON
 	rabid_imp.keywords     = [Enums.Keyword.SWIFT]
 	rabid_imp.minion_tags  = ["feral_imp"]
-	rabid_imp.faction      = "abyss_order"
-	rabid_imp.clan         = "Feral Imp"
+	rabid_imp.faction             = "abyss_order"
+	rabid_imp.clan                = "Feral Imp"
+	rabid_imp.art_path            = "res://assets/art/minions/feral_imp_clan/rabid_imp.png"
+	rabid_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/rabid_imp_small.png"
 	all.append(rabid_imp)
 
 	var brood_imp := MinionCardData.new()
@@ -1234,9 +1240,11 @@ func _register_wanderer_cards() -> void:
 		{"type": "SUMMON", "card_id": "void_spark"},
 		{"type": "SUMMON", "card_id": "void_spark"},
 	]
-	brood_imp.minion_tags  = ["feral_imp"]
-	brood_imp.faction      = "abyss_order"
-	brood_imp.clan         = "Feral Imp"
+	brood_imp.minion_tags         = ["feral_imp"]
+	brood_imp.faction             = "abyss_order"
+	brood_imp.clan                = "Feral Imp"
+	brood_imp.art_path            = "res://assets/art/minions/feral_imp_clan/brood_imp.png"
+	brood_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/brood_imp_small.png"
 	all.append(brood_imp)
 
 	var imp_brawler := MinionCardData.new()
