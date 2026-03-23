@@ -42,6 +42,6 @@ extends Resource
 ## "vael_common" / "vael_piercing_void" = Lord Vael unlock pools.
 @export var pool: String = ""
 
-## Rarity used for boss drop roll chances. "" for non-unlock cards.
-## Values: "common", "rare", "epic", "legendary"
-@export var rarity: String = ""
+## Act gate: earliest act this card can appear in rewards/shop (1–4).
+## 0 = token/internal card, not available through acquisition.
+@export var act_gate: int = 0

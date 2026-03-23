@@ -375,6 +375,10 @@ const _SIZE_CONFIG: Dictionary = {
 	"combat_preview": { "card_size": Vector2(336, 504), "font_scale": 0.7  },
 	## Large preview in deck builder — the largest display
 	"deck_preview":   { "card_size": Vector2(480, 720), "font_scale": 1.0  },
+	## Reward / shop pick cards — fits 3 across comfortably
+	"reward":         { "card_size": Vector2(270, 405), "font_scale": 0.56 },
+	## Shop card slots — fits 4 across
+	"shop":           { "card_size": Vector2(210, 315), "font_scale": 0.44 },
 }
 # fmt: on
 

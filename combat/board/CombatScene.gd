@@ -1032,6 +1032,12 @@ func _setup_cheat_panel() -> void:
 	dmg_enemy.pressed.connect(func(): _on_hero_damaged("enemy", int(_cheat_dmg_input.value)))
 	dmg_row.add_child(dmg_enemy)
 
+	var kill_enemy := Button.new()
+	kill_enemy.text = "Kill Enemy (5000)"
+	kill_enemy.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35, 1.0))
+	kill_enemy.pressed.connect(func(): _on_hero_damaged("enemy", 5000))
+	dmg_row.add_child(kill_enemy)
+
 	var heal_row := HBoxContainer.new()
 	vbox.add_child(heal_row)
 	var heal_player := Button.new()
@@ -2568,6 +2574,9 @@ func _on_victory() -> void:
 	if _combat_ended:
 		return
 	_combat_ended = true
+	# Grant shards: 3 for boss fights, 1 for normal fights
+	var _shard_amount := 3 if GameManager.run_node_index in GameManager.BOSS_INDICES else 1
+	GameManager.earn_shards(_shard_amount)
 	GameManager.advance_node()
 	if GameManager.is_run_complete():
 		GameManager.end_run(true)

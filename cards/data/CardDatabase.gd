@@ -1256,8 +1256,10 @@ func _register_wanderer_cards() -> void:
 	imp_brawler.health       = 250
 	imp_brawler.minion_type  = Enums.MinionType.DEMON
 	imp_brawler.minion_tags  = ["feral_imp"]
-	imp_brawler.faction      = "abyss_order"
-	imp_brawler.clan         = "Feral Imp"
+	imp_brawler.faction             = "abyss_order"
+	imp_brawler.clan                = "Feral Imp"
+	imp_brawler.art_path            = "res://assets/art/minions/feral_imp_clan/imp_brawler.png"
+	imp_brawler.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/imp_brawler_small.png"
 	all.append(imp_brawler)
 
 	var void_touched_imp := MinionCardData.new()
@@ -1272,8 +1274,9 @@ func _register_wanderer_cards() -> void:
 		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100},
 	]
 	void_touched_imp.minion_tags  = ["feral_imp"]
-	void_touched_imp.faction      = "abyss_order"
-	void_touched_imp.clan         = "Feral Imp"
+	void_touched_imp.faction  = "abyss_order"
+	void_touched_imp.clan     = "Feral Imp"
+	void_touched_imp.art_path = "res://assets/art/minions/feral_imp_clan/void_touched_imp.png"
 	all.append(void_touched_imp)
 
 	var frenzied_imp := MinionCardData.new()
@@ -1288,8 +1291,10 @@ func _register_wanderer_cards() -> void:
 		{"type": "HARDCODED", "hardcoded_id": "frenzied_imp_play"},
 	]
 	frenzied_imp.minion_tags  = ["feral_imp"]
-	frenzied_imp.faction      = "abyss_order"
-	frenzied_imp.clan         = "Feral Imp"
+	frenzied_imp.faction              = "abyss_order"
+	frenzied_imp.clan                 = "Feral Imp"
+	frenzied_imp.art_path             = "res://assets/art/minions/feral_imp_clan/frienzied_imp.png"
+	frenzied_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/frienzied_imp_small.png"
 	all.append(frenzied_imp)
 
 	var matriarchs_broodling := MinionCardData.new()
@@ -1305,8 +1310,10 @@ func _register_wanderer_cards() -> void:
 		{"type": "SUMMON", "card_id": "brood_imp"},
 	]
 	matriarchs_broodling.minion_tags  = ["feral_imp"]
-	matriarchs_broodling.faction      = "abyss_order"
-	matriarchs_broodling.clan         = "Feral Imp"
+	matriarchs_broodling.faction              = "abyss_order"
+	matriarchs_broodling.clan                 = "Feral Imp"
+	matriarchs_broodling.art_path             = "res://assets/art/minions/feral_imp_clan/matriarchs_broodling.png"
+	matriarchs_broodling.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/matriarchs_broodling_small.png"
 	all.append(matriarchs_broodling)
 
 	var rogue_imp_elder := MinionCardData.new()
@@ -1324,8 +1331,10 @@ func _register_wanderer_cards() -> void:
 		{"type": "HARDCODED", "hardcoded_id": "rogue_imp_elder_remove"},
 	]
 	rogue_imp_elder.minion_tags  = ["feral_imp"]
-	rogue_imp_elder.faction      = "abyss_order"
-	rogue_imp_elder.clan         = "Feral Imp"
+	rogue_imp_elder.faction              = "abyss_order"
+	rogue_imp_elder.clan                 = "Feral Imp"
+	rogue_imp_elder.art_path             = "res://assets/art/minions/feral_imp_clan/rogue_imp_elder.png"
+	rogue_imp_elder.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/rogue_imp_elder_small.png"
 	all.append(rogue_imp_elder)
 
 	# Feral Imp Clan Spells
@@ -1340,7 +1349,8 @@ func _register_wanderer_cards() -> void:
 	feral_surge.effect_steps   = [
 		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "FERAL_IMP", "amount": 300, "permanent": false},
 	]
-	feral_surge.faction        = "abyss_order"
+	feral_surge.faction   = "abyss_order"
+	feral_surge.art_path  = "res://assets/art/spells/feral_imp_clan/feral_surge.png"
 	all.append(feral_surge)
 
 	var void_screech := SpellCardData.new()
@@ -1349,7 +1359,8 @@ func _register_wanderer_cards() -> void:
 	void_screech.cost        = 1
 	void_screech.description = "Deal 250 damage to the enemy hero. If you have 3+ FERAL IMP minions on board, deal 350 instead."
 	void_screech.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_screech"}]
-	void_screech.faction     = "abyss_order"
+	void_screech.faction   = "abyss_order"
+	void_screech.art_path  = "res://assets/art/spells/feral_imp_clan/void_screech.png"
 	all.append(void_screech)
 
 	var brood_call := SpellCardData.new()
@@ -1358,7 +1369,8 @@ func _register_wanderer_cards() -> void:
 	brood_call.cost        = 2
 	brood_call.description = "Summon a random FERAL IMP minion."
 	brood_call.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "brood_call"}]
-	brood_call.faction     = "abyss_order"
+	brood_call.faction   = "abyss_order"
+	brood_call.art_path  = "res://assets/art/spells/feral_imp_clan/brood_call.png"
 	all.append(brood_call)
 
 	var pack_frenzy := SpellCardData.new()
@@ -1367,7 +1379,8 @@ func _register_wanderer_cards() -> void:
 	pack_frenzy.cost        = 3
 	pack_frenzy.description = "All friendly FERAL IMP minions gain +250 ATK and SWIFT this turn."
 	pack_frenzy.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "pack_frenzy"}]
-	pack_frenzy.faction     = "abyss_order"
+	pack_frenzy.faction   = "abyss_order"
+	pack_frenzy.art_path  = "res://assets/art/spells/feral_imp_clan/pack_frenzy.png"
 	all.append(pack_frenzy)
 
 	# --- Pool assignments (controls deck builder visibility and collection) ---
@@ -1427,26 +1440,26 @@ func _register_wanderer_cards() -> void:
 		"feral_surge": "feral_imp_clan",           "void_screech": "feral_imp_clan",
 		"brood_call": "feral_imp_clan",            "pack_frenzy": "feral_imp_clan",
 	}
-	# --- Rarity assignments (used for boss drop roll chances) ---
-	var _card_rarities := {
+	# --- Act gate assignments (earliest act card appears in rewards/shop) ---
+	var _card_act_gates := {
 		# Piercing Void pool
-		"mark_the_target": "common",
-		"void_detonation": "rare",
-		"abyssal_arcanist": "common",
-		"void_archmagus": "legendary",
-		"abyss_ritual_circle": "epic",
+		"mark_the_target": 2,
+		"void_detonation": 2,
+		"abyssal_arcanist": 1,
+		"void_archmagus": 4,
+		"abyss_ritual_circle": 3,
 		# Vael common pool
-		"imp_recruiter": "common",            "blood_pact": "common",
-		"soul_taskmaster": "rare",            "soul_shatter": "rare",
-		"void_amplifier": "epic",             "soul_rune": "epic",
-		# Endless Tide pool rarities
-		"imp_frenzy": "common",          "imp_martyr": "common",
-		"imp_vessel": "rare",             "imp_idol": "epic",
-		"vaels_colossal_guard": "legendary",
-		# Rune Master pool rarities
-		"runic_blast": "common",         "runic_echo": "rare",
-		"rune_warden": "rare",            "rune_seeker": "rare",
-		"echo_rune": "legendary",
+		"imp_recruiter": 1,               "blood_pact": 1,
+		"soul_taskmaster": 2,             "soul_shatter": 2,
+		"void_amplifier": 3,              "soul_rune": 3,
+		# Endless Tide pool
+		"imp_frenzy": 1,                  "imp_martyr": 2,
+		"imp_vessel": 2,                  "imp_idol": 3,
+		"vaels_colossal_guard": 4,
+		# Rune Master pool
+		"runic_blast": 1,                 "rune_seeker": 1,
+		"rune_warden": 2,                 "runic_echo": 2,
+		"echo_rune": 4,
 	}
 	# Append all token cards (pool = "", rarity = "")
 	for td in _TOKEN_DEFS:
@@ -1454,7 +1467,7 @@ func _register_wanderer_cards() -> void:
 
 	for c in all:
 		c.pool   = _card_pools.get(c.id, "")
-		c.rarity = _card_rarities.get(c.id, "")
+		c.act_gate = _card_act_gates.get(c.id, 0)
 
 	for c in all:
 		_register(c)

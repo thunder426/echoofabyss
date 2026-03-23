@@ -28,10 +28,20 @@ func get_branch(branch: String) -> Array[TalentData]:
 	return result
 
 ## Talents that can currently be unlocked: prerequisite met, not yet owned.
+## Once any talent is unlocked, only talents from that same branch are available.
 func get_available(unlocked: Array[String]) -> Array[TalentData]:
+	# Determine which branch the player has committed to (if any).
+	var committed_branch := ""
+	for id in unlocked:
+		if _talents.has(id):
+			committed_branch = _talents[id].branch
+			break  # All unlocked talents share the same branch by design.
+
 	var result: Array[TalentData] = []
 	for t in _talents.values():
 		if t.id in unlocked:
+			continue
+		if committed_branch != "" and t.branch != committed_branch:
 			continue
 		if t.requires == "" or t.requires in unlocked:
 			result.append(t)
@@ -112,14 +122,9 @@ func _register_lord_vael_talents() -> void:
 		"swarm", 2, "swarm_discipline"))
 
 	_register(_make(
-		"abyssal_legion", "lord_vael", "Abyssal Legion",
-		"If you control 3 or more Void Imps, they gain +100 ATK and +100 HP.",
-		"swarm", 3, "imp_warband"))
-
-	_register(_make(
 		"void_echo", "lord_vael", "Void Echo",
 		"CAPSTONE: Whenever you draw a Void Imp, add a free copy to your hand.",
-		"swarm", 4, "abyssal_legion"))
+		"swarm", 3, "imp_warband"))
 
 	# -----------------------------------------------------------------------
 	# Branch 2 — Rune Master (rune synergy & grand rituals)

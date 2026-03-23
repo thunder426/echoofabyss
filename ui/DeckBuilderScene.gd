@@ -1,4 +1,4 @@
-## DeckBuilderScene.gd
+﻿## DeckBuilderScene.gd
 ## Lets the player build their starting deck before beginning a run.
 ## Left panel: all available cards (click to add).
 ## Right panel: current deck being built (click entry to remove).
@@ -8,7 +8,7 @@ extends Node2D
 const MAX_DECK_SIZE  := 15
 const MAX_COPIES     := 2
 const MAX_COPIES_IMP  := 4  # Void Imp limit raised by Lord Vael Passive 2
-const MAX_COPIES_LEGENDARY := 1
+const MAX_COPIES_CHAMPION := 1
 
 ## Predefined starter decks for Lord Vael. Loaded directly into the deck.
 const PREDEFINED_DECKS: Array = [
@@ -209,7 +209,7 @@ func _on_load_preset(preset_id: String) -> void:
 				if preset_card == null or preset_card.pool not in DECK_BUILDER_POOLS:
 					continue
 				var limit := MAX_COPIES_IMP if card_id == "void_imp" \
-					else (MAX_COPIES_LEGENDARY if preset_card.rarity == "legendary" else MAX_COPIES)
+					else (MAX_COPIES_CHAMPION if preset_card is MinionCardData and (preset_card as MinionCardData).is_champion else MAX_COPIES)
 				if _built_deck.count(card_id) < limit:
 					_built_deck.append(card_id)
 			# Fill remaining slots from the core pool
@@ -220,7 +220,7 @@ func _on_load_preset(preset_id: String) -> void:
 				if fill_card == null or fill_card.pool not in DECK_BUILDER_POOLS:
 					continue
 				var limit := MAX_COPIES_IMP if fill_id == "void_imp" \
-					else (MAX_COPIES_LEGENDARY if fill_card.rarity == "legendary" else MAX_COPIES)
+					else (MAX_COPIES_CHAMPION if fill_card is MinionCardData and (fill_card as MinionCardData).is_champion else MAX_COPIES)
 				if _built_deck.count(fill_id) < limit:
 					_built_deck.append(fill_id)
 			_rebuild_inventory_ui()
@@ -393,7 +393,7 @@ func _rebuild_inventory_ui() -> void:
 		if not card:
 			continue
 		var count_in_deck := _built_deck.count(card_id)
-		var copy_limit    := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_LEGENDARY if card.rarity == "legendary" else MAX_COPIES)
+		var copy_limit    := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_CHAMPION if card is MinionCardData and (card as MinionCardData).is_champion else MAX_COPIES)
 		var maxed         := count_in_deck >= copy_limit
 
 		var btn := Button.new()
@@ -534,7 +534,7 @@ func _card_type_color(card: CardData) -> Color:
 
 func _on_add_card(card_id: String) -> void:
 	var add_card := CardDatabase.get_card(card_id)
-	var limit := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_LEGENDARY if add_card and add_card.rarity == "legendary" else MAX_COPIES)
+	var limit := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_CHAMPION if add_card is MinionCardData and (add_card as MinionCardData).is_champion else MAX_COPIES)
 	if _built_deck.count(card_id) >= limit or _built_deck.size() >= MAX_DECK_SIZE:
 		return
 	_built_deck.append(card_id)

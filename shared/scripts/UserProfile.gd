@@ -112,11 +112,11 @@ func reset_all() -> void:
 	if FileAccess.file_exists(SAVE_PATH):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 
-## Seeds permanent_unlocks with all common-rarity support pool cards.
-## Called on profile load and after reset so commons are always available.
+## Seeds permanent_unlocks with all Act 1 support pool cards.
+## Called on profile load and after reset so Act 1 cards are always available.
 func _ensure_default_unlocks() -> void:
 	var support_pools: Array[String] = ["vael_common", "vael_piercing_void", "vael_endless_tide", "vael_rune_master"]
 	for card_id in CardDatabase.get_card_ids_in_pools(support_pools):
 		var card := CardDatabase.get_card(card_id)
-		if card and card.rarity == "common" and card_id not in GameManager.permanent_unlocks:
+		if card and card.act_gate == 1 and card_id not in GameManager.permanent_unlocks:
 			GameManager.permanent_unlocks.append(card_id)

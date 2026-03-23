@@ -10,16 +10,17 @@ const TOTAL_FIGHTS := 15
 ## 0-based indices of the boss fight in each act.
 const BOSS_INDICES: Array[int] = [2, 5, 8, 14]
 
-## Per-rarity unlock chance (rolled once per eligible card per boss kill).
+## Per-act-gate unlock chance (rolled once per eligible card per boss kill).
 const _UNLOCK_CHANCE: Dictionary = {
-	"common":    0.60,
-	"rare":      0.25,
-	"epic":      0.20,
-	"legendary": 0.10,
+	1: 0.60,
+	2: 0.25,
+	3: 0.20,
+	4: 0.10,
 }
 
 # --- Run State ---
 var run_active: bool = false
+var void_shards: int = 0
 var player_hp_max: int = 3000
 var player_hp: int = 3000         # current HP; persists between fights
 ## Max copies of the core unit allowed in deck; starts at 4 for Lord Vael.
@@ -76,6 +77,7 @@ func start_new_run() -> void:
 	talent_points = 1       # initial point — spend before first fight
 	unlocked_talents = []
 	deck_built = false
+	void_shards = 0
 
 func end_run(_victory: bool) -> void:
 	# Boss drops are granted in advance_node() when the act boss is detected,
@@ -83,6 +85,15 @@ func end_run(_victory: bool) -> void:
 	run_active = false
 	current_enemy = null
 	UserProfile.clear_run()  # wipes run from save, keeps permanent_unlocks
+
+func earn_shards(amount: int) -> void:
+	void_shards += amount
+
+func spend_shards(amount: int) -> bool:
+	if void_shards < amount:
+		return false
+	void_shards -= amount
+	return true
 
 func advance_node() -> void:
 	# Detect act boss BEFORE incrementing (boss indices: 2, 5, 8, 14).
@@ -139,14 +150,6 @@ func _act_for_index(index: int) -> int:
 ## Eligible rarities scale with act: Act 1 → common only;
 ##   Act 2 → common + rare; Acts 3 & 4 → all rarities.
 func grant_boss_unlocks(act_number: int) -> void:
-	# Build the eligible rarity set for this act.
-	var eligible: Array[String] = ["common"]
-	if act_number >= 2:
-		eligible.append("rare")
-	if act_number >= 3:
-		eligible.append("epic")
-		eligible.append("legendary")
-
 	# Gather all support pool cards relevant to the current hero + talents.
 	var candidates: Array[String] = []
 	if current_hero == "lord_vael":
@@ -159,18 +162,15 @@ func grant_boss_unlocks(act_number: int) -> void:
 		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_rune_master"]))
 	# Future support pools (other heroes / talents) appended here.
 
-	# Roll each candidate that is eligible and not yet unlocked.
+	# Roll each candidate whose act_gate <= current act and not yet unlocked.
 	last_boss_unlocks.clear()
 	for card_id in candidates:
 		if card_id in permanent_unlocks:
 			continue  # already unlocked
 		var card := CardDatabase.get_card(card_id)
-		if not card:
+		if not card or card.act_gate == 0 or card.act_gate > act_number:
 			continue
-		var rarity: String = card.rarity
-		if rarity not in eligible:
-			continue
-		var chance: float = _UNLOCK_CHANCE.get(rarity, 0.0)
+		var chance: float = _UNLOCK_CHANCE.get(card.act_gate, 0.0)
 		if randf() < chance:
 			permanent_unlocks.append(card_id)
 			last_boss_unlocks.append(card_id)

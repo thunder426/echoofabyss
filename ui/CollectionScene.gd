@@ -12,7 +12,7 @@ const PREVIEW_OFFSET := Vector2(16, -PREVIEW_SIZE.y / 2.0)
 # ---------------------------------------------------------------------------
 
 var _filter_type:   int    = -1
-var _filter_rarity: String = ""
+var _filter_act_gate: int = 0   # 0 = All
 var _filter_status: int    = 0   # 0=All  1=Unlocked  2=Locked
 var _filter_pool:   String = ""  # "" = All
 
@@ -86,11 +86,10 @@ func _setup_filters() -> void:
 			_build_list()
 	)
 
-	_add_dropdown(row, "Rarity",
-		["All Rarities", "Common", "Rare", "Epic", "Legendary"],
+	_add_dropdown(row, "Act",
+		["All Acts", "Act 1", "Act 2", "Act 3", "Act 4"],
 		func(idx: int) -> void:
-			var vals := ["", "common", "rare", "epic", "legendary"]
-			_filter_rarity = vals[idx]
+			_filter_act_gate = idx
 			_build_list()
 	)
 
@@ -151,7 +150,7 @@ func _build_list() -> void:
 
 		if _filter_type != -1 and card.card_type != _filter_type:
 			continue
-		if _filter_rarity != "" and card.rarity != _filter_rarity:
+		if _filter_act_gate != 0 and card.act_gate != _filter_act_gate:
 			continue
 		if _filter_status == 1 and not is_unlocked:
 			continue
@@ -170,9 +169,8 @@ func _build_list() -> void:
 		_container.add_child(lbl)
 		return
 
-	# --- Sort: pool asc, then rarity asc, then name ---
-	var rarity_order := {"common": 0, "rare": 1, "epic": 2, "legendary": 3}
-	var pool_order   := {"vael_common": 0, "vael_piercing_void": 1, "vael_endless_tide": 2, "vael_rune_master": 3, "feral_imp_clan": 4}
+	# --- Sort: pool asc, then act_gate asc, then name ---
+	var pool_order := {"vael_common": 0, "vael_piercing_void": 1, "vael_endless_tide": 2, "vael_rune_master": 3, "feral_imp_clan": 4}
 	visible_ids.sort_custom(func(a: String, b: String) -> bool:
 		var ca := CardDatabase.get_card(a)
 		var cb := CardDatabase.get_card(b)
@@ -180,8 +178,8 @@ func _build_list() -> void:
 		var pb: int = pool_order.get(cb.pool if cb else "", 99)
 		if pa != pb:
 			return pa < pb
-		var ra: int = rarity_order.get(ca.rarity if ca else "", 99)
-		var rb: int = rarity_order.get(cb.rarity if cb else "", 99)
+		var ra: int = ca.act_gate if ca else 99
+		var rb: int = cb.act_gate if cb else 99
 		if ra != rb:
 			return ra < rb
 		return (ca.card_name if ca else a) < (cb.card_name if cb else b)
@@ -194,7 +192,7 @@ func _build_list() -> void:
 	header.add_theme_constant_override("separation", 12)
 	_add_cell(header, "",            28,  HORIZONTAL_ALIGNMENT_CENTER, Color(0.55, 0.60, 0.85, 1))
 	_add_cell(header, "Pool",       130, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
-	_add_cell(header, "Rarity",     100, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
+	_add_cell(header, "Act",        100, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
 	_add_cell(header, "Type",        60, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
 	_add_cell(header, "Name",       200, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1))
 	_add_cell(header, "Description", 500, HORIZONTAL_ALIGNMENT_LEFT,  Color(0.55, 0.60, 0.85, 1), true)
@@ -220,8 +218,8 @@ func _build_list() -> void:
 			Color(1, 1, 1, 1))
 		_add_cell(row, pool_display, 130, HORIZONTAL_ALIGNMENT_LEFT,
 			_pool_color(card.pool))
-		_add_cell(row, card.rarity.capitalize(), 100, HORIZONTAL_ALIGNMENT_LEFT,
-			_rarity_color(card.rarity))
+		_add_cell(row, _act_gate_label(card.act_gate), 100, HORIZONTAL_ALIGNMENT_LEFT,
+			_act_gate_color(card.act_gate))
 		_add_cell(row, _type_str(card.card_type), 60, HORIZONTAL_ALIGNMENT_LEFT,
 			Color(0.60, 0.65, 0.80, 1))
 		_add_cell(row, card.card_name, 200, HORIZONTAL_ALIGNMENT_LEFT,
@@ -281,12 +279,19 @@ func _pool_color(pool: String) -> Color:
 		"feral_imp_clan":           return Color(1.00, 0.45, 0.35, 1)
 	return Color(0.55, 0.55, 0.65, 1)
 
-func _rarity_color(rarity: String) -> Color:
-	match rarity:
-		"common":    return Color(0.75, 0.75, 0.75, 1)
-		"rare":      return Color(0.30, 0.60, 1.00, 1)
-		"epic":      return Color(0.70, 0.20, 0.90, 1)
-		"legendary": return Color(1.00, 0.75, 0.10, 1)
+func _act_gate_label(gate: int) -> String:
+	if gate == 4:
+		return "Champion"
+	if gate >= 1:
+		return "Act %d" % gate
+	return "—"
+
+func _act_gate_color(gate: int) -> Color:
+	match gate:
+		1: return Color(0.75, 0.75, 0.75, 1)
+		2: return Color(0.30, 0.60, 1.00, 1)
+		3: return Color(0.70, 0.20, 0.90, 1)
+		4: return Color(1.00, 0.75, 0.10, 1)
 	return Color(0.55, 0.55, 0.65, 1)
 
 # ---------------------------------------------------------------------------

@@ -39,12 +39,12 @@ const _TYPE_COLOR: Dictionary = {
 	Enums.CardType.ENVIRONMENT: Color(0.10, 0.26, 0.18, 0.92),
 }
 
-# Rarity gem colours
-const _RARITY_COLOR: Dictionary = {
-	"common":    Color(0.65, 0.65, 0.70, 1.0),
-	"rare":      Color(0.25, 0.55, 1.00, 1.0),
-	"epic":      Color(0.65, 0.20, 0.90, 1.0),
-	"legendary": Color(1.00, 0.75, 0.10, 1.0),
+# Act gate gem colours (act 1–4 replacing common/rare/epic/legendary)
+const _ACT_GATE_COLOR: Dictionary = {
+	1: Color(0.65, 0.65, 0.70, 1.0),
+	2: Color(0.25, 0.55, 1.00, 1.0),
+	3: Color(0.65, 0.20, 0.90, 1.0),
+	4: Color(1.00, 0.75, 0.10, 1.0),
 }
 
 # Keyword display names
@@ -141,8 +141,8 @@ func setup(card: CardData) -> void:
 	desc += card.description
 	_desc_label.text = desc
 
-	# -- Rarity gem --
-	_rarity_gem.color = _RARITY_COLOR.get(card.rarity, Color(0.4, 0.4, 0.4, 1.0))
+	# -- Act gate gem --
+	_rarity_gem.color = _ACT_GATE_COLOR.get(card.act_gate, Color(0.4, 0.4, 0.4, 1.0))
 
 # ---------------------------------------------------------------------------
 # Frame helper — loads faction frame texture or falls back to ColorRects
