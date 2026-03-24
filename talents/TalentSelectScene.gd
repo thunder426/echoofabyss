@@ -21,14 +21,21 @@ const BRANCH_COLOR_DEFAULT := Color(0.70, 0.70, 0.70, 1)
 
 var _root_vbox: VBoxContainer
 var _points_label: Label
+var _revert_btn: Button
 var _branch_columns: Dictionary = {}   # branch id -> VBoxContainer
 var _talent_buttons: Dictionary = {}   # talent id -> Button
+
+# Snapshot taken on scene entry — used to detect and undo picks made here.
+var _entry_talents: Array[String] = []
+var _entry_points: int = 0
 
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
+	_entry_talents = GameManager.unlocked_talents.duplicate()
+	_entry_points  = GameManager.talent_points
 	_build_ui()
 	_refresh()
 
@@ -64,6 +71,18 @@ func _build_ui() -> void:
 	_points_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_points_label.add_theme_font_size_override("font_size", 20)
 	_root_vbox.add_child(_points_label)
+
+	# Revert button — only visible after picking something on this screen
+	_revert_btn = Button.new()
+	_revert_btn.text = "↩  Undo Last Choice"
+	_revert_btn.custom_minimum_size = Vector2(240, 44)
+	_revert_btn.add_theme_font_size_override("font_size", 16)
+	_revert_btn.add_theme_color_override("font_color", Color(1.0, 0.60, 0.30, 1))
+	_revert_btn.visible = false
+	_revert_btn.pressed.connect(_on_revert_pressed)
+	var revert_center := CenterContainer.new()
+	revert_center.add_child(_revert_btn)
+	_root_vbox.add_child(revert_center)
 
 	# Branch columns
 	var cols_container := HBoxContainer.new()
@@ -135,6 +154,9 @@ func _refresh() -> void:
 	for t in available:
 		available_ids.append(t.id)
 
+	# Show revert only when something was picked on this screen
+	_revert_btn.visible = GameManager.unlocked_talents.size() > _entry_talents.size()
+
 	# Update points label
 	if points > 0:
 		_points_label.text = "Talent Points Available: %d  — Click a talent to unlock it" % points
@@ -170,6 +192,11 @@ func _refresh() -> void:
 
 func _on_talent_pressed(id: String) -> void:
 	GameManager.unlock_talent(id)
+	_refresh()
+
+func _on_revert_pressed() -> void:
+	GameManager.unlocked_talents = _entry_talents.duplicate()
+	GameManager.talent_points    = _entry_points
 	_refresh()
 
 func _on_done_pressed() -> void:

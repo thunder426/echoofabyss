@@ -109,6 +109,12 @@ func _build_ui() -> void:
 	launch_btn.pressed.connect(_on_launch_pressed)
 	vbox.add_child(launch_btn)
 
+	# Balance Simulator button
+	var sim_btn := Button.new()
+	sim_btn.text = "⚔  Balance Simulator"
+	sim_btn.pressed.connect(func(): GameManager.go_to_scene("res://debug/BalanceSim.tscn"))
+	vbox.add_child(sim_btn)
+
 	# Back button
 	var back_btn := Button.new()
 	back_btn.text = "← Back to Main Menu"

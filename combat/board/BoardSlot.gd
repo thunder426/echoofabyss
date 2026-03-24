@@ -34,6 +34,8 @@ var minion: MinionInstance = null
 
 enum HighlightMode { NONE, VALID_TARGET, SELECTED, INVALID }
 var _highlight_mode: HighlightMode = HighlightMode.NONE
+var _pulse_tween: Tween = null
+var _pulse_t: float = 0.0
 
 # ===========================================================================
 # BATTLEFIELD TEXT CONFIG  (slot is 180 × 195 px)
@@ -156,13 +158,14 @@ func _build_visuals() -> void:
 	_frame_rect.visible      = false
 	add_child(_frame_rect)
 
-	# --- Highlight overlay (border-glow panel, transparent bg) ---
+	# --- Highlight overlay (border-glow panel, expands 4px outside slot to prevent shadow bleed) ---
 	_overlay = Panel.new()
-	_overlay.position     = Vector2.ZERO
-	_overlay.size         = Vector2(SLOT_W, SLOT_H)
+	_overlay.position     = Vector2(-4, -4)
+	_overlay.size         = Vector2(SLOT_W + 8, SLOT_H + 8)
 	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var _blank := StyleBoxFlat.new()
 	_blank.bg_color = Color(0, 0, 0, 0)
+	_blank.draw_center = false
 	_overlay.add_theme_stylebox_override("panel", _blank)
 	add_child(_overlay)
 
@@ -214,13 +217,33 @@ func _on_gui_input(event: InputEvent) -> void:
 
 func _on_mouse_entered() -> void:
 	_is_hovered = true
-	if _highlight_mode != HighlightMode.NONE:
+	if _highlight_mode == HighlightMode.VALID_TARGET:
+		_start_pulse()
+	elif _highlight_mode != HighlightMode.NONE:
 		_refresh_visuals()
 
 func _on_mouse_exited() -> void:
 	_is_hovered = false
+	_stop_pulse()
 	if _highlight_mode != HighlightMode.NONE:
 		_refresh_visuals()
+
+func _start_pulse() -> void:
+	if _pulse_tween:
+		_pulse_tween.kill()
+	_pulse_tween = create_tween().set_loops()
+	_pulse_tween.tween_method(func(v: float) -> void:
+		_pulse_t = v
+		_refresh_visuals(), 0.0, 1.0, 0.5)
+	_pulse_tween.tween_method(func(v: float) -> void:
+		_pulse_t = v
+		_refresh_visuals(), 1.0, 0.0, 0.5)
+
+func _stop_pulse() -> void:
+	if _pulse_tween:
+		_pulse_tween.kill()
+		_pulse_tween = null
+	_pulse_t = 0.0
 
 # ---------------------------------------------------------------------------
 # Minion placement
@@ -243,6 +266,8 @@ func remove_minion() -> void:
 # ---------------------------------------------------------------------------
 
 func set_highlight(mode: HighlightMode) -> void:
+	if mode != HighlightMode.VALID_TARGET:
+		_stop_pulse()
 	_highlight_mode = mode
 	_refresh_visuals()
 
@@ -416,23 +441,23 @@ func _show_occupied_state() -> void:
 	_status_bar.visible = _status_bar.get_child_count() > 0
 
 func _set_overlay_glow(color: Color) -> void:
-	var border_w: int  = 4  if _is_hovered else 3
-	var shadow_sz: int = 10 if _is_hovered else 6
-	var shadow_a: float = 0.75 if _is_hovered else 0.50
+	var border_w: float = 3.0 + _pulse_t * 2.5
+	var shadow_sz: float = 6.0 + _pulse_t * 8.0
+	var shadow_a: float = 0.50 + _pulse_t * 0.30
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0, 0, 0, 0)
-	s.border_width_left   = border_w; s.border_width_top    = border_w
-	s.border_width_right  = border_w; s.border_width_bottom = border_w
+	s.bg_color   = Color(0, 0, 0, 0)
+	s.draw_center = false
+	s.set_border_width_all(border_w)
 	s.border_color = color
-	s.corner_radius_top_left    = 8; s.corner_radius_top_right   = 8
-	s.corner_radius_bottom_right = 8; s.corner_radius_bottom_left = 8
+	s.set_corner_radius_all(8)
 	s.shadow_color = Color(color.r, color.g, color.b, shadow_a)
 	s.shadow_size  = shadow_sz
 	_overlay.add_theme_stylebox_override("panel", s)
 
 func _clear_overlay() -> void:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0, 0, 0, 0)
+	s.bg_color    = Color(0, 0, 0, 0)
+	s.draw_center = false
 	_overlay.add_theme_stylebox_override("panel", s)
 
 func _set_labels_visible(v: bool, generic: bool = false) -> void:

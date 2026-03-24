@@ -41,6 +41,8 @@ var _large_preview: CardVisual = null
 
 # Enemy hero status panel (built programmatically)
 var _enemy_status_panel: Panel = null
+var _hero_spell_tween: Tween = null
+var _hero_spell_pulse: float = 0.0
 var _enemy_status_hp_label: Label = null
 var _enemy_status_essence_label: Label = null
 var _enemy_status_mana_label: Label = null
@@ -62,6 +64,7 @@ var combat_manager := CombatManager.new()
 
 ## Central event dispatcher — populated by _setup_triggers() in _ready().
 var trigger_manager: TriggerManager
+var _handlers: CombatHandlers
 
 # Live boards
 var player_board: Array[MinionInstance] = []
@@ -108,7 +111,7 @@ var _rune_aura_handlers: Array = []  # Array[{rune_id: String, entries: Array}]
 # ---------------------------------------------------------------------------
 
 ## True until the first card is played this turn (Void Crystal: first card free)
-var _relic_first_card_free: bool = false
+var relic_first_card_free: bool = false
 
 # ---------------------------------------------------------------------------
 # Talent state — reset each combat
@@ -136,7 +139,7 @@ var _soul_rune_fired: bool = false
 var _temp_imps: Array[MinionInstance] = []
 
 ## True once Imp Evolution has added a Senior Void Imp this turn; reset on turn start.
-var _imp_evolution_used_this_turn: bool = false
+var imp_evolution_used_this_turn: bool = false
 
 # ---------------------------------------------------------------------------
 # Enemy passive state — populated from GameManager.current_enemy.passives
@@ -146,7 +149,7 @@ var _imp_evolution_used_this_turn: bool = false
 var _active_enemy_passives: Array[String] = []
 
 ## True after Feral Instinct has been granted this enemy turn (resets at ON_ENEMY_TURN_START).
-var _feral_instinct_granted_this_turn: bool = false
+var feral_instinct_granted_this_turn: bool = false
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -184,6 +187,8 @@ func _ready() -> void:
 	turn_manager.enemy_board = enemy_board
 	_setup_enemy_ai()
 	turn_manager.start_combat(deck)
+	if GameManager.current_enemy != null:
+		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
 	_setup_enemy_status_panel()
 	_setup_player_status_panel()
 	_setup_large_preview()
@@ -367,7 +372,7 @@ func _on_turn_started(is_player_turn: bool) -> void:
 			slot._refresh_visuals()
 	# Fire turn-start events — all effects are handled by registered listeners in _setup_triggers().
 	if is_player_turn:
-		_imp_evolution_used_this_turn = false
+		imp_evolution_used_this_turn = false
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
 	else:
 		enemy_ai.spell_cost_penalty = _spell_tax_for_enemy_turn
@@ -422,6 +427,8 @@ func _refresh_end_turn_mode() -> void:
 func _on_card_drawn(card_data: CardData) -> void:
 	if hand_display:
 		hand_display.add_card(card_data)
+		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana)
+		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
 	ctx.card = card_data
 	trigger_manager.fire(ctx)
@@ -461,7 +468,7 @@ func _on_hand_card_selected(card_data: CardData) -> void:
 		if spell.requires_target:
 			# Check affordability before showing target highlights (Void Crystal bypasses)
 			var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
-			if not _relic_first_card_free and not turn_manager.can_afford(0, effective_cost):
+			if not relic_first_card_free and not turn_manager.can_afford(0, effective_cost):
 				pending_play_card = null
 				if hand_display:
 					hand_display.deselect_current()
@@ -483,7 +490,7 @@ func _on_hand_card_selected(card_data: CardData) -> void:
 		var mc := card_data as MinionCardData
 		# Check affordability (Void Crystal relic bypasses cost for the first card)
 		var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
-		if not _relic_first_card_free and not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
+		if not relic_first_card_free and not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
 			pending_play_card = null
 			if hand_display:
 				hand_display.deselect_current()
@@ -783,11 +790,11 @@ func _resolve_on_death_effect(minion: MinionInstance) -> void:
 # Relic effects
 # ---------------------------------------------------------------------------
 
-## Stub kept for call-site compatibility — logic now lives in _handler_player_turn_relics.
+## Stub kept for call-site compatibility — logic now lives in CombatHandlers.on_player_turn_relics.
 func _apply_relic_turn_start() -> void:
 	pass  # Handled by ON_PLAYER_TURN_START event handlers
 
-## Stub kept for call-site compatibility — logic now lives in _handler_relic_on_summon.
+## Stub kept for call-site compatibility — logic now lives in CombatHandlers.on_summon_relic.
 func _apply_relic_on_player_summon(_instance: MinionInstance) -> void:
 	pass  # Handled by ON_PLAYER_MINION_SUMMONED event handlers
 
@@ -867,7 +874,7 @@ func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = 
 # Abyss Order — Board-wide passive triggers (fire on friendly death)
 # ---------------------------------------------------------------------------
 
-## Kept as a thin stub — logic lives in _handler_board_passives_on_player_death (registered via TriggerManager).
+## Kept as a thin stub — logic lives in CombatHandlers.on_player_minion_died_board_passives (registered via TriggerManager).
 func _on_friendly_minion_died(_dead_minion: MinionInstance) -> void:
 	pass  # Handled by ON_PLAYER_MINION_DIED event handlers
 
@@ -1258,6 +1265,7 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 					turn_manager.add_to_hand(c)
 					if hand_display:
 						hand_display.add_card(c)
+						hand_display.refresh_playability(turn_manager.essence, turn_manager.mana)
 					_log("  Rune Seeker: found %s." % c.card_name, _LogType.PLAYER)
 					found = true
 					break
@@ -1468,6 +1476,7 @@ func _refresh_hand_spell_costs() -> void:
 	var discount := _spell_mana_discount()
 	if hand_display:
 		hand_display.refresh_spell_costs(discount)
+		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	if _large_preview and _large_preview.visible:
 		_large_preview.apply_cost_discount(discount)
 
@@ -1502,13 +1511,14 @@ func _deal_void_bolt_damage(base_damage: int) -> void:
 		_log("  Void Bolt: %d damage." % total, _LogType.PLAYER)
 	_on_hero_damaged("enemy", total)
 	# Board passives that react to Void Bolt hits (e.g. Void Channeler)
-	_apply_void_bolt_passives()
+	if _handlers:
+		_handlers._apply_void_bolt_passives()
 
 ## Tries to spend a card's costs, respecting the Void Crystal relic.
 ## Returns true if the card can be played (and costs are deducted).
 func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
-	if _relic_first_card_free and "void_crystal" in GameManager.player_relics:
-		_relic_first_card_free = false
+	if relic_first_card_free and "void_crystal" in GameManager.player_relics:
+		relic_first_card_free = false
 		_log("  Void Crystal: first card is free!", _LogType.PLAYER)
 		return true
 	if not turn_manager.can_afford(essence_cost, mana_cost):
@@ -1544,6 +1554,8 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 	if minion.owner == "player":
 		player_board.erase(minion)
 		_clear_slot_for(minion, player_slots)
+		if hand_display:
+			hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	else:
 		enemy_board.erase(minion)
 		_clear_slot_for(minion, enemy_slots)
@@ -1655,8 +1667,9 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 			if not slot.is_empty():
 				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
 	if hits_hero and _enemy_status_panel:
-		_enemy_status_panel.modulate = Color(1.4, 1.1, 0.4)
+		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		_enemy_status_panel.gui_input.connect(_on_enemy_hero_spell_input)
+		_start_hero_spell_pulse()
 
 func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
@@ -1853,7 +1866,7 @@ func _flash_trap_slot(slot_idx: int) -> void:
 ## Called by EnemyAI's minion_summoned signal.
 func _on_enemy_minion_summoned(minion: MinionInstance) -> void:
 	_log("Enemy summons: %s" % minion.card_data.card_name, _LogType.ENEMY)
-	# ON_PLAY effects are resolved by _handler_enemy_minion_on_play registered in _setup_triggers().
+	# ON_PLAY effects are resolved by CombatHandlers.on_enemy_minion_played_effect registered in _setup_triggers().
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 	ctx.minion = minion
 	trigger_manager.fire(ctx)
@@ -1869,10 +1882,18 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	_spell_cancelled = false
 	if was_cancelled:
 		return
+	# Capture chosen target before animation; dispatch to the correct EffectContext field by type.
+	var chosen = enemy_ai.spell_chosen_target
+	enemy_ai.spell_chosen_target = null
 	# Show large card preview; resolve effects on impact so damage visuals sync
 	_show_card_cast_anim(spell, true, func() -> void:
 		if not spell.effect_steps.is_empty():
-			EffectResolver.run(spell.effect_steps, EffectContext.make(self, "enemy"))
+			var ectx := EffectContext.make(self, "enemy")
+			if chosen is MinionInstance:
+				ectx.chosen_target = chosen
+			else:
+				ectx.chosen_object = chosen
+			EffectResolver.run(spell.effect_steps, ectx)
 		elif not spell.effect_id.is_empty():
 			_resolve_spell_effect(spell.effect_id, null, "enemy")
 	)
@@ -1907,7 +1928,7 @@ func _update_trap_display() -> void:
 func _register_env_rituals(env: EnvironmentCardData) -> void:
 	for ritual in env.rituals:
 		var r: RitualData = ritual
-		var h := func(_ctx: EventContext): _handler_env_ritual(r)
+		var h := func(_ctx: EventContext): _handlers.on_env_ritual(r)
 		_env_ritual_handlers.append(h)
 		trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, h, 5)
 		trigger_manager.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h, 5)
@@ -1989,21 +2010,6 @@ func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
 		_log("  Dominion Rune: all friendly Demons gain +%d ATK." % amount, _LogType.PLAYER)
 	else:
 		_log("  Dominion Rune removed: all friendly Demons lose ATK bonus.", _LogType.PLAYER)
-
-## Grand ritual handler — registered at combat start for each talent with grand_ritual set.
-## Priority 0 ensures it fires before environment rituals (priority 5).
-func _handler_grand_ritual(ritual: RitualData) -> void:
-	var runes := active_traps.filter(func(t: TrapCardData): return t.is_rune)
-	if _runes_satisfy(runes, ritual.required_runes):
-		_fire_ritual(ritual)
-
-## Environment ritual handler — registered dynamically when an environment is played.
-## Priority 5 ensures it fires after grand rituals; if a grand ritual already consumed
-## the runes, _runes_satisfy will return false and this handler does nothing.
-func _handler_env_ritual(ritual: RitualData) -> void:
-	var runes := active_traps.filter(func(t: TrapCardData): return t.is_rune)
-	if _runes_satisfy(runes, ritual.required_runes):
-		_fire_ritual(ritual)
 
 ## Talent: rune_caller — draw a random Rune card from the player's deck into hand.
 func _draw_rune_from_deck() -> void:
@@ -2142,6 +2148,60 @@ func _on_enemy_hero_frame_input(event: InputEvent) -> void:
 			_on_enemy_hero_button_pressed()
 
 # ---------------------------------------------------------------------------
+# Enemy hero spell-target pulse
+# ---------------------------------------------------------------------------
+
+func _apply_hero_spell_style() -> void:
+	if _enemy_status_panel == null:
+		return
+	var border_w: float = 3.0 + _hero_spell_pulse * 2.5
+	var shadow_sz: float = 8.0 + _hero_spell_pulse * 10.0
+	var shadow_a: float  = 0.55 + _hero_spell_pulse * 0.30
+	var s := StyleBoxFlat.new()
+	s.set_corner_radius_all(6)
+	s.bg_color     = Color(0.08, 0.04, 0.13, 0.93)
+	s.border_color = Color(0.20, 0.85, 0.30, 1.0)
+	s.set_border_width_all(border_w)
+	s.shadow_color = Color(0.20, 0.85, 0.30, shadow_a)
+	s.shadow_size  = shadow_sz
+	_enemy_status_panel.add_theme_stylebox_override("panel", s)
+
+func _start_hero_spell_pulse() -> void:
+	# Apply static border immediately; pulse begins only on hover.
+	_hero_spell_pulse = 0.0
+	_apply_hero_spell_style()
+	if not _enemy_status_panel.mouse_entered.is_connected(_on_hero_spell_hover_enter):
+		_enemy_status_panel.mouse_entered.connect(_on_hero_spell_hover_enter)
+		_enemy_status_panel.mouse_exited.connect(_on_hero_spell_hover_exit)
+
+func _stop_hero_spell_pulse() -> void:
+	if _hero_spell_tween:
+		_hero_spell_tween.kill()
+		_hero_spell_tween = null
+	_hero_spell_pulse = 0.0
+	if _enemy_status_panel and _enemy_status_panel.mouse_entered.is_connected(_on_hero_spell_hover_enter):
+		_enemy_status_panel.mouse_entered.disconnect(_on_hero_spell_hover_enter)
+		_enemy_status_panel.mouse_exited.disconnect(_on_hero_spell_hover_exit)
+
+func _on_hero_spell_hover_enter() -> void:
+	if _hero_spell_tween:
+		_hero_spell_tween.kill()
+	_hero_spell_tween = create_tween().set_loops()
+	_hero_spell_tween.tween_method(func(v: float) -> void:
+		_hero_spell_pulse = v
+		_apply_hero_spell_style(), 0.0, 1.0, 0.5)
+	_hero_spell_tween.tween_method(func(v: float) -> void:
+		_hero_spell_pulse = v
+		_apply_hero_spell_style(), 1.0, 0.0, 0.5)
+
+func _on_hero_spell_hover_exit() -> void:
+	if _hero_spell_tween:
+		_hero_spell_tween.kill()
+		_hero_spell_tween = null
+	_hero_spell_pulse = 0.0
+	_apply_hero_spell_style()
+
+# ---------------------------------------------------------------------------
 # Hero passives panel
 # ---------------------------------------------------------------------------
 
@@ -2218,6 +2278,10 @@ func _setup_enemy_status_panel() -> void:
 		var prefix: String = "⚔ BOSS  " if GameManager.is_boss_fight() else ""
 		name_lbl.text = prefix + GameManager.current_enemy.enemy_name
 	portrait_row.add_child(name_lbl)
+
+	# Passive hover icon — shows enemy passive list on hover
+	if not _active_enemy_passives.is_empty():
+		_add_enemy_passive_hover_icon(portrait_row, ui_root)
 
 	var sep := HSeparator.new()
 	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2425,52 +2489,91 @@ func _update_player_status_panel() -> void:
 		return
 	_player_status_hp_label.text = "❤ HP: %d / %d" % [player_hp, GameManager.player_hp_max]
 
-func _add_talent_hover_icon(parent: HBoxContainer, anchor_panel: Control) -> void:
+func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> void:
 	var icon_btn := Label.new()
 	icon_btn.text = "✦"
 	icon_btn.add_theme_font_size_override("font_size", 14)
 	icon_btn.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0, 0.75))
-	icon_btn.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	icon_btn.custom_minimum_size  = Vector2(18, 18)
+	icon_btn.vertical_alignment  = VERTICAL_ALIGNMENT_CENTER
+	icon_btn.custom_minimum_size = Vector2(18, 18)
 	icon_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(icon_btn)
 
-	# Build tooltip panel (hidden until hover)
-	var tip := Panel.new()
-	tip.visible = false
-	tip.z_index  = 50
-	tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Build tooltip panel — added to UI CanvasLayer for screen-space positioning.
+	var ui_root := get_node_or_null("UI")
+	if ui_root == null:
+		return
+	# PanelContainer auto-sizes to its children; custom_minimum_size sets the floor.
+	var tip := PanelContainer.new()
+	tip.visible             = false
+	tip.z_index             = 50
+	tip.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+	tip.custom_minimum_size = Vector2(400, 450)
 	var tip_style := StyleBoxFlat.new()
-	tip_style.bg_color     = Color(0.06, 0.03, 0.12, 0.96)
-	tip_style.border_color = Color(0.55, 0.30, 0.85, 0.85)
-	tip_style.set_border_width_all(1)
-	tip_style.set_corner_radius_all(5)
+	tip_style.bg_color     = Color(0.05, 0.02, 0.10, 0.97)
+	tip_style.border_color = Color(0.55, 0.30, 0.85, 0.90)
+	tip_style.set_border_width_all(2)
+	tip_style.set_corner_radius_all(6)
 	tip.add_theme_stylebox_override("panel", tip_style)
-	anchor_panel.add_child(tip)  # sibling of the status panel so it can overlap freely
+	ui_root.add_child(tip)
+
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.add_theme_constant_override("margin_left",   16)
+	margin.add_theme_constant_override("margin_right",  16)
+	margin.add_theme_constant_override("margin_top",    12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip.add_child(margin)
 
 	var tip_vbox := VBoxContainer.new()
-	tip_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	tip_vbox.add_theme_constant_override("separation", 6)
+	tip_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tip_vbox.add_theme_constant_override("separation", 8)
 	tip_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip.add_child(tip_vbox)
+	margin.add_child(tip_vbox)
 
-	# Header
-	var header := Label.new()
-	header.text = "TALENTS"
-	header.add_theme_font_size_override("font_size", 11)
-	header.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0, 1.0))
-	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip_vbox.add_child(header)
+	# --- Passives section ---
+	var hero_data := HeroDatabase.get_hero(GameManager.current_hero)
+	if hero_data != null and not hero_data.passives.is_empty():
+		var passive_hdr := Label.new()
+		passive_hdr.text = "PASSIVES"
+		passive_hdr.add_theme_font_size_override("font_size", 13)
+		passive_hdr.add_theme_color_override("font_color", Color(0.55, 0.85, 0.65, 1.0))
+		passive_hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		passive_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip_vbox.add_child(passive_hdr)
 
-	var tip_sep := HSeparator.new()
-	tip_sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip_vbox.add_child(tip_sep)
+		for passive in hero_data.passives:
+			var row := VBoxContainer.new()
+			row.add_theme_constant_override("separation", 3)
+			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tip_vbox.add_child(row)
+
+			var p_desc := Label.new()
+			p_desc.text = passive.description
+			p_desc.add_theme_font_size_override("font_size", 12)
+			p_desc.add_theme_color_override("font_color", Color(0.65, 0.82, 0.70, 1))
+			p_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			p_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			row.add_child(p_desc)
+
+		var passive_sep := HSeparator.new()
+		passive_sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip_vbox.add_child(passive_sep)
+
+	# --- Talents section ---
+	var talents_hdr := Label.new()
+	talents_hdr.text = "TALENTS"
+	talents_hdr.add_theme_font_size_override("font_size", 13)
+	talents_hdr.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0, 1.0))
+	talents_hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	talents_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip_vbox.add_child(talents_hdr)
 
 	if GameManager.unlocked_talents.is_empty():
 		var none_lbl := Label.new()
 		none_lbl.text = "No talents unlocked"
-		none_lbl.add_theme_font_size_override("font_size", 11)
+		none_lbl.add_theme_font_size_override("font_size", 13)
 		none_lbl.add_theme_color_override("font_color", Color(0.55, 0.52, 0.60, 1))
 		none_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tip_vbox.add_child(none_lbl)
@@ -2480,12 +2583,13 @@ func _add_talent_hover_icon(parent: HBoxContainer, anchor_panel: Control) -> voi
 			if td == null:
 				continue
 			var row := VBoxContainer.new()
+			row.add_theme_constant_override("separation", 3)
 			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			tip_vbox.add_child(row)
 
 			var t_name := Label.new()
 			t_name.text = td.talent_name
-			t_name.add_theme_font_size_override("font_size", 12)
+			t_name.add_theme_font_size_override("font_size", 15)
 			t_name.add_theme_color_override("font_color", Color(0.92, 0.85, 1.0, 1))
 			t_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			t_name.mouse_filter  = Control.MOUSE_FILTER_IGNORE
@@ -2493,18 +2597,17 @@ func _add_talent_hover_icon(parent: HBoxContainer, anchor_panel: Control) -> voi
 
 			var t_desc := Label.new()
 			t_desc.text = td.description
-			t_desc.add_theme_font_size_override("font_size", 10)
+			t_desc.add_theme_font_size_override("font_size", 12)
 			t_desc.add_theme_color_override("font_color", Color(0.65, 0.62, 0.72, 1))
 			t_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			t_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 			row.add_child(t_desc)
 
-	# Size and position: above the status panel, right-aligned to it
-	tip.set_size(Vector2(220, 0))  # width fixed; height auto via content
-	tip.reset_size()               # let it shrink-wrap after children are added
-	tip.set_size(Vector2(220, tip.size.y + 16))
-	# Position relative to anchor_panel: float upward from its top-right corner
-	tip.set_position(Vector2(anchor_panel.size.x - 220, -tip.size.y - 6))
+	tip.position = Vector2(16.0, 0.0)
+	tip.resized.connect(func() -> void:
+		var vp_h := get_viewport().get_visible_rect().size.y
+		tip.position.y = vp_h - tip.size.y - 16.0
+	)
 
 	icon_btn.mouse_entered.connect(func() -> void:
 		icon_btn.add_theme_color_override("font_color", Color(0.90, 0.70, 1.0, 1.0))
@@ -2512,6 +2615,113 @@ func _add_talent_hover_icon(parent: HBoxContainer, anchor_panel: Control) -> voi
 	)
 	icon_btn.mouse_exited.connect(func() -> void:
 		icon_btn.add_theme_color_override("font_color", Color(0.75, 0.55, 1.0, 0.75))
+		tip.visible = false
+	)
+
+func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void:
+	const PASSIVE_INFO: Dictionary = {
+		"feral_instinct": {
+			"name": "Feral Instinct",
+			"desc": "The first Feral Imp summoned each turn gains: draw 1 card on death."
+		},
+		"pack_instinct": {
+			"name": "Pack Instinct",
+			"desc": "Each Feral Imp gains +1 ATK for every other Feral Imp on the board."
+		},
+		"corrupted_death": {
+			"name": "Corrupted Death",
+			"desc": "When a Void-Touched Imp dies, apply 1 Corruption to all player minions."
+		},
+		"ancient_frenzy": {
+			"name": "Ancient Frenzy",
+			"desc": "Pack Frenzy also grants all Feral Imps Lifedrain for the turn, and costs 1 less Mana."
+		},
+	}
+
+	var icon_btn := Label.new()
+	icon_btn.text = "◉"
+	icon_btn.add_theme_font_size_override("font_size", 13)
+	icon_btn.add_theme_color_override("font_color", Color(0.95, 0.55, 0.30, 0.75))
+	icon_btn.vertical_alignment  = VERTICAL_ALIGNMENT_CENTER
+	icon_btn.custom_minimum_size = Vector2(18, 18)
+	icon_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	parent.add_child(icon_btn)
+
+	var tip := PanelContainer.new()
+	tip.visible             = false
+	tip.z_index             = 50
+	tip.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+	tip.custom_minimum_size = Vector2(300, 0)
+	var tip_style := StyleBoxFlat.new()
+	tip_style.bg_color     = Color(0.06, 0.02, 0.10, 0.97)
+	tip_style.border_color = Color(0.75, 0.35, 0.20, 0.90)
+	tip_style.set_border_width_all(2)
+	tip_style.set_corner_radius_all(6)
+	tip.add_theme_stylebox_override("panel", tip_style)
+	ui_root.add_child(tip)
+
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.add_theme_constant_override("margin_left",   16)
+	margin.add_theme_constant_override("margin_right",  16)
+	margin.add_theme_constant_override("margin_top",    12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip.add_child(margin)
+
+	var tip_vbox := VBoxContainer.new()
+	tip_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tip_vbox.add_theme_constant_override("separation", 8)
+	tip_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(tip_vbox)
+
+	var hdr := Label.new()
+	hdr.text = "ENEMY PASSIVES"
+	hdr.add_theme_font_size_override("font_size", 13)
+	hdr.add_theme_color_override("font_color", Color(1.0, 0.60, 0.25, 1.0))
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip_vbox.add_child(hdr)
+
+	for pid in _active_enemy_passives:
+		var info: Dictionary = PASSIVE_INFO.get(pid, {})
+		var p_name: String = info.get("name", pid) as String
+		var p_desc: String = info.get("desc", "") as String
+
+		var row := VBoxContainer.new()
+		row.add_theme_constant_override("separation", 3)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip_vbox.add_child(row)
+
+		var name_lbl := Label.new()
+		name_lbl.text = p_name
+		name_lbl.add_theme_font_size_override("font_size", 14)
+		name_lbl.add_theme_color_override("font_color", Color(1.0, 0.75, 0.50, 1.0))
+		name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_lbl.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+		row.add_child(name_lbl)
+
+		if p_desc != "":
+			var desc_lbl := Label.new()
+			desc_lbl.text = p_desc
+			desc_lbl.add_theme_font_size_override("font_size", 12)
+			desc_lbl.add_theme_color_override("font_color", Color(0.78, 0.65, 0.55, 1.0))
+			desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			desc_lbl.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			row.add_child(desc_lbl)
+
+	tip.position = Vector2(16.0, 0.0)
+	tip.resized.connect(func() -> void:
+		var vp_h := get_viewport().get_visible_rect().size.y
+		tip.position.y = vp_h - tip.size.y - 16.0
+	)
+
+	icon_btn.mouse_entered.connect(func() -> void:
+		icon_btn.add_theme_color_override("font_color", Color(1.0, 0.70, 0.40, 1.0))
+		tip.visible = true
+	)
+	icon_btn.mouse_exited.connect(func() -> void:
+		icon_btn.add_theme_color_override("font_color", Color(0.95, 0.55, 0.30, 0.75))
 		tip.visible = false
 	)
 
@@ -2639,7 +2849,8 @@ func _clear_all_highlights() -> void:
 		slot.clear_highlight()
 	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_enemy_hero_spell_input):
 		_enemy_status_panel.gui_input.disconnect(_on_enemy_hero_spell_input)
-		_enemy_status_panel.modulate = Color.WHITE
+		_stop_hero_spell_pulse()
+		_show_hero_button(_enemy_hero_attackable)
 
 func _find_slot_for(minion: MinionInstance) -> BoardSlot:
 	var slots := player_slots if minion.owner == "player" else enemy_slots
@@ -2913,78 +3124,77 @@ func _highlight_valid_attack_targets() -> void:
 # Called once at the end of _ready(), after all run state is initialised.
 #
 # HOW TO ADD A NEW MECHANIC:
-#   1. Write a handler method  func _handler_my_thing(ctx: EventContext) -> void
-#   2. Register it here:  trigger_manager.register(EVENT, _handler_my_thing, priority)
+#   1. Write a handler method in CombatHandlers.gd:  func on_my_thing(ctx: EventContext) -> void
+#   2. Register it here:  trigger_manager.register(EVENT, _handlers.on_my_thing, priority)
 #   3. Fire the event from the appropriate CombatScene callsite if it doesn't exist yet.
 # ===========================================================================
 
 func _setup_triggers() -> void:
+	_handlers = CombatHandlers.new()
+	_handlers.setup(self)
+
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_TURN_START  (priority: 0=relics, 10=environment, 20+=talents/cards)
 	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handler_player_turn_relics,      0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handler_player_turn_environment, 10)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handler_minion_turn_start_passives, 21)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_player_turn_relics,           0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_player_turn_environment,     10)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_minion_turn_start_passives,  21)
 
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_SPELL_CAST  (priority: 0=board passives)
 	# -----------------------------------------------------------------------
-	# Void Archmagus is a board-presence check — always registered, fires only if on board
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, _handler_void_archmagus_on_spell, 0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, _handlers.on_void_archmagus_spell, 0)
 
 	# -----------------------------------------------------------------------
 	# ON_ENEMY_TURN_START  (priority: 10=environment, 30=traps)
 	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, _handler_enemy_turn_environment, 10)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, _trap_check_enemy_turn_start,    30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, _handlers.on_enemy_turn_environment, 10)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, _trap_check_enemy_turn_start,        30)
 
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_CARD_DRAWN  (priority: 0=hero passives)
 	# -----------------------------------------------------------------------
 	if _has_talent("void_echo"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, _handler_talent_void_echo, 0)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, _handlers.on_card_drawn_void_echo, 0)
 
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_MINION_PLAYED  (priority: hand-play-only talent effects)
 	# -----------------------------------------------------------------------
 	if _has_talent("rune_caller"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handler_talent_rune_caller,          0)
-	# on_play_effect (battle cry) fires after talent effects
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handler_player_minion_on_play_effect, 10)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_played_rune_caller,          0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_player_minion_played_effect, 10)
 
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_MINION_SUMMONED  (priority: 0=hero passives, 10=relics, 20+=talents, 30=board synergies)
 	# -----------------------------------------------------------------------
 	if HeroDatabase.has_passive(GameManager.current_hero, "void_imp_boost"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handler_passive_void_imp_boost,       0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handler_relic_on_summon,             10)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_passive_void_imp_boost, 0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_relic,                 10)
 	if _has_talent("swarm_discipline"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handler_talent_swarm_discipline,     20)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_swarm_discipline,     20)
 	if _has_talent("abyssal_legion"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handler_talent_abyssal_legion,       21)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_abyssal_legion,       21)
 	if _has_talent("piercing_void"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handler_talent_piercing_void,        23)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_piercing_void,        23)
 	if _has_talent("imp_evolution"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handler_talent_imp_evolution,        24)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_evolution,        24)
 	if _has_talent("imp_warband"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handler_talent_imp_warband,          25)
-	# Board synergies always registered — handlers check board state at fire time
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handler_board_synergies_on_summon,        30)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_warband,          25)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_board_synergies,      30)
 
 	# -----------------------------------------------------------------------
 	# ON_PLAYER_MINION_DIED  (priority: 0=board passives, 5=deathrattle, 10=talents, 20=traps)
 	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handler_board_passives_on_player_death,  0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handler_minion_on_death_effect,          5)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_player_minion_died_board_passives, 0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_minion_died_death_effect,          5)
 	if _has_talent("death_bolt"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handler_talent_death_bolt,           10)
-	# Trap: ON_FRIENDLY_DEATH fires during enemy's turn — handler guards internally
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _trap_check_friendly_death,               20)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_player_minion_died_death_bolt, 10)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _trap_check_friendly_death,                     20)
 
 	# -----------------------------------------------------------------------
 	# ON_ENEMY_MINION_DIED  (priority: 5=deathrattle)
 	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED, _handler_minion_on_death_effect, 5)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED, _handlers.on_minion_died_death_effect, 5)
 
 	# -----------------------------------------------------------------------
 	# Enemy encounter passives — registered conditionally from EnemyData.passives
@@ -2992,22 +3202,22 @@ func _setup_triggers() -> void:
 	if GameManager.current_enemy != null:
 		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
 	if "feral_instinct" in _active_enemy_passives:
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,    _handler_feral_instinct_reset,  5)
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_feral_instinct_summon, 1)
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,   _handler_feral_instinct_death,  4)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,      _handlers.on_enemy_turn_feral_instinct_reset, 5)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_enemy_summon_feral_instinct,     1)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     _handlers.on_enemy_died_feral_instinct,       4)
 	if "pack_instinct" in _active_enemy_passives:
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_pack_instinct_update, 9)
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,   _handler_pack_instinct_update,  3)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_board_changed_pack_instinct,     9)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     _handlers.on_board_changed_pack_instinct,     3)
 	if "corrupted_death" in _active_enemy_passives:
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,   _handler_corrupted_death,       6)
+		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     _handlers.on_enemy_died_corrupted_death,      6)
 	if "ancient_frenzy" in _active_enemy_passives:
 		enemy_ai.spell_cost_discounts["pack_frenzy"] = 1
 
 	# -----------------------------------------------------------------------
 	# ON_ENEMY_MINION_SUMMONED — on-play (priority 5) and on-summon (priority 6), before traps (30)
 	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_enemy_minion_on_play,          5)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handler_rogue_imp_elder_aura, 7)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_enemy_minion_played_effect, 5)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_enemy_summon_rogue_imp_elder, 7)
 
 	# -----------------------------------------------------------------------
 	# Trap routing for enemy actions  (priority 30 — after any future pre-trap passives)
@@ -3020,393 +3230,35 @@ func _setup_triggers() -> void:
 	# -----------------------------------------------------------------------
 	# ON_RUNE_PLACED — board passive: Rune Warden (priority 5)
 	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, _handler_rune_warden_passive, 5)
+	trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, _handlers.on_player_minion_died_rune_warden, 5)
 
 	# -----------------------------------------------------------------------
 	# ON_RUNE_PLACED — grand rituals from active talents (priority 0, before env rituals at 5)
-	# Env rituals are registered dynamically in _register_env_rituals().
 	# -----------------------------------------------------------------------
 	for talent_id in GameManager.unlocked_talents:
 		var talent: TalentData = TalentDatabase.get_talent(talent_id)
 		if talent != null and talent.grand_ritual != null:
 			var gr: RitualData = talent.grand_ritual
 			trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED,
-				func(_ctx: EventContext): _handler_grand_ritual(gr), 0)
+				func(_ctx: EventContext): _handlers.on_grand_ritual(gr), 0)
 			trigger_manager.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED,
-				func(_ctx: EventContext): _handler_grand_ritual(gr), 0)
+				func(_ctx: EventContext): _handlers.on_grand_ritual(gr), 0)
 
 # ---------------------------------------------------------------------------
-# ON_PLAYER_TURN_START handlers
+# ON_ENEMY_TURN_START trap stub
 # ---------------------------------------------------------------------------
-
-func _handler_player_turn_relics(_ctx: EventContext) -> void:
-	var relics := GameManager.player_relics
-	_relic_first_card_free = "void_crystal" in relics
-	if "blood_pact" in relics:
-		_log("  Blood Pact: deal 100 damage to enemy hero.", _LogType.PLAYER)
-		_on_hero_damaged("enemy", 100)
-	if "soul_ember" in relics:
-		turn_manager.essence = mini(turn_manager.essence + 1, turn_manager.essence_max)
-		turn_manager.resources_changed.emit(
-			turn_manager.essence, turn_manager.essence_max,
-			turn_manager.mana, turn_manager.mana_max)
-		_log("  Soul Ember: +1 Essence.", _LogType.PLAYER)
-	if "ancient_tome" in relics:
-		turn_manager.draw_card()
-		_log("  Ancient Tome: draw 1 extra card.", _LogType.PLAYER)
-	if "void_surge" in relics and not player_board.is_empty():
-		for minion in player_board:
-			BuffSystem.apply(minion, Enums.BuffType.TEMP_ATK, 100, "void_surge", true)
-			_refresh_slot_for(minion)
-		_log("  Void Surge: all friendly minions +100 ATK this turn.", _LogType.PLAYER)
-
-func _handler_player_turn_environment(_ctx: EventContext) -> void:
-	if active_environment != null and not active_environment.passive_effect_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
-		EffectResolver.run(active_environment.passive_effect_steps, ctx)
-
-func _handler_minion_turn_start_passives(_ctx: EventContext) -> void:
-	for m in player_board.duplicate():
-		var mc := m.card_data as MinionCardData
-		if mc and not mc.on_turn_start_effect_steps.is_empty():
-			var ectx := EffectContext.make(self, "player")
-			ectx.source = m
-			EffectResolver.run(mc.on_turn_start_effect_steps, ectx)
-
-# ---------------------------------------------------------------------------
-# ON_ENEMY_TURN_START handlers
-# ---------------------------------------------------------------------------
-
-func _handler_enemy_turn_environment(_ctx: EventContext) -> void:
-	if active_environment != null and active_environment.fires_on_enemy_turn and not active_environment.passive_effect_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
-		EffectResolver.run(active_environment.passive_effect_steps, ctx)
 
 func _trap_check_enemy_turn_start(ctx: EventContext) -> void:
 	_check_and_fire_traps(ctx.event_type)
 
 # ---------------------------------------------------------------------------
-# ON_PLAYER_SPELL_CAST handlers
+# ON_PLAYER_MINION_DIED trap stub
 # ---------------------------------------------------------------------------
-
-## Board passive on spell cast — fires each unique passive once per spell (first matching minion wins).
-func _handler_void_archmagus_on_spell(_ctx: EventContext) -> void:
-	var fired: Array[String] = []
-	for m in player_board:
-		var eid: String = m.card_data.on_spell_cast_passive_effect_id
-		if eid != "" and not eid in fired:
-			_apply_spell_cast_passive(eid)
-			fired.append(eid)
-
-## Resolve a board passive triggered when the player casts any spell.
-func _apply_spell_cast_passive(effect_id: String) -> void:
-	match effect_id:
-		"add_void_bolt_on_spell":
-			var bolt := CardDatabase.get_card("void_bolt")
-			if bolt:
-				turn_manager.add_to_hand(bolt)
-				_log("  Void Archmagus: Void Bolt added to hand.", _LogType.PLAYER)
-
-## Fire all on_void_bolt_passive_effect_id passives on the player board.
-## Counts stacking minions (e.g. two Void Channelers = 2 marks).
-func _apply_void_bolt_passives() -> void:
-	var counts: Dictionary = {}
-	for m in player_board:
-		var eid: String = m.card_data.on_void_bolt_passive_effect_id
-		if eid != "":
-			counts[eid] = counts.get(eid, 0) + 1
-	for eid in counts:
-		_apply_void_bolt_passive(eid, counts[eid])
-
-## Resolve a single void bolt passive with the count of minions that triggered it.
-func _apply_void_bolt_passive(effect_id: String, count: int) -> void:
-	match effect_id:
-		"void_mark_per_channeler":
-			_apply_void_mark(count)
-			_log("  Void Channeler: +%d Void Mark(s) applied." % count, _LogType.PLAYER)
-
-# ---------------------------------------------------------------------------
-# ON_PLAYER_CARD_DRAWN handler
-# ---------------------------------------------------------------------------
-
-func _handler_talent_void_echo(ctx: EventContext) -> void:
-	if ctx.card == null or not _card_has_tag(ctx.card, "void_imp"):
-		return
-	# Append directly (not via turn_manager.add_to_hand) to avoid re-triggering card_drawn signal
-	var copy := CardDatabase.get_card("void_imp")
-	if copy and turn_manager.player_hand.size() < TurnManager.HAND_SIZE_MAX:
-		turn_manager.player_hand.append(copy)
-		if hand_display:
-			hand_display.add_card(copy)
-		_log("  Void Echo: Void Imp drawn — free copy added to hand.", _LogType.PLAYER)
-
-# ---------------------------------------------------------------------------
-# ON_PLAYER_MINION_SUMMONED handlers  (fired in priority order by TriggerManager)
-# ---------------------------------------------------------------------------
-
-func _handler_passive_void_imp_boost(ctx: EventContext) -> void:
-	if not _is_void_imp_type(ctx.minion):
-		return
-	BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "void_imp_boost")
-	ctx.minion.current_health += 100
-	var hero := HeroDatabase.get_hero(GameManager.current_hero)
-	_log("  %s: %s summoned with +100/+100." % [(hero.hero_name if hero else "Hero"), ctx.card.card_name], _LogType.PLAYER)
-
-func _handler_relic_on_summon(ctx: EventContext) -> void:
-	var relics := GameManager.player_relics
-	if "demon_pact" in relics and ctx.minion.card_data.minion_type == Enums.MinionType.DEMON:
-		BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "demon_pact")
-		_log("  Demon Pact: %s gains +100 ATK." % ctx.card.card_name, _LogType.PLAYER)
-	if "abyssal_core" in relics:
-		BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "abyssal_core")
-		ctx.minion.current_health += 100
-		_log("  Abyssal Core: %s gains +100/+100." % ctx.card.card_name, _LogType.PLAYER)
-
-func _handler_talent_swarm_discipline(ctx: EventContext) -> void:
-	if not _is_void_imp_type(ctx.minion):
-		return
-	ctx.minion.current_health += 100
-	_log("  Swarm Discipline: %s +100 HP." % ctx.card.card_name, _LogType.PLAYER)
-
-func _handler_talent_abyssal_legion(ctx: EventContext) -> void:
-	if not _is_void_imp_type(ctx.minion):
-		return
-	var imp_count := _count_void_imps_on_board()
-	if imp_count >= 3:
-		BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "abyssal_legion")
-		ctx.minion.current_health += 100
-		_log("  Abyssal Legion: %s +100/+100." % ctx.card.card_name, _LogType.PLAYER)
-		if imp_count == 3:
-			for m in player_board:
-				if m != ctx.minion and _is_void_imp_type(m):
-					BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "abyssal_legion")
-					m.current_health += 100
-					_refresh_slot_for(m)
-					_log("  Abyssal Legion: %s +100/+100." % m.card_data.card_name, _LogType.PLAYER)
-
-func _handler_talent_rune_caller(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "void_imp"):
-		return
-	_draw_rune_from_deck()
-
-func _handler_talent_piercing_void(ctx: EventContext) -> void:
-	# Only base Void Imp — not Senior Void Imp
-	if not _card_has_tag(ctx.card, "base_void_imp"):
-		return
-	_deal_void_bolt_damage(200)
-	_apply_void_mark(1)
-
-func _handler_talent_imp_evolution(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "base_void_imp") or _imp_evolution_used_this_turn:
-		return
-	var senior := CardDatabase.get_card("senior_void_imp")
-	if senior and turn_manager.player_hand.size() < TurnManager.HAND_SIZE_MAX:
-		turn_manager.add_to_hand(senior)
-		_imp_evolution_used_this_turn = true
-		_log("  Imp Evolution: Senior Void Imp added to hand.", _LogType.PLAYER)
-
-func _handler_talent_imp_warband(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "senior_void_imp"):
-		return
-	for m in player_board:
-		if _is_void_imp_type(m):
-			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 50, "imp_warband")
-			_refresh_slot_for(m)
-	_log("  Imp Warband: Senior Void Imp summoned — all Void Imps +50 ATK.", _LogType.PLAYER)
-
-func _handler_board_synergies_on_summon(ctx: EventContext) -> void:
-	var summoned := ctx.minion
-	for m in player_board:
-		var pid: String = (m.card_data as MinionCardData).passive_effect_id
-		if pid != "" and m != summoned:
-			_apply_board_passive_on_summon(pid, m, summoned)
-	if _is_void_imp_type(summoned):
-		_refresh_slot_for(summoned)
-		_check_champion_triggers()
-
-## Resolve a persistent board passive triggered when a friendly minion is summoned.
-func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionInstance, summoned: MinionInstance) -> void:
-	match passive_id:
-		"void_amplifier_buff_demon":
-			if summoned.card_data.minion_type == Enums.MinionType.DEMON and summoned != passive_owner:
-				BuffSystem.apply(summoned, Enums.BuffType.ATK_BONUS, 100, "void_amplifier")
-				summoned.current_health += 100
-				_refresh_slot_for(summoned)
-				_log("  Void Amplifier: %s enters with +100 ATK / +100 HP." % summoned.card_data.card_name, _LogType.PLAYER)
-
-# ---------------------------------------------------------------------------
-# ON_PLAYER_MINION_DIED handlers
-# ---------------------------------------------------------------------------
-
-func _handler_rune_warden_passive(ctx: EventContext) -> void:
-	for m in player_board:
-		if (m.card_data as MinionCardData).passive_effect_id == "rune_warden":
-			BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 200, "rune_warden")
-			_log("  Rune Warden: +200 ATK until end of turn.", _LogType.PLAYER)
-			_refresh_slot_for(m)
-
-func _handler_minion_on_death_effect(ctx: EventContext) -> void:
-	var minion := ctx.minion
-	if minion == null or not (minion.card_data is MinionCardData):
-		return
-	var card := minion.card_data as MinionCardData
-	if not card.on_death_effect.is_empty():
-		_resolve_on_death_effect(minion)
-	if not card.on_death_effect_steps.is_empty():
-		var eff_ctx := EffectContext.make(self, minion.owner)
-		eff_ctx.source = minion
-		EffectResolver.run(card.on_death_effect_steps, eff_ctx)
-
-func _handler_board_passives_on_player_death(ctx: EventContext) -> void:
-	var dead := ctx.minion
-	# Active environment on-death steps
-	if active_environment != null and not active_environment.on_player_minion_died_steps.is_empty():
-		var eff_ctx := EffectContext.make(self, "player")
-		eff_ctx.dead_minion = dead
-		EffectResolver.run(active_environment.on_player_minion_died_steps, eff_ctx)
-	for m in player_board.duplicate():
-		var pid: String = (m.card_data as MinionCardData).passive_effect_id
-		if pid != "":
-			_apply_board_passive_on_death(pid, m, dead)
-
-## Resolve a persistent board passive triggered when a friendly minion dies.
-func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInstance, dead: MinionInstance) -> void:
-	match passive_id:
-		"void_spark_on_friendly_death":
-			_summon_void_spark()
-		"deal_200_hero_on_friendly_death":
-			_log("  Abyssal Tide: deal 200 damage to enemy hero.", _LogType.PLAYER)
-			_on_hero_damaged("enemy", 200)
-		"void_mark_on_void_imp_death":
-			if _is_void_imp_type(dead):
-				_log("  Abyssal Sacrificer: %s died → 1 Void Mark." % dead.card_data.card_name, _LogType.PLAYER)
-				_apply_void_mark(1)
-		"soul_taskmaster_gain_atk":
-			if dead.card_data.minion_type == Enums.MinionType.DEMON and dead != passive_owner:
-				BuffSystem.apply(passive_owner, Enums.BuffType.ATK_BONUS, 50, "soul_taskmaster_stack")
-				_refresh_slot_for(passive_owner)
-				_log("  Soul Taskmaster: Demon died → gains +50 ATK.", _LogType.PLAYER)
-
-func _handler_talent_death_bolt(ctx: EventContext) -> void:
-	if not _is_void_imp_type(ctx.minion):
-		return
-	_log("  Death Bolt: %s death fires Void Bolt." % ctx.minion.card_data.card_name, _LogType.PLAYER)
-	_deal_void_bolt_damage(100)
 
 func _trap_check_friendly_death(ctx: EventContext) -> void:
 	# Traps that react to friendly death only fire during the enemy's turn
 	if not turn_manager.is_player_turn:
 		_check_and_fire_traps(ctx.event_type, ctx.minion)
-
-# ---------------------------------------------------------------------------
-# ON_PLAYER_MINION_PLAYED — on-play (battle cry) resolver (fires only for hand plays)
-# ---------------------------------------------------------------------------
-
-## Resolve the on_play_effect_steps (battle cry) of a player minion played from hand.
-## Registered at priority 10 — after hand-play talent effects (priority 0).
-func _handler_player_minion_on_play_effect(ctx: EventContext) -> void:
-	var minion: MinionInstance = ctx.minion
-	if minion == null or not (minion.card_data is MinionCardData):
-		return
-	var mc := minion.card_data as MinionCardData
-	if not mc.on_play_effect_steps.is_empty():
-		var ectx        := EffectContext.make(self, "player")
-		ectx.source     = minion
-		ectx.chosen_target = ctx.target
-		EffectResolver.run(mc.on_play_effect_steps, ectx)
-
-# ---------------------------------------------------------------------------
-# ON_PLAYER_MINION_SUMMONED — on-summon effect resolver (fires for ALL player summons)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# ON_ENEMY_MINION_SUMMONED — on-play / on-summon effect resolvers (fire before traps)
-# ---------------------------------------------------------------------------
-
-## Resolve the on_play_effect of an enemy minion (played from EnemyAI hand).
-## Priority 5 — runs before trap handlers (priority 30).
-func _handler_enemy_minion_on_play(ctx: EventContext) -> void:
-	var minion: MinionInstance = ctx.minion
-	if minion == null or not (minion.card_data is MinionCardData):
-		return
-	var mc := minion.card_data as MinionCardData
-	if not mc.on_play_effect_steps.is_empty():
-		var ectx    := EffectContext.make(self, "enemy")
-		ectx.source = minion
-		EffectResolver.run(mc.on_play_effect_steps, ectx)
-
-
-## Apply Rogue Imp Elder +100 ATK aura to a newly summoned enemy feral imp.
-func _handler_rogue_imp_elder_aura(ctx: EventContext) -> void:
-	var summoned := ctx.minion
-	if summoned == null or not _minion_has_tag(summoned, "feral_imp"):
-		return
-	var has_elder := enemy_board.any(func(m: MinionInstance) -> bool: return m.card_data.id == "rogue_imp_elder" and m != summoned)
-	if has_elder:
-		BuffSystem.apply(summoned, Enums.BuffType.ATK_BONUS, 100, "rogue_imp_elder")
-		_refresh_slot_for(summoned)
-		_log("  Rogue Imp Elder aura: %s enters with +100 ATK." % summoned.card_data.card_name, _LogType.ENEMY)
-
-# ---------------------------------------------------------------------------
-# Enemy encounter passive handlers
-# ---------------------------------------------------------------------------
-
-## Feral Instinct — reset grant flag at the start of each enemy turn.
-func _handler_feral_instinct_reset(_ctx: EventContext) -> void:
-	_feral_instinct_granted_this_turn = false
-
-## Feral Instinct — when the first Feral Imp is summoned this turn, grant it a death draw.
-func _handler_feral_instinct_summon(ctx: EventContext) -> void:
-	if _feral_instinct_granted_this_turn:
-		return
-	var minion := ctx.minion
-	if minion == null or not _minion_has_tag(minion, "feral_imp"):
-		return
-	_feral_instinct_granted_this_turn = true
-	minion.granted_on_death_effects.append({"description": "Draw 1 card.", "source": "feral_instinct"})
-	_refresh_slot_for(minion)
-	_log("  Feral Instinct: %s will draw 1 card on death." % minion.card_data.card_name, _LogType.ENEMY)
-
-## Feral Instinct — if this minion was granted the effect, the enemy draws 1 card when it dies.
-func _handler_feral_instinct_death(ctx: EventContext) -> void:
-	var minion := ctx.minion
-	if minion == null:
-		return
-	var has_effect := minion.granted_on_death_effects.any(
-		func(e: Dictionary) -> bool: return e.get("source") == "feral_instinct")
-	if not has_effect:
-		return
-	enemy_ai.draw_cards(1)
-	_log("  Feral Instinct: death draw triggered — enemy draws 1.", _LogType.ENEMY)
-
-## Pack Instinct — recalculate ATK aura for all Feral Imps whenever the enemy board changes.
-func _handler_pack_instinct_update(_ctx: EventContext) -> void:
-	_apply_pack_instinct_buffs()
-
-func _apply_pack_instinct_buffs() -> void:
-	var feral_imps: Array[MinionInstance] = []
-	for m in enemy_board:
-		if _minion_has_tag(m, "feral_imp"):
-			feral_imps.append(m)
-	for m in feral_imps:
-		BuffSystem.remove_source(m, "pack_instinct")
-		var others := feral_imps.size() - 1
-		if others > 0:
-			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, others * 50, "pack_instinct")
-		_refresh_slot_for(m)
-
-## Corrupted Death — when a Void-Touched Imp dies, apply 1 Corruption to all player minions.
-func _handler_corrupted_death(ctx: EventContext) -> void:
-	var minion := ctx.minion
-	if minion == null or minion.card_data.id != "void_touched_imp":
-		return
-	if player_board.is_empty():
-		return
-	for m in player_board:
-		BuffSystem.apply(m, Enums.BuffType.CORRUPTION, 1, "corrupted_death")
-		_refresh_slot_for(m)
-	_log("  Corrupted Death: Void-Touched Imp death spreads Corruption to all player minions.", _LogType.ENEMY)
 
 # ---------------------------------------------------------------------------
 # ON_ENEMY_MINION_SUMMONED / ON_ENEMY_SPELL_CAST / ON_ENEMY_ATTACK / ON_HERO_DAMAGED

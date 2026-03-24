@@ -19,10 +19,10 @@ static func resolve(step: EffectStep, ctx: EffectContext) -> Array:
 
 	match step.scope:
 		EffectStep.TargetScope.SINGLE_CHOSEN, EffectStep.TargetScope.SINGLE_CHOSEN_FRIENDLY:
-			# Player-chosen target takes priority; fall back to random if null (AI path)
+			# Return the chosen target only if it is still alive (in pool); otherwise fizzle.
 			if ctx.chosen_target != null and pool.has(ctx.chosen_target):
 				return [ctx.chosen_target]
-			return _random_one(pool)
+			return []
 		EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM, EffectStep.TargetScope.SINGLE_RANDOM_TRAP:
 			return _random_one(pool)
 		_:
@@ -53,6 +53,11 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 			return [ctx.dead_minion] if ctx.dead_minion != null else []
 		EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.ALL_TRAPS:
 			return scene.active_traps.duplicate()
+		EffectStep.TargetScope.SINGLE_CHOSEN_TRAP_OR_ENV:
+			# Must be set by the AI before casting — no fallback.
+			if ctx.chosen_object == null:
+				return []
+			return [ctx.chosen_object]
 		_:
 			return []
 

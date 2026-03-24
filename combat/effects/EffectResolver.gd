@@ -67,21 +67,27 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.GRANT_MANA:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				ctx.scene.turn_manager.gain_mana(step.amount)
+				if ctx.owner == "player":
+					ctx.scene.turn_manager.gain_mana(step.amount)
+				else:
+					ctx.scene.enemy_ai.mana = mini(ctx.scene.enemy_ai.mana + step.amount, ctx.scene.enemy_ai.mana_max)
 			return
 
 		EffectStep.EffectType.GRANT_ESSENCE:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				ctx.scene.turn_manager.gain_essence(step.amount)
+				if ctx.owner == "player":
+					ctx.scene.turn_manager.gain_essence(step.amount)
+				else:
+					ctx.scene.enemy_ai.essence = mini(ctx.scene.enemy_ai.essence + step.amount, ctx.scene.enemy_ai.essence_max)
 			return
 
 		EffectStep.EffectType.VOID_MARK:
-			if ConditionResolver.check_all(step.conditions, ctx, null):
+			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
 				ctx.scene._apply_void_mark(step.amount)
 			return
 
 		EffectStep.EffectType.VOID_BOLT:
-			if ConditionResolver.check_all(step.conditions, ctx, null):
+			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
 				ctx.scene._deal_void_bolt_damage(_amount(step, ctx))
 			return
 
@@ -90,6 +96,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			return
 
 		EffectStep.EffectType.CONVERT_RESOURCE:
+			# Player-only by design — enemy AI has no resource conversion mechanic.
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
 				var tm = ctx.scene.turn_manager
 				if step.convert_from == "mana" and step.convert_to == "essence":
@@ -162,21 +169,25 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.DESTROY:
-			# Trap/rune destruction
 			if target is TrapCardData:
 				if target.is_rune:
 					scene._remove_rune_aura(target)
 				scene.active_traps.erase(target)
 				scene._update_trap_display()
+			elif target is EnvironmentCardData:
+				scene._unregister_env_rituals()
+				scene.active_environment = null
+				scene._update_environment_display()
 
 # ---------------------------------------------------------------------------
 # Amount resolution
 # ---------------------------------------------------------------------------
 
 static func _amount(step: EffectStep, ctx: EffectContext) -> int:
+	var base: int
 	match step.multiplier_key:
-		"rune_aura":  return step.amount * ctx.scene._rune_aura_multiplier()
-		"void_marks": return step.amount * ctx.scene.enemy_void_marks
+		"rune_aura":  base = step.amount * ctx.scene._rune_aura_multiplier()
+		"void_marks": base = step.amount * ctx.scene.enemy_void_marks
 		"board_count":
 			var board: Array = ctx.scene._friendly_board(ctx.owner) \
 				if step.multiplier_board == "friendly" \
@@ -193,8 +204,13 @@ static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 						if _race_from_string(step.multiplier_tag) != m.card_data.minion_type:
 							continue
 				count += 1
-			return step.amount * count
-		_:            return step.amount
+			base = step.amount * count
+		_: base = step.amount
+	# Add conditional bonus if all bonus_conditions pass (board-state check, not per-target)
+	if step.bonus_amount != 0 and not step.bonus_conditions.is_empty():
+		if ConditionResolver.check_all(step.bonus_conditions, ctx, null):
+			base += step.bonus_amount
+	return base
 
 static func _race_from_string(name: String) -> int:
 	match name:

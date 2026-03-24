@@ -112,8 +112,8 @@ func _register_wanderer_cards() -> void:
 	senior_void_imp.card_name    = "Senior Void Imp"
 	senior_void_imp.essence_cost = 2
 	senior_void_imp.description  = "ON PLAY: deal 100 damage to the enemy hero."
-	senior_void_imp.atk          = 400
-	senior_void_imp.health       = 300
+	senior_void_imp.atk          = 300
+	senior_void_imp.health       = 250
 	senior_void_imp.minion_type  = Enums.MinionType.DEMON
 	senior_void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100, "conditions": ["no_piercing_void"]}]
 	senior_void_imp.minion_tags          = ["void_imp", "senior_void_imp"]
@@ -259,8 +259,7 @@ func _register_wanderer_cards() -> void:
 	void_execution.requires_target = true
 	void_execution.target_type    = "enemy_minion_or_hero"
 	void_execution.effect_steps = [
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 500},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 200, "conditions": ["has_friendly_human"]},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 500, "bonus_amount": 200, "bonus_conditions": ["has_friendly_human"]},
 	]
 	void_execution.faction        = "abyss_order"
 	void_execution.art_path       = "res://assets/art/spells/abyss_order/void_execution.png"
@@ -527,6 +526,7 @@ func _register_wanderer_cards() -> void:
 	cyclone.description    = "Destroy a target active Trap or the active Environment."
 	cyclone.requires_target = true
 	cyclone.target_type     = "trap_or_env"
+	cyclone.effect_steps    = [{"type": "DESTROY", "scope": "SINGLE_CHOSEN_TRAP_OR_ENV"}]
 	cyclone.faction         = "neutral"
 	cyclone.art_path        = "res://assets/art/spells/neutral/cyclone.png"
 	all.append(cyclone)

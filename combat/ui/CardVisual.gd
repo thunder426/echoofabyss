@@ -159,14 +159,14 @@ const _FRAME_CONFIG: Dictionary = {
 		"path":         "res://assets/art/frames/abyss_order/abyss_minion.png",
 		"minion_frame": true,
 		"layout": {
-			"art":     [0.08, 0.14, 0.92, 0.78],
-			"name":    [0.15, 0.10, 0.93, 0.15],
-			"race":    [0.05, 0.67, 0.95, 0.72],
-			"desc":    [0.16, 0.73, 0.85, 0.85],
-			"essence": [0.01, 0.07, 0.28, 0.19],
+			"art":     [0.08, 0.11, 0.92, 0.78],
+			"name":    [0.15, 0.06, 0.93, 0.11],
+			"race":    [0.05, 0.70, 0.95, 0.75],
+			"desc":    [0.16, 0.76, 0.85, 0.87],
+			"essence": [0.01, 0.06, 0.28, 0.11],
 			"mana":    [0.26, 0.01, 0.54, 0.19],
-			"atk":     [0.07, 0.88, 0.42, 0.93],
-			"hp":      [0.58, 0.88, 0.81, 0.93],
+			"atk":     [0.09, 0.90, 0.42, 0.95],
+			"hp":      [0.56, 0.90, 0.81, 0.95],
 		},
 		"fonts": {
 			"desc_normal": 14, "desc_bold": 15,
@@ -180,9 +180,9 @@ const _FRAME_CONFIG: Dictionary = {
 		"path":    "res://assets/art/frames/abyss_order/abyss_spell.png",
 		"layout": {
 			"art":  [0.05, 0.14, 0.95, 0.70],
-			"name": [0.15, 0.10, 0.93, 0.16],
+			"name": [0.15, 0.085, 0.93, 0.12],
 			"desc": [0.16, 0.73, 0.85, 0.85],
-			"mana": [0.08, 0.04, 0.20, 0.20],
+			"mana": [0.05, 0.08, 0.20, 0.12],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
@@ -190,10 +190,10 @@ const _FRAME_CONFIG: Dictionary = {
 	"abyss_trap": {
 		"path":    "res://assets/art/frames/abyss_order/abyss_trap.png",
 		"layout": {
-			"art":  [0.05, 0.14, 0.95, 0.78],
-			"name": [0.15, 0.10, 0.93, 0.16],
+			"art":  [0.05, 0.10, 0.95, 0.78],
+			"name": [0.15, 0.06, 0.93, 0.11],
 			"desc": [0.16, 0.72, 0.85, 0.90],
-			"mana": [0.06, 0.03, 0.20, 0.20],
+			"mana": [0.06, 0.06, 0.20, 0.10],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
@@ -201,10 +201,10 @@ const _FRAME_CONFIG: Dictionary = {
 	"abyss_env": {
 		"path":    "res://assets/art/frames/abyss_order/abyss_environment.png",
 		"layout": {
-			"art":  [0.08, 0.14, 0.92, 0.72],
-			"name": [0.20, 0.095, 0.97, 0.16],
+			"art":  [0.08, 0.10, 0.92, 0.72],
+			"name": [0.20, 0.05, 0.97, 0.10],
 			"desc": [0.16, 0.71, 0.88, 0.90],
-			"mana": [0.06, 0.01, 0.25, 0.16],
+			"mana": [0.03, 0.04, 0.25, 0.10],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 22], [14, 20], [18, 18], [999, 16]] },
 	},
@@ -334,7 +334,7 @@ var hp_label:      Label
 var shield_label:  Label
 var race_label:    Label
 # Frame-embedded stat overlays — visible only for faction minion frames
-var frame_cost_label:   Label
+var frame_cost_label:   RichTextLabel
 var frame_mana_label:   Label
 var frame_atk_label:    Label
 var frame_hp_label:     Label
@@ -352,6 +352,10 @@ var _kw_color_hex: String = "c080ff"
 var card_data: CardData = null
 var is_selected: bool = false
 var is_playable: bool = true
+var condition_active: bool = false
+var _glow_pulse: float = 0.0   # 0..1, animated by tween on hover
+var _glow_tween: Tween = null
+var _glow_overlay: Panel = null
 
 # Scale constants — hover/select uses scale so HBoxContainer layout is unaffected
 const SCALE_NORMAL   := Vector2(1.0, 1.0)
@@ -378,7 +382,7 @@ const _SIZE_CONFIG: Dictionary = {
 	## Reward / shop pick cards — fits 3 across comfortably
 	"reward":         { "card_size": Vector2(270, 405), "font_scale": 0.56 },
 	## Shop card slots — fits 4 across
-	"shop":           { "card_size": Vector2(210, 315), "font_scale": 0.44 },
+	"shop":           { "card_size": Vector2(260, 390), "font_scale": 0.54 },
 }
 # fmt: on
 
@@ -391,6 +395,18 @@ var size_mode:  String = "default"
 
 func _ready() -> void:
 	_find_nodes()
+	_glow_overlay = Panel.new()
+	_glow_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_glow_overlay.offset_left   = -4
+	_glow_overlay.offset_top    = -4
+	_glow_overlay.offset_right  =  4
+	_glow_overlay.offset_bottom =  4
+	_glow_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var _blank := StyleBoxFlat.new()
+	_blank.bg_color = Color(0, 0, 0, 0)
+	_blank.draw_center = false
+	_glow_overlay.add_theme_stylebox_override("panel", _blank)
+	add_child(_glow_overlay)
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
 	gui_input.connect(_on_gui_input)
@@ -430,12 +446,12 @@ func setup(data: CardData) -> void:
 	# Reset frame overlay labels so reused nodes don't bleed minion state onto spells
 	if frame_cost_label:
 		frame_cost_label.visible = false
-		frame_cost_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+		frame_cost_label.add_theme_color_override("default_color", Color(1.0, 1.0, 1.0, 1.0))
 	if frame_mana_label: frame_mana_label.visible = false
 	if frame_atk_label:  frame_atk_label.visible  = false
 	if frame_hp_label:    frame_hp_label.visible    = false
 	if frame_shield_label: frame_shield_label.visible = false
-	if cost_badge:       cost_badge.visible        = true
+	if cost_badge:       cost_badge.visible        = false
 	if mana_badge:       mana_badge.visible        = false
 
 	var faction: String = data.faction if data.faction != "" else "neutral"
@@ -443,13 +459,8 @@ func setup(data: CardData) -> void:
 	var _talent_mana := GameManager.get_talent_mana_modifier(data) if data is MinionCardData else 0
 	var is_dual := data is MinionCardData and \
 		((data as MinionCardData).mana_cost > 0 or _talent_mana > 0)
-	# Abyss Order: swap to dual/small variants
-	if style_key == "abyss_minion" and is_dual:
-		style_key = "abyss_dual_minion_small" if size_mode == "hand" else "abyss_dual_minion"
-	elif size_mode == "hand" and style_key == "abyss_minion":
-		style_key = "abyss_minion_small"
 	# Neutral: swap to dual-cost frame when minion has both costs
-	elif style_key == "neutral_essence_minion" and is_dual:
+	if style_key == "neutral_essence_minion" and is_dual:
 		style_key = "neutral_essence_mana_minion"
 	_apply_frame_config(style_key, data.card_type, data.faction)
 
@@ -504,15 +515,14 @@ func setup(data: CardData) -> void:
 				frame_hp_label.visible = true
 				frame_hp_label.text    = str(md.health)
 			if frame_cost_label:
-				frame_cost_label.visible = true
-				frame_cost_label.text    = str(md.essence_cost)
-			if frame_mana_label:
 				var _frame_mana := md.mana_cost + GameManager.get_talent_mana_modifier(md)
 				if _frame_mana > 0:
-					frame_mana_label.visible = true
-					frame_mana_label.text    = str(_frame_mana)
+					# Dual cost: show "E / M" in the top-left essence badge.
+					frame_cost_label.text    = "[center][color=#d4a0ff]%d[/color][color=#cccccc]/[/color][color=#90c8ff]%d[/color][/center]" % [md.essence_cost, _frame_mana]
 				else:
-					frame_mana_label.visible = false
+					frame_cost_label.text    = "[center]%d[/center]" % md.essence_cost
+				frame_cost_label.visible = true
+				if frame_mana_label: frame_mana_label.visible = false
 			var _has_frame_shield: bool = _FRAME_CONFIG.get(_frame_style, {}).get("has_frame_shield", false)
 			if frame_shield_label:
 				if _has_frame_shield and md.shield_max > 0:
@@ -521,9 +531,7 @@ func setup(data: CardData) -> void:
 				else:
 					frame_shield_label.visible = false
 		else:
-			# Fallback: drawn badge + StatsRow
 			if stats_row: stats_row.visible = true
-			_setup_cost_badge(data)
 			if atk_label:  atk_label.text  = str(md.atk)
 			if hp_label:   hp_label.text   = str(md.health)
 			if shield_label:
@@ -534,14 +542,9 @@ func setup(data: CardData) -> void:
 					shield_label.visible = false
 	else:
 		if stats_row: stats_row.visible = false
-		if _frame_style != "default":
-			# Frame PNG has its own cost art — use a plain label overlay, no drawn badge
-			if cost_badge: cost_badge.visible = false
-			if frame_cost_label:
-				frame_cost_label.visible = true
-				frame_cost_label.text    = str(data.cost)
-		else:
-			_setup_cost_badge(data)
+		if frame_cost_label:
+			frame_cost_label.visible = true
+			frame_cost_label.text    = "[center]%d[/center]" % data.cost
 
 	if data.art_video_path != "" and ResourceLoader.exists(data.art_video_path):
 		var stream := load(data.art_video_path) as VideoStream
@@ -608,9 +611,6 @@ func _apply_frame_config(style_key: String, card_type: Enums.CardType, faction: 
 	_set_anchors(frame_atk_label,    lay.get("atk"))
 	_set_anchors(frame_hp_label,     lay.get("hp"))
 	_set_anchors(frame_shield_label, lay.get("shield"))
-	# cost_badge: use "essence" slot if available (default/minion fallback), else "mana" (spell/trap/env)
-	_set_anchors(cost_badge,       lay.get("essence", lay.get("mana")))
-	_set_anchors(mana_badge,       lay.get("mana"))
 
 func _set_anchors(node: Control, a: Variant) -> void:
 	if node == null or a == null:
@@ -636,10 +636,9 @@ func apply_cost_discount(discount: int) -> void:
 		return
 	var effective := maxi(0, card_data.cost - discount)
 	var discounted := discount > 0 and card_data.cost > 0
-	var color := Color(0.3, 1.0, 0.3, 1.0) if discounted else Color(1.0, 1.0, 1.0, 1.0)
 	if frame_cost_label and frame_cost_label.visible:
-		frame_cost_label.text = str(effective)
-		frame_cost_label.add_theme_color_override("font_color", color)
+		var _hex := "4dff4d" if discounted else "ffffff"
+		frame_cost_label.text = "[center][color=#%s]%d[/color][/center]" % [_hex, effective]
 
 ## Updates displayed stats, cost, and description based on currently unlocked talents.
 ## Only meaningful during combat; DeckBuilder previews call setup() before talents exist.
@@ -650,10 +649,8 @@ func apply_talent_overlay() -> void:
 		return
 
 	var md := card_data as MinionCardData
-	var display_atk    := md.atk
-	var display_hp     := md.health
-	var display_cost_e := md.essence_cost
-	var display_cost_m := md.mana_cost
+	var display_atk := md.atk
+	var display_hp  := md.health
 	var talent_notes: Array[String] = []
 
 	# Hero passive "void_imp_boost" is always-on during combat — show boosted stats
@@ -673,7 +670,6 @@ func apply_talent_overlay() -> void:
 		display_hp  += 100
 		talent_notes.append("Lord of Imps: +100/+100 on summon")
 	if "piercing_void" in unlocked:
-		display_cost_m += 1
 		talent_notes.append("Piercing Void: 200 Void Bolt then +1 Void Mark on play")
 
 	if talent_notes.is_empty():
@@ -683,12 +679,7 @@ func apply_talent_overlay() -> void:
 	if hp_label:        hp_label.text        = str(display_hp)
 	if frame_atk_label: frame_atk_label.text = str(display_atk)
 	if frame_hp_label:  frame_hp_label.text  = str(display_hp)
-	# Re-run badge setup with updated costs so the badge and fallback stay in sync
-	var overlay_data := card_data as MinionCardData
-	overlay_data = overlay_data.duplicate() as MinionCardData
-	overlay_data.essence_cost = display_cost_e
-	overlay_data.mana_cost    = display_cost_m
-	_setup_cost_badge(overlay_data)
+	# Cost display is handled by setup() via frame_cost_label / frame_mana_label — nothing to update here.
 
 # ---------------------------------------------------------------------------
 # Playability
@@ -698,8 +689,34 @@ func set_playable(playable: bool) -> void:
 	is_playable = playable
 	_refresh_playable_state()
 
+func set_condition_glow(active: bool) -> void:
+	condition_active = active
+	if not active:
+		_stop_glow_pulse()
+	_update_glow_overlay()
+
 func _refresh_playable_state() -> void:
-	modulate = Color(1, 1, 1, 1)
+	modulate = Color(1, 1, 1, 1) if is_playable else Color(0.45, 0.45, 0.55, 1.0)
+	_update_glow_overlay()
+
+func _update_glow_overlay() -> void:
+	if _glow_overlay == null:
+		return
+	var s := StyleBoxFlat.new()
+	s.bg_color    = Color(0, 0, 0, 0)
+	s.draw_center = false
+	s.set_corner_radius_all(6)
+	if condition_active:
+		# Gold — conditional bonus is available
+		var border_w: float = 3.0 + _glow_pulse * 2.5
+		var shadow_sz: float = 8.0 + _glow_pulse * 10.0
+		var shadow_a: float  = 0.60 + _glow_pulse * 0.30
+		s.border_color = Color(1.0, 0.78, 0.10, 1.0)
+		s.set_border_width_all(border_w)
+		s.shadow_color = Color(1.0, 0.78, 0.10, shadow_a)
+		s.shadow_size  = shadow_sz
+	# unaffordable — no border, just dim modulate
+	_glow_overlay.add_theme_stylebox_override("panel", s)
 
 # ---------------------------------------------------------------------------
 # Selection — uses scale so HBoxContainer layout is never broken
@@ -722,12 +739,33 @@ func _on_mouse_entered() -> void:
 	_update_pivot()
 	if not is_selected:
 		scale = SCALE_HOVER
+	if condition_active:
+		_start_glow_pulse()
 	card_hovered.emit(self)
 
 func _on_mouse_exited() -> void:
 	if not is_selected:
 		scale = SCALE_NORMAL
+	_stop_glow_pulse()
 	card_unhovered.emit(self)
+
+func _start_glow_pulse() -> void:
+	if _glow_tween:
+		_glow_tween.kill()
+	_glow_tween = create_tween().set_loops()
+	_glow_tween.tween_method(func(v: float) -> void:
+		_glow_pulse = v
+		_update_glow_overlay(), 0.0, 1.0, 0.5)
+	_glow_tween.tween_method(func(v: float) -> void:
+		_glow_pulse = v
+		_update_glow_overlay(), 1.0, 0.0, 0.5)
+
+func _stop_glow_pulse() -> void:
+	if _glow_tween:
+		_glow_tween.kill()
+		_glow_tween = null
+	_glow_pulse = 0.0
+	_update_glow_overlay()
 
 func _update_pivot() -> void:
 	# Use custom_minimum_size as fallback if the layout hasn't run yet
@@ -742,34 +780,6 @@ func _on_gui_input(event: InputEvent) -> void:
 # Helpers
 # ---------------------------------------------------------------------------
 
-func _setup_cost_badge(data: CardData) -> void:
-	if data is MinionCardData:
-		var md := data as MinionCardData
-		_apply_badge(cost_badge, cost_label, "essence", md.essence_cost)
-		if mana_badge:
-			var _mana_display := md.mana_cost + GameManager.get_talent_mana_modifier(md)
-			if _mana_display > 0:
-				_apply_badge(mana_badge, mana_label, "mana", _mana_display)
-				mana_badge.visible = true
-			else:
-				mana_badge.visible = false
-	else:
-		_apply_badge(cost_badge, cost_label, "mana", data.cost)
-		if mana_badge: mana_badge.visible = false
-
-# Draws a circular gem badge via CostBadge._draw() — no PNG needed.
-func _apply_badge(badge: CostBadge, number_label: Label, prefix: String, value: int) -> void:
-	if badge == null:
-		return
-	if prefix == "essence":
-		badge.rim_color = Color(0.70, 0.28, 1.00, 1.00)
-		badge.bg_color  = Color(0.18, 0.06, 0.32, 0.95)
-	else:  # mana
-		badge.rim_color = Color(0.25, 0.60, 1.00, 1.00)
-		badge.bg_color  = Color(0.05, 0.10, 0.35, 0.95)
-	badge.queue_redraw()
-	if number_label:
-		number_label.text = str(value)
 
 ## Sets card_size, font_scale, and size_mode from _SIZE_CONFIG.
 ## Call before setup() so fonts and layout reflect the correct context.
@@ -820,8 +830,8 @@ func _apply_font_scale() -> void:
 	if race_label:       race_label.add_theme_font_size_override(      "font_size", roundi(f.get("race",    15) * s))
 	if cost_label:       cost_label.add_theme_font_size_override(      "font_size", roundi(f.get("essence", 25) * s))
 	if mana_label:       mana_label.add_theme_font_size_override(      "font_size", roundi(f.get("mana",    15) * s))
-	# frame_cost_label: spells have no "essence" key — fall back to "mana"
-	if frame_cost_label: frame_cost_label.add_theme_font_size_override("font_size", roundi(f.get("essence", f.get("mana", 25)) * s))
+	# frame_cost_label is a RichTextLabel — uses "normal_font_size"; spells fall back to "mana"
+	if frame_cost_label: frame_cost_label.add_theme_font_size_override("normal_font_size", roundi(f.get("essence", f.get("mana", 25)) * s))
 	if frame_mana_label: frame_mana_label.add_theme_font_size_override("font_size", roundi(f.get("mana",    15) * s))
 	if frame_atk_label:    frame_atk_label.add_theme_font_size_override(   "font_size", roundi(f.get("atk",    20) * s))
 	if frame_hp_label:     frame_hp_label.add_theme_font_size_override(    "font_size", roundi(f.get("hp",     20) * s))

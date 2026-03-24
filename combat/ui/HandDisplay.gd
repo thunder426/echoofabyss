@@ -96,6 +96,42 @@ func refresh_spell_costs(discount: int) -> void:
 	for visual in _card_visuals:
 		visual.apply_cost_discount(discount)
 
+## Update gold condition-glow on cards whose bonus conditions are currently met
+## AND the player can afford to play them.
+func refresh_condition_glows(scene: Node, essence: int, mana: int) -> void:
+	var ctx := EffectContext.make(scene, "player")
+	var piercing_void_active := GameManager.has_talent("piercing_void")
+	for visual in _card_visuals:
+		if visual.card_data == null:
+			visual.set_condition_glow(false)
+			continue
+		if not _card_has_active_condition(visual.card_data, ctx):
+			visual.set_condition_glow(false)
+			continue
+		# Condition met — also require affordability
+		var affordable: bool
+		if visual.card_data is MinionCardData:
+			var md := visual.card_data as MinionCardData
+			var extra_mana := 1 if (md.id == "void_imp" and piercing_void_active) else 0
+			affordable = essence >= md.essence_cost and mana >= (md.mana_cost + extra_mana)
+		else:
+			affordable = mana >= visual.card_data.cost
+		visual.set_condition_glow(affordable)
+
+func _card_has_active_condition(card: CardData, ctx: EffectContext) -> bool:
+	var steps: Array = []
+	if card is SpellCardData:
+		steps = (card as SpellCardData).effect_steps
+	elif card is MinionCardData:
+		steps = (card as MinionCardData).on_play_effect_steps
+	for raw in steps:
+		var step: EffectStep = EffectStep.from_dict(raw) if raw is Dictionary else raw as EffectStep
+		if step == null:
+			continue
+		if not step.bonus_conditions.is_empty() and ConditionResolver.check_all(step.bonus_conditions, ctx, null):
+			return true
+	return false
+
 ## Update which cards appear greyed out based on available resources.
 ## Accounts for piercing_void talent adding +1 Mana to Void Imps.
 func refresh_playability(essence: int, mana: int) -> void:

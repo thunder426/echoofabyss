@@ -4,9 +4,10 @@
 class_name EffectContext
 extends RefCounted
 
-## The CombatScene node. Typed as Node to avoid circular preload issues;
-## cast to CombatScene at the call site if direct method access is needed.
-var scene: Node = null
+## The CombatScene node (or SimState in headless sim). Typed as Object so that
+## both Node subclasses and RefCounted subclasses can be assigned.
+## Duck-type: EffectResolver and ConditionResolver call methods on it directly.
+var scene: Object = null
 
 ## Who owns this effect — "player" or "enemy".
 var owner: String = "player"
@@ -19,6 +20,10 @@ var source: MinionInstance = null
 ## Null for untargeted effects or AI paths (TargetResolver falls back to random).
 var chosen_target: MinionInstance = null
 
+## AI-chosen non-minion target (TrapCardData or EnvironmentCardData).
+## Set by EnemyAI before emit; read by TargetResolver for SINGLE_CHOSEN_TRAP_OR_ENV scope.
+var chosen_object = null
+
 ## The minion that caused a trap or rune aura to fire (attacker, newly summoned enemy, etc.).
 var trigger_minion: MinionInstance = null
 
@@ -29,7 +34,7 @@ var dead_minion: MinionInstance = null
 # Factory
 # ---------------------------------------------------------------------------
 
-static func make(scene: Node, owner: String) -> EffectContext:
+static func make(scene: Object, owner: String) -> EffectContext:
 	var ctx       := EffectContext.new()
 	ctx.scene     = scene
 	ctx.owner     = owner

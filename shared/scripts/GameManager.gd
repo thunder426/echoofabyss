@@ -225,11 +225,18 @@ func get_encounter(index: int) -> EnemyData:
 				["feral_instinct", "pack_instinct"], "feral_pack")
 		1:
 			return _make_encounter("Corrupted Broodlings", 2200,
-				["void_touched_imp", "void_touched_imp", "brood_imp", "brood_imp", "imp_brawler"],
+				["brood_imp", "brood_imp", "brood_imp",
+				"void_touched_imp", "void_touched_imp", "void_touched_imp", "void_touched_imp",
+				"imp_brawler", "imp_brawler",
+				"frenzied_imp", "frenzied_imp",
+				"rabid_imp", "rabid_imp",
+				"brood_call", "brood_call",
+				"void_screech",
+				"cyclone"],
 				"ENCOUNTER II",
 				"Deeper in, the air turns thick with void energy. The broodlings here have been touched by something ancient — their eyes glow with a hunger that wasn't there before.",
 				"res://assets/art/progression/backgrounds/a1_fight2_background.png",
-				["feral_instinct", "corrupted_death"])
+				["feral_instinct", "corrupted_death"], "corrupted_brood")
 		2:
 			return _make_encounter("Imp Matriarch", 3000,
 				["matriarchs_broodling", "matriarchs_broodling", "frenzied_imp", "frenzied_imp", "rabid_imp", "pack_frenzy"],

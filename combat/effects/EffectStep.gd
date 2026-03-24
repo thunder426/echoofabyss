@@ -46,6 +46,7 @@ enum TargetScope {
 	SINGLE_RANDOM_TRAP,    # One random entry in active_traps
 	ALL_TRAPS,             # All entries in active_traps
 	ACTIVE_ENVIRONMENT,    # The active environment card (if any)
+	SINGLE_CHOSEN_TRAP_OR_ENV,  # ctx.chosen_object if set; falls back to random from traps+env
 }
 
 enum MinionFilter {
@@ -123,6 +124,11 @@ enum MinionFilter {
 ## When true, ctx.source is excluded from the resolved target pool (used for self-granting effects).
 @export var exclude_self: bool = false
 
+## Conditional bonus added on top of amount when ALL bonus_conditions pass.
+## Checked globally (board state), not per-target. Use for "deal X, +Y if condition" on a single hit.
+@export var bonus_amount: int = 0
+@export var bonus_conditions: Array[String] = []
+
 # ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
@@ -164,4 +170,9 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "convert_to"     in d: s.convert_to     = d["convert_to"]
 	if "purge_filter"   in d: s.purge_filter   = d["purge_filter"]
 	if "exclude_self"   in d: s.exclude_self   = d["exclude_self"]
+	if "bonus_amount"   in d: s.bonus_amount   = d["bonus_amount"]
+	if "bonus_conditions" in d:
+		var bc: Array[String] = []
+		bc.assign(d["bonus_conditions"])
+		s.bonus_conditions = bc
 	return s

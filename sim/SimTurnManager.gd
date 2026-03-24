@@ -1,0 +1,43 @@
+## SimTurnManager.gd
+## Duck-typed replacement for TurnManager used by EffectResolver when
+## ctx.owner == "player" inside headless simulations.
+## Only implements the methods EffectResolver actually calls.
+class_name SimTurnManager
+extends RefCounted
+
+const HAND_SIZE_MAX = SimState.PLAYER_HAND_MAX  ## matches TurnManager.HAND_SIZE_MAX
+
+var _sim: SimState
+
+func setup(sim: SimState) -> void:
+	_sim = sim
+
+# ---------------------------------------------------------------------------
+# EffectResolver API
+# ---------------------------------------------------------------------------
+
+var player_hand: Array[CardData]:
+	get: return _sim.player_hand
+
+func draw_card() -> void:
+	_sim._draw_player(1)
+
+func add_to_hand(card: CardData) -> void:
+	if _sim.player_hand.size() < SimState.PLAYER_HAND_MAX:
+		_sim.player_hand.append(card)
+
+func gain_mana(amount: int) -> void:
+	_sim.player_mana = mini(_sim.player_mana + amount, _sim.player_mana_max)
+
+func gain_essence(amount: int) -> void:
+	_sim.player_essence += amount
+
+func convert_mana_to_essence(max_convert: int = -1) -> void:
+	var amount := _sim.player_mana if max_convert < 0 else mini(_sim.player_mana, max_convert)
+	_sim.player_mana     -= amount
+	_sim.player_essence   = mini(_sim.player_essence + amount, SimState.ESSENCE_HARD_CAP)
+
+func convert_essence_to_mana() -> void:
+	var amount        := _sim.player_essence
+	_sim.player_essence = 0
+	_sim.player_mana    = mini(_sim.player_mana + amount, _sim.player_mana_max)
