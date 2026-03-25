@@ -16,8 +16,8 @@ var _cards: Dictionary = {}
 #         shield (optional, default 0), tags (optional), art (optional)
 # ---------------------------------------------------------------------------
 const _TOKEN_DEFS: Array[Dictionary] = [
-	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token."},
-	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning."},
+	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.",        "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
+	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning.", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
 ]
 
 func _make_token(d: Dictionary) -> MinionCardData:
@@ -34,7 +34,8 @@ func _make_token(d: Dictionary) -> MinionCardData:
 	var tags: Array[String] = []
 	tags.assign(d.get("tags", []))
 	c.minion_tags  = tags
-	c.art_path     = d.get("art", "")
+	c.art_path            = d.get("art", "")
+	c.battlefield_art_path = d.get("battlefield_art", "")
 	return c
 
 func _ready() -> void:
@@ -675,7 +676,7 @@ func _register_wanderer_cards() -> void:
 	void_spawner.id           = "void_spawner"
 	void_spawner.card_name    = "Void Spawner"
 	void_spawner.essence_cost = 4
-	void_spawner.description  = "PASSIVE: when a friendly minion dies, summon a 100/100 Void Spark."
+	void_spawner.description  = "PASSIVE: whenever a friendly demon dies, summon a 100/100 Void Spark."
 	void_spawner.atk          = 200
 	void_spawner.health       = 600
 	void_spawner.minion_type  = Enums.MinionType.DEMON
@@ -1306,7 +1307,8 @@ func _register_wanderer_cards() -> void:
 	void_touched_imp.minion_tags  = ["feral_imp"]
 	void_touched_imp.faction  = "abyss_order"
 	void_touched_imp.clan     = "Feral Imp"
-	void_touched_imp.art_path = "res://assets/art/minions/feral_imp_clan/void_touched_imp.png"
+	void_touched_imp.art_path             = "res://assets/art/minions/feral_imp_clan/void_touched_imp.png"
+	void_touched_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/void_touched_imp_small.png"
 	all.append(void_touched_imp)
 
 	var frenzied_imp := MinionCardData.new()

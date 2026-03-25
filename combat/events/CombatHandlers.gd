@@ -263,7 +263,8 @@ func on_player_minion_died_board_passives(ctx: EventContext) -> void:
 func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInstance, dead: MinionInstance) -> void:
 	match passive_id:
 		"void_spark_on_friendly_death":
-			if _scene.has_method("_summon_void_spark"):
+			if dead.card_data.minion_type == Enums.MinionType.DEMON \
+					and _scene.has_method("_summon_void_spark"):
 				_scene._summon_void_spark()
 		"deal_200_hero_on_friendly_death":
 			_log("  Abyssal Tide: deal 200 damage to enemy hero.", _LOG_PLAYER)

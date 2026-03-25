@@ -39,6 +39,10 @@ var _log_scroll: ScrollContainer = null
 var _log_container: VBoxContainer = null
 var _large_preview: CardVisual = null
 
+## True while an enemy summon card reveal is on screen — EnemyAI waits on this before its next action.
+var _enemy_summon_reveal_active: bool = false
+signal enemy_summon_reveal_done()
+
 # Enemy hero status panel (built programmatically)
 var _enemy_status_panel: Panel = null
 var _hero_spell_tween: Tween = null
@@ -109,6 +113,10 @@ var selected_attacker: MinionInstance = null
 var _anim_pre_hp:   int       = 0
 var _anim_atk_slot: BoardSlot = null
 var _anim_def_slot: BoardSlot = null
+
+# Death animations deferred until after lunge freeze_visuals is released.
+# Each entry is {slot: BoardSlot, pos: Vector2} — position captured when slot is still in-place.
+var _deferred_death_slots: Array = []
 
 # Card the player is currently trying to play (dragged or clicked from hand)
 var pending_play_card: CardData = null
@@ -357,8 +365,8 @@ func _connect_ui() -> void:
 		end_turn_button.pressed.connect(_do_end_turn)
 	if hand_display:
 		hand_display.card_selected.connect(_on_hand_card_selected)
-		hand_display.card_hovered.connect(_show_large_preview)
-		hand_display.card_unhovered.connect(_hide_large_preview)
+		hand_display.card_hovered.connect(_on_hand_card_hovered)
+		hand_display.card_unhovered.connect(_on_hand_card_unhovered)
 		hand_display.card_deselected.connect(_on_hand_card_deselected)
 	if restart_button:
 		restart_button.pressed.connect(_on_restart_pressed)
@@ -398,10 +406,9 @@ func _on_turn_started(is_player_turn: bool) -> void:
 	if deck_count_label:
 		deck_count_label.text = "%d cards" % turn_manager.player_deck.size()
 	_update_enemy_status_panel()
-	# Refresh all player slot visuals so Exhausted badge clears at turn start
-	for slot in player_slots:
-		if not slot.is_empty():
-			slot._refresh_visuals()
+	# Refresh all slot visuals — clears Exhausted badges and any stale occupied states
+	for slot in player_slots + enemy_slots:
+		slot._refresh_visuals()
 	# Fire turn-start events — all effects are handled by registered listeners in _setup_triggers().
 	if is_player_turn:
 		imp_evolution_used_this_turn = false
@@ -414,6 +421,9 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		if not is_inside_tree():
 			return
 		enemy_ai.run_turn()
+		# run_turn() grows resources and refills them synchronously before its
+		# first await, so this panel refresh sees the correct post-growth values.
+		_update_enemy_status_panel()
 
 func _on_turn_ended(is_player_turn: bool) -> void:
 	_clear_all_highlights()
@@ -491,26 +501,6 @@ func _do_end_turn() -> void:
 	turn_manager.end_player_turn()
 
 # ---------------------------------------------------------------------------
-# Global input — instant spell confirmation
-# ---------------------------------------------------------------------------
-
-## Any unhandled left-click while an instant (no-target) spell is pending confirms the cast.
-## Targeted spells wait for a specific click (minion / hero), so they are excluded.
-## Clicks consumed by UI/slots never reach here, so the hand-card click that started the
-## selection is not counted — the player must click somewhere on the board to confirm.
-func _unhandled_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton and event.pressed
-			and event.button_index == MOUSE_BUTTON_LEFT):
-		return
-	if not (pending_play_card is SpellCardData):
-		return
-	var spell := pending_play_card as SpellCardData
-	if spell.requires_target:
-		return
-	get_viewport().set_input_as_handled()
-	_try_play_spell(spell)
-
-# ---------------------------------------------------------------------------
 # Hand card selection
 # ---------------------------------------------------------------------------
 
@@ -537,39 +527,71 @@ func _cancel_card_select() -> void:
 	if hand_display:
 		hand_display.deselect_current()
 
+## Hand card hover — show large preview and cost blink.
+## Suppressed entirely while another card is pending a target selection.
+func _on_hand_card_hovered(card_data: CardData) -> void:
+	if pending_play_card != null:
+		return   # targeting in progress — don't interrupt with another card's preview
+	_show_large_preview(card_data)
+	if turn_manager and turn_manager.is_player_turn:
+		_start_pip_blink_for_card(card_data)
+
+## Hand card unhover — hide preview and stop blink (unless a targeted card is still pending).
+func _on_hand_card_unhovered() -> void:
+	_hide_large_preview()
+	if pending_play_card == null:
+		_stop_pip_blink()
+
+## Compute and start the pip blink preview for any card type.
+## Used by hover preview and as a fallback when a targeted card is clicked.
+func _start_pip_blink_for_card(card_data: CardData) -> void:
+	if not turn_manager:
+		return
+	var ess_spend := 0
+	var mna_spend := 0
+	var ess_gain  := 0
+	var mna_gain  := 0
+	if card_data is SpellCardData:
+		var spell := card_data as SpellCardData
+		mna_spend = _effective_spell_cost(spell)
+		for step: Dictionary in spell.effect_steps:
+			if step.get("type") != "CONVERT_RESOURCE":
+				continue
+			var amount: int    = step.get("amount", 0)
+			var from: String   = step.get("convert_from", "")
+			var to: String     = step.get("convert_to", "")
+			var available: int = turn_manager.mana - mna_spend if from == "mana" \
+					else turn_manager.essence - ess_spend
+			var actual: int    = mini(amount, maxi(available, 0))
+			if from == "mana":   mna_spend += actual
+			elif from == "essence": ess_spend += actual
+			if to == "essence": ess_gain += actual
+			elif to == "mana":  mna_gain += actual
+	elif card_data is MinionCardData:
+		var mc := card_data as MinionCardData
+		var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
+		ess_spend = mc.essence_cost
+		mna_spend = mc.mana_cost + extra_mana
+	elif card_data is TrapCardData:
+		mna_spend = (card_data as TrapCardData).cost
+	elif card_data is EnvironmentCardData:
+		mna_spend = (card_data as EnvironmentCardData).cost
+	if not relic_first_card_free and not turn_manager.can_afford(ess_spend, mna_spend):
+		return
+	_start_pip_blink(ess_spend, mna_spend, ess_gain, mna_gain)
+
 ## Handle a spell card being selected from hand.
-## Both targeted and instant spells enter a pending state to show cost preview.
-## Targeted spells wait for a minion/hero click; instant spells cast on any board click
-## (caught by _unhandled_input — player clicks empty space anywhere on the field).
+## Instant spells cast immediately (cost preview shown on hover).
+## Targeted spells enter pending state and highlight valid targets.
 func _begin_spell_select(spell: SpellCardData) -> void:
 	if not relic_first_card_free and not turn_manager.can_afford(0, _effective_spell_cost(spell)):
 		_cancel_card_select()
 		return
-	# Base spend from play cost, then check effect steps for resource conversions.
-	var ess_spend := 0
-	var mna_spend := _effective_spell_cost(spell)
-	var ess_gain  := 0
-	var mna_gain  := 0
-	for step: Dictionary in spell.effect_steps:
-		if step.get("type") != "CONVERT_RESOURCE":
-			continue
-		var amount: int    = step.get("amount", 0)
-		var from: String   = step.get("convert_from", "")
-		var to: String     = step.get("convert_to", "")
-		var available: int = turn_manager.mana - mna_spend if from == "mana" \
-				else turn_manager.essence - ess_spend
-		var actual: int    = mini(amount, maxi(available, 0))
-		if from == "mana":
-			mna_spend += actual
-		elif from == "essence":
-			ess_spend += actual
-		if to == "essence":
-			ess_gain += actual
-		elif to == "mana":
-			mna_gain += actual
-	_start_pip_blink(ess_spend, mna_spend, ess_gain, mna_gain)
 	if spell.requires_target:
+		_start_pip_blink_for_card(spell)   # ensure blink runs even if card wasn't hovered
 		_highlight_spell_targets(spell)
+	else:
+		_try_play_spell(spell)
 
 ## Handle a minion card being selected from hand.
 ## Checks affordability and board space, then highlights valid placement/target slots.
@@ -583,7 +605,7 @@ func _begin_minion_select(mc: MinionCardData) -> void:
 	if not player_slots.any(func(s: BoardSlot) -> bool: return s.is_empty()):
 		_cancel_card_select()
 		return
-	_start_pip_blink(mc.essence_cost, mc.mana_cost + extra_mana)
+	_start_pip_blink_for_card(mc)   # ensure blink runs even if card wasn't hovered
 	if mc.on_play_requires_target and _has_valid_minion_on_play_targets(mc):
 		_awaiting_minion_target = true
 		_highlight_minion_on_play_targets(mc)
@@ -750,11 +772,13 @@ func _on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 		# Still waiting for player to click a valid target — ignore slot clicks until then
 		if _awaiting_minion_target:
 			return
-		_try_play_minion(pending_play_card as MinionCardData, slot, pending_minion_target)
+		var card_to_play := pending_play_card as MinionCardData
+		var on_play_target := pending_minion_target
 		pending_minion_target = null
 		pending_play_card = null
 		_awaiting_minion_target = false
 		_clear_all_highlights()
+		_try_play_minion_animated(card_to_play, slot, on_play_target)
 
 func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if not turn_manager.is_player_turn:
@@ -824,6 +848,7 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	combat_manager.resolve_minion_attack(selected_attacker, minion)
 	selected_attacker = null
 	_clear_all_highlights()
+	_show_hero_button(false)
 
 # ---------------------------------------------------------------------------
 # Minion play
@@ -860,6 +885,137 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: Min
 	trigger_manager.fire(summon_ctx)
 	_refresh_hand_spell_costs()
 
+
+## Animated variant of _try_play_minion — fires card flight + landing before triggers.
+## State changes happen immediately; triggers fire after landing animation.
+## Called without await so input is never blocked.
+func _try_play_minion_animated(card: MinionCardData, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
+	if not slot.is_empty():
+		return
+	var extra_mana := 1 if (_card_has_tag(card, "void_imp") and _has_talent("piercing_void")) else 0
+	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
+		return
+	_log("You play: %s" % card.card_name)
+	var instance := MinionInstance.create(card, "player")
+	# slot.place_minion deferred to on_landing so empty placeholder stays visible during flight
+
+	# Capture hand index BEFORE popping (pop removes the visual from the list)
+	var hand_index := hand_display.get_index_for(card) if hand_display else 0
+	var flying_visual: CardVisual = null
+	if hand_display:
+		flying_visual = hand_display.pop_selected_for_animation()
+	turn_manager.remove_from_hand(card)
+	_refresh_hand_spell_costs()
+
+	var total_cost: int = card.essence_cost + card.mana_cost
+	var is_champion: bool = card.is_champion
+	var on_landing := func() -> void:
+		slot.place_minion(instance)  # switches slot from empty→occupied view at landing
+		var play_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
+		play_ctx.minion = instance
+		play_ctx.card   = card
+		play_ctx.target = on_play_target
+		trigger_manager.fire(play_ctx)
+		player_board.append(instance)
+		var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
+		summon_ctx.minion = instance
+		summon_ctx.card   = card
+		trigger_manager.fire(summon_ctx)
+	_animate_card_to_slot(flying_visual, slot, hand_index, total_cost, is_champion, on_landing)
+
+## Async arc-flight + landing animation.
+## Empty slot stays visible throughout flight; slot switches to minion view at landing.
+## on_landing fires at card arrival (before punch) so triggers see the placed minion.
+func _animate_card_to_slot(visual: CardVisual, slot: BoardSlot, hand_index: int, total_cost: int, is_champion: bool, on_landing: Callable) -> void:
+	if visual == null or not is_inside_tree():
+		on_landing.call()
+		return
+	var ui_layer: Node = $UI
+	var start_pos: Vector2 = visual.global_position
+	visual.reparent(ui_layer, true)  # preserves global_position; HBoxContainer reflows
+	visual.z_index = 10
+
+	var end_pos: Vector2 = slot.global_position
+
+	# Arc peak: midpoint laterally + slight per-card lateral drift, 180px above
+	var lateral_offset := (hand_index - 2) * 12.0
+	var peak_pos := Vector2(
+		(start_pos.x + end_pos.x) / 2.0 + lateral_offset,
+		min(start_pos.y, end_pos.y) - 180.0
+	)
+
+	# Step 1 — rise to peak (card fully opaque, slot shows empty placeholder)
+	var t1 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t1.tween_property(visual, "global_position", peak_pos, 0.22)
+	await t1.finished
+	if not is_inside_tree():
+		visual.queue_free()
+		on_landing.call()
+		return
+
+	# Step 2 — descend; card fades out as it arrives (slot still shows empty placeholder)
+	var t2 := create_tween().set_parallel(true)
+	t2.tween_property(visual, "global_position", end_pos, 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t2.tween_property(visual, "modulate:a", 0.0, 0.22).set_trans(Tween.TRANS_SINE)
+	await t2.finished
+	visual.queue_free()
+	if not is_inside_tree():
+		on_landing.call()
+		return
+
+	# Card has arrived — switch slot to minion view and fire triggers
+	on_landing.call()
+	if not is_inside_tree():
+		return
+
+	# Landing punch on the slot (now showing the minion)
+	slot.pivot_offset = slot.size / 2.0
+	var t3 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t3.tween_property(slot, "scale", Vector2(1.15, 1.15), 0.06)
+	await t3.finished
+	var t4 := create_tween().set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	t4.tween_property(slot, "scale", Vector2(1.0, 1.0), 0.10)
+	await t4.finished
+	slot.pivot_offset = Vector2.ZERO  # restore default
+
+	_spawn_slot_ripple(slot, total_cost, is_champion)
+
+## Spawn a ripple ring expanding from a board slot.
+## Higher total_cost → larger expansion and higher initial opacity for more impact.
+## The ring draws above other board slots but below the target slot (which is raised temporarily).
+func _spawn_slot_ripple(slot: BoardSlot, total_cost: int = 0, is_champion: bool = false) -> void:
+	var sz: Vector2 = slot.size
+	var t_norm: float = clampf(total_cost / 8.0, 0.0, 1.0)
+	var end_scale: float   = lerp(1.4, 2.4, t_norm)
+	var start_alpha: float = lerp(0.4, 0.85, t_norm)
+	var duration: float    = lerp(0.35, 0.55, t_norm)
+
+	var ring := ColorRect.new()
+	# Champions get a gold ripple; normal cards get white
+	var base_color := Color(1.0, 0.78, 0.10) if is_champion else Color(1.0, 1.0, 1.0)
+	ring.color = Color(base_color.r, base_color.g, base_color.b, start_alpha)
+	# z=1 absolute: above other board slots (z=0) but below the target slot (raised to z=2)
+	ring.z_index = 1
+	ring.z_as_relative = false
+	$UI.add_child(ring)
+	ring.set_size(sz)
+	ring.pivot_offset = sz * 0.5
+	ring.global_position = slot.global_position
+	ring.scale = Vector2(1.0, 1.0)  # starts at card edge, radiates outward
+
+	# Raise target slot above the ring for the duration of the ripple
+	var prev_z := slot.z_index
+	var prev_relative := slot.z_as_relative
+	slot.z_index = 2
+	slot.z_as_relative = false
+
+	var t := create_tween().set_parallel(true)
+	t.tween_property(ring, "scale",      Vector2(end_scale, end_scale), duration).set_trans(Tween.TRANS_SINE)
+	t.tween_property(ring, "modulate:a", 0.0,                           duration).set_trans(Tween.TRANS_SINE)
+	await t.finished
+	ring.queue_free()
+	slot.z_index = prev_z
+	slot.z_as_relative = prev_relative
 
 ## Placeholder for data-driven on-death effects (not yet implemented).
 ## Called by CombatHandlers.on_minion_died_death_effect via has_method check.
@@ -1407,6 +1563,14 @@ func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> 
 	# first via Hidden Ambush, etc.
 
 func _on_minion_vanished(minion: MinionInstance) -> void:
+	# Capture slot position before clearing for the death animation
+	var dead_slot: BoardSlot = null
+	var search_slots := player_slots if minion.owner == "player" else enemy_slots
+	for s in search_slots:
+		if s.minion == minion:
+			dead_slot = s
+			break
+
 	# Remove from the appropriate board array and clear its slot
 	if minion.owner == "player":
 		player_board.erase(minion)
@@ -1425,6 +1589,13 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 	ctx.minion = minion
 	trigger_manager.fire(ctx)
 	_refresh_hand_spell_costs()
+	# Death animation — defer if lunge is in progress so ghost positions correctly.
+	# Position is captured NOW while the slot is still in its original container.
+	if dead_slot:
+		if dead_slot.freeze_visuals:
+			_deferred_death_slots.append({slot = dead_slot, pos = dead_slot.global_position})
+		else:
+			_animate_minion_death(dead_slot, dead_slot.global_position)
 
 func _on_hero_damaged(target: String, amount: int) -> void:
 	if _combat_ended:
@@ -1708,16 +1879,90 @@ func _flash_trap_slot_for(owner: String, slot_idx: int) -> void:
 		tw.tween_callback(func(): _update_trap_display_for(owner))
 
 ## Called by EnemyAI's minion_summoned signal.
-func _on_enemy_minion_summoned(minion: MinionInstance) -> void:
+## slot.place_minion and triggers are deferred until after the reveal animation.
+func _on_enemy_minion_summoned(minion: MinionInstance, slot: BoardSlot) -> void:
 	_log("Enemy summons: %s" % minion.card_data.card_name, _LogType.ENEMY)
+	_update_enemy_status_panel()
+	_enemy_summon_reveal_then_land(minion, slot,
+		minion.card_data.essence_cost + minion.card_data.mana_cost,
+		minion.card_data.is_champion)
+
+## Punch + ripple for an enemy minion landing — no flight, just impact on the slot.
+func _animate_enemy_landing(slot: BoardSlot, total_cost: int, is_champion: bool) -> void:
+	slot.pivot_offset = slot.size / 2.0
+	var t1 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t1.tween_property(slot, "scale", Vector2(1.15, 1.15), 0.06)
+	await t1.finished
+	if not is_inside_tree(): return
+	var t2 := create_tween().set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	t2.tween_property(slot, "scale", Vector2(1.0, 1.0), 0.10)
+	await t2.finished
+	slot.pivot_offset = Vector2.ZERO
+	_spawn_slot_ripple(slot, total_cost, is_champion)
+
+## Sequences reveal → place_minion → triggers → punch+ripple for an enemy summon.
+## Empty placeholder stays visible during the reveal; minion appears only after it.
+func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, total_cost: int, is_champion: bool) -> void:
+	await _show_enemy_summon_reveal(minion.card_data)
+	if not is_inside_tree():
+		enemy_summon_reveal_done.emit()  # unblock commit_minion_play
+		return
+	# Clear the pending reservation and visually place the minion BEFORE emitting
+	# enemy_summon_reveal_done, so the AI never acts while slot.minion is still null.
+	if enemy_ai:
+		enemy_ai._pending_slots.erase(slot)
+	if slot:
+		slot.place_minion(minion)
 	# ON_PLAY effects are resolved by CombatHandlers.on_enemy_minion_played_effect registered in _setup_triggers().
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 	ctx.minion = minion
 	trigger_manager.fire(ctx)
+	# Signal AFTER place_minion — guarantees AI continues only after the slot is occupied.
+	enemy_summon_reveal_done.emit()
+	if not is_inside_tree(): return
+	if slot:
+		_animate_enemy_landing(slot, total_cost, is_champion)
+
+## Centre-screen card reveal when an enemy summons a minion.
+## Uses the same "combat_preview" size mode as the hover preview.
+## Returns after the fade-out so callers can await it.
+func _show_enemy_summon_reveal(card: CardData) -> void:
+	_enemy_summon_reveal_active = true
+	var visual: CardVisual = CARD_VISUAL_SCENE.instantiate()
+	visual.apply_size_mode("combat_preview")
+	visual.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	visual.z_index       = 20
+	visual.z_as_relative = false
+	visual.modulate.a    = 0.0
+	$UI.add_child(visual)
+	visual.setup(card)
+	# Centre on screen
+	var vp := get_viewport().get_visible_rect().size
+	visual.position = vp / 2.0 - visual.size / 2.0
+
+	# Fade in
+	var t1 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t1.tween_property(visual, "modulate:a", 1.0, 0.18)
+	await t1.finished
+	if not is_inside_tree(): visual.queue_free(); _enemy_summon_reveal_active = false; enemy_summon_reveal_done.emit(); return
+
+	# Hold
+	await get_tree().create_timer(0.9).timeout
+	if not is_inside_tree(): visual.queue_free(); _enemy_summon_reveal_active = false; enemy_summon_reveal_done.emit(); return
+
+	# Fade out
+	var t2 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t2.tween_property(visual, "modulate:a", 0.0, 0.22)
+	await t2.finished
+	visual.queue_free()
+	_enemy_summon_reveal_active = false
+	# Do NOT emit enemy_summon_reveal_done here — _enemy_summon_reveal_then_land emits
+	# it after slot.place_minion() so the AI never acts before the minion is on the board.
 
 ## Called by EnemyAI's enemy_spell_cast signal.
 func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	_log("Enemy casts: %s" % spell.card_name, _LogType.ENEMY)
+	_update_enemy_status_panel()
 	# Fire ON_ENEMY_SPELL_CAST BEFORE resolving so Null Seal can set _spell_cancelled.
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
 	ctx.card = spell
@@ -1748,11 +1993,13 @@ func _on_enemy_trap_placed(trap: TrapCardData) -> void:
 		_log("Enemy places rune: %s" % trap.card_name, _LogType.ENEMY)
 	else:
 		_log("Enemy sets a trap.", _LogType.ENEMY)
+	_update_enemy_status_panel()
 	_update_enemy_trap_display()
 
 ## Called by EnemyAI's environment_placed signal.
 func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
 	_log("Enemy plays environment: %s" % env.card_name, _LogType.ENEMY)
+	_update_enemy_status_panel()
 
 func _update_trap_display_for(owner: String) -> void:
 	var panels: Array = trap_slot_panels      if owner == "player" else enemy_trap_slot_panels
@@ -2746,7 +2993,6 @@ func _build_hover_tooltip_scaffold(ui_root: Node, min_width: float, bg_color: Co
 	tip.add_theme_stylebox_override("panel", _create_stylebox(bg_color, border_color, 6))
 	ui_root.add_child(tip)
 	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_theme_constant_override("margin_left",   16)
 	margin.add_theme_constant_override("margin_right",  16)
 	margin.add_theme_constant_override("margin_top",    12)
@@ -2754,14 +3000,21 @@ func _build_hover_tooltip_scaffold(ui_root: Node, min_width: float, bg_color: Co
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tip.add_child(margin)
 	var tip_vbox := VBoxContainer.new()
-	tip_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tip_vbox.add_theme_constant_override("separation", 8)
 	tip_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(tip_vbox)
 	tip.position = Vector2(16.0, 0.0)
-	tip.resized.connect(func() -> void:
-		var vp_h := get_viewport().get_visible_rect().size.y
-		tip.position.y = vp_h - tip.size.y - 16.0
+	# Label text measurement is deferred to the first layout frame, so
+	# get_minimum_size() returns 0-height on the very first hover call.
+	# Connect minimum_size_changed so the panel self-sizes as soon as Godot
+	# measures the content (typically one frame after being added to the tree).
+	tip.minimum_size_changed.connect(func() -> void:
+		if not tip.is_inside_tree():
+			return
+		var ms := tip.get_minimum_size()
+		if ms.y > 0:
+			tip.size = ms
+			tip.position.y = get_viewport().get_visible_rect().size.y - ms.y - 16.0
 	)
 	return {tip = tip, tip_vbox = tip_vbox}
 
@@ -2780,7 +3033,6 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 		return
 	var scaffold := _build_hover_tooltip_scaffold(ui_root, 400, Color(0.05, 0.02, 0.10, 0.97), Color(0.55, 0.30, 0.85, 0.90))
 	var tip: PanelContainer = scaffold.tip
-	tip.custom_minimum_size = Vector2(400, 450)  # talent list needs more height
 	var tip_vbox: VBoxContainer = scaffold.tip_vbox
 
 	# --- Passives section ---
@@ -2856,6 +3108,10 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 
 	icon_btn.mouse_entered.connect(func() -> void:
 		icon_btn.add_theme_color_override("font_color", Color(0.90, 0.70, 1.0, 1.0))
+		# PanelContainer in CanvasLayer has no parent Container to set its size —
+		# force it to its content minimum size each time it is shown.
+		tip.size = tip.get_minimum_size()
+		tip.position.y = get_viewport().get_visible_rect().size.y - tip.size.y - 16.0
 		tip.visible = true
 	)
 	icon_btn.mouse_exited.connect(func() -> void:
@@ -2879,7 +3135,7 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 		},
 		"ancient_frenzy": {
 			"name": "Ancient Frenzy",
-			"desc": "Pack Frenzy also grants all Feral Imps Lifedrain for the turn, and costs 1 less Mana."
+			"desc": "Pack Frenzy also grants all Feral Imps Lifedrain for the turn, and costs 1 less Mana. Starts with one extra Pack Frenzy in hand."
 		},
 	}
 
@@ -2933,6 +3189,10 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 
 	icon_btn.mouse_entered.connect(func() -> void:
 		icon_btn.add_theme_color_override("font_color", Color(1.0, 0.70, 0.40, 1.0))
+		# PanelContainer in CanvasLayer has no parent Container to set its size —
+		# force it to its content minimum size each time it is shown.
+		tip.size = tip.get_minimum_size()
+		tip.position.y = get_viewport().get_visible_rect().size.y - tip.size.y - 16.0
 		tip.visible = true
 	)
 	icon_btn.mouse_exited.connect(func() -> void:
@@ -3057,6 +3317,39 @@ func _clear_slot_for(minion: MinionInstance, slots: Array[BoardSlot]) -> void:
 			slot.remove_minion()
 			return
 
+## Flash + dissolve upward death animation.
+## Spawns a ghost overlay in $UI so the HBoxContainer layout is never disturbed.
+## pos must be passed explicitly — do NOT read slot.global_position here, as the slot
+## may have just been reparented and layout recalculation is deferred to the next frame.
+func _animate_minion_death(slot: BoardSlot, pos: Vector2) -> void:
+	var sz := slot.size
+	# White flash layer — briefly bright, then transitions to soft purple as it rises
+	var ghost := ColorRect.new()
+	ghost.color = Color(1.0, 1.0, 1.0, 0.85)
+	ghost.z_index = 5
+	ghost.z_as_relative = false
+	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$UI.add_child(ghost)
+	ghost.set_size(sz)
+	ghost.pivot_offset = sz / 2.0
+	ghost.global_position = pos
+
+	# Step 1 — white flash: hold briefly then fade
+	var t1 := create_tween().set_trans(Tween.TRANS_SINE)
+	t1.tween_property(ghost, "modulate:a", 0.0, 0.20)
+	await t1.finished
+	if not is_inside_tree(): ghost.queue_free(); return
+
+	# Reset for soul-rise: soft purple, drift upward 50px while fading out
+	ghost.modulate.a = 0.85
+	ghost.color = Color(0.72, 0.52, 1.0, 1.0)  # abyss purple
+
+	var t2 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t2.tween_property(ghost, "global_position:y", ghost.global_position.y - 50.0, 0.65)
+	t2.tween_property(ghost, "modulate:a", 0.0, 0.65)
+	await t2.finished
+	ghost.queue_free()
+
 func _clear_all_highlights() -> void:
 	for slot in player_slots:
 		slot.clear_highlight()
@@ -3121,6 +3414,12 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		def_slot._refresh_visuals()
 		if attacker: _refresh_slot_for(attacker)
 		if defender: _refresh_slot_for(defender)
+		# Fire death animations that were deferred because freeze_visuals blocked them.
+		# Use the pre-captured position — slot may not be laid out yet after reparenting.
+		var pending := _deferred_death_slots.duplicate()
+		_deferred_death_slots.clear()
+		for entry in pending:
+			_animate_minion_death(entry.slot, entry.pos)
 	)
 
 func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Panel) -> void:
@@ -3238,8 +3537,10 @@ func _spawn_damage_popup(screen_center: Vector2, damage: int) -> void:
 
 	var tw := create_tween()
 	tw.set_parallel(true)
-	# Rise quickly at first, then ease to a stop over 1.6s total
-	tw.tween_property(lbl, "position", lbl.position + Vector2(0, -90), 1.6) \
+	# Rise quickly at first, then ease to a stop over 1.6s total.
+	# Clamp the endpoint so the label never scrolls above a 16 px top margin.
+	var rise_end_y := maxf(lbl.position.y - 90.0, 16.0)
+	tw.tween_property(lbl, "position:y", rise_end_y, 1.6) \
 		.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
 	# Stay fully visible for 0.9s then fade out over 0.7s
 	tw.tween_property(lbl, "modulate:a", 1.0, 0.9)
@@ -3417,6 +3718,11 @@ func _register_enemy_passive_triggers() -> void:
 		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     _handlers.on_enemy_died_corrupted_death,      6)
 	if "ancient_frenzy" in _active_enemy_passives:
 		enemy_ai.spell_cost_discounts["pack_frenzy"] = 1
+		# Add one guaranteed Pack Frenzy to the opening hand (bypasses HAND_MAX —
+		# this is a startup passive grant, not a normal draw).
+		var pf_card := CardDatabase.get_card("pack_frenzy")
+		if pf_card:
+			enemy_ai.hand.append(pf_card)
 
 ## Trap routing — player traps fire on enemy actions (priority 30), enemy traps fire on player actions (priority 35).
 func _register_trap_triggers() -> void:

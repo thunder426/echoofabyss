@@ -724,12 +724,17 @@ func _update_glow_overlay() -> void:
 
 func select() -> void:
 	is_selected = true
-	_update_pivot()
-	scale = SCALE_SELECTED
+	var s := size if size != Vector2.ZERO else custom_minimum_size
+	pivot_offset = Vector2(s.x / 2.0, s.y)  # bottom-center → card lifts upward
+	var t := create_tween().set_trans(Tween.TRANS_SINE)
+	t.tween_property(self, "scale", Vector2(1.1, 1.1), 0.12)
+	_update_glow_overlay()
 
 func deselect() -> void:
 	is_selected = false
+	_update_pivot()  # restore center pivot
 	scale = SCALE_NORMAL
+	_update_glow_overlay()
 
 # ---------------------------------------------------------------------------
 # Input

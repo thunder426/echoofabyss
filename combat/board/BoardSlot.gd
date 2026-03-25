@@ -32,7 +32,7 @@ var minion: MinionInstance = null
 # Highlight
 # ---------------------------------------------------------------------------
 
-enum HighlightMode { NONE, VALID_TARGET, SELECTED, INVALID }
+enum HighlightMode { NONE, VALID_TARGET, SELECTED, INVALID, PLACEMENT }
 var _highlight_mode: HighlightMode = HighlightMode.NONE
 var _pulse_tween: Tween = null
 var _pulse_t: float = 0.0
@@ -69,7 +69,7 @@ const _CFG: Dictionary = {
 # No cost badge, no name bar — art fills the top portion of the slot.
 const _CFG_GENERIC: Dictionary = {
 	# Art window — larger, starts from near top edge
-	"art":    { "pos": Vector2(  4,   4), "size": Vector2(172, 140) },
+	"art":    { "pos": Vector2(  21, 10), "size": Vector2(140, 140) },
 
 	# ATK  — bottom-left (same as normal)
 	"atk":    { "pos": Vector2( 28, 163), "size": Vector2( 52,  30), "font_size": 12 },
@@ -217,7 +217,7 @@ func _on_gui_input(event: InputEvent) -> void:
 
 func _on_mouse_entered() -> void:
 	_is_hovered = true
-	if _highlight_mode == HighlightMode.VALID_TARGET:
+	if _highlight_mode == HighlightMode.VALID_TARGET or _highlight_mode == HighlightMode.PLACEMENT:
 		_start_pulse()
 	elif _highlight_mode != HighlightMode.NONE:
 		_refresh_visuals()
@@ -266,7 +266,7 @@ func remove_minion() -> void:
 # ---------------------------------------------------------------------------
 
 func set_highlight(mode: HighlightMode) -> void:
-	if mode != HighlightMode.VALID_TARGET:
+	if mode != HighlightMode.VALID_TARGET and mode != HighlightMode.PLACEMENT:
 		_stop_pulse()
 	_highlight_mode = mode
 	_refresh_visuals()
@@ -308,6 +308,7 @@ func _show_empty_state() -> void:
 		HighlightMode.VALID_TARGET: _set_overlay_glow(Color(0.20, 0.70, 0.25, 1))
 		HighlightMode.SELECTED:     _set_overlay_glow(Color(0.85, 0.75, 0.10, 1))
 		HighlightMode.INVALID:      _set_overlay_glow(Color(0.70, 0.15, 0.15, 1))
+		HighlightMode.PLACEMENT:    _set_overlay_glow(Color(0.608, 0.349, 0.714, 1))  # violet
 		_:                          _clear_overlay()
 
 	_art_rect.visible = false
@@ -324,6 +325,7 @@ func _show_occupied_state() -> void:
 		HighlightMode.VALID_TARGET: _set_overlay_glow(Color(0.20, 0.70, 0.25, 1))
 		HighlightMode.SELECTED:     _set_overlay_glow(Color(0.85, 0.75, 0.10, 1))
 		HighlightMode.INVALID:      _set_overlay_glow(Color(0.70, 0.15, 0.15, 1))
+		HighlightMode.PLACEMENT:    _set_overlay_glow(Color(0.608, 0.349, 0.714, 1))  # violet
 		_:                          _clear_overlay()
 
 	_frame_rect.visible = true

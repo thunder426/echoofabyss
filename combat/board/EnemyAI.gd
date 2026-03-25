@@ -15,6 +15,7 @@ extends Node
 const _PROFILES: Dictionary = {
 	"default":         preload("res://enemies/ai/profiles/DefaultProfile.gd"),
 	"feral_pack":      preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
+	"matriarch":       preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
 	"corrupted_brood": preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
 }
 
@@ -28,7 +29,8 @@ var _active_profile: CombatProfile = null
 signal ai_turn_finished()
 
 ## Emitted each time the AI summons a minion (lets CombatScene check traps).
-signal minion_summoned(minion: MinionInstance)
+## slot is passed so CombatScene can defer place_minion until after the reveal.
+signal minion_summoned(minion: MinionInstance, slot: BoardSlot)
 
 ## Emitted when the AI casts a spell (lets CombatScene resolve + check traps).
 signal enemy_spell_cast(spell: SpellCardData)
@@ -67,10 +69,13 @@ var scene: Node = null
 # Resources — mirrors the player's dual system with the same combined cap
 # ---------------------------------------------------------------------------
 
-var essence: int = 0
-var essence_max: int = 0
-var mana: int = 0
-var mana_max: int = 0
+var essence: int = 1
+var essence_max: int = 1
+var mana: int = 1
+var mana_max: int = 1
+
+## Skips resource growth on the very first turn so the enemy starts at 1E/1M.
+var _first_turn: bool = true
 
 ## Shared combined cap with the player (essence_max + mana_max ≤ this).
 const COMBINED_RESOURCE_CAP := 11
@@ -98,6 +103,9 @@ var minion_play_chosen_target = null
 
 ## Active traps and runes placed by the enemy (mirrors the player's active_traps in CombatScene).
 var active_traps: Array[TrapCardData] = []
+
+## Slots claimed by a pending summon (reveal in progress) — excluded from find_empty_slot.
+var _pending_slots: Array[BoardSlot] = []
 
 ## Active environment card played by the enemy (mirrors the player's active_environment).
 var active_environment: EnvironmentCardData = null
@@ -160,11 +168,18 @@ func draw_cards(count: int) -> void:
 func run_turn() -> void:
 	if _active_profile == null:
 		_setup_profile()
-	_choose_resource_growth()
+	if _first_turn:
+		_first_turn = false
+	else:
+		_choose_resource_growth()
 	essence = essence_max
 	mana    = mana_max
 	_draw_cards(1)
 	await _active_profile.play_phase()
+	if not is_inside_tree(): return
+	# Brief pause between the play phase and attack phase so that Swift-minion
+	# summon animations fully settle before any attack animation begins.
+	await get_tree().create_timer(0.6).timeout
 	if not is_inside_tree(): return
 	await _active_profile.attack_phase()
 	if not is_inside_tree(): return
@@ -215,9 +230,10 @@ func _draw_cards(count: int) -> void:
 # ---------------------------------------------------------------------------
 
 ## Returns the first empty enemy board slot, or null if board is full.
+## Skips slots that are claimed by an in-progress summon reveal.
 func find_empty_slot() -> BoardSlot:
 	for slot in enemy_slots:
-		if slot.is_empty():
+		if slot.is_empty() and not (slot in _pending_slots):
 			return slot
 	return null
 
@@ -278,13 +294,17 @@ func effective_spell_cost(spell: SpellCardData) -> int:
 func commit_minion_play(mc: MinionCardData, slot: BoardSlot, chosen_target = null) -> bool:
 	var instance := MinionInstance.create(mc, "enemy")
 	enemy_board.append(instance)
-	slot.place_minion(instance)
+	_pending_slots.append(slot)  # reserve slot without touching its visual
 	hand.erase(mc)
 	_discard.append(mc)
 	minion_play_chosen_target = chosen_target
-	minion_summoned.emit(instance)
+	minion_summoned.emit(instance, slot)
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
+	if not is_inside_tree(): return false
+	# Wait for the card reveal animation to finish before the next AI action
+	if scene != null and scene.get("_enemy_summon_reveal_active") == true:
+		await scene.enemy_summon_reveal_done
 	return is_inside_tree()
 
 ## Cast a spell (resources already deducted).
@@ -326,13 +346,18 @@ func commit_play_environment(env: EnvironmentCardData) -> bool:
 ## the scene tree is gone — the profile should check is_inside_tree() to
 ## distinguish the two cases.
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
+	if redirect_attack_target != null:
+		target = redirect_attack_target
+		redirect_attack_target = null
+	# Enforce Guard: if the player board has any Guard minion, the attack must
+	# be directed at one of them, regardless of how the profile chose the target.
+	var guards := CombatManager.get_taunt_minions(player_board)
+	if not guards.is_empty() and not target.has_guard():
+		target = guards[randi() % guards.size()]
 	enemy_about_to_attack.emit(attacker, target)
 	if attack_cancelled:
 		attack_cancelled = false
 		return false
-	if redirect_attack_target != null:
-		target = redirect_attack_target
-		redirect_attack_target = null
 	if not enemy_board.has(attacker):
 		return false
 	combat_manager.resolve_minion_attack(attacker, target)
@@ -343,6 +368,9 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 ## Execute a minion-vs-hero attack, handling cancel and Imp Barricade redirect.
 ## Returns false if the attack was skipped or the scene tree is gone.
 func do_attack_hero(attacker: MinionInstance) -> bool:
+	# Enforce Guard: cannot attack hero while any player Guard minion is alive.
+	if not CombatManager.get_taunt_minions(player_board).is_empty():
+		return false
 	enemy_attacking_hero.emit(attacker)
 	if attack_cancelled:
 		attack_cancelled = false

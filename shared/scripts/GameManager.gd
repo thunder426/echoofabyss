@@ -241,11 +241,25 @@ func get_encounter(index: int) -> EnemyData:
 				["feral_instinct", "corrupted_death"], "corrupted_brood")
 		2:
 			return _make_encounter("Imp Matriarch", 3000,
-				["matriarchs_broodling", "matriarchs_broodling", "frenzied_imp", "frenzied_imp", "rabid_imp", "pack_frenzy"],
+				# Combo boss: flood board with cheap imps, then swing with Pack Frenzy.
+				# Ancient Frenzy drops Pack Frenzy to 2M; Rogue Imp Elder makes the
+				# +250 ATK buff land at +350 effective ATK. Turn 5 is the danger window.
+				[
+					"rabid_imp",      "rabid_imp",      "rabid_imp",
+					"brood_imp",      "brood_imp",
+					"imp_brawler",    "imp_brawler",
+					"void_touched_imp",
+					"rogue_imp_elder",
+					"matriarchs_broodling",
+					"pack_frenzy",    "pack_frenzy",
+					"feral_surge",
+					"void_screech",
+					"brood_call",
+				],
 				"IMP MATRIARCH",
 				"At the heart of the lair, a monstrous Imp Matriarch holds court. She is the source of the corruption — ancient, cunning, and furious at the intrusion into her domain.",
 				"res://assets/art/progression/backgrounds/a1_fight3_background.png",
-				["feral_instinct", "ancient_frenzy"])
+				["feral_instinct", "ancient_frenzy"], "matriarch")
 		# -- Act 2: Abyss Dungeon --
 		3:
 			return _make_encounter("Abyss Cultist Patrol", 3200,

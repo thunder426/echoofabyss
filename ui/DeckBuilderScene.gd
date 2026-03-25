@@ -15,17 +15,18 @@ const PREDEFINED_DECKS: Array = [
 	{
 		"id":   "swarm",
 		"name": "Swarm",
-		"desc": "Flood the board with Imps and Demons, buff them in bulk.",
+		"desc": "Flood the board with Imps and Demons. Shadow Hound scales with board width; Void Devourer devours the swarm for a massive finisher.",
 		"cards": [
 			"void_imp", "void_imp", "void_imp", "void_imp",
 			"shadow_hound", "shadow_hound",
+			"void_stalker",
+			"void_devourer",
 			"abyssal_brute",
 			"void_spawner",
-			"abyss_cultist",
 			"abyssal_tide",
 			"abyssal_sacrifice", "abyssal_sacrifice",
+			"dominion_rune",
 			"flux_siphon",
-			"void_bolt", "void_bolt",
 		],
 	},
 	{

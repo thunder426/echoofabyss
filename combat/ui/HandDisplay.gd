@@ -83,6 +83,24 @@ func remove_card(card_data: CardData) -> void:
 				_selected_visual = null
 			return
 
+## Remove the selected card from the hand WITHOUT freeing it, for use by flight animation.
+## Caller is responsible for queue_free() when animation completes.
+## Returns null if no card is selected.
+func pop_selected_for_animation() -> CardVisual:
+	if _selected_visual == null:
+		return null
+	var v := _selected_visual
+	_card_visuals.erase(v)
+	_selected_visual = null
+	return v
+
+## Returns the index of the card visual matching card_data, or 0 if not found.
+func get_index_for(card_data: CardData) -> int:
+	for i in _card_visuals.size():
+		if _card_visuals[i].card_data == card_data:
+			return i
+	return 0
+
 ## Deselect the currently selected card without playing it
 func deselect_current() -> void:
 	if _selected_visual:
