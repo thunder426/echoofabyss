@@ -43,6 +43,8 @@ var _large_preview: CardVisual = null
 var _enemy_status_panel: Panel = null
 var _hero_spell_tween: Tween = null
 var _hero_spell_pulse: float = 0.0
+var _hero_attack_tween: Tween = null
+var _hero_attack_pulse: float = 0.0
 var _enemy_status_hp_label: Label = null
 var _enemy_status_essence_label: Label = null
 var _enemy_status_mana_label: Label = null
@@ -56,6 +58,31 @@ var enemy_hp_max: int = 0
 var _player_status_panel: Panel = null
 var _player_status_hp_label: Label = null
 
+# Pip bar columns (essence left, mana right) — 10 pips each, built in _setup_pip_bars()
+var _pip_essence_panels: Array[Panel]       = []
+var _pip_mana_panels:    Array[Panel]       = []
+var _pip_essence_rects:  Array[TextureRect] = []
+var _pip_mana_rects:     Array[TextureRect] = []
+var _ess_pip_tex: GradientTexture2D = null
+var _mna_pip_tex: GradientTexture2D = null
+var _ess_ovf_tex: GradientTexture2D = null  # overflow/temp essence
+var _mna_ovf_tex: GradientTexture2D = null  # overflow/temp mana
+# Outer border panels — animated on resource gain/spend
+var _ess_col_panel: Panel = null
+var _mna_col_panel: Panel = null
+var _ess_col_tween: Tween = null
+var _mna_col_tween: Tween = null
+# Previous values used to detect direction of change
+var _prev_essence: int = -1
+var _prev_mana:    int = -1
+# Card-cost blink — highlights which pips will be spent / gained when a card is selected
+var _pip_ess_blink:  int   = 0   # essence pips to fade (spend)
+var _pip_mna_blink:  int   = 0   # mana pips to fade (spend)
+var _pip_ess_gain:   int   = 0   # essence pips to glow (gain)
+var _pip_mna_gain:   int   = 0   # mana pips to glow (gain)
+var _pip_blink_tween: Tween = null
+var _pip_blink_phase: float = 0.0
+
 # ---------------------------------------------------------------------------
 # Internal state
 # ---------------------------------------------------------------------------
@@ -65,6 +92,7 @@ var combat_manager := CombatManager.new()
 ## Central event dispatcher — populated by _setup_triggers() in _ready().
 var trigger_manager: TriggerManager
 var _handlers: CombatHandlers
+var _hardcoded: HardcodedEffects
 
 # Live boards
 var player_board: Array[MinionInstance] = []
@@ -157,6 +185,8 @@ var feral_instinct_granted_this_turn: bool = false
 
 func _ready() -> void:
 	trigger_manager = TriggerManager.new()
+	_hardcoded = HardcodedEffects.new()
+	_hardcoded.setup(self)
 	_find_nodes()
 	_load_combat_background()
 	_connect_turn_manager()
@@ -281,6 +311,8 @@ func _setup_enemy_ai() -> void:
 	enemy_ai.enemy_spell_cast.connect(_on_enemy_spell_cast)
 	enemy_ai.enemy_about_to_attack.connect(_on_enemy_about_to_attack)
 	enemy_ai.enemy_attacking_hero.connect(_on_enemy_attacking_hero)
+	enemy_ai.trap_placed.connect(_on_enemy_trap_placed)
+	enemy_ai.environment_placed.connect(_on_enemy_environment_placed)
 	# Load the enemy's deck and profile from the current encounter
 	var enemy_deck: Array[String] = []
 	if GameManager.current_enemy != null:
@@ -401,12 +433,20 @@ func _on_turn_ended(is_player_turn: bool) -> void:
 
 func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
 	if essence_label:
-		essence_label.text = "Essence: %d / %d" % [essence, essence_max]
+		essence_label.text = "%d/%d" % [essence, essence_max]
 	if mana_label:
-		mana_label.text = "Mana: %d / %d" % [mana, mana_max]
+		mana_label.text = "%d/%d" % [mana, mana_max]
 	if hand_display:
 		hand_display.refresh_playability(essence, mana)
 	_refresh_hand_spell_costs()
+	_update_pip_bars(essence, essence_max, mana, mana_max)
+	# Pulse the column border to signal gain (green) or spend (red/orange)
+	if _prev_essence >= 0 and essence != _prev_essence:
+		_pulse_pip_col(true, essence > _prev_essence)
+	if _prev_mana >= 0 and mana != _prev_mana:
+		_pulse_pip_col(false, mana > _prev_mana)
+	_prev_essence = essence
+	_prev_mana    = mana
 	# NOTE: end-turn button mode is NOT updated here — temp gains (gain_mana, gain_essence)
 	# also fire this signal and must not flip the button layout.
 	# Use _refresh_end_turn_mode() only when permanent max values change.
@@ -451,6 +491,26 @@ func _do_end_turn() -> void:
 	turn_manager.end_player_turn()
 
 # ---------------------------------------------------------------------------
+# Global input — instant spell confirmation
+# ---------------------------------------------------------------------------
+
+## Any unhandled left-click while an instant (no-target) spell is pending confirms the cast.
+## Targeted spells wait for a specific click (minion / hero), so they are excluded.
+## Clicks consumed by UI/slots never reach here, so the hand-card click that started the
+## selection is not counted — the player must click somewhere on the board to confirm.
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton and event.pressed
+			and event.button_index == MOUSE_BUTTON_LEFT):
+		return
+	if not (pending_play_card is SpellCardData):
+		return
+	var spell := pending_play_card as SpellCardData
+	if spell.requires_target:
+		return
+	get_viewport().set_input_as_handled()
+	_try_play_spell(spell)
+
+# ---------------------------------------------------------------------------
 # Hand card selection
 # ---------------------------------------------------------------------------
 
@@ -458,60 +518,83 @@ func _on_hand_card_selected(card_data: CardData) -> void:
 	# Guard: card plays are only valid on the player's turn
 	if not turn_manager.is_player_turn:
 		return
-
 	selected_attacker = null
 	_clear_all_highlights()
 	pending_play_card = card_data
-
 	if card_data is SpellCardData:
-		var spell := card_data as SpellCardData
-		if spell.requires_target:
-			# Check affordability before showing target highlights (Void Crystal bypasses)
-			var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
-			if not relic_first_card_free and not turn_manager.can_afford(0, effective_cost):
-				pending_play_card = null
-				if hand_display:
-					hand_display.deselect_current()
-				return
-			_highlight_spell_targets(spell)
-		else:
-			_try_play_spell(spell)
-		return
-
-	if card_data is TrapCardData:
+		_begin_spell_select(card_data as SpellCardData)
+	elif card_data is TrapCardData:
 		_try_play_trap(card_data as TrapCardData)
-		return
-
-	if card_data is EnvironmentCardData:
+	elif card_data is EnvironmentCardData:
 		_try_play_environment(card_data as EnvironmentCardData)
-		return
+	elif card_data is MinionCardData:
+		_begin_minion_select(card_data as MinionCardData)
 
-	if card_data is MinionCardData:
-		var mc := card_data as MinionCardData
-		# Check affordability (Void Crystal relic bypasses cost for the first card)
-		var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
-		if not relic_first_card_free and not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
-			pending_play_card = null
-			if hand_display:
-				hand_display.deselect_current()
-			return
-		# Check board space before highlighting
-		var has_empty_slot := player_slots.any(func(s: BoardSlot) -> bool: return s.is_empty())
-		if not has_empty_slot:
-			pending_play_card = null
-			if hand_display:
-				hand_display.deselect_current()
-			return
-		if mc.on_play_requires_target and _has_valid_minion_on_play_targets(mc):
-			_awaiting_minion_target = true
-			_highlight_minion_on_play_targets(mc)
-		else:
-			# No valid targets (or card doesn't need one) — go straight to placement.
-			# Effect will fire but resolve with null target (logs "no targets" and skips).
-			_awaiting_minion_target = false
-			_highlight_empty_player_slots()
+## Cancel a pending card selection: clear state and deselect hand.
+func _cancel_card_select() -> void:
+	_stop_pip_blink()
+	pending_play_card = null
+	if hand_display:
+		hand_display.deselect_current()
+
+## Handle a spell card being selected from hand.
+## Both targeted and instant spells enter a pending state to show cost preview.
+## Targeted spells wait for a minion/hero click; instant spells cast on any board click
+## (caught by _unhandled_input — player clicks empty space anywhere on the field).
+func _begin_spell_select(spell: SpellCardData) -> void:
+	if not relic_first_card_free and not turn_manager.can_afford(0, _effective_spell_cost(spell)):
+		_cancel_card_select()
+		return
+	# Base spend from play cost, then check effect steps for resource conversions.
+	var ess_spend := 0
+	var mna_spend := _effective_spell_cost(spell)
+	var ess_gain  := 0
+	var mna_gain  := 0
+	for step: Dictionary in spell.effect_steps:
+		if step.get("type") != "CONVERT_RESOURCE":
+			continue
+		var amount: int    = step.get("amount", 0)
+		var from: String   = step.get("convert_from", "")
+		var to: String     = step.get("convert_to", "")
+		var available: int = turn_manager.mana - mna_spend if from == "mana" \
+				else turn_manager.essence - ess_spend
+		var actual: int    = mini(amount, maxi(available, 0))
+		if from == "mana":
+			mna_spend += actual
+		elif from == "essence":
+			ess_spend += actual
+		if to == "essence":
+			ess_gain += actual
+		elif to == "mana":
+			mna_gain += actual
+	_start_pip_blink(ess_spend, mna_spend, ess_gain, mna_gain)
+	if spell.requires_target:
+		_highlight_spell_targets(spell)
+
+## Handle a minion card being selected from hand.
+## Checks affordability and board space, then highlights valid placement/target slots.
+func _begin_minion_select(mc: MinionCardData) -> void:
+	# Check affordability (Void Crystal relic bypasses cost for the first card)
+	var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
+	if not relic_first_card_free and not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
+		_cancel_card_select()
+		return
+	# Check board space before highlighting
+	if not player_slots.any(func(s: BoardSlot) -> bool: return s.is_empty()):
+		_cancel_card_select()
+		return
+	_start_pip_blink(mc.essence_cost, mc.mana_cost + extra_mana)
+	if mc.on_play_requires_target and _has_valid_minion_on_play_targets(mc):
+		_awaiting_minion_target = true
+		_highlight_minion_on_play_targets(mc)
+	else:
+		# No valid targets (or card doesn't need one) — go straight to placement.
+		# Effect will fire but resolve with null target (logs "no targets" and skips).
+		_awaiting_minion_target = false
+		_highlight_empty_player_slots()
 
 func _on_hand_card_deselected() -> void:
+	_stop_pip_blink()
 	pending_play_card = null
 	pending_minion_target = null
 	_awaiting_minion_target = false
@@ -523,8 +606,7 @@ func _on_hand_card_deselected() -> void:
 # ---------------------------------------------------------------------------
 
 func _try_play_spell(spell: SpellCardData) -> void:
-	var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
-	if not _pay_card_cost(0, effective_cost):
+	if not _pay_card_cost(0, _effective_spell_cost(spell)):
 		if hand_display:
 			hand_display.deselect_current()
 		return
@@ -779,24 +861,15 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: Min
 	_refresh_hand_spell_costs()
 
 
-## Fire the On Death effect of a minion that just died.
-func _resolve_on_death_effect(minion: MinionInstance) -> void:
-	match minion.card_data.on_death_effect:
-		_:
-			pass
+## Placeholder for data-driven on-death effects (not yet implemented).
+## Called by CombatHandlers.on_minion_died_death_effect via has_method check.
+func _resolve_on_death_effect(_minion: MinionInstance) -> void:
+	pass
 
 
 # ---------------------------------------------------------------------------
 # Relic effects
 # ---------------------------------------------------------------------------
-
-## Stub kept for call-site compatibility — logic now lives in CombatHandlers.on_player_turn_relics.
-func _apply_relic_turn_start() -> void:
-	pass  # Handled by ON_PLAYER_TURN_START event handlers
-
-## Stub kept for call-site compatibility — logic now lives in CombatHandlers.on_summon_relic.
-func _apply_relic_on_player_summon(_instance: MinionInstance) -> void:
-	pass  # Handled by ON_PLAYER_MINION_SUMMONED event handlers
 
 # ---------------------------------------------------------------------------
 # Abyss Order — Corruption helpers
@@ -1119,225 +1192,19 @@ func _cheat_add_card() -> void:
 	_cheat_status_lbl.text = ""
 	_cheat_card_input.text = ""
 
-## Entry point for EffectResolver HARDCODED steps.
+## Entry point for EffectResolver HARDCODED steps — delegates to HardcodedEffects.
 func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
-	match id:
-		"soul_shatter":
-			var demon := ctx.chosen_target
-			if demon == null:
-				return
-			var pre_hp: int = demon.current_health
-			combat_manager.kill_minion(demon)
-			var dmg := 300 if pre_hp >= 300 else 200
-			_log("  Soul Shatter: sacrifice had %d HP — %d AoE to all enemy minions." % [pre_hp, dmg], _LogType.PLAYER)
-			for m in enemy_board.duplicate():
-				_spell_dmg(m, dmg)
-		"void_devourer_sacrifice":
-			_resolve_void_devourer_sacrifice(ctx.source, ctx.owner)
-		"destroy_random_enemy_trap":
-			if ctx.owner == "player":
-				_log("  Trapbreaker: no enemy traps to destroy.", _LogType.PLAYER)
-		"spell_taxer_effect":
-			if ctx.owner == "player":
-				_spell_tax_for_enemy_turn += 1
-				_log("  Spell Taxer: enemy spells cost +1 next turn.", _LogType.PLAYER)
-		"saboteur_adept_effect":
-			if ctx.owner == "player":
-				_log("  Saboteur Adept: enemy traps blocked this turn (not yet active).", _LogType.PLAYER)
-		# --- Environment passives ---
-		"dark_covenant_passive":
-			# Re-apply ATK aura to Demons (clear first to prevent stacking), heal Humans if Demon present.
-			for m in player_board:
-				BuffSystem.remove_source(m, "dark_covenant")
-			var has_human := player_board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.HUMAN)
-			var has_demon := player_board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.DEMON)
-			if has_human:
-				for m in player_board:
-					if m.card_data.minion_type == Enums.MinionType.DEMON:
-						BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
-						_refresh_slot_for(m)
-			if has_demon:
-				for m in player_board:
-					if m.card_data.minion_type == Enums.MinionType.HUMAN:
-						m.current_health = mini(m.current_health + 100, m.card_data.health)
-						_refresh_slot_for(m)
-		"dark_covenant_remove":
-			for m in player_board:
-				BuffSystem.remove_source(m, "dark_covenant")
-				_refresh_slot_for(m)
-		"abyss_ritual_circle_passive":
-			var all_minions: Array[MinionInstance] = []
-			all_minions.assign(player_board + enemy_board)
-			if not all_minions.is_empty():
-				var hit := all_minions[randi() % all_minions.size()]
-				_log("  Abyss Ritual Circle: 100 damage to %s." % hit.card_data.card_name, _LogType.PLAYER)
-				_spell_dmg(hit, 100)
-		# --- Ritual effects ---
-		"demon_ascendant":
-			_log("  Demon Ascendant: deal 200 damage to 2 random enemy minions.", _LogType.PLAYER)
-			for _i in 2:
-				var target_m := _find_random_enemy_minion()
-				if target_m:
-					_spell_dmg(target_m, 200)
-			_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", _LogType.PLAYER)
-			for slot in player_slots:
-				if slot.is_empty():
-					var demon_data := CardDatabase.get_card("void_demon") as MinionCardData
-					if demon_data:
-						var instance := MinionInstance.create(demon_data, "player")
-						instance.current_atk    = 500
-						instance.current_health = 500
-						player_board.append(instance)
-						slot.place_minion(instance)
-						# Special Summon: do NOT fire ON_PLAYER_MINION_SUMMONED (no on-play effects)
-					break
-		# --- Trap effects ---
-		"smoke_veil":
-			enemy_ai.attack_cancelled = true
-			for m in enemy_board:
-				m.state = Enums.MinionState.EXHAUSTED
-				_refresh_slot_for(m)
-			_log("  Smoke Veil: attack cancelled! All enemies exhausted.", _LogType.TRAP)
-		"silence_trap":
-			_spell_cancelled = true
-			_log("  Silence Trap: enemy spell cancelled!", _LogType.TRAP)
-		# --- Dominion Rune ---
-		"dominion_rune_place":
-			_refresh_dominion_aura(true, 100 * _rune_aura_multiplier())
-		"dominion_rune_remove":
-			_refresh_dominion_aura(false)
-		# --- Soul Rune ---
-		"soul_rune_death":
-			if _soul_rune_fired:
-				return
-			if turn_manager.is_player_turn:
-				return
-			if ctx.trigger_minion == null or ctx.trigger_minion.card_data.minion_type != Enums.MinionType.DEMON:
-				return
-			_soul_rune_fired = true
-			var mult := _rune_aura_multiplier()
-			_summon_soul_rune_spirit(100 * mult, 100 * mult)
-			_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [100 * mult, 100 * mult], _LogType.TRAP)
-		"soul_rune_reset":
-			_soul_rune_fired = false
-		# --- vael_endless_tide: Vael's Colossal Guard on-play ---
-		"colossal_guard_play":
-			pass  # Handled declaratively by on_play_effect_steps; stub for forward compat
-		# --- vael_rune_master: Runic Blast ---
-		"runic_blast":
-			var rune_count := 0
-			for t in active_traps:
-				if (t as TrapCardData).is_rune:
-					rune_count += 1
-			if rune_count >= 2:
-				_log("  Runic Blast: 2+ Runes active — 200 damage to ALL enemy minions!", _LogType.PLAYER)
-				for m in enemy_board.duplicate():
-					_spell_dmg(m, 200)
-			else:
-				_log("  Runic Blast: 200 damage to 2 random enemy minions.", _LogType.PLAYER)
-				for _i in 2:
-					var target_m := _find_random_enemy_minion()
-					if target_m:
-						_spell_dmg(target_m, 200)
-		# --- vael_rune_master: Runic Echo ---
-		"runic_echo":
-			var last_rune := _find_last_non_echo_rune()
-			if last_rune and not last_rune.aura_effect_steps.is_empty():
-				_log("  Runic Echo: copies %s's effect." % last_rune.card_name, _LogType.PLAYER)
-				var eff_ctx := EffectContext.make(self, ctx.owner)
-				EffectResolver.run(last_rune.aura_effect_steps, eff_ctx)
-			else:
-				_log("  Runic Echo: no previous Rune effect to copy.", _LogType.PLAYER)
-		# --- vael_rune_master: Echo Rune aura fire (ON_PLAYER_TURN_START) ---
-		"echo_rune_fire":
-			var last_rune := _find_last_non_echo_rune()
-			if last_rune and not last_rune.aura_effect_steps.is_empty():
-				_log("  Echo Rune: fires %s's effect." % last_rune.card_name, _LogType.TRAP)
-				var eff_ctx := EffectContext.make(self, "player")
-				EffectResolver.run(last_rune.aura_effect_steps, eff_ctx)
-		# --- vael_rune_master: Rune Seeker on-play ---
-		"rune_seeker_play":
-			var found := false
-			for i in turn_manager.player_deck.size():
-				var c := turn_manager.player_deck[i]
-				if c is TrapCardData and (c as TrapCardData).is_rune:
-					turn_manager.player_deck.remove_at(i)
-					turn_manager.add_to_hand(c)
-					if hand_display:
-						hand_display.add_card(c)
-						hand_display.refresh_playability(turn_manager.essence, turn_manager.mana)
-					_log("  Rune Seeker: found %s." % c.card_name, _LogType.PLAYER)
-					found = true
-					break
-			if not found:
-				_log("  Rune Seeker: no Rune in deck.", _LogType.PLAYER)
-		# --- Feral Imp Clan (Act 1 enemy cards) ---
-		"frenzied_imp_play":
-			var board := _friendly_board(ctx.owner)
-			var feral_count := 0
-			for m in board:
-				if m != ctx.source and _minion_has_tag(m, "feral_imp"):
-					feral_count += 1
-			var dmg := 100 + 100 * feral_count
-			var frenzied_target := _find_random_minion(_opponent_board(ctx.owner))
-			if frenzied_target:
-				_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _LogType.ENEMY)
-				_spell_dmg(frenzied_target, dmg)
-			else:
-				_log("  Frenzied Imp: no target.", _LogType.ENEMY)
-		"void_screech":
-			var owner_board := _friendly_board(ctx.owner)
-			var feral_on_board := 0
-			for m in owner_board:
-				if _minion_has_tag(m, "feral_imp"):
-					feral_on_board += 1
-			var screech_dmg := 350 if feral_on_board >= 3 else 250
-			_on_hero_damaged(_opponent_of(ctx.owner), screech_dmg)
-			_log("  Void Screech: %d damage to hero (%d feral imps)." % [screech_dmg, feral_on_board], _LogType.ENEMY)
-		"brood_call":
-			var feral_ids: Array[String] = ["rabid_imp", "brood_imp", "imp_brawler", "void_touched_imp", "frenzied_imp", "matriarchs_broodling", "rogue_imp_elder"]
-			var pick := feral_ids[randi() % feral_ids.size()]
-			_summon_token(pick, ctx.owner)
-			_log("  Brood Call: summoned %s." % pick, _LogType.ENEMY)
-		"pack_frenzy":
-			var feral_board := _friendly_board(ctx.owner).duplicate()
-			var ancient_active := "ancient_frenzy" in _active_enemy_passives
-			for m in feral_board:
-				if _minion_has_tag(m, "feral_imp"):
-					BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 250, "pack_frenzy")
-					if m.state == Enums.MinionState.EXHAUSTED:
-						m.state = Enums.MinionState.SWIFT
-					if ancient_active:
-						BuffSystem.apply(m, Enums.BuffType.GRANT_LIFEDRAIN, 1, "pack_frenzy", true)
-					_refresh_slot_for(m)
-			var frenzy_msg := "  Pack Frenzy: all Feral Imps +250 ATK and SWIFT"
-			if ancient_active:
-				frenzy_msg += " and LIFEDRAIN (Ancient Frenzy)"
-			_log(frenzy_msg + ".", _LogType.ENEMY)
-		"rogue_imp_elder_remove":
-			var elder_board := _friendly_board(ctx.owner)
-			for m in elder_board:
-				BuffSystem.remove_source(m, "rogue_imp_elder")
-				_refresh_slot_for(m)
-		_:
-			_resolve_spell_effect(id, ctx.chosen_target, ctx.owner)
+	_hardcoded.resolve(id, ctx)
+
+## Legacy shim for spells that still use effect_id instead of effect_steps.
+func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: String = "player") -> void:
+	var ctx := EffectContext.make(self, owner)
+	ctx.chosen_target = target
+	_hardcoded.resolve(effect_id, ctx)
 
 ## Summon a 100/100 Void Spark into the first empty player slot.
 func _summon_void_spark() -> void:
-	for slot in player_slots:
-		if slot.is_empty():
-			var spark_data := CardDatabase.get_card("void_spark") as MinionCardData
-			if spark_data == null:
-				return
-			var instance := MinionInstance.create(spark_data, "player")
-			player_board.append(instance)
-			slot.place_minion(instance)
-			_log("  Void Spark summoned (100/100)!", _LogType.PLAYER)
-			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-			ctx.minion = instance
-			ctx.card   = spark_data
-			trigger_manager.fire(ctx)
-			return
+	_summon_token("void_spark", "player")
 
 ## Return the most recently placed non-Echo Rune from active_traps (or null).
 ## Used by Runic Echo and Echo Rune to copy the last placed Rune's effect.
@@ -1355,23 +1222,8 @@ func _summon_soul_rune_spirit(atk: int, hp: int) -> void:
 
 ## Summon a Void Imp into the first empty player slot.
 ## Fires ON_PLAYER_MINION_SUMMONED so all registered handlers (passives, talents, relics) apply.
-## Returns the instance, or null if no free slot.
-func _summon_void_imp() -> MinionInstance:
-	for slot in player_slots:
-		if slot.is_empty():
-			var imp_data := CardDatabase.get_card("void_imp") as MinionCardData
-			if imp_data == null:
-				return null
-			var instance := MinionInstance.create(imp_data, "player")
-			player_board.append(instance)
-			slot.place_minion(instance)
-			_log("  Void Imp summoned!", _LogType.PLAYER)
-			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-			ctx.minion = instance
-			ctx.card   = imp_data
-			trigger_manager.fire(ctx)
-			return instance
-	return null
+func _summon_void_imp() -> void:
+	_summon_token("void_imp", "player")
 
 ## True if at least one Imp Overseer is currently on the given owner's board.
 func _has_imp_overseer_on_board(owner: String = "player") -> bool:
@@ -1480,6 +1332,10 @@ func _refresh_hand_spell_costs() -> void:
 	if _large_preview and _large_preview.visible:
 		_large_preview.apply_cost_discount(discount)
 
+## Effective mana cost for a player spell after applying board discount.
+func _effective_spell_cost(spell: SpellCardData) -> int:
+	return maxi(0, spell.cost - _spell_mana_discount())
+
 ## Mana discount applied to all player spells — summed from all minions on board.
 ## Data-driven via MinionCardData.mana_cost_discount.
 func _spell_mana_discount() -> int:
@@ -1517,6 +1373,7 @@ func _deal_void_bolt_damage(base_damage: int) -> void:
 ## Tries to spend a card's costs, respecting the Void Crystal relic.
 ## Returns true if the card can be played (and costs are deducted).
 func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
+	_stop_pip_blink()
 	if relic_first_card_free and "void_crystal" in GameManager.player_relics:
 		relic_first_card_free = false
 		_log("  Void Crystal: first card is free!", _LogType.PLAYER)
@@ -1626,6 +1483,12 @@ func _has_valid_minion_on_play_targets(card: MinionCardData) -> bool:
 				return true
 	return false
 
+## Apply VALID_TARGET highlight to every slot in slots where filter returns true.
+func _highlight_slots(slots: Array, filter: Callable) -> void:
+	for slot in slots:
+		if filter.call(slot):
+			slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+
 ## Highlight valid target slots for a targeted minion on-play effect (battle cry).
 ## Step 1 of the two-click flow: player clicks card → sees valid targets highlighted.
 ## Step 2: player clicks a valid target → pending_minion_target set → placement slots shown.
@@ -1634,13 +1497,9 @@ func _highlight_minion_on_play_targets(card: MinionCardData) -> void:
 	var hits_enemy    := card.on_play_target_type in ["enemy_minion", "corrupted_enemy_minion"]
 	var hits_friendly := card.on_play_target_type in ["friendly_minion"]
 	if hits_enemy:
-		for slot in enemy_slots:
-			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
-				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+		_highlight_slots(enemy_slots,  func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, card.on_play_target_type))
 	if hits_friendly:
-		for slot in player_slots:
-			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
-				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+		_highlight_slots(player_slots, func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, card.on_play_target_type))
 
 func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
@@ -1659,13 +1518,9 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion", "enemy_minion_or_hero"]
 	var hits_hero     := spell.target_type == "enemy_minion_or_hero"
 	if hits_friendly:
-		for slot in player_slots:
-			if not slot.is_empty() and _is_valid_spell_target(slot.minion, spell.target_type):
-				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+		_highlight_slots(player_slots, func(s): return not s.is_empty() and _is_valid_spell_target(s.minion, spell.target_type))
 	if hits_enemy:
-		for slot in enemy_slots:
-			if not slot.is_empty():
-				slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+		_highlight_slots(enemy_slots, func(s): return not s.is_empty())
 	if hits_hero and _enemy_status_panel:
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		_enemy_status_panel.gui_input.connect(_on_enemy_hero_spell_input)
@@ -1684,8 +1539,7 @@ func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool
 
 ## Spend mana, resolve the effect on the target, then remove the card
 func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void:
-	var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
-	if not _pay_card_cost(0, effective_cost):
+	if not _pay_card_cost(0, _effective_spell_cost(spell)):
 		if hand_display:
 			hand_display.deselect_current()
 		return
@@ -1716,8 +1570,7 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 	if not (pending_play_card is SpellCardData):
 		return
 	var spell := pending_play_card as SpellCardData
-	var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
-	if not _pay_card_cost(0, effective_cost):
+	if not _pay_card_cost(0, _effective_spell_cost(spell)):
 		if hand_display:
 			hand_display.deselect_current()
 		return
@@ -1749,17 +1602,6 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 		trigger_manager.fire(spell_ctx)
 	)
 
-## Apply a spell's effect. target is null for untargeted spells.
-## owner is "player" (default) or "enemy" — board/hero references are resolved relative to owner.
-func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: String = "player") -> void:
-	# Called only from _resolve_hardcoded() fallback for effects that cannot be declarative.
-	match effect_id:
-		"void_detonation_effect":
-			if owner == "player":
-				var bonus_per_mark := 50
-				var total_base := 500 + enemy_void_marks * bonus_per_mark
-				_log("  Void Detonation: %d Void Bolt dmg (500 + %d×%d marks)." % [total_base, bonus_per_mark, enemy_void_marks], _LogType.PLAYER)
-				_deal_void_bolt_damage(total_base)
 
 # ---------------------------------------------------------------------------
 # Cyclone / trap-or-env targeting
@@ -1797,8 +1639,7 @@ func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 	var spell := pending_play_card as SpellCardData
 	if spell == null:
 		return
-	var effective_cost := maxi(0, spell.cost - _spell_mana_discount())
-	if not _pay_card_cost(0, effective_cost):
+	if not _pay_card_cost(0, _effective_spell_cost(spell)):
 		if hand_display:
 			hand_display.deselect_current()
 		return
@@ -1831,37 +1672,40 @@ func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 # Trap helpers
 # ---------------------------------------------------------------------------
 
-## Check all active traps whose trigger matches the given TriggerEvent and fire them.
+## Fire all non-rune traps for owner ("player"/"enemy") whose trigger matches trigger.
 ## triggering_minion is the relevant minion (attacker, summoned minion, dead minion, etc.).
-func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = null) -> void:
-	for trap in active_traps.duplicate():
+func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInstance = null) -> void:
+	var traps: Array = active_traps if owner == "player" else (enemy_ai.active_traps if enemy_ai else [])
+	if owner == "enemy" and enemy_ai == null:
+		return
+	for trap in traps.duplicate():
 		if trap.is_rune:
-			continue  # Runes are persistent — never triggered by enemy events; handled by ritual system
+			continue  # Runes are persistent — handled by ritual/aura system
 		if trap.trigger != trigger:
 			continue
-		var slot_idx := active_traps.find(trap)
-		_flash_trap_slot(slot_idx)
-		_log("⚡ %s triggered!" % trap.card_name, _LogType.TRAP)
-		var captured_trap:   TrapCardData    = trap
+		var slot_idx := traps.find(trap)
+		_flash_trap_slot_for(owner, slot_idx)
+		_log("⚡ %s%s triggered!" % [("Enemy " if owner == "enemy" else ""), trap.card_name], _LogType.TRAP)
+		var captured_trap:   TrapCardData   = trap
 		var captured_minion: MinionInstance = triggering_minion
-		# Show card preview; resolve effect on impact
-		_show_card_cast_anim(captured_trap, false, func() -> void:
-			var ctx := EffectContext.make(self, "player")
+		_show_card_cast_anim(captured_trap, owner == "enemy", func() -> void:
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = captured_minion
 			EffectResolver.run(captured_trap.effect_steps, ctx)
 			if not captured_trap.reusable:
-				active_traps.erase(captured_trap)
-				_update_trap_display()
+				traps.erase(captured_trap)
+				_update_trap_display_for(owner)
 		)
 
-## Flash the trap slot gold to show which trap fired (card preview handles the rest).
-func _flash_trap_slot(slot_idx: int) -> void:
-	if slot_idx >= 0 and slot_idx < trap_slot_panels.size():
-		var panel := trap_slot_panels[slot_idx]
+## Flash a trap slot gold to indicate it fired.
+func _flash_trap_slot_for(owner: String, slot_idx: int) -> void:
+	var panels := trap_slot_panels if owner == "player" else enemy_trap_slot_panels
+	if slot_idx >= 0 and slot_idx < panels.size():
+		var panel := panels[slot_idx]
 		_apply_slot_style(panel, Color(0.35, 0.28, 0.0, 1), Color(1.0, 0.85, 0.1, 1))
 		var tw := create_tween()
 		tw.tween_interval(0.5)
-		tw.tween_callback(_update_trap_display)
+		tw.tween_callback(func(): _update_trap_display_for(owner))
 
 ## Called by EnemyAI's minion_summoned signal.
 func _on_enemy_minion_summoned(minion: MinionInstance) -> void:
@@ -1898,26 +1742,53 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 			_resolve_spell_effect(spell.effect_id, null, "enemy")
 	)
 
-func _update_trap_display() -> void:
-	for i in trap_slot_panels.size():
-		var panel := trap_slot_panels[i]
-		var lbl   := trap_slot_labels[i]
-		if i < active_traps.size():
-			var trap := active_traps[i]
+## Called by EnemyAI's trap_placed signal.
+func _on_enemy_trap_placed(trap: TrapCardData) -> void:
+	if trap.is_rune:
+		_log("Enemy places rune: %s" % trap.card_name, _LogType.ENEMY)
+	else:
+		_log("Enemy sets a trap.", _LogType.ENEMY)
+	_update_enemy_trap_display()
+
+## Called by EnemyAI's environment_placed signal.
+func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
+	_log("Enemy plays environment: %s" % env.card_name, _LogType.ENEMY)
+
+func _update_trap_display_for(owner: String) -> void:
+	var panels: Array = trap_slot_panels      if owner == "player" else enemy_trap_slot_panels
+	var labels: Array = trap_slot_labels      if owner == "player" else enemy_trap_slot_labels
+	var traps:  Array = active_traps          if owner == "player" else (enemy_ai.active_traps if enemy_ai else [])
+	var is_enemy := owner == "enemy"
+	for i in panels.size():
+		var panel := panels[i] as Panel
+		var lbl   := labels[i] as Label
+		if i < traps.size():
+			var trap := traps[i] as TrapCardData
 			lbl.visible = true
 			if trap.is_rune:
 				# Rune: face-up, persistent — purple/void colour scheme
 				_apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), Color(0.65, 0.25, 0.90, 1))
 				lbl.text = trap.card_name
 				panel.tooltip_text = "%s\n─\n%s" % [trap.card_name, trap.description]
+			elif is_enemy:
+				# Enemy traps are face-down — red scheme with hidden name
+				_apply_slot_style(panel, Color(0.14, 0.04, 0.04, 1), Color(0.80, 0.18, 0.18, 1))
+				lbl.text = "??"
+				panel.tooltip_text = "Enemy Trap"
 			else:
-				# Hidden trap: face-down — amber scheme
+				# Player trap: face-down — amber scheme
 				_apply_slot_style(panel, Color(0.12, 0.08, 0.05, 1), Color(0.85, 0.45, 0.10, 1))
 				lbl.text = trap.card_name
 				panel.tooltip_text = "%s\n─\n%s" % [trap.card_name, trap.description]
 		else:
 			_apply_empty_slot(panel, lbl)
 			panel.tooltip_text = ""
+
+func _update_trap_display() -> void:
+	_update_trap_display_for("player")
+
+func _update_enemy_trap_display() -> void:
+	_update_trap_display_for("enemy")
 
 # ---------------------------------------------------------------------------
 # Rune & Ritual system
@@ -2058,29 +1929,21 @@ func _fire_ritual(ritual: RitualData) -> void:
 		_log("  Ritual Surge: 2 Void Imps summoned!", _LogType.PLAYER)
 
 
-func _update_enemy_trap_display() -> void:
-	for i in enemy_trap_slot_panels.size():
-		var panel := enemy_trap_slot_panels[i]
-		var lbl   := enemy_trap_slot_labels[i]
-		_apply_empty_slot(panel, lbl)
+## Create a StyleBoxFlat with uniform border/corner settings.
+func _create_stylebox(bg: Color, border: Color, corner_radius: int = 4, border_width: int = 2) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color     = bg
+	style.border_color = border
+	style.set_border_width_all(border_width)
+	style.set_corner_radius_all(corner_radius)
+	return style
 
 func _apply_slot_style(panel: Panel, bg: Color, border: Color) -> void:
 	# Hide empty-slot image if the slot is now occupied/styled
 	var img := panel.get_node_or_null("_empty_slot_bg") as TextureRect
 	if img:
 		img.visible = false
-	var style := StyleBoxFlat.new()
-	style.bg_color            = bg
-	style.border_width_left   = 2
-	style.border_width_top    = 2
-	style.border_width_right  = 2
-	style.border_width_bottom = 2
-	style.border_color        = border
-	style.corner_radius_top_left     = 4
-	style.corner_radius_top_right    = 4
-	style.corner_radius_bottom_right = 4
-	style.corner_radius_bottom_left  = 4
-	panel.add_theme_stylebox_override("panel", style)
+	panel.add_theme_stylebox_override("panel", _create_stylebox(bg, border))
 
 const _ABYSS_EMPTY_SLOT_PATH := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
 const _ABYSS_HEROES_LIST     := ["lord_vael"]
@@ -2126,21 +1989,64 @@ func _show_hero_button(attackable: bool) -> void:
 	_enemy_hero_attackable = attackable
 	if not _enemy_status_panel:
 		return
-	var style := StyleBoxFlat.new()
-	style.set_corner_radius_all(6)
 	if attackable:
-		style.bg_color     = Color(0.18, 0.10, 0.10, 0.95)
-		style.border_color = Color(1.0, 0.80, 0.15, 1.0)
-		style.set_border_width_all(3)
+		_start_hero_attack_pulse()
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	else:
-		style.bg_color     = Color(0.08, 0.04, 0.13, 0.93)
-		style.border_color = Color(0.55, 0.20, 0.80, 1.0)
-		style.set_border_width_all(2)
+		_stop_hero_attack_pulse()
+		_enemy_status_panel.add_theme_stylebox_override("panel", _create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1.0), 6))
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_enemy_status_panel.add_theme_stylebox_override("panel", style)
 	if _enemy_hero_attack_hint:
 		_enemy_hero_attack_hint.visible = attackable
+
+## Apply green border style (static, no shadow) — used when hero is a valid attack target.
+func _apply_hero_attack_style() -> void:
+	if _enemy_status_panel == null:
+		return
+	var s := StyleBoxFlat.new()
+	s.set_corner_radius_all(6)
+	s.bg_color     = Color(0.04, 0.12, 0.05, 0.95)
+	s.border_color = Color(0.25, 0.92, 0.40, 1.0)
+	s.set_border_width_all(3)
+	s.shadow_color = Color(0.25, 0.92, 0.40, 0.45 + _hero_attack_pulse * 0.35)
+	s.shadow_size  = int(8.0 + _hero_attack_pulse * 10.0)
+	_enemy_status_panel.add_theme_stylebox_override("panel", s)
+
+## Show static green border and wire hover signals for glow-on-hover.
+func _start_hero_attack_pulse() -> void:
+	_hero_attack_pulse = 0.0
+	_apply_hero_attack_style()
+	if not _enemy_status_panel.mouse_entered.is_connected(_on_hero_attack_hover_enter):
+		_enemy_status_panel.mouse_entered.connect(_on_hero_attack_hover_enter)
+		_enemy_status_panel.mouse_exited.connect(_on_hero_attack_hover_exit)
+
+## Remove attack-target style and disconnect hover signals.
+func _stop_hero_attack_pulse() -> void:
+	if _hero_attack_tween:
+		_hero_attack_tween.kill()
+		_hero_attack_tween = null
+	_hero_attack_pulse = 0.0
+	if _enemy_status_panel and _enemy_status_panel.mouse_entered.is_connected(_on_hero_attack_hover_enter):
+		_enemy_status_panel.mouse_entered.disconnect(_on_hero_attack_hover_enter)
+		_enemy_status_panel.mouse_exited.disconnect(_on_hero_attack_hover_exit)
+
+func _on_hero_attack_hover_enter() -> void:
+	if _hero_attack_tween:
+		_hero_attack_tween.kill()
+	_hero_attack_tween = create_tween().set_loops()
+	_hero_attack_tween.tween_method(func(v: float) -> void:
+		_hero_attack_pulse = v
+		_apply_hero_attack_style(), 0.0, 1.0, 0.5)
+	_hero_attack_tween.tween_method(func(v: float) -> void:
+		_hero_attack_pulse = v
+		_apply_hero_attack_style(), 1.0, 0.0, 0.5)
+
+func _on_hero_attack_hover_exit() -> void:
+	if _hero_attack_tween:
+		_hero_attack_tween.kill()
+		_hero_attack_tween = null
+	_hero_attack_pulse = 0.0
+	_apply_hero_attack_style()
 
 func _on_enemy_hero_frame_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -2222,13 +2128,7 @@ func _setup_enemy_status_panel() -> void:
 	panel.offset_top     = 5.0
 	panel.offset_bottom  = 160.0
 	panel.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-
-	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.08, 0.04, 0.13, 0.93)
-	style.border_color = Color(0.55, 0.20, 0.80, 1)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
-	panel.add_theme_stylebox_override("panel", style)
+	panel.add_theme_stylebox_override("panel", _create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1), 6))
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2244,7 +2144,30 @@ func _setup_enemy_status_panel() -> void:
 	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(vbox)
 
-	# --- Portrait + name row ---
+	_build_enemy_portrait_row(vbox, ui_root)
+
+	var sep := HSeparator.new()
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(sep)
+
+	_build_enemy_stats_cols(vbox)
+
+	_enemy_hero_attack_hint = Label.new()
+	_enemy_hero_attack_hint.text = "▶  Click to Attack"
+	_enemy_hero_attack_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_enemy_hero_attack_hint.add_theme_font_size_override("font_size", 12)
+	_enemy_hero_attack_hint.add_theme_color_override("font_color", Color(1.0, 0.85, 0.20, 1.0))
+	_enemy_hero_attack_hint.visible = false
+	_enemy_hero_attack_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_enemy_hero_attack_hint)
+
+	_enemy_status_panel = panel
+	panel.gui_input.connect(_on_enemy_hero_frame_input)
+	ui_root.add_child(panel)
+	_update_enemy_status_panel()
+
+## Build the portrait + name label + passive icon row for the enemy status panel.
+func _build_enemy_portrait_row(vbox: VBoxContainer, ui_root: Node) -> void:
 	var portrait_row := HBoxContainer.new()
 	portrait_row.add_theme_constant_override("separation", 8)
 	portrait_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2279,28 +2202,22 @@ func _setup_enemy_status_panel() -> void:
 		name_lbl.text = prefix + GameManager.current_enemy.enemy_name
 	portrait_row.add_child(name_lbl)
 
-	# Passive hover icon — shows enemy passive list on hover
 	if not _active_enemy_passives.is_empty():
 		_add_enemy_passive_hover_icon(portrait_row, ui_root)
 
-	var sep := HSeparator.new()
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(sep)
-
-	# --- Two-column stats area ---
+## Build the two-column stats area (HP/Essence/Mana/Hand + Void Mark row).
+func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 8)
 	cols.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(cols)
 
-	# Left column: core stats
 	var left_col := VBoxContainer.new()
 	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left_col.add_theme_constant_override("separation", 3)
 	left_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cols.add_child(left_col)
 
-	# Right column: status effects
 	var right_col := VBoxContainer.new()
 	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right_col.add_theme_constant_override("separation", 3)
@@ -2331,7 +2248,6 @@ func _setup_enemy_status_panel() -> void:
 	_enemy_status_hand_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	left_col.add_child(_enemy_status_hand_label)
 
-	# Void Mark row — right column, hidden when count is 0
 	_enemy_status_marks_row = HBoxContainer.new()
 	_enemy_status_marks_row.add_theme_constant_override("separation", 4)
 	_enemy_status_marks_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2354,20 +2270,6 @@ func _setup_enemy_status_panel() -> void:
 	_enemy_status_marks_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.15, 1))
 	_enemy_status_marks_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_enemy_status_marks_row.add_child(_enemy_status_marks_label)
-
-	_enemy_hero_attack_hint = Label.new()
-	_enemy_hero_attack_hint.text = "▶  Click to Attack"
-	_enemy_hero_attack_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_enemy_hero_attack_hint.add_theme_font_size_override("font_size", 12)
-	_enemy_hero_attack_hint.add_theme_color_override("font_color", Color(1.0, 0.85, 0.20, 1.0))
-	_enemy_hero_attack_hint.visible = false
-	_enemy_hero_attack_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_enemy_hero_attack_hint)
-
-	_enemy_status_panel = panel
-	panel.gui_input.connect(_on_enemy_hero_frame_input)
-	ui_root.add_child(panel)
-	_update_enemy_status_panel()
 
 func _update_enemy_status_panel() -> void:
 	if not _enemy_status_panel:
@@ -2416,12 +2318,7 @@ func _setup_player_status_panel() -> void:
 	panel.offset_bottom = -10.0
 	panel.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 
-	var style := StyleBoxFlat.new()
-	style.bg_color     = Color(0.06, 0.06, 0.14, 0.93)
-	style.border_color = Color(0.35, 0.55, 0.90, 1.0)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(6)
-	panel.add_theme_stylebox_override("panel", style)
+	panel.add_theme_stylebox_override("panel", _create_stylebox(Color(0.06, 0.06, 0.14, 0.93), Color(0.35, 0.55, 0.90, 1.0), 6))
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2482,12 +2379,391 @@ func _setup_player_status_panel() -> void:
 
 	_player_status_panel = panel
 	ui_root.add_child(panel)
+	_setup_pip_bars(ui_root)
 	_update_player_status_panel()
 
 func _update_player_status_panel() -> void:
 	if not _player_status_hp_label:
 		return
 	_player_status_hp_label.text = "❤ HP: %d / %d" % [player_hp, GameManager.player_hp_max]
+
+## Build two vertical pip columns (essence left, mana right) above the player status panel.
+## Each column holds MAX_PIPS pip panels; colors are updated by _update_pip_bars().
+func _setup_pip_bars(ui_root: Node) -> void:
+	const MAX_PIPS      := 10
+	const PIP_W         := 20
+	const PIP_H         := 22
+	const PIP_GAP       := 4
+	const PIP_CORNER    := 3
+	const COL_GAP       := 12   # gap between the two columns
+	const COL_BORDER    := 3    # inner padding inside the outer border panel
+	const COL_W         := PIP_W + COL_BORDER * 2   # = 26px
+	const COL_H         := MAX_PIPS * PIP_H + (MAX_PIPS - 1) * PIP_GAP  # = 256px
+	# MARGIN_BOTTOM = player_panel_top(150) + label_h + gap leaves room below the pips
+	const MARGIN_BOTTOM := 196
+	const RIGHT_MARGIN  := 15
+	const LBL_W         := 44   # fits "10/10" at font 13 with some breathing room
+	const LBL_H         := 22
+	# Column centres from screen-right edge (used for label centering)
+	const MNA_CENTER    := RIGHT_MARGIN + COL_W / 2                     # = 28
+	const ESS_CENTER    := RIGHT_MARGIN + COL_W + COL_GAP + COL_W / 2  # = 67
+
+	# Reusable gradient textures: lighter at pip top, deeper at pip bottom
+	_ess_pip_tex = _make_pip_gradient_tex(Color(0.72, 0.42, 0.96, 1.0), Color(0.62, 0.06, 0.18, 1.0))
+	_mna_pip_tex = _make_pip_gradient_tex(Color(0.40, 0.78, 1.00, 1.0), Color(0.05, 0.18, 0.58, 1.0))
+	# Overflow (temp) textures — gold→orange for essence, bright-cyan→teal for mana
+	_ess_ovf_tex = _make_pip_gradient_tex(Color(1.00, 0.92, 0.38, 1.0), Color(0.95, 0.48, 0.05, 1.0))
+	_mna_ovf_tex = _make_pip_gradient_tex(Color(0.65, 1.00, 1.00, 1.0), Color(0.08, 0.75, 0.90, 1.0))
+
+	# --- Reposition existing scene labels to sit centred under their pip column ---
+	# [label, col_center_from_right, font_color]
+	for lbl_info in [
+		[essence_label, ESS_CENTER, Color(0.78, 0.45, 1.0, 1.0)],
+		[mana_label,    MNA_CENTER, Color(0.35, 0.70, 1.0, 1.0)],
+	]:
+		var lbl := lbl_info[0] as Label
+		if lbl == null:
+			continue
+		var cx: float = float(lbl_info[1] as int)
+		lbl.anchor_left              = 1.0
+		lbl.anchor_right             = 1.0
+		lbl.anchor_top               = 1.0
+		lbl.anchor_bottom            = 1.0
+		lbl.grow_horizontal          = Control.GROW_DIRECTION_BEGIN
+		lbl.grow_vertical            = Control.GROW_DIRECTION_BEGIN
+		lbl.offset_right             = -(cx - LBL_W / 2.0)
+		lbl.offset_left              = -(cx + LBL_W / 2.0)
+		lbl.offset_top               = -float(MARGIN_BOTTOM)
+		lbl.offset_bottom            = -(MARGIN_BOTTOM - LBL_H)
+		lbl.horizontal_alignment     = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.add_theme_font_size_override("font_size", 16)
+		lbl.add_theme_color_override("font_color", lbl_info[2] as Color)
+
+	# --- Build two pip columns ---
+	for col_idx in 2:
+		var is_essence := col_idx == 0
+		# col 0 (essence) sits to the LEFT of col 1 (mana)
+		var col_right := RIGHT_MARGIN + (1 - col_idx) * (COL_W + COL_GAP)
+
+		# Outer Panel — provides the visible border and receives the glow animation
+		var col_panel := Panel.new()
+		col_panel.mouse_filter    = Control.MOUSE_FILTER_IGNORE
+		col_panel.anchor_left     = 1.0
+		col_panel.anchor_right    = 1.0
+		col_panel.anchor_top      = 1.0
+		col_panel.anchor_bottom   = 1.0
+		col_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		col_panel.grow_vertical   = Control.GROW_DIRECTION_BEGIN
+		col_panel.offset_right    = -float(col_right)
+		col_panel.offset_left     = col_panel.offset_right - COL_W
+		col_panel.offset_bottom   = -float(MARGIN_BOTTOM)
+		col_panel.offset_top      = col_panel.offset_bottom - COL_H
+		col_panel.custom_minimum_size = Vector2(COL_W, COL_H)
+		ui_root.add_child(col_panel)
+		_apply_col_border_style(col_panel, 0.0, true, is_essence)
+
+		if is_essence:
+			_ess_col_panel = col_panel
+		else:
+			_mna_col_panel = col_panel
+
+		# Inner margin to inset pips from the border
+		var margin := MarginContainer.new()
+		margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		margin.add_theme_constant_override("margin_left",   COL_BORDER)
+		margin.add_theme_constant_override("margin_right",  COL_BORDER)
+		margin.add_theme_constant_override("margin_top",    COL_BORDER)
+		margin.add_theme_constant_override("margin_bottom", COL_BORDER)
+		margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col_panel.add_child(margin)
+
+		var vbox := VBoxContainer.new()
+		vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+		vbox.add_theme_constant_override("separation", PIP_GAP)
+		vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		margin.add_child(vbox)
+
+		# Spacer at top pushes visible pips to the bottom as max increases
+		var spacer := Control.new()
+		spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		spacer.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+		vbox.add_child(spacer)
+
+		# Pips: index 0 = value 10 (top), index 9 = value 1 (bottom)
+		for _pip_idx in MAX_PIPS:
+			var pip := Panel.new()
+			pip.custom_minimum_size   = Vector2(PIP_W, PIP_H)
+			pip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			pip.mouse_filter          = Control.MOUSE_FILTER_IGNORE
+			pip.clip_contents         = true
+			pip.visible               = false
+			pip.add_theme_stylebox_override("panel",
+				_create_stylebox(Color(0.10, 0.08, 0.16, 0.85),
+					Color(0.28, 0.24, 0.38, 0.65), PIP_CORNER, 1))
+			vbox.add_child(pip)
+
+			var tr := TextureRect.new()
+			tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			tr.offset_left   =  1.0
+			tr.offset_top    =  1.0
+			tr.offset_right  = -1.0
+			tr.offset_bottom = -1.0
+			tr.stretch_mode  = TextureRect.STRETCH_SCALE
+			tr.expand_mode   = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+			tr.texture       = _ess_pip_tex if is_essence else _mna_pip_tex
+			tr.visible       = false
+			tr.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			pip.add_child(tr)
+
+			if is_essence:
+				_pip_essence_panels.append(pip)
+				_pip_essence_rects.append(tr)
+			else:
+				_pip_mana_panels.append(pip)
+				_pip_mana_rects.append(tr)
+
+	if turn_manager:
+		_update_pip_bars(turn_manager.essence, turn_manager.essence_max,
+				turn_manager.mana, turn_manager.mana_max)
+
+## Create a small vertical-gradient texture used for filled pip interiors.
+## color_top = colour at the top edge of the pip; color_bot = colour at the bottom edge.
+func _make_pip_gradient_tex(color_top: Color, color_bot: Color) -> GradientTexture2D:
+	var grad := Gradient.new()
+	grad.set_color(0, color_top)
+	grad.set_color(1, color_bot)
+	var tex := GradientTexture2D.new()
+	tex.gradient  = grad
+	tex.fill      = GradientTexture2D.FILL_LINEAR
+	tex.fill_from = Vector2(0.5, 0.0)
+	tex.fill_to   = Vector2(0.5, 1.0)
+	tex.width     = 4
+	tex.height    = 22
+	return tex
+
+func _update_pip_bars(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
+	const MAX_PIPS     := 10
+	const EMPTY_BG       := Color(0.10, 0.08, 0.16, 0.85)
+	const EMPTY_BORDER   := Color(0.28, 0.24, 0.38, 0.65)
+	const ESS_BORDER     := Color(0.62, 0.32, 0.88, 0.90)
+	const MNA_BORDER     := Color(0.22, 0.58, 0.98, 0.90)
+	# Overflow (temp) pips use distinct warm/cool accent borders per resource
+	const ESS_OVF_BORDER := Color(0.98, 0.80, 0.12, 0.95)   # amber-gold  — essence overflow
+	const MNA_OVF_BORDER := Color(0.20, 0.95, 0.88, 0.95)   # cyan-teal   — mana overflow
+
+	if _pip_essence_panels.size() == MAX_PIPS:
+		for i in MAX_PIPS:
+			# i=0 → value=10 (top), i=9 → value=1 (bottom); bar fills from bottom up.
+			var pip_value  := MAX_PIPS - i
+			var pip        := _pip_essence_panels[i] as Panel
+			var tr         := _pip_essence_rects[i]  as TextureRect
+			var visible    := pip_value <= maxi(essence, essence_max)
+			var filled     := pip_value <= essence
+			var overflow   := filled and pip_value > essence_max
+			pip.visible    = visible
+			pip.modulate   = Color.WHITE
+			tr.modulate    = Color.WHITE
+			tr.visible     = filled
+			if visible:
+				if overflow:
+					tr.texture = _ess_ovf_tex
+					pip.add_theme_stylebox_override("panel",
+						_create_stylebox(Color(0, 0, 0, 0), ESS_OVF_BORDER, 3, 1))
+				else:
+					tr.texture = _ess_pip_tex
+					pip.add_theme_stylebox_override("panel",
+						_create_stylebox(
+							Color(0, 0, 0, 0) if filled else EMPTY_BG,
+							ESS_BORDER if filled else EMPTY_BORDER, 3, 1))
+
+	if _pip_mana_panels.size() == MAX_PIPS:
+		for i in MAX_PIPS:
+			var pip_value  := MAX_PIPS - i
+			var pip        := _pip_mana_panels[i] as Panel
+			var tr         := _pip_mana_rects[i]  as TextureRect
+			var visible    := pip_value <= maxi(mana, mana_max)
+			var filled     := pip_value <= mana
+			var overflow   := filled and pip_value > mana_max
+			pip.visible    = visible
+			pip.modulate   = Color.WHITE
+			tr.modulate    = Color.WHITE
+			tr.visible     = filled
+			if visible:
+				if overflow:
+					tr.texture = _mna_ovf_tex
+					pip.add_theme_stylebox_override("panel",
+						_create_stylebox(Color(0, 0, 0, 0), MNA_OVF_BORDER, 3, 1))
+				else:
+					tr.texture = _mna_pip_tex
+					pip.add_theme_stylebox_override("panel",
+						_create_stylebox(
+							Color(0, 0, 0, 0) if filled else EMPTY_BG,
+							MNA_BORDER if filled else EMPTY_BORDER, 3, 1))
+
+## Start a slow blink showing spend (fade filled pips) and/or gain (glow empty pips).
+## ess_cost/mana_cost = pips being spent; ess_gain/mna_gain = pips being gained (0 = skip).
+func _start_pip_blink(ess_cost: int, mana_cost: int, ess_gain: int = 0, mna_gain: int = 0) -> void:
+	_pip_ess_blink = ess_cost
+	_pip_mna_blink = mana_cost
+	_pip_ess_gain  = ess_gain
+	_pip_mna_gain  = mna_gain
+	if _pip_blink_tween:
+		_pip_blink_tween.kill()
+	_pip_blink_phase = 0.0
+	_pip_blink_tween = create_tween().set_loops()
+	_pip_blink_tween.tween_method(func(v: float) -> void:
+			_pip_blink_phase = v
+			_refresh_blink_pips(), 0.0, 1.0, 0.55)
+	_pip_blink_tween.tween_method(func(v: float) -> void:
+			_pip_blink_phase = v
+			_refresh_blink_pips(), 1.0, 0.0, 0.55)
+
+## Stop blinking and restore normal pip styles.
+func _stop_pip_blink() -> void:
+	if _pip_blink_tween:
+		_pip_blink_tween.kill()
+		_pip_blink_tween = null
+	_pip_ess_blink  = 0
+	_pip_mna_blink  = 0
+	_pip_ess_gain   = 0
+	_pip_mna_gain   = 0
+	_pip_blink_phase = 0.0
+	if turn_manager:
+		_update_pip_bars(turn_manager.essence, turn_manager.essence_max,
+				turn_manager.mana, turn_manager.mana_max)
+
+## Repaint only the blinking pips based on the current _pip_blink_phase (0→1).
+## Called every tween tick — fades spent pips, glows gain pips.
+func _refresh_blink_pips() -> void:
+	if not turn_manager:
+		return
+	const MAX_PIPS   := 10
+	const ESS_BORDER := Color(0.62, 0.32, 0.88, 0.90)
+	const MNA_BORDER := Color(0.22, 0.58, 0.98, 0.90)
+	_blink_pip_range(_pip_essence_panels, _pip_essence_rects,
+			turn_manager.essence, _pip_ess_blink, MAX_PIPS)
+	_blink_pip_range(_pip_mana_panels, _pip_mana_rects,
+			turn_manager.mana,    _pip_mna_blink, MAX_PIPS)
+	_blink_pip_gain_range(_pip_essence_panels,
+			turn_manager.essence, _pip_ess_gain, ESS_BORDER, MAX_PIPS)
+	_blink_pip_gain_range(_pip_mana_panels,
+			turn_manager.mana,    _pip_mna_gain, MNA_BORDER, MAX_PIPS)
+
+func _blink_pip_range(panels: Array[Panel], rects: Array[TextureRect],
+		current: int, cost: int, max_pips: int) -> void:
+	if cost <= 0 or panels.size() != max_pips or current <= 0:
+		return
+	# The topmost filled pips are the ones that will be spent: indices [first, last].
+	var first := max_pips - current
+	var last  := first + cost - 1
+	for i in range(clampi(first, 0, max_pips - 1), clampi(last, 0, max_pips - 1) + 1):
+		var pip := panels[i] as Panel
+		var tr  := rects[i]  as TextureRect
+		if not pip.visible:
+			continue
+		# Fade only the gradient fill; the pip border stays visible as an empty-pip outline.
+		tr.modulate.a = 1.0 - _pip_blink_phase
+
+## Glow empty pips that will be filled by a gain effect (e.g. CONVERT_RESOURCE).
+## Pips just above the current fill level pulse with the resource colour.
+func _blink_pip_gain_range(panels: Array[Panel], current: int,
+		gain: int, border_color: Color, max_pips: int) -> void:
+	if gain <= 0 or panels.size() != max_pips:
+		return
+	# The empty pips that will be filled sit just above current fill.
+	var first := max_pips - current - gain
+	var last  := max_pips - current - 1
+	for i in range(clampi(first, 0, max_pips - 1), clampi(last, 0, max_pips - 1) + 1):
+		var pip := panels[i] as Panel
+		# Force-show overflow pips that are hidden because they exceed the current max.
+		# _update_pip_bars will restore correct visibility when the blink stops.
+		pip.visible = true
+		# Pulse the empty pip with resource colour to signal incoming gain.
+		var s := StyleBoxFlat.new()
+		s.bg_color     = Color(border_color.r, border_color.g, border_color.b,
+				_pip_blink_phase * 0.30)
+		s.border_color = border_color
+		s.set_border_width_all(1)
+		s.set_corner_radius_all(3)
+		s.shadow_color = Color(border_color.r, border_color.g, border_color.b,
+				_pip_blink_phase * 0.75)
+		s.shadow_size  = int(_pip_blink_phase * 8.0)
+		pip.add_theme_stylebox_override("panel", s)
+
+## Apply the border/background style to a pip column's outer Panel.
+## `pulse` 0→1 drives the shadow size and border brightness.
+## `is_gain` selects green (gain) vs red-orange (spend) glow color.
+func _apply_col_border_style(panel: Panel, pulse: float, is_gain: bool, is_essence: bool) -> void:
+	var normal_bg     := Color(0.06, 0.05, 0.12, 0.88)
+	var normal_border := Color(0.38, 0.28, 0.58, 0.75) if is_essence \
+			else Color(0.22, 0.38, 0.72, 0.75)
+	var s := StyleBoxFlat.new()
+	s.bg_color = normal_bg
+	s.set_border_width_all(1)
+	s.set_corner_radius_all(4)
+	if pulse > 0.0:
+		var glow := Color(0.22, 0.92, 0.35, 1.0) if is_gain \
+				else Color(0.98, 0.32, 0.10, 1.0)
+		s.border_color = normal_border.lerp(glow, pulse * 0.85)
+		s.shadow_color = Color(glow.r, glow.g, glow.b, pulse * 0.75)
+		s.shadow_size  = int(pulse * 14.0)
+	else:
+		s.border_color = normal_border
+		s.shadow_size  = 0
+	panel.add_theme_stylebox_override("panel", s)
+
+## Animate the pip column border with a gain (green) or spend (red-orange) glow.
+## Pulse rises 0→1 in 0.15 s then decays 1→0 in 0.50 s.
+func _pulse_pip_col(is_essence: bool, is_gain: bool) -> void:
+	var panel := _ess_col_panel if is_essence else _mna_col_panel
+	if panel == null:
+		return
+	if is_essence:
+		if _ess_col_tween:
+			_ess_col_tween.kill()
+	else:
+		if _mna_col_tween:
+			_mna_col_tween.kill()
+	var apply_fn := func(v: float) -> void:
+		_apply_col_border_style(panel, v, is_gain, is_essence)
+	var tween := create_tween()
+	if is_essence:
+		_ess_col_tween = tween
+	else:
+		_mna_col_tween = tween
+	tween.tween_method(apply_fn, 0.0, 1.0, 0.15)
+	tween.tween_method(apply_fn, 1.0, 0.0, 0.50)
+
+## Build a floating tooltip panel scaffold (PanelContainer → MarginContainer → VBoxContainer).
+## Anchors at bottom-left of the viewport. Returns {tip, tip_vbox}.
+func _build_hover_tooltip_scaffold(ui_root: Node, min_width: float, bg_color: Color, border_color: Color) -> Dictionary:
+	var tip := PanelContainer.new()
+	tip.visible             = false
+	tip.z_index             = 50
+	tip.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+	tip.custom_minimum_size = Vector2(min_width, 0)
+	tip.add_theme_stylebox_override("panel", _create_stylebox(bg_color, border_color, 6))
+	ui_root.add_child(tip)
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.add_theme_constant_override("margin_left",   16)
+	margin.add_theme_constant_override("margin_right",  16)
+	margin.add_theme_constant_override("margin_top",    12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip.add_child(margin)
+	var tip_vbox := VBoxContainer.new()
+	tip_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tip_vbox.add_theme_constant_override("separation", 8)
+	tip_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(tip_vbox)
+	tip.position = Vector2(16.0, 0.0)
+	tip.resized.connect(func() -> void:
+		var vp_h := get_viewport().get_visible_rect().size.y
+		tip.position.y = vp_h - tip.size.y - 16.0
+	)
+	return {tip = tip, tip_vbox = tip_vbox}
 
 func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> void:
 	var icon_btn := Label.new()
@@ -2499,38 +2775,13 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 	icon_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(icon_btn)
 
-	# Build tooltip panel — added to UI CanvasLayer for screen-space positioning.
 	var ui_root := get_node_or_null("UI")
 	if ui_root == null:
 		return
-	# PanelContainer auto-sizes to its children; custom_minimum_size sets the floor.
-	var tip := PanelContainer.new()
-	tip.visible             = false
-	tip.z_index             = 50
-	tip.mouse_filter        = Control.MOUSE_FILTER_IGNORE
-	tip.custom_minimum_size = Vector2(400, 450)
-	var tip_style := StyleBoxFlat.new()
-	tip_style.bg_color     = Color(0.05, 0.02, 0.10, 0.97)
-	tip_style.border_color = Color(0.55, 0.30, 0.85, 0.90)
-	tip_style.set_border_width_all(2)
-	tip_style.set_corner_radius_all(6)
-	tip.add_theme_stylebox_override("panel", tip_style)
-	ui_root.add_child(tip)
-
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	margin.add_theme_constant_override("margin_left",   16)
-	margin.add_theme_constant_override("margin_right",  16)
-	margin.add_theme_constant_override("margin_top",    12)
-	margin.add_theme_constant_override("margin_bottom", 12)
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip.add_child(margin)
-
-	var tip_vbox := VBoxContainer.new()
-	tip_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tip_vbox.add_theme_constant_override("separation", 8)
-	tip_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(tip_vbox)
+	var scaffold := _build_hover_tooltip_scaffold(ui_root, 400, Color(0.05, 0.02, 0.10, 0.97), Color(0.55, 0.30, 0.85, 0.90))
+	var tip: PanelContainer = scaffold.tip
+	tip.custom_minimum_size = Vector2(400, 450)  # talent list needs more height
+	var tip_vbox: VBoxContainer = scaffold.tip_vbox
 
 	# --- Passives section ---
 	var hero_data := HeroDatabase.get_hero(GameManager.current_hero)
@@ -2603,12 +2854,6 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 			t_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 			row.add_child(t_desc)
 
-	tip.position = Vector2(16.0, 0.0)
-	tip.resized.connect(func() -> void:
-		var vp_h := get_viewport().get_visible_rect().size.y
-		tip.position.y = vp_h - tip.size.y - 16.0
-	)
-
 	icon_btn.mouse_entered.connect(func() -> void:
 		icon_btn.add_theme_color_override("font_color", Color(0.90, 0.70, 1.0, 1.0))
 		tip.visible = true
@@ -2647,33 +2892,9 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 	icon_btn.mouse_filter = Control.MOUSE_FILTER_STOP
 	parent.add_child(icon_btn)
 
-	var tip := PanelContainer.new()
-	tip.visible             = false
-	tip.z_index             = 50
-	tip.mouse_filter        = Control.MOUSE_FILTER_IGNORE
-	tip.custom_minimum_size = Vector2(300, 0)
-	var tip_style := StyleBoxFlat.new()
-	tip_style.bg_color     = Color(0.06, 0.02, 0.10, 0.97)
-	tip_style.border_color = Color(0.75, 0.35, 0.20, 0.90)
-	tip_style.set_border_width_all(2)
-	tip_style.set_corner_radius_all(6)
-	tip.add_theme_stylebox_override("panel", tip_style)
-	ui_root.add_child(tip)
-
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	margin.add_theme_constant_override("margin_left",   16)
-	margin.add_theme_constant_override("margin_right",  16)
-	margin.add_theme_constant_override("margin_top",    12)
-	margin.add_theme_constant_override("margin_bottom", 12)
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip.add_child(margin)
-
-	var tip_vbox := VBoxContainer.new()
-	tip_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tip_vbox.add_theme_constant_override("separation", 8)
-	tip_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(tip_vbox)
+	var scaffold := _build_hover_tooltip_scaffold(ui_root, 300, Color(0.06, 0.02, 0.10, 0.97), Color(0.75, 0.35, 0.20, 0.90))
+	var tip: PanelContainer = scaffold.tip
+	var tip_vbox: VBoxContainer = scaffold.tip_vbox
 
 	var hdr := Label.new()
 	hdr.text = "ENEMY PASSIVES"
@@ -2709,12 +2930,6 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 			desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			desc_lbl.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 			row.add_child(desc_lbl)
-
-	tip.position = Vector2(16.0, 0.0)
-	tip.resized.connect(func() -> void:
-		var vp_h := get_viewport().get_visible_rect().size.y
-		tip.position.y = vp_h - tip.size.y - 16.0
-	)
 
 	icon_btn.mouse_entered.connect(func() -> void:
 		icon_btn.add_theme_color_override("font_color", Color(1.0, 0.70, 0.40, 1.0))
@@ -3097,9 +3312,7 @@ func _log_color(type: _LogType) -> Color:
 
 func _highlight_empty_player_slots() -> void:
 	_clear_all_highlights()
-	for slot in player_slots:
-		if slot.is_empty():
-			slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+	_highlight_slots(player_slots, func(s): return s.is_empty())
 
 func _highlight_valid_attack_targets() -> void:
 	_clear_all_highlights()
@@ -3132,73 +3345,65 @@ func _highlight_valid_attack_targets() -> void:
 func _setup_triggers() -> void:
 	_handlers = CombatHandlers.new()
 	_handlers.setup(self)
+	_register_turn_start_triggers()
+	_register_play_triggers()
+	_register_summon_triggers()
+	_register_death_triggers()
+	_register_enemy_passive_triggers()
+	_register_trap_triggers()
+	_register_rune_triggers()
 
-	# -----------------------------------------------------------------------
-	# ON_PLAYER_TURN_START  (priority: 0=relics, 10=environment, 20+=talents/cards)
-	# -----------------------------------------------------------------------
+## ON_PLAYER_TURN_START / ON_ENEMY_TURN_START / ON_PLAYER_CARD_DRAWN
+## Priority guide: 0=relics, 5=enemy passives, 10=environment, 21+=minion passives, 30=traps
+func _register_turn_start_triggers() -> void:
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_player_turn_relics,           0)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_player_turn_environment,     10)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_minion_turn_start_passives,  21)
-
-	# -----------------------------------------------------------------------
-	# ON_PLAYER_SPELL_CAST  (priority: 0=board passives)
-	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, _handlers.on_void_archmagus_spell, 0)
-
-	# -----------------------------------------------------------------------
-	# ON_ENEMY_TURN_START  (priority: 10=environment, 30=traps)
-	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, _handlers.on_enemy_turn_environment, 10)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, _trap_check_enemy_turn_start,        30)
-
-	# -----------------------------------------------------------------------
-	# ON_PLAYER_CARD_DRAWN  (priority: 0=hero passives)
-	# -----------------------------------------------------------------------
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,  _handlers.on_enemy_turn_environment,      10)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,  _trap_check_enemy_turn_start,             30)
 	if _has_talent("void_echo"):
 		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, _handlers.on_card_drawn_void_echo, 0)
 
-	# -----------------------------------------------------------------------
-	# ON_PLAYER_MINION_PLAYED  (priority: hand-play-only talent effects)
-	# -----------------------------------------------------------------------
+## ON_PLAYER_MINION_PLAYED / ON_PLAYER_SPELL_CAST
+## Priority guide: 0=board passives, 10=on-play effects
+func _register_play_triggers() -> void:
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,    _handlers.on_void_archmagus_spell,         0)
 	if _has_talent("rune_caller"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_played_rune_caller,          0)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_played_rune_caller,       0)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_player_minion_played_effect, 10)
 
-	# -----------------------------------------------------------------------
-	# ON_PLAYER_MINION_SUMMONED  (priority: 0=hero passives, 10=relics, 20+=talents, 30=board synergies)
-	# -----------------------------------------------------------------------
+## ON_PLAYER_MINION_SUMMONED / ON_ENEMY_MINION_SUMMONED
+## Priority guide: 0=hero passives, 5-7=on-play effects, 10=relics, 20-25=talents, 30=board synergies/traps
+func _register_summon_triggers() -> void:
 	if HeroDatabase.has_passive(GameManager.current_hero, "void_imp_boost"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_passive_void_imp_boost, 0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_relic,                 10)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_passive_void_imp_boost,  0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_relic,                  10)
 	if _has_talent("swarm_discipline"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_swarm_discipline,     20)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_swarm_discipline,       20)
 	if _has_talent("abyssal_legion"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_abyssal_legion,       21)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_abyssal_legion,         21)
 	if _has_talent("piercing_void"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_piercing_void,        23)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_piercing_void,          23)
 	if _has_talent("imp_evolution"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_evolution,        24)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_evolution,          24)
 	if _has_talent("imp_warband"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_warband,          25)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_board_synergies,      30)
+		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_warband,            25)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_board_synergies,        30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,      _handlers.on_enemy_minion_played_effect,     5)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,      _handlers.on_enemy_summon_rogue_imp_elder,   7)
 
-	# -----------------------------------------------------------------------
-	# ON_PLAYER_MINION_DIED  (priority: 0=board passives, 5=deathrattle, 10=talents, 20=traps)
-	# -----------------------------------------------------------------------
+## ON_PLAYER_MINION_DIED / ON_ENEMY_MINION_DIED
+## Priority guide: 0=board passives, 3-6=enemy passives, 5=deathrattle, 10=talents, 20=traps
+func _register_death_triggers() -> void:
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_player_minion_died_board_passives, 0)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_minion_died_death_effect,          5)
 	if _has_talent("death_bolt"):
 		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_player_minion_died_death_bolt, 10)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _trap_check_friendly_death,                     20)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,  _handlers.on_minion_died_death_effect,           5)
 
-	# -----------------------------------------------------------------------
-	# ON_ENEMY_MINION_DIED  (priority: 5=deathrattle)
-	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED, _handlers.on_minion_died_death_effect, 5)
-
-	# -----------------------------------------------------------------------
-	# Enemy encounter passives — registered conditionally from EnemyData.passives
-	# -----------------------------------------------------------------------
+## Enemy encounter passives — loaded from EnemyData and registered conditionally.
+func _register_enemy_passive_triggers() -> void:
 	if GameManager.current_enemy != null:
 		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
 	if "feral_instinct" in _active_enemy_passives:
@@ -3213,28 +3418,19 @@ func _setup_triggers() -> void:
 	if "ancient_frenzy" in _active_enemy_passives:
 		enemy_ai.spell_cost_discounts["pack_frenzy"] = 1
 
-	# -----------------------------------------------------------------------
-	# ON_ENEMY_MINION_SUMMONED — on-play (priority 5) and on-summon (priority 6), before traps (30)
-	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_enemy_minion_played_effect, 5)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_enemy_summon_rogue_imp_elder, 7)
+## Trap routing — player traps fire on enemy actions (priority 30), enemy traps fire on player actions (priority 35).
+func _register_trap_triggers() -> void:
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _trap_check_enemy_summon,             30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,      _trap_check_enemy_spell,              30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_ATTACK,          _trap_check_enemy_attack,             30)
+	trigger_manager.register(Enums.TriggerEvent.ON_HERO_DAMAGED,          _trap_check_damage_taken,             10)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _enemy_trap_check_player_summon,     35)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,      _enemy_trap_check_player_spell,      35)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,      _enemy_trap_check_player_turn_start, 35)
 
-	# -----------------------------------------------------------------------
-	# Trap routing for enemy actions  (priority 30 — after any future pre-trap passives)
-	# -----------------------------------------------------------------------
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _trap_check_enemy_summon, 30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,      _trap_check_enemy_spell,  30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_ATTACK,          _trap_check_enemy_attack, 30)
-	trigger_manager.register(Enums.TriggerEvent.ON_HERO_DAMAGED,          _trap_check_damage_taken, 10)
-
-	# -----------------------------------------------------------------------
-	# ON_RUNE_PLACED — board passive: Rune Warden (priority 5)
-	# -----------------------------------------------------------------------
+## ON_RUNE_PLACED / ON_RITUAL_ENVIRONMENT_PLAYED — Rune Warden passive and grand rituals from talents.
+func _register_rune_triggers() -> void:
 	trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, _handlers.on_player_minion_died_rune_warden, 5)
-
-	# -----------------------------------------------------------------------
-	# ON_RUNE_PLACED — grand rituals from active talents (priority 0, before env rituals at 5)
-	# -----------------------------------------------------------------------
 	for talent_id in GameManager.unlocked_talents:
 		var talent: TalentData = TalentDatabase.get_talent(talent_id)
 		if talent != null and talent.grand_ritual != null:
@@ -3245,35 +3441,34 @@ func _setup_triggers() -> void:
 				func(_ctx: EventContext): _handlers.on_grand_ritual(gr), 0)
 
 # ---------------------------------------------------------------------------
-# ON_ENEMY_TURN_START trap stub
+# Trap routing stubs — bridge TriggerManager events to _fire_traps_for()
 # ---------------------------------------------------------------------------
 
 func _trap_check_enemy_turn_start(ctx: EventContext) -> void:
-	_check_and_fire_traps(ctx.event_type)
-
-# ---------------------------------------------------------------------------
-# ON_PLAYER_MINION_DIED trap stub
-# ---------------------------------------------------------------------------
+	_fire_traps_for("player", ctx.event_type)
 
 func _trap_check_friendly_death(ctx: EventContext) -> void:
 	# Traps that react to friendly death only fire during the enemy's turn
 	if not turn_manager.is_player_turn:
-		_check_and_fire_traps(ctx.event_type, ctx.minion)
-
-# ---------------------------------------------------------------------------
-# ON_ENEMY_MINION_SUMMONED / ON_ENEMY_SPELL_CAST / ON_ENEMY_ATTACK / ON_HERO_DAMAGED
-# Trap routing handlers — delegate to _check_and_fire_traps() which runs
-# each matching trap's effect_steps via EffectResolver.
-# ---------------------------------------------------------------------------
+		_fire_traps_for("player", ctx.event_type, ctx.minion)
 
 func _trap_check_enemy_summon(ctx: EventContext) -> void:
-	_check_and_fire_traps(ctx.event_type, ctx.minion)
+	_fire_traps_for("player", ctx.event_type, ctx.minion)
 
 func _trap_check_enemy_spell(ctx: EventContext) -> void:
-	_check_and_fire_traps(ctx.event_type)
+	_fire_traps_for("player", ctx.event_type)
 
 func _trap_check_enemy_attack(ctx: EventContext) -> void:
-	_check_and_fire_traps(ctx.event_type, ctx.minion)
+	_fire_traps_for("player", ctx.event_type, ctx.minion)
 
 func _trap_check_damage_taken(ctx: EventContext) -> void:
-	_check_and_fire_traps(ctx.event_type)
+	_fire_traps_for("player", ctx.event_type)
+
+func _enemy_trap_check_player_summon(ctx: EventContext) -> void:
+	_fire_traps_for("enemy", ctx.event_type, ctx.minion)
+
+func _enemy_trap_check_player_spell(_ctx: EventContext) -> void:
+	_fire_traps_for("enemy", Enums.TriggerEvent.ON_PLAYER_SPELL_CAST)
+
+func _enemy_trap_check_player_turn_start(_ctx: EventContext) -> void:
+	_fire_traps_for("enemy", Enums.TriggerEvent.ON_PLAYER_TURN_START)

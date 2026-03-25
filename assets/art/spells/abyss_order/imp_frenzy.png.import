@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bklpjakqiivv1"
-path="res://.godot/imported/soul_rune.png-4079f15ab2f939fff8241bf60da1ecac.ctex"
+uid="uid://csvqwxv32dpnj"
+path="res://.godot/imported/imp_frenzy.png-95afe34b37538294e63671729b9e2d61.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/minions/abyss_order/soul_rune.png"
-dest_files=["res://.godot/imported/soul_rune.png-4079f15ab2f939fff8241bf60da1ecac.ctex"]
+source_file="res://assets/art/spells/abyss_order/imp_frenzy.png"
+dest_files=["res://.godot/imported/imp_frenzy.png-95afe34b37538294e63671729b9e2d61.ctex"]
 
 [params]
 

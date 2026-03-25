@@ -76,6 +76,14 @@ func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = nul
 func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
 	return false
 
+## Place a trap or rune (resources already deducted).
+func commit_play_trap(trap: TrapCardData) -> bool:
+	return false
+
+## Play an environment card (resources already deducted).
+func commit_play_environment(env: EnvironmentCardData) -> bool:
+	return false
+
 ## Execute a friendly minion vs opponent minion attack.
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	return false

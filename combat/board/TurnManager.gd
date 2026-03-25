@@ -117,9 +117,11 @@ func grow_essence_max() -> void:
 	if essence_max + mana_max < COMBINED_RESOURCE_CAP:
 		essence_max += 1
 
-## Grow Mana maximum by 1 (called by CombatScene when player clicks End Turn + Mana)
-func grow_mana_max() -> void:
-	if essence_max + mana_max < COMBINED_RESOURCE_CAP:
+## Grow Mana maximum by amount (called by CombatScene on end-turn and by card effects).
+func grow_mana_max(amount: int = 1) -> void:
+	for _i in amount:
+		if essence_max + mana_max >= COMBINED_RESOURCE_CAP:
+			break
 		mana_max += 1
 
 ## True if the player can afford a card with these dual costs

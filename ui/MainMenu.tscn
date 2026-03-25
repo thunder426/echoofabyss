@@ -2,18 +2,30 @@
 
 [ext_resource type="Script" uid="uid://b4v5hustwljg6" path="res://ui/MainMenu.gd" id="1"]
 [ext_resource type="FontFile" uid="uid://xfi8owdsd8km" path="res://assets/fonts/cinzel/CinzelDecorative-Bold.ttf" id="2"]
+[ext_resource type="Texture2D" uid="uid://fgchxtstlhta" path="res://assets/art/buttons/button_normal.png" id="3"]
+[ext_resource type="Texture2D" uid="uid://c6of20n6po7c8" path="res://assets/art/buttons/button_hover.png" id="4"]
+[ext_resource type="Texture2D" uid="uid://c2iiff8aiv4ou" path="res://assets/art/buttons/button_pressed.png" id="5"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn"]
-bg_color = Color(0.1, 0.06, 0.18, 0.85)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.5, 0.25, 0.8, 1)
-corner_radius_top_left = 4
-corner_radius_top_right = 4
-corner_radius_bottom_right = 4
-corner_radius_bottom_left = 4
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_normal"]
+texture = ExtResource("3")
+texture_margin_left = 16.0
+texture_margin_top = 16.0
+texture_margin_right = 16.0
+texture_margin_bottom = 16.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_hover"]
+texture = ExtResource("4")
+texture_margin_left = 16.0
+texture_margin_top = 16.0
+texture_margin_right = 16.0
+texture_margin_bottom = 16.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_pressed"]
+texture = ExtResource("5")
+texture_margin_left = 16.0
+texture_margin_top = 16.0
+texture_margin_right = 16.0
+texture_margin_bottom = 16.0
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_focus"]
 bg_color = Color(0, 0, 0, 0)
@@ -67,87 +79,87 @@ horizontal_alignment = 1
 offset_left = 760.0
 offset_top = 380.0
 offset_right = 1160.0
-offset_bottom = 500.0
+offset_bottom = 460.0
 theme_override_colors/font_color = Color(0.94, 0.91, 0.82, 1)
 theme_override_colors/font_pressed_color = Color(0.63, 0.25, 1, 1)
 theme_override_colors/font_hover_color = Color(0.78, 0.5, 1, 1)
 theme_override_colors/font_disabled_color = Color(0.45, 0.4, 0.5, 1)
 theme_override_fonts/font = ExtResource("2")
 theme_override_font_sizes/font_size = 28
-theme_override_styles/normal = SubResource("StyleBoxFlat_btn")
-theme_override_styles/pressed = SubResource("StyleBoxFlat_btn")
-theme_override_styles/hover = SubResource("StyleBoxFlat_btn")
-theme_override_styles/disabled = SubResource("StyleBoxFlat_btn")
+theme_override_styles/normal = SubResource("StyleBoxTexture_normal")
+theme_override_styles/pressed = SubResource("StyleBoxTexture_pressed")
+theme_override_styles/hover = SubResource("StyleBoxTexture_hover")
+theme_override_styles/disabled = SubResource("StyleBoxTexture_normal")
 theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
 text = "NEW RUN"
 
 [node name="ContinueButton" type="Button" parent="UI" unique_id=2084574883]
 offset_left = 760.0
-offset_top = 500.0
+offset_top = 476.0
 offset_right = 1160.0
-offset_bottom = 620.0
+offset_bottom = 556.0
 theme_override_colors/font_color = Color(0.94, 0.91, 0.82, 1)
 theme_override_colors/font_pressed_color = Color(0.63, 0.25, 1, 1)
 theme_override_colors/font_hover_color = Color(0.78, 0.5, 1, 1)
 theme_override_colors/font_disabled_color = Color(0.45, 0.4, 0.5, 1)
 theme_override_fonts/font = ExtResource("2")
 theme_override_font_sizes/font_size = 28
-theme_override_styles/normal = SubResource("StyleBoxFlat_btn")
-theme_override_styles/pressed = SubResource("StyleBoxFlat_btn")
-theme_override_styles/hover = SubResource("StyleBoxFlat_btn")
-theme_override_styles/disabled = SubResource("StyleBoxFlat_btn")
+theme_override_styles/normal = SubResource("StyleBoxTexture_normal")
+theme_override_styles/pressed = SubResource("StyleBoxTexture_pressed")
+theme_override_styles/hover = SubResource("StyleBoxTexture_hover")
+theme_override_styles/disabled = SubResource("StyleBoxTexture_normal")
 theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
 text = "CONTINUE RUN"
 
 [node name="CollectionButton" type="Button" parent="UI" unique_id=1541680574]
 offset_left = 760.0
-offset_top = 620.0
+offset_top = 572.0
 offset_right = 1160.0
-offset_bottom = 740.0
+offset_bottom = 652.0
 theme_override_colors/font_color = Color(0.94, 0.91, 0.82, 1)
 theme_override_colors/font_pressed_color = Color(0.63, 0.25, 1, 1)
 theme_override_colors/font_hover_color = Color(0.78, 0.5, 1, 1)
 theme_override_colors/font_disabled_color = Color(0.45, 0.4, 0.5, 1)
 theme_override_fonts/font = ExtResource("2")
 theme_override_font_sizes/font_size = 28
-theme_override_styles/normal = SubResource("StyleBoxFlat_btn")
-theme_override_styles/pressed = SubResource("StyleBoxFlat_btn")
-theme_override_styles/hover = SubResource("StyleBoxFlat_btn")
-theme_override_styles/disabled = SubResource("StyleBoxFlat_btn")
+theme_override_styles/normal = SubResource("StyleBoxTexture_normal")
+theme_override_styles/pressed = SubResource("StyleBoxTexture_pressed")
+theme_override_styles/hover = SubResource("StyleBoxTexture_hover")
+theme_override_styles/disabled = SubResource("StyleBoxTexture_normal")
 theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
 text = "COLLECTION"
 
 [node name="QuitButton" type="Button" parent="UI" unique_id=635861311]
 offset_left = 760.0
-offset_top = 740.0
+offset_top = 668.0
 offset_right = 1160.0
-offset_bottom = 860.0
+offset_bottom = 748.0
 theme_override_colors/font_color = Color(0.94, 0.91, 0.82, 1)
 theme_override_colors/font_pressed_color = Color(0.63, 0.25, 1, 1)
 theme_override_colors/font_hover_color = Color(0.78, 0.5, 1, 1)
 theme_override_colors/font_disabled_color = Color(0.45, 0.4, 0.5, 1)
 theme_override_fonts/font = ExtResource("2")
 theme_override_font_sizes/font_size = 28
-theme_override_styles/normal = SubResource("StyleBoxFlat_btn")
-theme_override_styles/pressed = SubResource("StyleBoxFlat_btn")
-theme_override_styles/hover = SubResource("StyleBoxFlat_btn")
-theme_override_styles/disabled = SubResource("StyleBoxFlat_btn")
+theme_override_styles/normal = SubResource("StyleBoxTexture_normal")
+theme_override_styles/pressed = SubResource("StyleBoxTexture_pressed")
+theme_override_styles/hover = SubResource("StyleBoxTexture_hover")
+theme_override_styles/disabled = SubResource("StyleBoxTexture_normal")
 theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
 text = "QUIT"
 
 [node name="ResetButton" type="Button" parent="UI" unique_id=1713241106]
 offset_left = 760.0
-offset_top = 860.0
+offset_top = 764.0
 offset_right = 1160.0
-offset_bottom = 980.0
+offset_bottom = 844.0
 theme_override_colors/font_color = Color(0.55, 0.3, 0.3, 1)
 theme_override_colors/font_pressed_color = Color(0.95, 0.25, 0.25, 1)
 theme_override_colors/font_hover_color = Color(0.85, 0.4, 0.4, 1)
 theme_override_fonts/font = ExtResource("2")
 theme_override_font_sizes/font_size = 22
-theme_override_styles/normal = SubResource("StyleBoxFlat_btn")
-theme_override_styles/pressed = SubResource("StyleBoxFlat_btn")
-theme_override_styles/hover = SubResource("StyleBoxFlat_btn")
-theme_override_styles/disabled = SubResource("StyleBoxFlat_btn")
+theme_override_styles/normal = SubResource("StyleBoxTexture_normal")
+theme_override_styles/pressed = SubResource("StyleBoxTexture_pressed")
+theme_override_styles/hover = SubResource("StyleBoxTexture_hover")
+theme_override_styles/disabled = SubResource("StyleBoxTexture_normal")
 theme_override_styles/focus = SubResource("StyleBoxFlat_focus")
 text = "RESET ALL PROGRESS"

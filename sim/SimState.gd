@@ -66,9 +66,18 @@ var enemy_discard: Array[CardData] = []
 # Traps / environment / void marks
 # ---------------------------------------------------------------------------
 
-var active_traps:       Array       = []   ## Array[TrapCardData]
-var active_environment              = null ## EnvironmentCardData or null
+var active_traps:       Array       = []   ## Array[TrapCardData] — player side
+var active_environment              = null ## EnvironmentCardData or null — player side
+var enemy_active_traps: Array       = []   ## Array[TrapCardData] — enemy side
+var enemy_active_environment        = null ## EnvironmentCardData or null — enemy side
 var enemy_void_marks:   int         = 0
+
+## Aura handlers registered for each active rune — Array[{rune_id, entries}]
+## where entries is Array[{event, handler}].
+var _rune_aura_handlers: Array = []
+
+## Ritual handlers registered for the current environment.
+var _env_ritual_handlers: Array = []
 
 # ---------------------------------------------------------------------------
 # Spell cost modifier (enemy side, mirrors EnemyAI)
@@ -116,6 +125,7 @@ var trigger_manager: TriggerManager = null
 
 var turn_manager: SimTurnManager  ## set up in setup()
 var enemy_ai: SimEnemyAgent       ## set by CombatSim after creating the agent
+var _hardcoded: HardcodedEffects  ## set up in setup()
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -160,6 +170,10 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	# Turn manager proxy (for EffectResolver DRAW / GRANT_MANA etc.)
 	turn_manager = SimTurnManager.new()
 	turn_manager.setup(self)
+
+	# Hardcoded effect resolver
+	_hardcoded = HardcodedEffects.new()
+	_hardcoded.setup(self)
 
 	# Draw opening hands
 	_draw_player(3)
@@ -264,11 +278,46 @@ func _log(_msg: Variant, _type: int = 0) -> void:
 func _refresh_slot_for(_target) -> void:
 	pass  # no UI
 
-func _remove_rune_aura(_trap) -> void:
-	pass  # no aura state in sim
+func _opponent_of(owner: String) -> String:
+	return "enemy" if owner == "player" else "player"
+
+func _find_random_enemy_minion() -> MinionInstance:
+	return _find_random_minion(enemy_board)
+
+func _find_random_minion(board: Array) -> MinionInstance:
+	if board.is_empty():
+		return null
+	return board[randi() % board.size()]
+
+func _refresh_dominion_aura(_active: bool, _amount: int = 100) -> void:
+	pass  # no aura UI in sim
+
+func _find_last_non_echo_rune() -> TrapCardData:
+	for i in range(active_traps.size() - 1, -1, -1):
+		var t := active_traps[i] as TrapCardData
+		if t.is_rune and t.id != "echo_rune":
+			return t
+	return null
+
+func _resolve_void_devourer_sacrifice(_devourer: MinionInstance, _owner: String) -> void:
+	pass  # complex effect — not simulated
+
+func _remove_rune_aura(rune: TrapCardData) -> void:
+	for i in _rune_aura_handlers.size():
+		if _rune_aura_handlers[i].rune_id == rune.id:
+			for entry in _rune_aura_handlers[i].entries:
+				trigger_manager.unregister(entry.event, entry.handler)
+			_rune_aura_handlers.remove_at(i)
+			break
+	if not rune.aura_on_remove_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(rune.aura_on_remove_steps, ctx)
 
 func _unregister_env_rituals() -> void:
-	pass  # no ritual state in sim
+	for h in _env_ritual_handlers:
+		trigger_manager.unregister(Enums.TriggerEvent.ON_RUNE_PLACED, h)
+		trigger_manager.unregister(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h)
+	_env_ritual_handlers.clear()
 
 func _update_trap_display() -> void:
 	pass  # no UI
@@ -277,7 +326,7 @@ func _update_environment_display() -> void:
 	pass  # no UI
 
 func _rune_aura_multiplier() -> int:
-	return 0  # no rune auras in headless sim
+	return 2 if "runic_attunement" in talents else 1
 
 func _minion_has_tag(minion: MinionInstance, tag: String) -> bool:
 	if minion.card_data is MinionCardData:
@@ -287,8 +336,107 @@ func _minion_has_tag(minion: MinionInstance, tag: String) -> bool:
 func _has_talent(talent_id: String) -> bool:
 	return talent_id in talents
 
-func _resolve_hardcoded(_hardcoded_id: String, _ctx: EffectContext) -> void:
-	pass  # hardcoded effects not simulated
+func _resolve_hardcoded(hardcoded_id: String, ctx: EffectContext) -> void:
+	_hardcoded.resolve(hardcoded_id, ctx)
+
+# ---------------------------------------------------------------------------
+# Rune / trap / ritual / environment infrastructure
+# ---------------------------------------------------------------------------
+
+## Register persistent aura handlers for a newly placed rune.
+func _apply_rune_aura(rune: TrapCardData) -> void:
+	var entries: Array = []
+	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
+		var h := func(event_ctx: EventContext):
+			var ctx := EffectContext.make(self, "player")
+			ctx.trigger_minion = event_ctx.minion
+			EffectResolver.run(rune.aura_effect_steps, ctx)
+		trigger_manager.register(rune.aura_trigger, h, 20)
+		entries.append({event = rune.aura_trigger, handler = h})
+	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
+		var h2 := func(event_ctx: EventContext):
+			var ctx := EffectContext.make(self, "player")
+			ctx.trigger_minion = event_ctx.minion
+			EffectResolver.run(rune.aura_secondary_steps, ctx)
+		trigger_manager.register(rune.aura_secondary_trigger, h2, 20)
+		entries.append({event = rune.aura_secondary_trigger, handler = h2})
+	if not rune.aura_on_place_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(rune.aura_on_place_steps, ctx)
+	if not entries.is_empty():
+		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
+
+## Register 2-rune ritual handlers for the given environment.
+func _register_env_rituals(env: EnvironmentCardData) -> void:
+	for ritual in env.rituals:
+		var r: RitualData = ritual
+		var h := func(_ctx: EventContext): _handlers_ref.on_env_ritual(r)
+		_env_ritual_handlers.append(h)
+		trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, h, 5)
+		trigger_manager.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h, 5)
+
+## Run teardown steps for the outgoing environment.
+func _unregister_env_aura(env: EnvironmentCardData) -> void:
+	if not env.on_replace_effect_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		EffectResolver.run(env.on_replace_effect_steps, ctx)
+
+## Fire matching non-rune traps for the given trigger event.
+func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = null) -> void:
+	for trap in active_traps.duplicate():
+		if trap.is_rune:
+			continue
+		if trap.trigger != trigger:
+			continue
+		var ctx := EffectContext.make(self, "player")
+		ctx.trigger_minion = triggering_minion
+		EffectResolver.run(trap.effect_steps, ctx)
+		if not trap.reusable:
+			active_traps.erase(trap)
+
+## Returns true if the rune board satisfies the ritual's required rune types.
+func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
+	var available: Array[int] = []
+	for r in runes:
+		available.append((r as TrapCardData).rune_type)
+	for req in required:
+		if req not in available:
+			return false
+	return true
+
+## Consume the required runes and cast the ritual effect.
+func _fire_ritual(ritual: RitualData) -> void:
+	for req in ritual.required_runes:
+		for i in active_traps.size():
+			if active_traps[i].is_rune and active_traps[i].rune_type == req:
+				_remove_rune_aura(active_traps[i])
+				active_traps.remove_at(i)
+				break
+	var ritual_ctx := EffectContext.make(self, "player")
+	EffectResolver.run(ritual.effect_steps, ritual_ctx)
+	if "ritual_surge" in talents:
+		_summon_void_imp()
+		_summon_void_imp()
+
+## Draw a random Rune card from the player's deck into hand.
+func _draw_rune_from_deck() -> void:
+	var runes_in_deck: Array = []
+	for c in player_deck:
+		if c is TrapCardData and (c as TrapCardData).is_rune:
+			runes_in_deck.append(c)
+	if runes_in_deck.is_empty():
+		return
+	var chosen: CardData = runes_in_deck[randi() % runes_in_deck.size()]
+	player_deck.erase(chosen)
+	if player_hand.size() < PLAYER_HAND_MAX:
+		player_hand.append(chosen)
+
+## Summon a Void Imp token on the player board (used by ritual_surge talent).
+func _summon_void_imp() -> void:
+	_summon_token("void_imp", "player", 0, 0, 0)
+
+## Reference to the CombatHandlers instance — set by SimTriggerSetup for env rituals.
+var _handlers_ref: CombatHandlers = null
 
 # ---------------------------------------------------------------------------
 # Card draw helpers

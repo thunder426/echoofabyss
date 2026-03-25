@@ -22,6 +22,7 @@ enum EffectType {
 	SACRIFICE,         # Kill target (not damage — bypasses shield)
 	GRANT_MANA,        # Give owner amount Mana this turn
 	GRANT_ESSENCE,     # Give owner amount Essence this turn
+	GROW_MANA_MAX,     # Permanently raise owner's mana_max by 1 (capped by COMBINED_RESOURCE_CAP)
 	VOID_MARK,         # Apply amount Void Marks to enemy hero
 	GRANT_KEYWORD,     # Grant keyword (keyword field) to target(s)
 	DESTROY,           # Destroy a trap, rune, or environment (non-minion targets)

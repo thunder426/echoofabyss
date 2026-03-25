@@ -39,6 +39,12 @@ signal enemy_about_to_attack(attacker: MinionInstance, target: MinionInstance)
 ## Emitted just before an enemy minion attacks the player hero.
 signal enemy_attacking_hero(attacker: MinionInstance)
 
+## Emitted when the AI places a trap or rune (lets CombatScene update display + route triggers).
+signal trap_placed(trap: TrapCardData)
+
+## Emitted when the AI plays an environment card.
+signal environment_placed(env: EnvironmentCardData)
+
 # ---------------------------------------------------------------------------
 # References — set by CombatScene before run_turn()
 # ---------------------------------------------------------------------------
@@ -90,6 +96,12 @@ var spell_chosen_target = null
 ## Set by commit_minion_play before emitting; read by CombatScene to populate EffectContext.
 var minion_play_chosen_target = null
 
+## Active traps and runes placed by the enemy (mirrors the player's active_traps in CombatScene).
+var active_traps: Array[TrapCardData] = []
+
+## Active environment card played by the enemy (mirrors the player's active_environment).
+var active_environment: EnvironmentCardData = null
+
 # ---------------------------------------------------------------------------
 # Deck — real shuffled deck drawn without replacement; reshuffles when empty
 # ---------------------------------------------------------------------------
@@ -122,6 +134,8 @@ func setup_deck(card_ids: Array[String]) -> void:
 	_deck.clear()
 	_discard.clear()
 	hand.clear()
+	active_traps.clear()
+	active_environment = null
 	var ids := card_ids if not card_ids.is_empty() else FALLBACK_DECK
 	for id in ids:
 		var card := CardDatabase.get_card(id)
@@ -281,6 +295,28 @@ func commit_spell_cast(spell: SpellCardData, chosen_target = null) -> bool:
 	_discard.append(spell)
 	spell_chosen_target = chosen_target
 	enemy_spell_cast.emit(spell)
+	if not is_inside_tree(): return false
+	await get_tree().create_timer(ACTION_DELAY).timeout
+	return is_inside_tree()
+
+## Place a trap or rune (resources already deducted).
+## Returns false if the scene tree is gone.
+func commit_play_trap(trap: TrapCardData) -> bool:
+	hand.erase(trap)
+	_discard.append(trap)
+	active_traps.append(trap)
+	trap_placed.emit(trap)
+	if not is_inside_tree(): return false
+	await get_tree().create_timer(ACTION_DELAY).timeout
+	return is_inside_tree()
+
+## Play an environment card (resources already deducted).
+## Returns false if the scene tree is gone.
+func commit_play_environment(env: EnvironmentCardData) -> bool:
+	hand.erase(env)
+	_discard.append(env)
+	active_environment = env
+	environment_placed.emit(env)
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
 	return is_inside_tree()

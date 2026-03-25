@@ -41,6 +41,10 @@ var granted_on_death_effects: Array[Dictionary] = []
 # ---------------------------------------------------------------------------
 var state: Enums.MinionState = Enums.MinionState.EXHAUSTED
 
+## Number of attacks completed this turn.
+## Used to gate Swift grants (only if 0) and will support Dual Attack (allows up to 2).
+var attack_count: int = 0
+
 # Which board slot index this minion occupies (0–4)
 var slot_index: int = -1
 
@@ -118,6 +122,7 @@ func has_shield() -> bool:
 ## Expires temporary buffs, un-exhausts the minion, and regenerates shield.
 func on_turn_start() -> void:
 	BuffSystem.expire_temp(self)
+	attack_count = 0
 	if state == Enums.MinionState.EXHAUSTED or state == Enums.MinionState.SWIFT:
 		state = Enums.MinionState.NORMAL
 	var regen := _shield_regen_amount()

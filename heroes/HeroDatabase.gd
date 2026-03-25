@@ -67,7 +67,7 @@ func _register_lord_vael() -> void:
 
 	h.passives = [
 		_make_passive("void_imp_boost",
-			"● Void Imps enter the board with +100/+100 (200/200 base stats)."),
+			"● Void Imp Clan minions have +100 ATK and +100 HP"),
 		_make_passive("void_imp_extra_copy",
 			"● You may include up to 4 copies of Void Imp in your deck."),
 	]

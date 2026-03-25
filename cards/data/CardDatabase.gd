@@ -815,6 +815,7 @@ func _register_wanderer_cards() -> void:
 	mark_the_target.cost        = 2
 	mark_the_target.description = "Apply 2 VOID MARKS to the enemy hero. Draw a card."
 
+	mark_the_target.art_path     = "res://assets/art/spells/abyss_order/mark_the_target.png"
 	mark_the_target.faction      = "abyss_order"
 	mark_the_target.effect_steps = [
 		{"type": "VOID_MARK", "amount": 2},
@@ -822,12 +823,26 @@ func _register_wanderer_cards() -> void:
 	]
 	all.append(mark_the_target)
 
+	var font_of_the_depths := SpellCardData.new()
+	font_of_the_depths.id          = "font_of_the_depths"
+	font_of_the_depths.card_name   = "Font of the Depths"
+	font_of_the_depths.cost        = 1
+	font_of_the_depths.description = "Permanently gain +1 maximum Mana. Draw a card."
+	font_of_the_depths.art_path    = "res://assets/art/spells/abyss_order/font_of_the_depths.png"
+	font_of_the_depths.faction     = "abyss_order"
+	font_of_the_depths.effect_steps = [
+		{"type": "GROW_MANA_MAX", "amount": 1},
+		{"type": "DRAW", "amount": 1},
+	]
+	all.append(font_of_the_depths)
+
 	var void_detonation := SpellCardData.new()
 	void_detonation.id          = "void_detonation"
 	void_detonation.card_name   = "Void Detonation"
 	void_detonation.cost        = 4
 	void_detonation.description = "Deal 500 Void Bolt damage to the enemy hero. Gain +50 damage per VOID MARK."
 	void_detonation.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_detonation_effect"}]
+	void_detonation.art_path    = "res://assets/art/spells/abyss_order/void_detonation.png"
 	void_detonation.faction     = "abyss_order"
 	all.append(void_detonation)
 
@@ -1063,6 +1078,7 @@ func _register_wanderer_cards() -> void:
 	abyss_ritual_circle.passive_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "abyss_ritual_circle_passive"}]
 	abyss_ritual_circle.fires_on_enemy_turn = true
 	abyss_ritual_circle.rituals             = [void_blood_ritual]
+	abyss_ritual_circle.art_path            = "res://assets/art/environments/abyss_order/abyss_ritual_circle.png"
 	abyss_ritual_circle.faction             = "abyss_order"
 	all.append(abyss_ritual_circle)
 
@@ -1078,6 +1094,7 @@ func _register_wanderer_cards() -> void:
 	imp_frenzy.requires_target = true
 	imp_frenzy.target_type     = "friendly_void_imp"
 	imp_frenzy.effect_steps    = [{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "VOID_IMP", "amount": 300, "permanent": false}]
+	imp_frenzy.art_path        = "res://assets/art/spells/abyss_order/imp_frenzy.png"
 	imp_frenzy.faction         = "abyss_order"
 	all.append(imp_frenzy)
 
@@ -1094,6 +1111,8 @@ func _register_wanderer_cards() -> void:
 		{"type": "BUFF_HP",  "scope": "ALL_FRIENDLY", "filter": "VOID_IMP", "amount": 100},
 	]
 	imp_martyr.minion_tags         = ["void_imp"]
+	imp_martyr.art_path            = "res://assets/art/minions/abyss_order/imp_martyr.png"
+	imp_martyr.battlefield_art_path = "res://assets/art/minions/abyss_order/imp_martyr_small.png"
 	imp_martyr.faction             = "abyss_order"
 	imp_martyr.clan                = "Void Imp"
 	all.append(imp_martyr)
@@ -1111,6 +1130,8 @@ func _register_wanderer_cards() -> void:
 		{"type": "SUMMON", "card_id": "void_imp"},
 	]
 	imp_vessel.minion_tags         = ["void_imp"]
+	imp_vessel.art_path            = "res://assets/art/minions/abyss_order/imp_vessel.png"
+	imp_vessel.battlefield_art_path = "res://assets/art/minions/abyss_order/imp_vessel_small.png"
 	imp_vessel.faction             = "abyss_order"
 	imp_vessel.clan                = "Void Imp"
 	all.append(imp_vessel)
@@ -1127,6 +1148,8 @@ func _register_wanderer_cards() -> void:
 		{"type": "GRANT_KEYWORD", "scope": "ALL_FRIENDLY", "filter": "VOID_IMP", "keyword": "DEATHLESS"},
 	]
 	imp_idol.minion_tags           = ["void_imp"]
+	imp_idol.art_path              = "res://assets/art/minions/abyss_order/imp_idol.png"
+	imp_idol.battlefield_art_path  = "res://assets/art/minions/abyss_order/imp_idol_small.png"
 	imp_idol.faction               = "abyss_order"
 	imp_idol.clan                  = "Void Imp"
 	all.append(imp_idol)
@@ -1162,6 +1185,7 @@ func _register_wanderer_cards() -> void:
 	runic_blast.cost        = 2
 	runic_blast.description = "Deal 200 damage to 2 random enemy minions. If you have 2+ Runes, deal 200 to ALL enemy minions instead."
 	runic_blast.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "runic_blast"}]
+	runic_blast.art_path    = "res://assets/art/spells/abyss_order/runic_blast.png"
 	runic_blast.faction     = "abyss_order"
 	all.append(runic_blast)
 
@@ -1169,8 +1193,9 @@ func _register_wanderer_cards() -> void:
 	runic_echo.id          = "runic_echo"
 	runic_echo.card_name   = "Runic Echo"
 	runic_echo.cost        = 2
-	runic_echo.description = "Copy the effect of the last Rune you placed and fire it once."
+	runic_echo.description = "Add a copy of each Rune on the battlefield to your hand."
 	runic_echo.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "runic_echo"}]
+	runic_echo.art_path    = "res://assets/art/spells/abyss_order/runic_echo.png"
 	runic_echo.faction     = "abyss_order"
 	all.append(runic_echo)
 
@@ -1183,6 +1208,8 @@ func _register_wanderer_cards() -> void:
 	rune_warden.health                   = 400
 	rune_warden.minion_type              = Enums.MinionType.HUMAN
 	rune_warden.passive_effect_id        = "rune_warden"
+	rune_warden.art_path                 = "res://assets/art/minions/abyss_order/rune_warden.png"
+	rune_warden.battlefield_art_path     = "res://assets/art/minions/abyss_order/rune_warden_small.png"
 	rune_warden.faction                  = "abyss_order"
 	all.append(rune_warden)
 
@@ -1195,6 +1222,8 @@ func _register_wanderer_cards() -> void:
 	rune_seeker.health                  = 400
 	rune_seeker.minion_type             = Enums.MinionType.HUMAN
 	rune_seeker.on_play_effect_steps    = [{"type": "HARDCODED", "hardcoded_id": "rune_seeker_play"}]
+	rune_seeker.art_path                = "res://assets/art/minions/abyss_order/rune_seeker.png"
+	rune_seeker.battlefield_art_path    = "res://assets/art/minions/abyss_order/rune_seeker_small.png"
 	rune_seeker.faction                 = "abyss_order"
 	all.append(rune_seeker)
 
@@ -1206,6 +1235,7 @@ func _register_wanderer_cards() -> void:
 	echo_rune.is_rune            = true
 	echo_rune.aura_trigger       = Enums.TriggerEvent.ON_PLAYER_TURN_START
 	echo_rune.aura_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "echo_rune_fire"}]
+	echo_rune.art_path           = "res://assets/art/traps/abyss_order/echo_rune.png"
 	echo_rune.faction            = "abyss_order"
 	all.append(echo_rune)
 
@@ -1415,6 +1445,7 @@ func _register_wanderer_cards() -> void:
 		"hidden_ambush": "neutral_core",     "smoke_veil": "neutral_core",
 		"silence_trap": "neutral_core",      "death_trap": "neutral_core",
 		# Lord Vael — Piercing Void unlock pool
+		"font_of_the_depths": "vael_piercing_void",
 		"mark_the_target": "vael_piercing_void",
 		"void_detonation": "vael_piercing_void",
 		"abyssal_arcanist": "vael_piercing_void",
@@ -1443,6 +1474,7 @@ func _register_wanderer_cards() -> void:
 	# --- Act gate assignments (earliest act card appears in rewards/shop) ---
 	var _card_act_gates := {
 		# Piercing Void pool
+		"font_of_the_depths": 1,
 		"mark_the_target": 2,
 		"void_detonation": 2,
 		"abyssal_arcanist": 1,
@@ -1458,7 +1490,7 @@ func _register_wanderer_cards() -> void:
 		"vaels_colossal_guard": 4,
 		# Rune Master pool
 		"runic_blast": 1,                 "rune_seeker": 1,
-		"rune_warden": 2,                 "runic_echo": 2,
+		"rune_warden": 2,                 "runic_echo": 3,
 		"echo_rune": 4,
 	}
 	# Append all token cards (pool = "", rarity = "")

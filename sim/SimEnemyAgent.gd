@@ -40,6 +40,15 @@ var mana_max: int:
 var essence_max: int:
 	get: return sim.enemy_essence_max
 
+## Duck-type active_traps so HardcodedEffects._destroy_random_enemy_trap() can read/erase.
+var active_traps: Array:
+	get: return sim.enemy_active_traps
+
+## Duck-type active_environment for parity with EnemyAI.
+var active_environment:
+	get: return sim.enemy_active_environment
+	set(v): sim.enemy_active_environment = v
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -79,6 +88,18 @@ func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
 	sim.enemy_hand.erase(spell)
 	sim.enemy_discard.append(spell)
 	_resolve_spell(spell, chosen_target)
+	return sim.winner.is_empty()
+
+func commit_play_trap(trap: TrapCardData) -> bool:
+	sim.enemy_hand.erase(trap)
+	sim.enemy_discard.append(trap)
+	sim.enemy_active_traps.append(trap)
+	return sim.winner.is_empty()
+
+func commit_play_environment(env: EnvironmentCardData) -> bool:
+	sim.enemy_hand.erase(env)
+	sim.enemy_discard.append(env)
+	sim.enemy_active_environment = env
 	return sim.winner.is_empty()
 
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:

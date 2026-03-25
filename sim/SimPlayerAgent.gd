@@ -66,6 +66,45 @@ func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
 	_resolve_spell(spell, chosen_target)
 	return sim.winner.is_empty()
 
+func commit_play_trap(trap: TrapCardData) -> bool:
+	sim.player_hand.erase(trap)
+	sim.player_discard.append(trap)
+	sim.active_traps.append(trap)
+	# Fire ON_PLAYER_TRAP_PLACED
+	if sim.trigger_manager != null:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_TRAP_PLACED, "player")
+		ctx.card = trap
+		sim.trigger_manager.fire(ctx)
+	# Runes: register aura handlers and fire ON_RUNE_PLACED for ritual checks
+	if trap.is_rune and sim.trigger_manager != null:
+		sim._apply_rune_aura(trap)
+		var rune_ctx := EventContext.make(Enums.TriggerEvent.ON_RUNE_PLACED, "player")
+		rune_ctx.card = trap
+		sim.trigger_manager.fire(rune_ctx)
+	return sim.winner.is_empty()
+
+func commit_play_environment(env: EnvironmentCardData) -> bool:
+	sim.player_hand.erase(env)
+	sim.player_discard.append(env)
+	# Tear down previous environment before replacing
+	if sim.active_environment != null and sim.trigger_manager != null:
+		sim._unregister_env_rituals()
+		sim._unregister_env_aura(sim.active_environment)
+	sim.active_environment = env
+	if sim.trigger_manager != null:
+		sim._register_env_rituals(env)
+		# Fire ON_RITUAL_ENVIRONMENT_PLAYED for ritual checks
+		if not env.rituals.is_empty():
+			var env_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, "player")
+			env_ctx.card = env
+			sim.trigger_manager.fire(env_ctx)
+	# Run on-enter and immediate passive effects
+	if not env.on_enter_effect_steps.is_empty():
+		EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(sim, "player"))
+	if not env.passive_effect_steps.is_empty():
+		EffectResolver.run(env.passive_effect_steps, EffectContext.make(sim, "player"))
+	return sim.winner.is_empty()
+
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	if not sim.player_board.has(attacker):
 		return false

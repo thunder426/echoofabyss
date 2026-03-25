@@ -49,12 +49,26 @@ func play_phase() -> void:
 ## Execute all ready minion attacks.  Called after play_phase.
 ## Default: guard (prefer safe trades) → lethal-threat trade → face / best kill.
 func attack_phase() -> void:
-	var lethal_threat := _opponent_threatens_lethal()
+	var lethal_threat  := _opponent_threatens_lethal()
+	var can_go_lethal  := _calc_lethal_damage() >= agent.opponent_hp
+	if can_go_lethal:
+		# Cast buff spells (pump minions) then damage spells before attacking face
+		await _play_lethal_spells()
+		if not agent.is_alive(): return
 	for minion in agent.friendly_board.duplicate():
 		if not agent.friendly_board.has(minion) or not minion.can_attack():
 			continue
 		var guards: Array[MinionInstance] = CombatManager.get_taunt_minions(agent.opponent_board)
-		if not guards.is_empty():
+		if can_go_lethal and guards.is_empty():
+			# Lethal available and no taunts blocking — NORMAL go face, SWIFT clear board
+			if minion.can_attack_hero():
+				if not await agent.do_attack_hero(minion):
+					if not agent.is_alive(): return
+			elif not agent.opponent_board.is_empty():
+				var target := agent.pick_swift_target(minion)
+				if not await agent.do_attack_minion(minion, target):
+					if not agent.is_alive(): return
+		elif not guards.is_empty():
 			var target := _pick_best_guard(minion, guards)
 			if not await agent.do_attack_minion(minion, target):
 				if not agent.is_alive(): return
@@ -102,6 +116,8 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 				if c is MinionCardData:
 					return false
 			return true
+		"before_attacks":
+			return false  # held during play phase; profile handles casting in attack_phase
 		_:
 			return true
 
@@ -153,11 +169,13 @@ func pick_on_play_target(mc: MinionCardData):
 # Reusable play-phase helpers
 # ---------------------------------------------------------------------------
 
-## Two-pass play: flood board with minions (cheapest first), then cast spells.
+## Three-pass play: flood board with minions, cast spells, then play traps/runes/environments.
 func play_phase_two_pass() -> void:
 	await _play_minions_pass()
 	if not agent.is_alive(): return
 	await _play_spells_pass()
+	if not agent.is_alive(): return
+	await _play_traps_pass()
 
 ## Place minions until board is full or no affordable minions remain.
 func _play_minions_pass() -> void:
@@ -206,6 +224,31 @@ func _play_spells_pass() -> void:
 			cast = true
 			break
 
+## Play affordable traps, runes, and environments from hand.
+## Environments: play the first affordable one, replacing any existing.
+## Traps/runes: play all affordable ones.
+func _play_traps_pass() -> void:
+	var placed := true
+	while placed:
+		placed = false
+		for c in agent.hand.duplicate():
+			if c is EnvironmentCardData:
+				var env := c as EnvironmentCardData
+				if env.cost <= agent.mana:
+					agent.mana -= env.cost
+					if not await agent.commit_play_environment(env):
+						return
+					placed = true
+					break
+			elif c is TrapCardData:
+				var trap := c as TrapCardData
+				if trap.cost <= agent.mana:
+					agent.mana -= trap.cost
+					if not await agent.commit_play_trap(trap):
+						return
+					placed = true
+					break
+
 # ---------------------------------------------------------------------------
 # Shared attack-phase helpers
 # ---------------------------------------------------------------------------
@@ -218,6 +261,123 @@ func _opponent_threatens_lethal() -> bool:
 	for m in agent.opponent_board:
 		total_atk += m.effective_atk()
 	return total_atk >= agent.friendly_hp
+
+## Simulate optimal guard assignment given an explicit ATK pool (sorted ascending).
+## For each guard: assign the lowest-ATK minion that can one-shot it to minimise overkill.
+## If no single minion can one-shot, spend the strongest minions until the guard dies.
+## Returns total remaining face damage from unused attackers.
+func _sim_face_damage(atk_pool: Array[int]) -> int:
+	var guards: Array[MinionInstance] = CombatManager.get_taunt_minions(agent.opponent_board)
+	var pool := atk_pool.duplicate()
+	pool.sort()  # ascending — cheapest attacker first
+	if guards.is_empty():
+		var total := 0
+		for a in pool: total += a
+		return total
+	var guard_hps: Array[int] = []
+	for g in guards:
+		guard_hps.append(g.current_health)
+	guard_hps.sort()  # kill easiest guards first to free up more attackers
+	for guard_hp in guard_hps:
+		if pool.is_empty():
+			return 0
+		# Find the cheapest attacker that one-shots this guard
+		var chosen := -1
+		for i in pool.size():
+			if pool[i] >= guard_hp:
+				chosen = i
+				break
+		if chosen >= 0:
+			pool.remove_at(chosen)
+		else:
+			# No single attacker can one-shot — spend strongest until guard dies
+			var hp_left := guard_hp
+			while hp_left > 0 and not pool.is_empty():
+				hp_left -= pool.back()
+				pool.remove_at(pool.size() - 1)
+	var face_damage := 0
+	for a in pool: face_damage += a
+	return face_damage
+
+## Estimate total damage deliverable this turn.
+## Buffs are applied to the ATK pool BEFORE the guard simulation so overkill
+## on guards is computed with post-buff values (e.g. 2×500 ATK + 200 buff vs
+## 100 HP guard → one 700-ATK minion kills the guard, one 700 goes face = 700,
+## not 1400-100=1300).
+func _calc_lethal_damage() -> int:
+	# Collect affordable lethal spells — buffs first, then direct damage
+	var lethal_spells: Array = []
+	for c in agent.hand:
+		if not (c is SpellCardData):
+			continue
+		var spell := c as SpellCardData
+		var cost  := agent.effective_spell_cost(spell)
+		var hero_dmg := 0
+		var atk_buff := 0
+		for raw in spell.effect_steps:
+			var step: EffectStep = EffectStep.from_dict(raw) if raw is Dictionary else raw as EffectStep
+			if step == null:
+				continue
+			match step.effect_type:
+				EffectStep.EffectType.DAMAGE_HERO, EffectStep.EffectType.VOID_BOLT:
+					hero_dmg += step.amount
+				EffectStep.EffectType.BUFF_ATK:
+					if step.scope in [EffectStep.TargetScope.ALL_FRIENDLY, EffectStep.TargetScope.ALL_BOARD]:
+						atk_buff += step.amount
+		if hero_dmg > 0 or atk_buff > 0:
+			lethal_spells.append({cost = cost, hero_dmg = hero_dmg, atk_buff = atk_buff})
+	lethal_spells.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return a.atk_buff > b.atk_buff)
+
+	# Spend mana on affordable spells, accumulating total buff and direct damage
+	var remaining_mana := agent.mana
+	var total_atk_buff := 0
+	var spell_damage   := 0
+	for entry in lethal_spells:
+		if entry.cost > remaining_mana:
+			continue
+		total_atk_buff += entry.atk_buff
+		spell_damage   += entry.hero_dmg
+		remaining_mana -= entry.cost
+
+	# Build buffed ATK pool, then simulate guard assignment with post-buff values
+	var atk_pool: Array[int] = []
+	for m in agent.friendly_board:
+		if m.can_attack() and m.can_attack_hero():
+			atk_pool.append(m.effective_atk() + total_atk_buff)
+
+	return _sim_face_damage(atk_pool) + spell_damage
+
+## Before a lethal attack: cast ALL_FRIENDLY BUFF_ATK spells first (so minions
+## hit harder), then DAMAGE_HERO / VOID_BOLT spells, overriding hold rules.
+func _play_lethal_spells() -> void:
+	for pass_type in ["buff", "damage"]:
+		for c in agent.hand.duplicate():
+			if not (c is SpellCardData):
+				continue
+			var spell := c as SpellCardData
+			var cost  := agent.effective_spell_cost(spell)
+			if cost > agent.mana:
+				continue
+			var is_buff_spell   := false
+			var is_damage_spell := false
+			for raw in spell.effect_steps:
+				var step: EffectStep = EffectStep.from_dict(raw) if raw is Dictionary else raw as EffectStep
+				if step == null:
+					continue
+				match step.effect_type:
+					EffectStep.EffectType.DAMAGE_HERO, EffectStep.EffectType.VOID_BOLT:
+						is_damage_spell = true
+					EffectStep.EffectType.BUFF_ATK:
+						if step.scope in [EffectStep.TargetScope.ALL_FRIENDLY, EffectStep.TargetScope.ALL_BOARD]:
+							is_buff_spell = true
+			var should_cast: bool = (pass_type == "buff" and is_buff_spell) \
+							or (pass_type == "damage" and is_damage_spell and not is_buff_spell)
+			if not should_cast:
+				continue
+			agent.mana -= cost
+			if not await agent.commit_play_spell(spell, pick_spell_target(spell)):
+				return
 
 ## Prefer guards we survive attacking; fall back to the lowest-ATK guard.
 func _pick_best_guard(attacker: MinionInstance, guards: Array[MinionInstance]) -> MinionInstance:

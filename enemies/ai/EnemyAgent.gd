@@ -55,6 +55,12 @@ func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = nul
 func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
 	return await _ai.commit_spell_cast(spell, chosen_target)
 
+func commit_play_trap(trap: TrapCardData) -> bool:
+	return await _ai.commit_play_trap(trap)
+
+func commit_play_environment(env: EnvironmentCardData) -> bool:
+	return await _ai.commit_play_environment(env)
+
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	return await _ai.do_attack_minion(attacker, target)
 

@@ -28,6 +28,8 @@ var player_hp: int = 3000         # current HP; persists between fights
 var core_unit_limit: int = 4
 ## Set by HeroSelectScene before start_new_run() — not reset by start_new_run()
 var current_hero: String = "lord_vael"
+## Faction chosen on HeroSelectScene; used by DeckBuilderScene to pre-filter cards
+var current_faction: String = "abyss_order"
 
 # --- Resources (in-combat, reset each combat) ---
 var abyss_essence: int = 0

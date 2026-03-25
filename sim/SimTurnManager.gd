@@ -29,6 +29,12 @@ func add_to_hand(card: CardData) -> void:
 func gain_mana(amount: int) -> void:
 	_sim.player_mana = mini(_sim.player_mana + amount, _sim.player_mana_max)
 
+func grow_mana_max(amount: int = 1) -> void:
+	for _i in amount:
+		if _sim.player_essence_max + _sim.player_mana_max >= SimState.COMBINED_RESOURCE_CAP:
+			break
+		_sim.player_mana_max += 1
+
 func gain_essence(amount: int) -> void:
 	_sim.player_essence += amount
 

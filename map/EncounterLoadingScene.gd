@@ -10,6 +10,10 @@ const COLOR_TEXT_LIGHT  := Color(0.92, 0.90, 0.95, 1.0)
 const COLOR_TEXT_DIM    := Color(0.55, 0.52, 0.60, 1.0)
 const COLOR_BG_PANEL    := Color(0.04, 0.02, 0.08, 0.72)
 
+const _BTN_NORMAL  := "res://assets/art/buttons/button_normal.png"
+const _BTN_HOVER   := "res://assets/art/buttons/button_hover.png"
+const _BTN_PRESSED := "res://assets/art/buttons/button_pressed.png"
+
 func _ready() -> void:
 	# Redirect to talent screen if there are unspent points
 	if GameManager.talent_points > 0:
@@ -186,6 +190,7 @@ func _add_encounter_button(vp: Vector2) -> void:
 	btn.set_size(Vector2(220, 50))
 	btn.add_theme_font_size_override("font_size", 22)
 	btn.add_theme_color_override("font_color", COLOR_GOLD)
+	_apply_btn_style(btn)
 	btn.pressed.connect(_on_encounter_pressed)
 	add_child(btn)
 
@@ -195,6 +200,7 @@ func _add_view_deck_button(vp: Vector2) -> void:
 	btn.set_position(Vector2(40, vp.y - 75))
 	btn.set_size(Vector2(160, 46))
 	btn.add_theme_font_size_override("font_size", 16)
+	_apply_btn_style(btn)
 	btn.pressed.connect(_on_view_deck_pressed)
 	add_child(btn)
 
@@ -211,6 +217,25 @@ func _on_view_deck_pressed() -> void:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+func _apply_btn_style(btn: Button) -> void:
+	if not ResourceLoader.exists(_BTN_NORMAL):
+		return
+	var hover_path   := _BTN_HOVER   if ResourceLoader.exists(_BTN_HOVER)   else _BTN_NORMAL
+	var pressed_path := _BTN_PRESSED if ResourceLoader.exists(_BTN_PRESSED) else _BTN_NORMAL
+	btn.add_theme_stylebox_override("normal",   _make_btn_style(_BTN_NORMAL))
+	btn.add_theme_stylebox_override("hover",    _make_btn_style(hover_path))
+	btn.add_theme_stylebox_override("pressed",  _make_btn_style(pressed_path))
+	btn.add_theme_stylebox_override("disabled", _make_btn_style(_BTN_NORMAL))
+
+func _make_btn_style(path: String) -> StyleBoxTexture:
+	var style := StyleBoxTexture.new()
+	style.texture = load(path)
+	style.texture_margin_left   = 16.0
+	style.texture_margin_top    = 16.0
+	style.texture_margin_right  = 16.0
+	style.texture_margin_bottom = 16.0
+	return style
 
 func _make_panel_style(bg_color: Color) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()

@@ -4,7 +4,7 @@
 extends Node2D
 
 const CARD_VISUAL_SCENE := preload("res://combat/ui/CardVisual.tscn")
-const PREVIEW_SIZE   := Vector2(220, 320)
+const PREVIEW_SIZE   := Vector2(480, 720)
 const PREVIEW_OFFSET := Vector2(20, -PREVIEW_SIZE.y / 2.0)
 
 var _preview: CardVisual = null
@@ -36,6 +36,7 @@ func _show_preview(card_id: String) -> void:
 	if not card:
 		return
 	_preview.setup(card)
+	_preview.enable_tooltip()
 	_reposition_preview()
 	_preview.visible = true
 

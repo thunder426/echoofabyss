@@ -81,6 +81,19 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					ctx.scene.enemy_ai.essence = mini(ctx.scene.enemy_ai.essence + step.amount, ctx.scene.enemy_ai.essence_max)
 			return
 
+		EffectStep.EffectType.GROW_MANA_MAX:
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var amt := maxi(1, step.amount)
+				if ctx.owner == "player":
+					ctx.scene.turn_manager.grow_mana_max(amt)
+				else:
+					var ai = ctx.scene.enemy_ai
+					for _i in amt:
+						if ai.essence_max + ai.mana_max >= ai.COMBINED_RESOURCE_CAP:
+							break
+						ai.mana_max += 1
+			return
+
 		EffectStep.EffectType.VOID_MARK:
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
 				ctx.scene._apply_void_mark(step.amount)

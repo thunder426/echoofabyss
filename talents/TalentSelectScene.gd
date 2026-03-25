@@ -4,6 +4,10 @@
 ## Player spends all pending talent_points then returns to MapScene.
 extends Node
 
+const _BTN_NORMAL  := "res://assets/art/buttons/button_normal.png"
+const _BTN_HOVER   := "res://assets/art/buttons/button_hover.png"
+const _BTN_PRESSED := "res://assets/art/buttons/button_pressed.png"
+
 # ---------------------------------------------------------------------------
 # Layout constants
 # ---------------------------------------------------------------------------
@@ -78,6 +82,7 @@ func _build_ui() -> void:
 	_revert_btn.custom_minimum_size = Vector2(240, 44)
 	_revert_btn.add_theme_font_size_override("font_size", 16)
 	_revert_btn.add_theme_color_override("font_color", Color(1.0, 0.60, 0.30, 1))
+	_apply_btn_style(_revert_btn)
 	_revert_btn.visible = false
 	_revert_btn.pressed.connect(_on_revert_pressed)
 	var revert_center := CenterContainer.new()
@@ -103,6 +108,7 @@ func _build_ui() -> void:
 	done_btn.text = "Continue →"
 	done_btn.custom_minimum_size = Vector2(300, 60)
 	done_btn.add_theme_font_size_override("font_size", 20)
+	_apply_btn_style(done_btn)
 	done_btn.pressed.connect(_on_done_pressed)
 
 	var btn_center := CenterContainer.new()
@@ -139,6 +145,7 @@ func _make_talent_button(talent: TalentData) -> Button:
 	btn.custom_minimum_size = Vector2(460, 90)
 	btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	btn.add_theme_font_size_override("font_size", 15)
+	_apply_btn_style(btn)
 	btn.pressed.connect(_on_talent_pressed.bind(talent.id))
 	return btn
 
@@ -204,3 +211,26 @@ func _on_done_pressed() -> void:
 		GameManager.go_to_scene("res://ui/DeckBuilderScene.tscn")
 	else:
 		GameManager.go_to_scene("res://map/EncounterLoadingScene.tscn")
+
+# ---------------------------------------------------------------------------
+# Button style helpers
+# ---------------------------------------------------------------------------
+
+func _apply_btn_style(btn: Button) -> void:
+	if not ResourceLoader.exists(_BTN_NORMAL):
+		return
+	var hover_path   := _BTN_HOVER   if ResourceLoader.exists(_BTN_HOVER)   else _BTN_NORMAL
+	var pressed_path := _BTN_PRESSED if ResourceLoader.exists(_BTN_PRESSED) else _BTN_NORMAL
+	btn.add_theme_stylebox_override("normal",   _make_btn_style(_BTN_NORMAL))
+	btn.add_theme_stylebox_override("hover",    _make_btn_style(hover_path))
+	btn.add_theme_stylebox_override("pressed",  _make_btn_style(pressed_path))
+	btn.add_theme_stylebox_override("disabled", _make_btn_style(_BTN_NORMAL))
+
+func _make_btn_style(path: String) -> StyleBoxTexture:
+	var style := StyleBoxTexture.new()
+	style.texture = load(path)
+	style.texture_margin_left   = 16.0
+	style.texture_margin_top    = 16.0
+	style.texture_margin_right  = 16.0
+	style.texture_margin_bottom = 16.0
+	return style

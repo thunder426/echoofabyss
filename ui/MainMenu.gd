@@ -8,9 +8,9 @@ var _reset_confirm_pending: bool = false
 var _reset_timer: SceneTreeTimer = null
 
 const _BG_PATH          := "res://assets/menu/menu_background.png"
-const _BTN_PATH         := "res://assets/menu/menu_button.png"
-const _BTN_HOVER_PATH   := "res://assets/menu/menu_button_on_hover.png"
-const _BTN_PRESSED_PATH := "res://assets/menu/menu_button_on_press.png"
+const _BTN_PATH         := "res://assets/art/buttons/button_normal.png"
+const _BTN_HOVER_PATH   := "res://assets/art/buttons/button_hover.png"
+const _BTN_PRESSED_PATH := "res://assets/art/buttons/button_pressed.png"
 
 func _ready() -> void:
 	# Load permanent unlocks (and run state if any) from disk.

@@ -33,6 +33,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	if attacker.has_lifedrain() and attacker.effective_atk() > 0:
 		hero_healed.emit(attacker.owner, attacker.effective_atk())
 
+	attacker.attack_count += 1
 	attacker.state = Enums.MinionState.EXHAUSTED
 	attack_resolved.emit(attacker, defender)
 
@@ -43,6 +44,7 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 		hero_damaged.emit(target_owner, damage)
 		if attacker.has_lifedrain():
 			hero_healed.emit(attacker.owner, damage)
+	attacker.attack_count += 1
 	attacker.state = Enums.MinionState.EXHAUSTED
 
 # ---------------------------------------------------------------------------
