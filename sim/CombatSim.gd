@@ -21,16 +21,22 @@ const _ENEMY_PROFILES: Dictionary = {
 	"default":         preload("res://enemies/ai/profiles/DefaultProfile.gd"),
 	"feral_pack":      preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
 	"corrupted_brood": preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
+	"matriarch":       preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
 }
 
 ## Passive IDs active for each enemy profile — mirrors EnemyData.passives in the live game.
 const _ENEMY_PASSIVES: Dictionary = {
 	"feral_pack":      ["feral_instinct", "pack_instinct"],
-	"corrupted_brood": ["corrupted_death"],
+	"corrupted_brood": ["feral_instinct", "corrupted_death"],
+	"matriarch":       ["feral_instinct", "ancient_frenzy"],
 	"default":         [],
 }
 
-const _PLAYER_PROFILE := preload("res://enemies/ai/profiles/DefaultPlayerProfile.gd")
+const _PLAYER_PROFILES: Dictionary = {
+	"default":    preload("res://enemies/ai/profiles/DefaultPlayerProfile.gd"),
+	"spell_burn": preload("res://enemies/ai/profiles/SpellBurnPlayerProfile.gd"),
+	"rune_tempo": preload("res://enemies/ai/profiles/RuneTempoPlayerProfile.gd"),
+}
 
 ## Maximum turns before declaring a draw — prevents infinite loops.
 const MAX_TURNS := 60
@@ -52,7 +58,8 @@ func run(
 		enemy_deck_ids: Array[String] = [],
 		player_hp: int = 3000,
 		enemy_hp:  int = 2000,
-		player_talents: Array[String] = []) -> Dictionary:
+		player_talents: Array[String] = [],
+		player_profile_id: String = "default") -> Dictionary:
 
 	var state := SimState.new()
 	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
@@ -71,8 +78,10 @@ func run(
 	trigger_setup.setup(state)
 
 	# Build profiles
-	var p_profile: CombatProfile = _PLAYER_PROFILE.new()
+	var p_profile_script = _PLAYER_PROFILES.get(player_profile_id, _PLAYER_PROFILES["default"])
+	var p_profile: CombatProfile = p_profile_script.new()
 	p_profile.setup(p_agent)
+	p_profile.setup_resource_growth(state)
 
 	var e_profile_script = _ENEMY_PROFILES.get(enemy_profile_id, _ENEMY_PROFILES["default"])
 	var e_profile: CombatProfile = e_profile_script.new()
@@ -124,7 +133,8 @@ func run_many(
 		enemy_deck_ids: Array[String] = [],
 		player_hp: int = 3000,
 		enemy_hp:  int = 2000,
-		player_talents: Array[String] = []) -> Dictionary:
+		player_talents: Array[String] = [],
+		player_profile_id: String = "default") -> Dictionary:
 
 	var wins   := 0
 	var losses := 0
@@ -135,7 +145,7 @@ func run_many(
 
 	for _i in count:
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
-				enemy_deck_ids, player_hp, enemy_hp, player_talents)
+				enemy_deck_ids, player_hp, enemy_hp, player_talents, player_profile_id)
 		match r["winner"]:
 			"player": wins   += 1
 			"enemy":  losses += 1

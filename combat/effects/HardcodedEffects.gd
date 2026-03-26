@@ -126,7 +126,9 @@ func _void_detonation(ctx: EffectContext) -> void:
 	if ctx.owner == "player":
 		var bonus_per_mark := 50
 		var total_base: int = 500 + _scene.enemy_void_marks * bonus_per_mark
-		_log("  Void Detonation: %d Void Bolt dmg (500 + %d×%d marks)." % [total_base, bonus_per_mark, _scene.enemy_void_marks], _LOG_PLAYER)
+		_log("  Void Detonation: base %d (500 + %d×%d marks) — Void Bolt adds %d×%d marks on top." % [
+			total_base, bonus_per_mark, _scene.enemy_void_marks,
+			_scene._void_mark_damage_per_stack(), _scene.enemy_void_marks], _LOG_PLAYER)
 		_scene._deal_void_bolt_damage(total_base)
 
 # ---------------------------------------------------------------------------
@@ -259,15 +261,11 @@ func _echo_rune_fire() -> void:
 func _rune_seeker_play() -> void:
 	var deck: Array = _scene.turn_manager.player_deck
 	for i in deck.size():
-		var c: CardData = deck[i]
-		if c is TrapCardData and (c as TrapCardData).is_rune:
+		var inst: CardInstance = deck[i]
+		if inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune:
 			deck.remove_at(i)
-			_scene.turn_manager.add_to_hand(c)
-			var hd = _scene.get("hand_display")
-			if hd:
-				hd.add_card(c)
-				hd.refresh_playability(_scene.turn_manager.essence, _scene.turn_manager.mana)
-			_log("  Rune Seeker: found %s." % c.card_name, _LOG_PLAYER)
+			_scene.turn_manager.add_instance_to_hand(inst)
+			_log("  Rune Seeker: found %s." % inst.card_data.card_name, _LOG_PLAYER)
 			return
 	_log("  Rune Seeker: no Rune in deck.", _LOG_PLAYER)
 
@@ -296,7 +294,7 @@ func _void_screech(ctx: EffectContext) -> void:
 		if _scene._minion_has_tag(m, "feral_imp"):
 			feral_on_board += 1
 	var screech_dmg := 350 if feral_on_board >= 3 else 250
-	_scene._on_hero_damaged(_scene._opponent_of(ctx.owner), screech_dmg)
+	_scene.combat_manager.apply_hero_damage(_scene._opponent_of(ctx.owner), screech_dmg, Enums.DamageType.SPELL)
 	_log("  Void Screech: %d damage to hero (%d feral imps)." % [screech_dmg, feral_on_board], _LOG_ENEMY)
 
 func _brood_call(ctx: EffectContext) -> void:

@@ -30,9 +30,10 @@ func setup(sim: SimState) -> void:
 		tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_summon_imp_warband,       25)
 
 	# ── ON_PLAYER_MINION_DIED ────────────────────────────────────────────
-	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, h.on_minion_died_death_effect,        5)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, h.on_minion_died_death_effect,            5)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, h.on_player_minion_died_board_passives,   7)
 	if "death_bolt" in sim.talents:
-		tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, h.on_player_minion_died_death_bolt, 10)
+		tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, h.on_player_minion_died_death_bolt,  10)
 
 	# ── ON_ENEMY_MINION_SUMMONED ─────────────────────────────────────────
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, h.on_enemy_summon_rogue_imp_elder, 7)

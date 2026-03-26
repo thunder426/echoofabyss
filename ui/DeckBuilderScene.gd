@@ -10,76 +10,8 @@ const MAX_COPIES     := 2
 const MAX_COPIES_IMP  := 4  # Void Imp limit raised by Lord Vael Passive 2
 const MAX_COPIES_CHAMPION := 1
 
-## Predefined starter decks for Lord Vael. Loaded directly into the deck.
-const PREDEFINED_DECKS: Array = [
-	{
-		"id":   "swarm",
-		"name": "Swarm",
-		"desc": "Flood the board with Imps and Demons. Shadow Hound scales with board width; Void Devourer devours the swarm for a massive finisher.",
-		"cards": [
-			"void_imp", "void_imp", "void_imp", "void_imp",
-			"shadow_hound", "shadow_hound",
-			"void_stalker",
-			"void_devourer",
-			"abyssal_brute",
-			"void_spawner",
-			"abyssal_tide",
-			"abyssal_sacrifice", "abyssal_sacrifice",
-			"dominion_rune",
-			"flux_siphon",
-		],
-	},
-	{
-		"id":   "corrupt_control",
-		"name": "Corrupt Control",
-		"desc": "Corrupt the enemy board, then destroy them with removal.",
-		"cards": [
-			"void_imp", "void_imp", "void_imp", "void_imp",
-			"abyss_cultist", "abyss_cultist",
-			"void_netter", "void_netter",
-			"corruption_weaver",
-			"soul_collector",
-			"abyssal_plague",
-			"void_bolt", "void_bolt",
-			"flux_siphon",
-			"hidden_ambush",
-		],
-	},
-	{
-		"id":   "voidbolt_burst",
-		"name": "Voidbolt Burst",
-		"desc": "Sacrifice Imps to fuel your spells, then burn the enemy hero with Void Bolts.",
-		"cards": [
-			"void_imp", "void_imp", "void_imp", "void_imp",
-			"abyss_cultist",
-			"traveling_merchant", "traveling_merchant",
-			"void_bolt", "void_bolt",
-			"abyssal_sacrifice", "abyssal_sacrifice",
-			"dark_empowerment",
-			"void_execution",
-			"death_trap",
-			"energy_conversion",
-		],
-	},
-	{
-		"id":   "death_circle",
-		"name": "Death Circle",
-		"desc": "Place Runes to empower your Demons, then complete the ritual to summon a Demon Ascendant.",
-		"cards": [
-			"abyssal_summoning_circle",
-			"dominion_rune", "dominion_rune",
-			"blood_rune", "blood_rune",
-			"void_imp", "void_imp",
-			"shadow_hound", "shadow_hound",
-			"void_stalker",
-			"void_spawner",
-			"abyssal_brute",
-			"abyssal_sacrifice",
-			"void_bolt",
-			"flux_siphon",
-		],
-	},
-]
+## Predefined starter decks — defined in PresetDecks (cards/data/PresetDecks.gd).
+const PREDEFINED_DECKS: Array = PresetDecks.DECKS
 
 ## Core fallback cards used to fill a preset to MAX_DECK_SIZE if valid cards run short.
 const CORE_FILL_POOL: Array[String] = [
@@ -120,6 +52,10 @@ var _deck_container: VBoxContainer
 var _deck_count_label: Label
 var _start_btn: Button
 
+# Saved decks UI
+var _saved_decks_container: VBoxContainer
+var _save_name_edit: LineEdit
+
 # Floating preview
 var _preview: CardVisual = null
 
@@ -137,8 +73,11 @@ func _ready() -> void:
 	$UI/DeckPanel/BackButton.pressed.connect(_on_back)
 	_start_btn.pressed.connect(_on_start_run)
 
+	_saved_decks_container = $UI/DeckPanel/SavedDecksScroll/SavedDecksContainer
+
 	_setup_preview()
 	_setup_predefined_deck_row()
+	_setup_saved_decks_section()
 	_setup_filter_sort_row()
 	_setup_faction_row()
 	_load_inventory()
@@ -227,6 +166,100 @@ func _on_load_preset(preset_id: String) -> void:
 			_rebuild_inventory_ui()
 			_rebuild_deck_ui()
 			return
+
+# ---------------------------------------------------------------------------
+# Saved decks section
+# ---------------------------------------------------------------------------
+
+func _setup_saved_decks_section() -> void:
+	var row := $UI/DeckPanel/SaveNameRow
+	row.add_theme_constant_override("separation", 6)
+
+	_save_name_edit = LineEdit.new()
+	_save_name_edit.placeholder_text = "Deck name…"
+	_save_name_edit.custom_minimum_size = Vector2(0, 36)
+	_save_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_save_name_edit.add_theme_font_size_override("font_size", 15)
+	row.add_child(_save_name_edit)
+
+	var save_btn := Button.new()
+	save_btn.text = "Save"
+	save_btn.custom_minimum_size = Vector2(80, 36)
+	save_btn.add_theme_font_size_override("font_size", 15)
+	save_btn.pressed.connect(_on_save_deck)
+	row.add_child(save_btn)
+
+	_rebuild_saved_decks_ui()
+
+func _rebuild_saved_decks_ui() -> void:
+	for child in _saved_decks_container.get_children():
+		child.queue_free()
+
+	var all: Dictionary = SavedDecks.load_all()
+	if all.is_empty():
+		var empty_lbl := Label.new()
+		empty_lbl.text = "No saved decks yet."
+		empty_lbl.add_theme_font_size_override("font_size", 14)
+		empty_lbl.add_theme_color_override("font_color", Color(0.55, 0.55, 0.55, 1))
+		_saved_decks_container.add_child(empty_lbl)
+		return
+
+	var names: Array = all.keys()
+	names.sort()
+	for deck_name: String in names:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+
+		var load_btn := Button.new()
+		load_btn.text = deck_name
+		load_btn.custom_minimum_size = Vector2(0, 36)
+		load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		load_btn.add_theme_font_size_override("font_size", 14)
+		load_btn.tooltip_text = "Load \"%s\"" % deck_name
+		load_btn.pressed.connect(_on_load_saved_deck.bind(deck_name))
+		row.add_child(load_btn)
+
+		var del_btn := Button.new()
+		del_btn.text = "✕"
+		del_btn.custom_minimum_size = Vector2(36, 36)
+		del_btn.add_theme_font_size_override("font_size", 14)
+		del_btn.tooltip_text = "Delete \"%s\"" % deck_name
+		del_btn.modulate = Color(1.0, 0.45, 0.45, 1)
+		del_btn.pressed.connect(_on_delete_saved_deck.bind(deck_name))
+		row.add_child(del_btn)
+
+		_saved_decks_container.add_child(row)
+
+func _on_save_deck() -> void:
+	var deck_name := _save_name_edit.text.strip_edges()
+	if deck_name.is_empty() or _built_deck.is_empty():
+		return
+	SavedDecks.save_deck(deck_name, _built_deck.duplicate())
+	_save_name_edit.text = ""
+	_rebuild_saved_decks_ui()
+
+func _on_load_saved_deck(deck_name: String) -> void:
+	var cards: Array = SavedDecks.get_deck(deck_name)
+	if cards.is_empty():
+		return
+	_built_deck.clear()
+	for card_id: String in cards:
+		if _built_deck.size() >= MAX_DECK_SIZE:
+			break
+		var card := CardDatabase.get_card(card_id)
+		if card == null or card.pool not in DECK_BUILDER_POOLS:
+			continue
+		var limit := MAX_COPIES_IMP if card_id == "void_imp" \
+			else (MAX_COPIES_CHAMPION if card is MinionCardData and (card as MinionCardData).is_champion else MAX_COPIES)
+		if _built_deck.count(card_id) < limit:
+			_built_deck.append(card_id)
+	_save_name_edit.text = deck_name
+	_rebuild_inventory_ui()
+	_rebuild_deck_ui()
+
+func _on_delete_saved_deck(deck_name: String) -> void:
+	SavedDecks.delete_deck(deck_name)
+	_rebuild_saved_decks_ui()
 
 # ---------------------------------------------------------------------------
 # Filter / sort row
@@ -436,13 +469,34 @@ func _rebuild_deck_ui() -> void:
 	for card_id in _built_deck:
 		counts[card_id] = counts.get(card_id, 0) + 1
 
-	# Sort entries alphabetically by card name
+	# Sort by type order (Minion → Spell → Trap → Env), then cost low→high, then name
 	var sorted_ids: Array = counts.keys()
 	sorted_ids.sort_custom(func(a: String, b: String) -> bool:
 		var ca := CardDatabase.get_card(a)
 		var cb := CardDatabase.get_card(b)
-		return ca.card_name < cb.card_name if (ca and cb) else a < b
+		if not (ca and cb):
+			return a < b
+		var type_order: Array = [Enums.CardType.MINION, Enums.CardType.SPELL,
+				Enums.CardType.TRAP, Enums.CardType.ENVIRONMENT]
+		var ta: int = type_order.find(ca.card_type)
+		var tb: int = type_order.find(cb.card_type)
+		if ta != tb:
+			return ta < tb
+		var cost_a: int = (ca as MinionCardData).essence_cost if ca is MinionCardData else ca.cost
+		var cost_b: int = (cb as MinionCardData).essence_cost if cb is MinionCardData else cb.cost
+		return cost_a < cost_b if cost_a != cost_b else ca.card_name < cb.card_name
 	)
+
+	# Column header
+	var header := HBoxContainer.new()
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_theme_constant_override("separation", 0)
+	_add_table_cell(header, "Cost", 72, HORIZONTAL_ALIGNMENT_CENTER, Color(0.55, 0.60, 0.85, 1))
+	_add_table_cell(header, "Name",  0, HORIZONTAL_ALIGNMENT_LEFT,   Color(0.55, 0.60, 0.85, 1), true)
+	_add_table_cell(header, "Qt",   40, HORIZONTAL_ALIGNMENT_CENTER, Color(0.55, 0.60, 0.85, 1))
+	_add_table_cell(header, "",     30, HORIZONTAL_ALIGNMENT_CENTER, Color(0.55, 0.60, 0.85, 1))
+	_deck_container.add_child(header)
+	_deck_container.add_child(HSeparator.new())
 
 	for card_id in sorted_ids:
 		var card  := CardDatabase.get_card(card_id)
@@ -463,9 +517,10 @@ func _rebuild_deck_ui() -> void:
 		row.add_theme_constant_override("separation", 0)
 		btn.add_child(row)
 
-		_add_table_cell(row, card.card_name, 0, HORIZONTAL_ALIGNMENT_LEFT, _card_type_color(card), true)
-		_add_table_cell(row, "x%d" % count, 40, HORIZONTAL_ALIGNMENT_CENTER, Color(0.95, 0.82, 0.40, 1))
-		_add_table_cell(row, "−", 30, HORIZONTAL_ALIGNMENT_CENTER, Color(0.90, 0.40, 0.40, 1))
+		_add_table_cell(row, _cost_str(card), 72, HORIZONTAL_ALIGNMENT_CENTER, Color(0.95, 0.82, 0.40, 1))
+		_add_table_cell(row, card.card_name,   0, HORIZONTAL_ALIGNMENT_LEFT,   _card_type_color(card), true)
+		_add_table_cell(row, "x%d" % count,   40, HORIZONTAL_ALIGNMENT_CENTER, Color(0.95, 0.82, 0.40, 1))
+		_add_table_cell(row, "−",             30, HORIZONTAL_ALIGNMENT_CENTER, Color(0.90, 0.40, 0.40, 1))
 
 		_deck_container.add_child(btn)
 

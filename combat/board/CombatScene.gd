@@ -119,7 +119,7 @@ var _anim_def_slot: BoardSlot = null
 var _deferred_death_slots: Array = []
 
 # Card the player is currently trying to play (dragged or clicked from hand)
-var pending_play_card: CardData = null
+var pending_play_card: CardInstance = null
 
 # Player-chosen target for targeted on-play effects (set after clicking a valid target,
 # before clicking the placement slot). Cleared after the minion is placed or deselected.
@@ -176,6 +176,9 @@ var _temp_imps: Array[MinionInstance] = []
 
 ## True once Imp Evolution has added a Senior Void Imp this turn; reset on turn start.
 var imp_evolution_used_this_turn: bool = false
+
+## Currently hovered hand card visual — used for pip-blink cost preview.
+var _hovered_hand_visual: CardVisual = null
 
 # ---------------------------------------------------------------------------
 # Enemy passive state — populated from GameManager.current_enemy.passives
@@ -411,7 +414,9 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		slot._refresh_visuals()
 	# Fire turn-start events — all effects are handled by registered listeners in _setup_triggers().
 	if is_player_turn:
-		imp_evolution_used_this_turn = false
+		imp_evolution_used_this_turn     = false
+		for inst in turn_manager.player_hand:
+			inst.cost_delta = 0
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
 	else:
 		enemy_ai.spell_cost_penalty = _spell_tax_for_enemy_turn
@@ -474,13 +479,13 @@ func _refresh_end_turn_mode() -> void:
 	if end_turn_button:
 		end_turn_button.visible = at_cap
 
-func _on_card_drawn(card_data: CardData) -> void:
+func _on_card_drawn(inst: CardInstance) -> void:
 	if hand_display:
-		hand_display.add_card(card_data)
+		hand_display.add_card(inst)
 		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana)
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
-	ctx.card = card_data
+	ctx.card = inst.card_data
 	trigger_manager.fire(ctx)
 
 func _on_end_turn_essence_pressed() -> void:
@@ -504,21 +509,21 @@ func _do_end_turn() -> void:
 # Hand card selection
 # ---------------------------------------------------------------------------
 
-func _on_hand_card_selected(card_data: CardData) -> void:
+func _on_hand_card_selected(inst: CardInstance) -> void:
 	# Guard: card plays are only valid on the player's turn
 	if not turn_manager.is_player_turn:
 		return
 	selected_attacker = null
 	_clear_all_highlights()
-	pending_play_card = card_data
-	if card_data is SpellCardData:
-		_begin_spell_select(card_data as SpellCardData)
-	elif card_data is TrapCardData:
-		_try_play_trap(card_data as TrapCardData)
-	elif card_data is EnvironmentCardData:
-		_try_play_environment(card_data as EnvironmentCardData)
-	elif card_data is MinionCardData:
-		_begin_minion_select(card_data as MinionCardData)
+	pending_play_card = inst
+	if inst.card_data is SpellCardData:
+		_begin_spell_select(inst.card_data as SpellCardData)
+	elif inst.card_data is TrapCardData:
+		_try_play_trap(inst.card_data as TrapCardData)
+	elif inst.card_data is EnvironmentCardData:
+		_try_play_environment(inst.card_data as EnvironmentCardData)
+	elif inst.card_data is MinionCardData:
+		_begin_minion_select(inst.card_data as MinionCardData)
 
 ## Cancel a pending card selection: clear state and deselect hand.
 func _cancel_card_select() -> void:
@@ -529,15 +534,17 @@ func _cancel_card_select() -> void:
 
 ## Hand card hover — show large preview and cost blink.
 ## Suppressed entirely while another card is pending a target selection.
-func _on_hand_card_hovered(card_data: CardData) -> void:
+func _on_hand_card_hovered(card_data: CardData, visual: CardVisual) -> void:
+	_hovered_hand_visual = visual
 	if pending_play_card != null:
 		return   # targeting in progress — don't interrupt with another card's preview
-	_show_large_preview(card_data)
+	_show_large_preview(card_data, visual)
 	if turn_manager and turn_manager.is_player_turn:
 		_start_pip_blink_for_card(card_data)
 
 ## Hand card unhover — hide preview and stop blink (unless a targeted card is still pending).
 func _on_hand_card_unhovered() -> void:
+	_hovered_hand_visual = null
 	_hide_large_preview()
 	if pending_play_card == null:
 		_stop_pip_blink()
@@ -573,7 +580,7 @@ func _start_pip_blink_for_card(card_data: CardData) -> void:
 		ess_spend = mc.essence_cost
 		mna_spend = mc.mana_cost + extra_mana
 	elif card_data is TrapCardData:
-		mna_spend = (card_data as TrapCardData).cost
+		mna_spend = _effective_trap_cost(card_data as TrapCardData)
 	elif card_data is EnvironmentCardData:
 		mna_spend = (card_data as EnvironmentCardData).cost
 	if not relic_first_card_free and not turn_manager.can_afford(ess_spend, mna_spend):
@@ -633,9 +640,9 @@ func _try_play_spell(spell: SpellCardData) -> void:
 			hand_display.deselect_current()
 		return
 	_log("You cast: %s" % spell.card_name)
-	turn_manager.remove_from_hand(spell)
+	turn_manager.remove_from_hand(pending_play_card)
 	if hand_display:
-		hand_display.remove_card(spell)
+		hand_display.remove_card(pending_play_card)
 		hand_display.deselect_current()
 	pending_play_card = null
 	# Show large card preview; resolve effects on impact so damage visuals sync
@@ -655,7 +662,7 @@ func _try_play_trap(trap: TrapCardData) -> void:
 		if hand_display:
 			hand_display.deselect_current()
 		return
-	if not _pay_card_cost(0, trap.cost):
+	if not _pay_card_cost(0, pending_play_card.effective_cost()):
 		if hand_display:
 			hand_display.deselect_current()
 		return
@@ -665,9 +672,9 @@ func _try_play_trap(trap: TrapCardData) -> void:
 		_log("You set trap: %s" % trap.card_name)
 	active_traps.append(trap)
 	_update_trap_display()
-	turn_manager.remove_from_hand(trap)
+	turn_manager.remove_from_hand(pending_play_card)
 	if hand_display:
-		hand_display.remove_card(trap)
+		hand_display.remove_card(pending_play_card)
 		hand_display.deselect_current()
 	pending_play_card = null
 	# Show card preview (traps have no immediate effects — they fire on trigger)
@@ -696,9 +703,9 @@ func _try_play_environment(env: EnvironmentCardData) -> void:
 	active_environment = env
 	_register_env_rituals(env)
 	_update_environment_display()
-	turn_manager.remove_from_hand(env)
+	turn_manager.remove_from_hand(pending_play_card)
 	if hand_display:
-		hand_display.remove_card(env)
+		hand_display.remove_card(pending_play_card)
 		hand_display.deselect_current()
 	pending_play_card = null
 	# Show card preview; fire on-enter effects and ritual checks on impact
@@ -768,32 +775,32 @@ func _on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 	# If a minion card is pending to be played, place it here.
 	# For targeted cards, pending_minion_target holds the player's chosen target
 	# (set when they clicked a valid target slot before choosing placement).
-	if pending_play_card and pending_play_card is MinionCardData:
+	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
 		# Still waiting for player to click a valid target — ignore slot clicks until then
 		if _awaiting_minion_target:
 			return
-		var card_to_play := pending_play_card as MinionCardData
+		var inst_to_play := pending_play_card
 		var on_play_target := pending_minion_target
 		pending_minion_target = null
 		pending_play_card = null
 		_awaiting_minion_target = false
 		_clear_all_highlights()
-		_try_play_minion_animated(card_to_play, slot, on_play_target)
+		_try_play_minion_animated(inst_to_play, slot, on_play_target)
 
 func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if not turn_manager.is_player_turn:
 		return
 	# If a targeted spell is waiting for a target, apply it
-	if pending_play_card is SpellCardData:
-		var spell := pending_play_card as SpellCardData
+	if pending_play_card != null and pending_play_card.card_data is SpellCardData:
+		var spell := pending_play_card.card_data as SpellCardData
 		if spell.requires_target and _is_valid_spell_target(minion, spell.target_type):
 			_apply_targeted_spell(spell, minion)
 			return
 	# If a targeted minion card is waiting for a friendly target, store it and show placement slots.
 	# If the minion card is pending but NOT awaiting a target (board was shown), block attacker
 	# selection so clicking an occupied slot doesn't accidentally select an attacker.
-	if pending_play_card is MinionCardData:
-		var mc := pending_play_card as MinionCardData
+	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
+		var mc := pending_play_card.card_data as MinionCardData
 		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, mc.on_play_target_type):
 			pending_minion_target = minion
 			_awaiting_minion_target = false
@@ -811,14 +818,14 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if not turn_manager.is_player_turn:
 		return
 	# If a targeted spell that can hit enemy minions is pending, apply it here
-	if pending_play_card is SpellCardData:
-		var spell := pending_play_card as SpellCardData
+	if pending_play_card != null and pending_play_card.card_data is SpellCardData:
+		var spell := pending_play_card.card_data as SpellCardData
 		if spell.requires_target and _is_valid_spell_target(minion, spell.target_type):
 			_apply_targeted_spell(spell, minion)
 			return
 	# If a targeted minion card is waiting for an enemy target, store it and show placement slots
-	if pending_play_card is MinionCardData:
-		var mc := pending_play_card as MinionCardData
+	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
+		var mc := pending_play_card.card_data as MinionCardData
 		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, mc.on_play_target_type):
 			pending_minion_target = minion
 			_awaiting_minion_target = false
@@ -854,15 +861,17 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 # Minion play
 # ---------------------------------------------------------------------------
 
-func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
+func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
 	if not slot.is_empty():
 		return
+	var card := inst.card_data as MinionCardData
 	# Talent: piercing_void — Void Imps cost +1 Mana
 	var extra_mana := 1 if (_card_has_tag(card, "void_imp") and _has_talent("piercing_void")) else 0
 	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
 		return
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
+	instance.card_instance = inst
 	# Place visually first so the slot is not mistakenly taken by tokens summoned during on-play.
 	# Do NOT append to player_board yet — on-play effects should not see this minion on the board.
 	slot.place_minion(instance)
@@ -872,9 +881,9 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: Min
 	play_ctx.minion = instance
 	play_ctx.card   = card
 	play_ctx.target = on_play_target
-	turn_manager.remove_from_hand(card)
+	turn_manager.remove_from_hand(inst)
 	if hand_display:
-		hand_display.remove_card(card)
+		hand_display.remove_card(inst)
 		hand_display.deselect_current()
 	trigger_manager.fire(play_ctx)
 	# Now officially join the board before ON_PLAYER_MINION_SUMMONED (summon triggers expect it present).
@@ -889,14 +898,16 @@ func _try_play_minion(card: MinionCardData, slot: BoardSlot, on_play_target: Min
 ## Animated variant of _try_play_minion — fires card flight + landing before triggers.
 ## State changes happen immediately; triggers fire after landing animation.
 ## Called without await so input is never blocked.
-func _try_play_minion_animated(card: MinionCardData, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
+func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
 	if not slot.is_empty():
 		return
+	var card := inst.card_data as MinionCardData
 	var extra_mana := 1 if (_card_has_tag(card, "void_imp") and _has_talent("piercing_void")) else 0
 	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
 		return
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
+	instance.card_instance = inst
 	# slot.place_minion deferred to on_landing so empty placeholder stays visible during flight
 
 	# Capture hand index BEFORE popping (pop removes the visual from the list)
@@ -904,7 +915,7 @@ func _try_play_minion_animated(card: MinionCardData, slot: BoardSlot, on_play_ta
 	var flying_visual: CardVisual = null
 	if hand_display:
 		flying_visual = hand_display.pop_selected_for_animation()
-	turn_manager.remove_from_hand(card)
+	turn_manager.remove_from_hand(inst)
 	_refresh_hand_spell_costs()
 
 	var total_cost: int = card.essence_cost + card.mana_cost
@@ -921,6 +932,7 @@ func _try_play_minion_animated(card: MinionCardData, slot: BoardSlot, on_play_ta
 		summon_ctx.minion = instance
 		summon_ctx.card   = card
 		trigger_manager.fire(summon_ctx)
+		_refresh_hand_spell_costs()
 	_animate_card_to_slot(flying_visual, slot, hand_index, total_cost, is_champion, on_landing)
 
 ## Async arc-flight + landing animation.
@@ -1426,11 +1438,11 @@ func _count_void_imps_on_board() -> int:
 ## Check all champion cards in hand/deck and auto-summon any whose condition is met.
 ## Called whenever the board changes in a way that could trigger a champion (e.g. minion summon).
 func _check_champion_triggers() -> void:
-	var all_cards: Array = turn_manager.player_hand + turn_manager.player_deck
-	for card in all_cards:
-		if not (card is MinionCardData):
+	var all_cards: Array[CardInstance] = turn_manager.player_hand + turn_manager.player_deck
+	for inst in all_cards:
+		if not (inst.card_data is MinionCardData):
 			continue
-		var champion := card as MinionCardData
+		var champion := inst.card_data as MinionCardData
 		if not champion.is_champion:
 			continue
 		# Skip if this champion is already on the board
@@ -1442,7 +1454,7 @@ func _check_champion_triggers() -> void:
 		if already_on_board:
 			continue
 		if _check_champion_condition(champion):
-			_summon_champion_card(champion, card in turn_manager.player_hand)
+			_summon_champion_card(champion, inst, inst in turn_manager.player_hand)
 			return  # One champion summon per trigger check
 
 ## Evaluate whether a champion's auto-summon condition is currently met.
@@ -1453,18 +1465,19 @@ func _check_champion_condition(champion: MinionCardData) -> bool:
 	return false
 
 ## Place the champion card on the first empty player slot (free of cost).
-func _summon_champion_card(card: MinionCardData, from_hand: bool) -> void:
+func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: bool) -> void:
 	for slot in player_slots:
 		if slot.is_empty():
 			var instance := MinionInstance.create(card, "player")
+			instance.card_instance = inst
 			player_board.append(instance)
 			slot.place_minion(instance)
 			if from_hand:
-				turn_manager.remove_from_hand(card)
+				turn_manager.remove_from_hand(inst)
 				if hand_display:
-					hand_display.remove_card(card)
+					hand_display.remove_card(inst)
 			else:
-				turn_manager.player_deck.erase(card)
+				turn_manager.player_deck.erase(inst)
 			_log("⚡ 3 Void Imps on board — %s emerges!" % card.card_name, _LogType.PLAYER)
 			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
 			ctx.minion = instance
@@ -1486,11 +1499,19 @@ func _refresh_hand_spell_costs() -> void:
 		hand_display.refresh_spell_costs(discount)
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	if _large_preview and _large_preview.visible:
-		_large_preview.apply_cost_discount(discount)
+		var extra := -(_hovered_hand_visual.card_inst.cost_delta) if _hovered_hand_visual != null and _hovered_hand_visual.card_inst != null else 0
+		_large_preview.apply_cost_discount(discount + extra)
 
 ## Effective mana cost for a player spell after applying board discount.
 func _effective_spell_cost(spell: SpellCardData) -> int:
 	return maxi(0, spell.cost - _spell_mana_discount())
+
+## Effective mana cost for a player trap/rune — reads cost_delta from the hovered card's CardInstance.
+## Used for pip-blink preview only; actual play uses pending_play_card.effective_cost().
+func _effective_trap_cost(trap: TrapCardData) -> int:
+	if _hovered_hand_visual != null and _hovered_hand_visual.card_inst != null:
+		return _hovered_hand_visual.card_inst.effective_cost()
+	return maxi(0, trap.cost)
 
 ## Mana discount applied to all player spells — summed from all minions on board.
 ## Data-driven via MinionCardData.mana_cost_discount.
@@ -1511,9 +1532,9 @@ func _apply_void_mark(stacks: int = 1) -> void:
 	_update_enemy_status_panel()
 
 ## Deal Void Bolt damage to the enemy hero, scaled by current Void Marks.
-## CONVENTION: ALL "Void Bolt damage" in the game must go through this function
+## CONVENTION: ALL Void Bolt damage in the game must go through this function
 ## so that talents like deepened_curse and future modifiers apply automatically.
-## Never call _on_hero_damaged("enemy", x) directly for Void Bolt-typed damage.
+## Void bolt passives are fired automatically in _on_hero_damaged when type == VOID_BOLT.
 func _deal_void_bolt_damage(base_damage: int) -> void:
 	var bonus := enemy_void_marks * _void_mark_damage_per_stack()
 	var total := base_damage + bonus
@@ -1521,10 +1542,7 @@ func _deal_void_bolt_damage(base_damage: int) -> void:
 		_log("  Void Bolt: %d dmg (base %d + %d from %d marks)" % [total, base_damage, bonus, enemy_void_marks], _LogType.PLAYER)
 	else:
 		_log("  Void Bolt: %d damage." % total, _LogType.PLAYER)
-	_on_hero_damaged("enemy", total)
-	# Board passives that react to Void Bolt hits (e.g. Void Channeler)
-	if _handlers:
-		_handlers._apply_void_bolt_passives()
+	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
 
 ## Tries to spend a card's costs, respecting the Void Crystal relic.
 ## Returns true if the card can be played (and costs are deducted).
@@ -1597,7 +1615,7 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		else:
 			_animate_minion_death(dead_slot, dead_slot.global_position)
 
-func _on_hero_damaged(target: String, amount: int) -> void:
+func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if _combat_ended:
 		return
 	if target == "player":
@@ -1624,6 +1642,8 @@ func _on_hero_damaged(target: String, amount: int) -> void:
 			_flash_hero("enemy", amount, _on_victory)
 		else:
 			_flash_hero("enemy", amount)
+			if type == Enums.DamageType.VOID_BOLT and _handlers:
+				_handlers._apply_void_bolt_passives()
 
 func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":
@@ -1633,7 +1653,7 @@ func _on_hero_healed(target: String, amount: int) -> void:
 		# Eternal Hunger — deal the healed amount to the enemy hero too
 		if "eternal_hunger" in GameManager.player_relics:
 			_log("  Eternal Hunger: deal %d damage to enemy hero." % amount, _LogType.PLAYER)
-			_on_hero_damaged("enemy", amount)
+			combat_manager.apply_hero_damage("enemy", amount, Enums.DamageType.SPELL)
 
 # ---------------------------------------------------------------------------
 # Targeted spell helpers
@@ -1715,9 +1735,9 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 			hand_display.deselect_current()
 		return
 	_log("You cast: %s → %s" % [spell.card_name, target.card_data.card_name])
-	turn_manager.remove_from_hand(spell)
+	turn_manager.remove_from_hand(pending_play_card)
 	if hand_display:
-		hand_display.remove_card(spell)
+		hand_display.remove_card(pending_play_card)
 		hand_display.deselect_current()
 	pending_play_card = null
 	_clear_all_highlights()
@@ -1738,36 +1758,35 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 		return
-	if not (pending_play_card is SpellCardData):
+	if pending_play_card == null or not pending_play_card.card_data is SpellCardData:
 		return
-	var spell := pending_play_card as SpellCardData
+	var spell := pending_play_card.card_data as SpellCardData
 	if not _pay_card_cost(0, _effective_spell_cost(spell)):
 		if hand_display:
 			hand_display.deselect_current()
 		return
 	_log("You cast: %s → Enemy Hero" % spell.card_name)
-	turn_manager.remove_from_hand(spell)
+	turn_manager.remove_from_hand(pending_play_card)
 	if hand_display:
-		hand_display.remove_card(spell)
+		hand_display.remove_card(pending_play_card)
 		hand_display.deselect_current()
 	pending_play_card = null
 	_clear_all_highlights()
 	_show_card_cast_anim(spell, false, func() -> void:
-		# Compute damage: base amount + bonus if has Human
+		# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount
 		var base_dmg: int = 0
-		var bonus_dmg: int = 0
 		for step in spell.effect_steps:
 			var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
 			if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
-				var cond_ok := ConditionResolver.check_all(s.conditions, EffectContext.make(self, "player"), null)
-				if cond_ok:
-					if s.conditions.is_empty():
-						base_dmg += s.amount
-					else:
-						bonus_dmg += s.amount
-		var total: int = base_dmg + bonus_dmg
+				var ctx := EffectContext.make(self, "player")
+				if ConditionResolver.check_all(s.conditions, ctx, null):
+					base_dmg += s.amount
+					if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
+						if ConditionResolver.check_all(s.bonus_conditions, ctx, null):
+							base_dmg += s.bonus_amount
+		var total: int = base_dmg
 		_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], _LogType.PLAYER)
-		_on_hero_damaged("enemy", total)
+		combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.SPELL)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
 		trigger_manager.fire(spell_ctx)
@@ -1807,14 +1826,14 @@ func _tear_down_trap_env_targeting() -> void:
 func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
 		return
-	var spell := pending_play_card as SpellCardData
-	if spell == null:
+	if pending_play_card == null or not pending_play_card.card_data is SpellCardData:
 		return
+	var spell := pending_play_card.card_data as SpellCardData
 	if not _pay_card_cost(0, _effective_spell_cost(spell)):
 		if hand_display:
 			hand_display.deselect_current()
 		return
-	turn_manager.remove_from_hand(spell)
+	turn_manager.remove_from_hand(pending_play_card)
 	pending_play_card = null
 	_tear_down_trap_env_targeting()
 	if hand_display:
@@ -2129,19 +2148,21 @@ func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
 	else:
 		_log("  Dominion Rune removed: all friendly Demons lose ATK bonus.", _LogType.PLAYER)
 
-## Talent: rune_caller — draw a random Rune card from the player's deck into hand.
+## Talent: rune_caller — draw a random Rune from the player's deck, discounted by 1 mana via cost_delta.
 func _draw_rune_from_deck() -> void:
-	var runes_in_deck: Array = []
-	for c in turn_manager.player_deck:
-		if c is TrapCardData and (c as TrapCardData).is_rune:
-			runes_in_deck.append(c)
+	var runes_in_deck: Array[CardInstance] = []
+	for inst in turn_manager.player_deck:
+		if inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune:
+			runes_in_deck.append(inst)
 	if runes_in_deck.is_empty():
 		_log("  Rune Caller: no Runes left in deck.", _LogType.PLAYER)
 		return
-	var chosen: CardData = runes_in_deck[randi() % runes_in_deck.size()]
+	var chosen: CardInstance = runes_in_deck[randi() % runes_in_deck.size()]
 	turn_manager.player_deck.erase(chosen)
-	turn_manager.add_to_hand(chosen)
-	_log("  Rune Caller: drew %s from deck." % chosen.card_name, _LogType.PLAYER)
+	chosen.cost_delta = -1
+	turn_manager.add_instance_to_hand(chosen)
+	_refresh_hand_spell_costs()
+	_log("  Rune Caller: drew %s from deck (costs 1 less mana this turn)." % chosen.card_data.card_name, _LogType.PLAYER)
 
 ## Talent: runic_attunement — multiplier applied to all Rune aura numeric values.
 func _rune_aura_multiplier() -> int:
@@ -3219,12 +3240,13 @@ func _setup_large_preview() -> void:
 	var ps      := _large_preview.size
 	_large_preview.position = Vector2(16.0, vp_size.y - ps.y - 16.0)
 
-func _show_large_preview(card_data: CardData) -> void:
+func _show_large_preview(card_data: CardData, source_visual: CardVisual = null) -> void:
 	if not _large_preview or not card_data:
 		return
 	_large_preview.setup(card_data)
 	_large_preview.enable_tooltip()
-	_large_preview.apply_cost_discount(_spell_mana_discount())
+	var extra := -(source_visual.card_inst.cost_delta) if source_visual != null and source_visual.card_inst != null else 0
+	_large_preview.apply_cost_discount(_spell_mana_discount() + extra)
 	_large_preview.visible = true
 
 func _hide_large_preview() -> void:

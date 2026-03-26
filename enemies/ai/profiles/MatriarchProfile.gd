@@ -34,7 +34,7 @@ func _should_cast_pack_frenzy() -> bool:
 	if agent.opponent_board.is_empty():
 		return false
 	var pf := _find_pack_frenzy()
-	if pf == null or agent.effective_spell_cost(pf) > agent.mana:
+	if pf == null or agent.effective_spell_cost(pf.card_data as SpellCardData) > agent.mana:
 		return false
 	var feral_count := 0
 	for m in agent.friendly_board:

@@ -32,7 +32,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var dmg      := _amount(step, ctx)
 				var opponent := "enemy" if ctx.owner == "player" else "player"
-				ctx.scene._on_hero_damaged(opponent, dmg)
+				ctx.scene.combat_manager.apply_hero_damage(opponent, dmg, Enums.DamageType.SPELL)
 			return
 
 		EffectStep.EffectType.HEAL_HERO:

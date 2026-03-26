@@ -34,7 +34,7 @@ func attack_phase() -> void:
 	if _should_cast_pack_frenzy():
 		var pf := _find_pack_frenzy()
 		if pf:
-			agent.mana -= agent.effective_spell_cost(pf)
+			agent.mana -= agent.effective_spell_cost(pf.card_data as SpellCardData)
 			if not await agent.commit_play_spell(pf, null):
 				return
 	await super.attack_phase()
@@ -45,7 +45,7 @@ func attack_phase() -> void:
 
 func _should_cast_pack_frenzy() -> bool:
 	var pf := _find_pack_frenzy()
-	if pf == null or agent.effective_spell_cost(pf) > agent.mana:
+	if pf == null or agent.effective_spell_cost(pf.card_data as SpellCardData) > agent.mana:
 		return false
 	if _calc_lethal_with_pack_frenzy() >= agent.opponent_hp:
 		return true
@@ -142,10 +142,10 @@ func _min_overkill_idx(pool: Array[int], target_hp: int) -> int:
 # Helpers
 # ---------------------------------------------------------------------------
 
-func _find_pack_frenzy() -> SpellCardData:
-	for c in agent.hand:
-		if c is SpellCardData and c.id == "pack_frenzy":
-			return c as SpellCardData
+func _find_pack_frenzy() -> CardInstance:
+	for inst in agent.hand:
+		if inst.card_data is SpellCardData and (inst.card_data as SpellCardData).id == "pack_frenzy":
+			return inst
 	return null
 
 func _is_feral_imp(m: MinionInstance) -> bool:

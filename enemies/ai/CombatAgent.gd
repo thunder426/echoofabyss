@@ -20,8 +20,8 @@ var friendly_board: Array[MinionInstance]:
 var opponent_board: Array[MinionInstance]:
 	get: return _get_opponent_board()
 
-## Cards currently in this agent's hand.
-var hand: Array[CardData]:
+## Cards currently in this agent's hand (as CardInstances).
+var hand: Array[CardInstance]:
 	get: return _get_hand()
 
 ## Essence available this turn.
@@ -64,24 +64,33 @@ func is_alive() -> bool:
 func find_empty_slot() -> BoardSlot:
 	return null
 
+## Returns the number of empty friendly board slots.
+## Default returns a large sentinel — override in concrete agents with direct slot access.
+func empty_slot_count() -> int:
+	return 9999
+
 # ---------------------------------------------------------------------------
 # Actions — return false if the action could not complete or env is gone
 # ---------------------------------------------------------------------------
 
 ## Place a minion on a slot (slot already found, resources already deducted).
-func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = null) -> bool:
+## inst is the CardInstance being played from hand.
+func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
 	return false
 
 ## Cast a spell (resources already deducted).
-func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
+## inst is the CardInstance being played from hand.
+func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 	return false
 
 ## Place a trap or rune (resources already deducted).
-func commit_play_trap(trap: TrapCardData) -> bool:
+## inst is the CardInstance being played from hand.
+func commit_play_trap(inst: CardInstance) -> bool:
 	return false
 
 ## Play an environment card (resources already deducted).
-func commit_play_environment(env: EnvironmentCardData) -> bool:
+## inst is the CardInstance being played from hand.
+func commit_play_environment(inst: CardInstance) -> bool:
 	return false
 
 ## Execute a friendly minion vs opponent minion attack.
@@ -111,12 +120,20 @@ func pick_swift_target(attacker: MinionInstance) -> MinionInstance:
 			best = m
 	return best
 
-## Sort comparator — cheapest total cost first.
-func sort_by_total_cost(a: CardData, b: CardData) -> bool:
-	var ac := (a as MinionCardData).essence_cost + (a as MinionCardData).mana_cost \
-		if a is MinionCardData else (a as SpellCardData).cost
-	var bc := (b as MinionCardData).essence_cost + (b as MinionCardData).mana_cost \
-		if b is MinionCardData else (b as SpellCardData).cost
+## Sort comparator — cheapest total cost first (operates on CardInstances).
+func sort_by_total_cost(a: CardInstance, b: CardInstance) -> bool:
+	var ac: int
+	var bc: int
+	if a.card_data is MinionCardData:
+		var ma := a.card_data as MinionCardData
+		ac = ma.essence_cost + ma.mana_cost
+	else:
+		ac = a.card_data.cost
+	if b.card_data is MinionCardData:
+		var mb := b.card_data as MinionCardData
+		bc = mb.essence_cost + mb.mana_cost
+	else:
+		bc = b.card_data.cost
 	return ac < bc
 
 ## Effective mana cost of a spell after any penalties / discounts.
@@ -134,7 +151,7 @@ func opponent_has_rune_or_environment() -> bool:
 
 func _get_friendly_board() -> Array[MinionInstance]: return []
 func _get_opponent_board() -> Array[MinionInstance]: return []
-func _get_hand() -> Array[CardData]: return []
+func _get_hand() -> Array[CardInstance]: return []
 func _get_essence() -> int: return 0
 func _set_essence(_v: int) -> void: pass
 func _get_mana() -> int: return 0

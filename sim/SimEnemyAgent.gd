@@ -21,7 +21,7 @@ func setup(s: SimState) -> void:
 
 func _get_friendly_board() -> Array[MinionInstance]: return sim.enemy_board
 func _get_opponent_board() -> Array[MinionInstance]: return sim.player_board
-func _get_hand()           -> Array[CardData]:        return sim.enemy_hand
+func _get_hand()           -> Array[CardInstance]:     return sim.enemy_hand
 func _get_essence()        -> int: return sim.enemy_essence
 func _set_essence(v: int)  -> void: sim.enemy_essence = v
 func _get_mana()           -> int: return sim.enemy_mana
@@ -70,12 +70,14 @@ func find_empty_slot() -> BoardSlot:
 # Actions — instant (no timers)
 # ---------------------------------------------------------------------------
 
-func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = null) -> bool:
+func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
+	var mc := inst.card_data as MinionCardData
 	var instance := MinionInstance.create(mc, "enemy")
+	instance.card_instance = inst
 	sim.enemy_board.append(instance)
 	slot.place_minion(instance)
-	sim.enemy_hand.erase(mc)
-	sim.enemy_discard.append(mc)
+	sim.enemy_hand.erase(inst)
+	sim.enemy_discard.append(inst)
 	_resolve_on_play(mc, instance, chosen_target)
 	if sim.trigger_manager != null:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
@@ -84,21 +86,24 @@ func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = nul
 		sim.trigger_manager.fire(ctx)
 	return sim.winner.is_empty()
 
-func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
-	sim.enemy_hand.erase(spell)
-	sim.enemy_discard.append(spell)
+func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
+	var spell := inst.card_data as SpellCardData
+	sim.enemy_hand.erase(inst)
+	sim.enemy_discard.append(inst)
 	_resolve_spell(spell, chosen_target)
 	return sim.winner.is_empty()
 
-func commit_play_trap(trap: TrapCardData) -> bool:
-	sim.enemy_hand.erase(trap)
-	sim.enemy_discard.append(trap)
+func commit_play_trap(inst: CardInstance) -> bool:
+	var trap := inst.card_data as TrapCardData
+	sim.enemy_hand.erase(inst)
+	sim.enemy_discard.append(inst)
 	sim.enemy_active_traps.append(trap)
 	return sim.winner.is_empty()
 
-func commit_play_environment(env: EnvironmentCardData) -> bool:
-	sim.enemy_hand.erase(env)
-	sim.enemy_discard.append(env)
+func commit_play_environment(inst: CardInstance) -> bool:
+	var env := inst.card_data as EnvironmentCardData
+	sim.enemy_hand.erase(inst)
+	sim.enemy_discard.append(inst)
 	sim.enemy_active_environment = env
 	return sim.winner.is_empty()
 
@@ -142,7 +147,7 @@ func _draw_cards(count: int) -> void:
 
 func add_to_hand(card: CardData) -> void:
 	if sim.enemy_hand.size() < SimState.ENEMY_HAND_MAX:
-		sim.enemy_hand.append(card)
+		sim.enemy_hand.append(CardInstance.create(card))
 
 # ---------------------------------------------------------------------------
 # Effect resolution helpers

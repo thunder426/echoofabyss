@@ -18,8 +18,8 @@ signal turn_ended(is_player_turn: bool)
 ## Fired whenever resources change so the UI can update its display.
 signal resources_changed(essence: int, essence_max: int, mana: int, mana_max: int)
 
-## Fired when the player draws a card. The scene adds it to the hand.
-signal card_drawn(card_data: CardData)
+## Fired when the player draws a card. The scene adds it to the hand display.
+signal card_drawn(card_inst: CardInstance)
 
 ## Fired at the start of each player turn to clear per-turn buffs on minions.
 signal player_turn_cleanup(player_board: Array[MinionInstance])
@@ -48,8 +48,8 @@ var mana: int = 0
 var mana_max: int = 0
 
 # References set by CombatScene on ready
-var player_deck: Array[CardData] = []
-var player_hand: Array[CardData] = []
+var player_deck: Array[CardInstance] = []
+var player_hand: Array[CardInstance] = []
 var player_board: Array[MinionInstance] = []
 var enemy_board: Array[MinionInstance] = []
 
@@ -62,7 +62,9 @@ const HAND_SIZE_MAX: int = 10
 
 ## Call this once when the combat scene loads to begin the first turn.
 func start_combat(deck: Array[CardData]) -> void:
-	player_deck = deck.duplicate()
+	player_deck.clear()
+	for card in deck:
+		player_deck.append(CardInstance.create(card))
 	player_deck.shuffle()
 	player_hand.clear()
 	turn_number = 0
@@ -176,21 +178,26 @@ func spend_mana(amount: int) -> bool:
 # Card draw
 # ---------------------------------------------------------------------------
 
-## Remove a card from the tracked hand (call whenever a card is played).
-func remove_from_hand(card: CardData) -> void:
-	player_hand.erase(card)
+## Remove a specific card instance from the tracked hand (call when a card is played).
+func remove_from_hand(inst: CardInstance) -> void:
+	player_hand.erase(inst)
 
 ## Public wrapper — lets CombatScene draw an extra card (e.g. Ancient Tome relic).
 func draw_card() -> void:
 	_draw_card()
 
-## Add a specific card directly to the player's hand (e.g. Abyssal Arcanist, Void Archmagus).
+## Add a CardData to the player's hand by wrapping it in a new CardInstance.
 ## Burns silently if the hand is already full.
 func add_to_hand(card: CardData) -> void:
+	add_instance_to_hand(CardInstance.create(card))
+
+## Add an existing CardInstance directly to the player's hand.
+## Burns silently if the hand is already full.
+func add_instance_to_hand(inst: CardInstance) -> void:
 	if player_hand.size() >= HAND_SIZE_MAX:
 		return
-	player_hand.append(card)
-	card_drawn.emit(card)
+	player_hand.append(inst)
+	card_drawn.emit(inst)
 
 func _draw_card() -> void:
 	if player_deck.is_empty():
@@ -200,9 +207,9 @@ func _draw_card() -> void:
 		# Card is burned — drawn but discarded immediately
 		player_deck.pop_front()
 		return
-	var card: CardData = player_deck.pop_front()
-	player_hand.append(card)
-	card_drawn.emit(card)
+	var inst: CardInstance = player_deck.pop_front()
+	player_hand.append(inst)
+	card_drawn.emit(inst)
 
 # ---------------------------------------------------------------------------
 # Minion helpers

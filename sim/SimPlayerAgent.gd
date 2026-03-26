@@ -15,7 +15,7 @@ func setup(s: SimState) -> void:
 
 func _get_friendly_board() -> Array[MinionInstance]: return sim.player_board
 func _get_opponent_board() -> Array[MinionInstance]: return sim.enemy_board
-func _get_hand()           -> Array[CardData]:        return sim.player_hand
+func _get_hand()           -> Array[CardInstance]:     return sim.player_hand
 func _get_essence()        -> int: return sim.player_essence
 func _set_essence(v: int)  -> void: sim.player_essence = v
 func _get_mana()           -> int: return sim.player_mana
@@ -42,16 +42,25 @@ func find_empty_slot() -> BoardSlot:
 			return slot
 	return null
 
+func empty_slot_count() -> int:
+	var count := 0
+	for slot in sim.player_slots:
+		if slot.is_empty():
+			count += 1
+	return count
+
 # ---------------------------------------------------------------------------
 # Actions — instant (no timers)
 # ---------------------------------------------------------------------------
 
-func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = null) -> bool:
+func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
+	var mc := inst.card_data as MinionCardData
 	var instance := MinionInstance.create(mc, "player")
+	instance.card_instance = inst
 	sim.player_board.append(instance)
 	slot.place_minion(instance)
-	sim.player_hand.erase(mc)
-	sim.player_discard.append(mc)
+	sim.player_hand.erase(inst)
+	sim.player_discard.append(inst)
 	_resolve_on_play(mc, instance, chosen_target)
 	if sim.trigger_manager != null:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
@@ -60,15 +69,17 @@ func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = nul
 		sim.trigger_manager.fire(ctx)
 	return sim.winner.is_empty()
 
-func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
-	sim.player_hand.erase(spell)
-	sim.player_discard.append(spell)
+func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
+	var spell := inst.card_data as SpellCardData
+	sim.player_hand.erase(inst)
+	sim.player_discard.append(inst)
 	_resolve_spell(spell, chosen_target)
 	return sim.winner.is_empty()
 
-func commit_play_trap(trap: TrapCardData) -> bool:
-	sim.player_hand.erase(trap)
-	sim.player_discard.append(trap)
+func commit_play_trap(inst: CardInstance) -> bool:
+	var trap := inst.card_data as TrapCardData
+	sim.player_hand.erase(inst)
+	sim.player_discard.append(inst)
 	sim.active_traps.append(trap)
 	# Fire ON_PLAYER_TRAP_PLACED
 	if sim.trigger_manager != null:
@@ -83,9 +94,10 @@ func commit_play_trap(trap: TrapCardData) -> bool:
 		sim.trigger_manager.fire(rune_ctx)
 	return sim.winner.is_empty()
 
-func commit_play_environment(env: EnvironmentCardData) -> bool:
-	sim.player_hand.erase(env)
-	sim.player_discard.append(env)
+func commit_play_environment(inst: CardInstance) -> bool:
+	var env := inst.card_data as EnvironmentCardData
+	sim.player_hand.erase(inst)
+	sim.player_discard.append(inst)
 	# Tear down previous environment before replacing
 	if sim.active_environment != null and sim.trigger_manager != null:
 		sim._unregister_env_rituals()

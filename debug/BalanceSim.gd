@@ -1,38 +1,136 @@
 ## BalanceSim.gd
-## Interactive headless combat simulator for balance testing.
-## UI is built entirely in code — no .tscn content beyond the root node.
+## Interactive balance simulator — runs inside the Godot editor.
+## Select an Act 1 enemy, a player deck (preset or custom), hero talents,
+## set the run count, then click Run.
 ##
-## How to open: navigate to res://debug/BalanceSim.tscn in the editor and run it,
-## or add a button in TestLaunchScene that changes scene to it.
+## How to open: run res://debug/BalanceSim.tscn from the editor
+## or navigate to it from TestLaunchScene.
 extends Control
 
 # ---------------------------------------------------------------------------
-# UI references
+# Act 1 fight configs  (mirrors GameManager._make_encounter calls)
+# ---------------------------------------------------------------------------
+const _FIGHTS: Array = [
+	{
+		"label":   "Fight 1  —  Rogue Imp Pack",
+		"hp":      1800,
+		"profile": "feral_pack",
+		"deck": [
+			"rabid_imp","rabid_imp","rabid_imp","rabid_imp",
+			"brood_imp","brood_imp","brood_imp",
+			"imp_brawler","imp_brawler","imp_brawler",
+			"feral_surge","feral_surge",
+			"void_screech","void_screech","cyclone",
+		],
+		"talent_points": 1,
+	},
+	{
+		"label":   "Fight 2  —  Corrupted Broodlings",
+		"hp":      2200,
+		"profile": "corrupted_brood",
+		"deck": [
+			"brood_imp","brood_imp","brood_imp",
+			"void_touched_imp","void_touched_imp","void_touched_imp","void_touched_imp",
+			"imp_brawler","imp_brawler",
+			"frenzied_imp","frenzied_imp",
+			"rabid_imp","rabid_imp",
+			"brood_call","brood_call",
+			"void_screech","cyclone",
+		],
+		"talent_points": 1,
+	},
+	{
+		"label":   "Fight 3  —  Imp Matriarch",
+		"hp":      3000,
+		"profile": "matriarch",
+		"deck": [
+			"rabid_imp","rabid_imp","rabid_imp",
+			"brood_imp","brood_imp",
+			"imp_brawler","imp_brawler",
+			"void_touched_imp",
+			"rogue_imp_elder","matriarchs_broodling",
+			"pack_frenzy","pack_frenzy",
+			"feral_surge","void_screech","brood_call",
+		],
+		"talent_points": 1,
+	},
+]
+
+# ---------------------------------------------------------------------------
+# Preset player decks  — sourced from PresetDecks (cards/data/PresetDecks.gd)
+# ---------------------------------------------------------------------------
+const _PRESETS: Array = PresetDecks.DECKS
+
+# ---------------------------------------------------------------------------
+# Player AI profiles
+# ---------------------------------------------------------------------------
+const _PLAYER_PROFILES: Array = [
+	{"id": "default",    "name": "Aggro / Swarm"},
+	{"id": "spell_burn", "name": "Spell Burn"},
+	{"id": "rune_tempo", "name": "Rune Tempo"},
+]
+
+# ---------------------------------------------------------------------------
+# Talent tree  (Lord Vael, all branches)
+# tier: int  —  0 = entry point, requires 0 prior points in branch
+# requires: "" = no prerequisite, otherwise the talent_id that must be active
+# ---------------------------------------------------------------------------
+const _TALENTS: Array = [
+	# ── Endless Tide ─────────────────────────────────────────────────────
+	{"id":"imp_evolution",   "name":"Imp Evolution",   "branch":"Endless Tide",  "tier":0, "req":""},
+	{"id":"swarm_discipline","name":"Swarm Discipline", "branch":"Endless Tide",  "tier":1, "req":"imp_evolution"},
+	{"id":"imp_warband",     "name":"Imp Warband",      "branch":"Endless Tide",  "tier":2, "req":"swarm_discipline"},
+	{"id":"void_echo",       "name":"Void Echo",        "branch":"Endless Tide",  "tier":3, "req":"imp_warband"},
+	# ── Rune Master ──────────────────────────────────────────────────────
+	{"id":"rune_caller",     "name":"Rune Caller",      "branch":"Rune Master",   "tier":0, "req":""},
+	{"id":"runic_attunement","name":"Runic Attunement", "branch":"Rune Master",   "tier":1, "req":"rune_caller"},
+	{"id":"ritual_surge",    "name":"Ritual Surge",     "branch":"Rune Master",   "tier":2, "req":"runic_attunement"},
+	{"id":"abyss_convergence","name":"Abyss Convergence","branch":"Rune Master",  "tier":3, "req":"ritual_surge"},
+	# ── Void Resonance ───────────────────────────────────────────────────
+	{"id":"piercing_void",      "name":"Piercing Void",      "branch":"Void Resonance","tier":0,"req":""},
+	{"id":"deepened_curse",     "name":"Deepened Curse",     "branch":"Void Resonance","tier":1,"req":"piercing_void"},
+	{"id":"death_bolt",         "name":"Death Bolt",         "branch":"Void Resonance","tier":2,"req":"deepened_curse"},
+	{"id":"void_manifestation", "name":"Void Manifestation", "branch":"Void Resonance","tier":3,"req":"death_bolt"},
+]
+
+# ---------------------------------------------------------------------------
+# UI node references
 # ---------------------------------------------------------------------------
 
-var _player_deck_input:  LineEdit
-var _enemy_deck_input:   LineEdit
-var _player_hp_input:    SpinBox
-var _enemy_hp_input:     SpinBox
-var _talents_input:      LineEdit
-var _runs_input:         SpinBox
-var _profile_button:     OptionButton
-var _run_button:         Button
-var _run_all_button:     Button
-var _clear_button:       Button
-var _log:                RichTextLabel
+var _fight_buttons:    Array[Button]  = []
+var _profile_buttons:  Array[Button]  = []
+var _deck_dropdown:    OptionButton
+var _deck_cards:       Array          = []  # parallel to dropdown items: Array of Array[String]
+var _talent_checks:    Dictionary     = {}  # talent_id -> CheckBox
+var _talent_points_label: Label
+var _runs_input:       SpinBox
+var _run_button:       Button
+var _clear_button:     Button
+var _log:              RichTextLabel
 
 # ---------------------------------------------------------------------------
-# Profile list (must match CombatSim._ENEMY_PROFILES keys)
+# State
 # ---------------------------------------------------------------------------
 
-const _PROFILES: Array[String] = ["feral_pack", "corrupted_brood", "default"]
+var _fight_idx: int          = 0
+var _points_used: int        = 0
+var _player_profile_id: String = "default"
 
 # ---------------------------------------------------------------------------
-# Default test deck
+# Theme colours
 # ---------------------------------------------------------------------------
 
-const _DEFAULT_DECK := "void_imp,void_imp,shadow_hound,shadow_hound,abyssal_brute,void_bolt,void_bolt"
+const _C_BG       := Color(0.06, 0.06, 0.10)
+const _C_PANEL    := Color(0.09, 0.09, 0.15)
+const _C_SECTION  := Color(0.12, 0.12, 0.20)
+const _C_BTN_SEL  := Color(0.30, 0.22, 0.55)
+const _C_BTN_NRM  := Color(0.16, 0.16, 0.26)
+const _C_LOG      := Color(0.04, 0.04, 0.08)
+const _C_TEXT     := Color(0.80, 0.80, 0.92)
+const _C_DIM      := Color(0.50, 0.50, 0.65)
+const _C_GREEN    := Color(0.40, 0.90, 0.55)
+const _C_RED      := Color(0.95, 0.40, 0.40)
+const _C_GOLD     := Color(0.95, 0.82, 0.45)
 
 # ---------------------------------------------------------------------------
 # Build
@@ -40,219 +138,442 @@ const _DEFAULT_DECK := "void_imp,void_imp,shadow_hound,shadow_hound,abyssal_brut
 
 func _ready() -> void:
 	_build_ui()
+	_select_fight(0)
+	_select_profile(0)
 
 func _build_ui() -> void:
+	# Full-rect background
 	var bg := ColorRect.new()
-	bg.color = Color(0.06, 0.06, 0.10, 1)
+	bg.color = _C_BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
-	# Outer layout
-	var outer := VBoxContainer.new()
-	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
-	outer.add_theme_constant_override("separation", 0)
-	add_child(outer)
+	# Root vbox: title bar + body
+	var root := VBoxContainer.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("separation", 0)
+	add_child(root)
 
 	# ── Title bar ──────────────────────────────────────────────────────────
-	var title_bar := _make_panel(Color(0.10, 0.10, 0.16))
+	var title_bar := _panel(_C_PANEL)
 	title_bar.custom_minimum_size.y = 40
-	outer.add_child(title_bar)
+	root.add_child(title_bar)
 
-	var title_label := Label.new()
-	title_label.text = "⚔  Balance Simulator"
-	title_label.set_anchors_preset(Control.PRESET_CENTER_LEFT)
-	title_label.offset_left = 12
-	title_label.offset_right = 400
-	title_bar.add_child(title_label)
+	var title_lbl := Label.new()
+	title_lbl.text = "  Balance Simulator  —  Act 1"
+	title_lbl.set_anchors_preset(Control.PRESET_CENTER_LEFT)
+	title_lbl.offset_left  = 8
+	title_lbl.offset_right = 500
+	title_bar.add_child(title_lbl)
 
-	# ── Main split: controls left, log right ───────────────────────────────
+	# ── Body: left controls | right log ────────────────────────────────────
 	var split := HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	split.split_offset = 340
-	outer.add_child(split)
+	split.split_offset = 380
+	root.add_child(split)
 
-	# Left panel — inputs
-	var left := ScrollContainer.new()
-	left.custom_minimum_size.x = 320
-	split.add_child(left)
+	# Left panel
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size.x = 360
+	scroll.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	split.add_child(scroll)
 
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size.x = 310
-	vbox.add_theme_constant_override("separation", 10)
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.add_child(vbox)
+	var left := VBoxContainer.new()
+	left.custom_minimum_size.x = 352
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_theme_constant_override("separation", 0)
+	scroll.add_child(left)
 
-	# Padding
-	var pad := Control.new()
-	pad.custom_minimum_size.y = 8
-	vbox.add_child(pad)
-
-	# Inputs
-	_player_deck_input = _add_lineedit(vbox, "Player deck (comma-separated IDs):", _DEFAULT_DECK)
-	_enemy_deck_input  = _add_lineedit(vbox, "Enemy deck (blank = profile fallback):", "")
-	_player_hp_input   = _add_spinbox(vbox,  "Player HP:", 3000, 100, 99999, 100)
-	_enemy_hp_input    = _add_spinbox(vbox,  "Enemy HP:",  2000, 100, 99999, 100)
-	_talents_input     = _add_lineedit(vbox, "Player talents (comma-separated):", "")
-	_runs_input        = _add_spinbox(vbox,  "Simulations:", 100, 1, 10000, 50)
-
-	# Profile selector
-	vbox.add_child(_make_label("Enemy profile:"))
-	_profile_button = OptionButton.new()
-	for p in _PROFILES:
-		_profile_button.add_item(p)
-	_profile_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_child(_profile_button)
-
-	# Buttons
-	var btn_box := HBoxContainer.new()
-	btn_box.add_theme_constant_override("separation", 8)
-	vbox.add_child(btn_box)
-
-	_run_button = Button.new()
-	_run_button.text = "▶  Run Selected"
-	_run_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_run_button.pressed.connect(_on_run_pressed)
-	btn_box.add_child(_run_button)
-
-	_run_all_button = Button.new()
-	_run_all_button.text = "▶▶  Run All Profiles"
-	_run_all_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_run_all_button.pressed.connect(_on_run_all_pressed)
-	btn_box.add_child(_run_all_button)
-
-	_clear_button = Button.new()
-	_clear_button.text = "🗑 Clear"
-	_clear_button.pressed.connect(func(): _log.clear())
-	vbox.add_child(_clear_button)
+	_build_enemy_section(left)
+	_build_deck_section(left)
+	_build_profile_section(left)
+	_build_talent_section(left)
+	_build_run_section(left)
 
 	# Right panel — log
-	var log_panel := _make_panel(Color(0.04, 0.04, 0.08))
-	log_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	log_panel.size_flags_vertical   = Control.SIZE_EXPAND_FILL
-	split.add_child(log_panel)
+	var log_bg := _panel(_C_LOG)
+	log_bg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	log_bg.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	split.add_child(log_bg)
 
 	_log = RichTextLabel.new()
 	_log.bbcode_enabled  = true
 	_log.scroll_following = true
 	_log.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_log.offset_left   = 8
-	_log.offset_top    = 8
-	_log.offset_right  = -8
-	_log.offset_bottom = -8
-	log_panel.add_child(_log)
+	_log.offset_left   = 10
+	_log.offset_top    = 10
+	_log.offset_right  = -10
+	_log.offset_bottom = -10
+	log_bg.add_child(_log)
 
-	_print_line("[color=#888]Balance Simulator ready. Configure inputs and click Run.[/color]")
+	_log.append_text("[color=#555]Balance Simulator ready. Select fight, deck, talents and click Run.[/color]\n")
+
 
 # ---------------------------------------------------------------------------
-# Button handlers
+# Section builders
+# ---------------------------------------------------------------------------
+
+func _build_enemy_section(parent: Control) -> void:
+	parent.add_child(_section_header("ENEMY"))
+	var vbox := _section_body(parent)
+
+	for i in _FIGHTS.size():
+		var fight: Dictionary = _FIGHTS[i]
+		var btn   := _flat_button(fight.label)
+		btn.pressed.connect(_select_fight.bind(i))
+		vbox.add_child(btn)
+		_fight_buttons.append(btn)
+
+
+func _build_deck_section(parent: Control) -> void:
+	parent.add_child(_section_header("PLAYER DECK"))
+	var vbox := _section_body(parent)
+
+	_deck_dropdown = OptionButton.new()
+	_deck_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(_deck_dropdown)
+
+	_rebuild_deck_dropdown()
+
+func _rebuild_deck_dropdown() -> void:
+	_deck_cards.clear()
+	_deck_dropdown.clear()
+
+	for preset: Dictionary in _PRESETS:
+		_deck_cards.append(preset.cards)
+		_deck_dropdown.add_item(preset.name as String)
+
+	var saved: Dictionary = SavedDecks.load_all()
+	if not saved.is_empty():
+		var names: Array = saved.keys()
+		names.sort()
+		for deck_name: String in names:
+			_deck_cards.append(saved[deck_name] as Array)
+			_deck_dropdown.add_item("★ " + deck_name)
+
+	if _deck_dropdown.item_count > 0:
+		_deck_dropdown.select(0)
+
+
+func _build_profile_section(parent: Control) -> void:
+	parent.add_child(_section_header("PLAYER PROFILE"))
+	var vbox := _section_body(parent)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	vbox.add_child(row)
+
+	for i in _PLAYER_PROFILES.size():
+		var profile: Dictionary = _PLAYER_PROFILES[i]
+		var btn := _flat_button(profile.name)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(_select_profile.bind(i))
+		row.add_child(btn)
+		_profile_buttons.append(btn)
+
+
+func _build_talent_section(parent: Control) -> void:
+	parent.add_child(_section_header("TALENTS"))
+	var vbox := _section_body(parent)
+
+	_talent_points_label = _label("", _C_GOLD)
+	vbox.add_child(_talent_points_label)
+
+	# 3-column grid: one column per branch
+	var branches := ["Endless Tide", "Rune Master", "Void Resonance"]
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 8)
+	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(cols)
+
+	for branch in branches:
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_theme_constant_override("separation", 2)
+		cols.add_child(col)
+
+		var branch_lbl := _label(branch, _C_GOLD)
+		branch_lbl.add_theme_font_size_override("font_size", 11)
+		col.add_child(branch_lbl)
+
+		for talent in _TALENTS:
+			if talent.branch != branch:
+				continue
+			var cb := CheckBox.new()
+			cb.text = "  T%d  %s" % [talent.tier, talent.name]
+			cb.add_theme_color_override("font_color", _C_TEXT)
+			cb.add_theme_color_override("font_disabled_color", _C_DIM)
+			cb.toggled.connect(_on_talent_toggled.bind(talent.id))
+			col.add_child(cb)
+			_talent_checks[talent.id] = cb
+
+
+func _build_run_section(parent: Control) -> void:
+	parent.add_child(_section_header("RUN"))
+	var vbox := _section_body(parent)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	vbox.add_child(row)
+
+	row.add_child(_label("Simulations:", _C_DIM))
+
+	_runs_input = SpinBox.new()
+	_runs_input.min_value = 10
+	_runs_input.max_value = 5000
+	_runs_input.step      = 50
+	_runs_input.value     = 200
+	_runs_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_runs_input)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(btn_row)
+
+	_run_button = Button.new()
+	_run_button.text = "Run Simulation"
+	_run_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_run_button.pressed.connect(_on_run_pressed)
+	btn_row.add_child(_run_button)
+
+	_clear_button = Button.new()
+	_clear_button.text = "Clear"
+	_clear_button.pressed.connect(func(): _log.clear())
+	btn_row.add_child(_clear_button)
+
+# ---------------------------------------------------------------------------
+# Interaction
+# ---------------------------------------------------------------------------
+
+func _select_fight(idx: int) -> void:
+	_fight_idx = idx
+	# Highlight selected fight button
+	for i in _fight_buttons.size():
+		_style_button(_fight_buttons[i], i == idx)
+	# Drop talents that exceed new fight's point budget or require cleared prereqs
+	_clamp_talents_to_budget()
+	_refresh_talent_ui()
+
+func _select_profile(idx: int) -> void:
+	_player_profile_id = (_PLAYER_PROFILES[idx] as Dictionary).id as String
+	for i in _profile_buttons.size():
+		_style_button(_profile_buttons[i], i == idx)
+
+func _on_talent_toggled(pressed: bool, talent_id: String) -> void:
+	var check: CheckBox = _talent_checks[talent_id]
+	if pressed:
+		# Recount after toggling on
+		_points_used = _count_checked()
+		var points_available: int = (_FIGHTS[_fight_idx] as Dictionary).get("talent_points", 1) as int
+		if _points_used > points_available:
+			# Over budget — undo
+			check.set_pressed_no_signal(false)
+			_points_used = _count_checked()
+	else:
+		_points_used = _count_checked()
+		# Uncheck any talents that now have a broken prerequisite
+		_cascade_uncheck(talent_id)
+
+	_refresh_talent_ui()
+
+func _cascade_uncheck(removed_id: String) -> void:
+	for talent in _TALENTS:
+		if talent.req == removed_id:
+			var cb: CheckBox = _talent_checks[talent.id]
+			if cb.button_pressed:
+				cb.set_pressed_no_signal(false)
+				_cascade_uncheck(talent.id)
+	_points_used = _count_checked()
+
+func _clamp_talents_to_budget() -> void:
+	var limit: int = (_FIGHTS[_fight_idx] as Dictionary).get("talent_points", 1) as int
+	# Uncheck all talents that now exceed point budget or have broken prerequisites
+	# Simple approach: if checked count > limit, uncheck from highest tier down
+	var checked_ids: Array[String] = _get_checked_ids()
+	while _count_checked() > limit:
+		# Remove highest-tier checked talent first
+		var highest_tier: int    = -1
+		var highest_id:   String = ""
+		for tid in checked_ids:
+			for t in _TALENTS:
+				if t.id == tid and (t.tier as int) > highest_tier:
+					highest_tier = t.tier
+					highest_id   = tid
+		if highest_id.is_empty(): break
+		(_talent_checks[highest_id] as CheckBox).set_pressed_no_signal(false)
+		checked_ids.erase(highest_id)
+	_points_used = _count_checked()
+
+func _refresh_talent_ui() -> void:
+	var points_available: int = (_FIGHTS[_fight_idx] as Dictionary).get("talent_points", 1) as int
+	_points_used = _count_checked()
+	_talent_points_label.text = "Points: %d / %d" % [_points_used, points_available]
+
+	var checked_ids := _get_checked_ids()
+
+	for talent in _TALENTS:
+		var cb: CheckBox = _talent_checks[talent.id]
+		var req_met: bool   = (talent.req as String).is_empty() or ((talent.req as String) in checked_ids)
+		var tier_ok: bool   = (talent.tier as int) <= points_available
+		var can_check: bool = req_met and tier_ok and (_points_used < points_available or cb.button_pressed)
+		cb.disabled = not can_check
+
+# ---------------------------------------------------------------------------
+# Sim runner
 # ---------------------------------------------------------------------------
 
 func _on_run_pressed() -> void:
-	var profile := _PROFILES[_profile_button.selected]
-	await _run_sim(profile)
+	var fight: Dictionary = _FIGHTS[_fight_idx]
+	var talents  := _get_checked_ids()
+	var runs     := int(_runs_input.value)
 
-func _on_run_all_pressed() -> void:
-	for profile in _PROFILES:
-		await _run_sim(profile)
-	_print_line("")
-	_print_line("[color=#aaa]── All profiles done ──[/color]")
+	var sel_idx  := _deck_dropdown.selected
+	var raw_cards: Array = _deck_cards[sel_idx] if sel_idx >= 0 and sel_idx < _deck_cards.size() else []
+	var deck_ids: Array[String] = []
+	for c in raw_cards:
+		deck_ids.append(c as String)
 
-# ---------------------------------------------------------------------------
-# Core sim runner
-# ---------------------------------------------------------------------------
-
-func _run_sim(profile: String) -> void:
-	var player_deck := _parse_ids(_player_deck_input.text)
-	var enemy_deck  := _parse_ids(_enemy_deck_input.text)
-	var talents     := _parse_ids(_talents_input.text)
-	var player_hp   := int(_player_hp_input.value)
-	var enemy_hp    := int(_enemy_hp_input.value)
-	var runs        := int(_runs_input.value)
-
-	if player_deck.is_empty():
-		_print_line("[color=#f66]✗ Player deck is empty.[/color]")
+	if deck_ids.is_empty():
+		_log.append_text("[color=#f66]Player deck is empty — select a deck from the dropdown.[/color]\n")
 		return
 
-	_set_buttons_disabled(true)
-	_print_line("")
-	_print_line("[color=#ccb]▶ Running %d sims vs [b]%s[/b] …[/color]" % [runs, profile])
+	_run_button.disabled = true
+	_clear_button.disabled = true
+
+	_log.append_text("\n")
+	var profile_name: String = (_PLAYER_PROFILES[0] as Dictionary).name as String
+	for p in _PLAYER_PROFILES:
+		if (p as Dictionary).id == _player_profile_id:
+			profile_name = (p as Dictionary).name as String
+	var deck_name: String = _deck_dropdown.get_item_text(sel_idx)
+	_log.append_text("[color=#ccb]Running %d sims  vs  [b]%s[/b]  [Deck: %s]  [Profile: %s][/color]\n" % [runs, fight.label, deck_name, profile_name])
+	if not talents.is_empty():
+		_log.append_text("[color=#aaa]  Talents: %s[/color]\n" % ", ".join(talents))
+
+	var enemy_deck: Array[String] = []
+	for id in fight.deck:
+		enemy_deck.append(id as String)
 
 	var sim   := CombatSim.new()
-	var stats := await sim.run_many(runs, player_deck, profile,
-			enemy_deck, player_hp, enemy_hp, talents)
+	var stats: Dictionary = await sim.run_many(
+			runs,
+			deck_ids,
+			fight.profile as String,
+			enemy_deck,
+			3000,
+			fight.hp as int,
+			talents,
+			_player_profile_id)
 
-	_print_results(profile, stats)
-	_set_buttons_disabled(false)
+	_print_results(fight.label, stats)
+
+	_run_button.disabled  = false
+	_clear_button.disabled = false
 
 # ---------------------------------------------------------------------------
-# Output helpers
+# Output
 # ---------------------------------------------------------------------------
 
-func _print_results(profile: String, s: Dictionary) -> void:
+func _print_results(label: String, s: Dictionary) -> void:
 	var win_pct:  float = s.win_rate * 100.0
 	var loss_pct: float = float(s.losses) / s.count * 100.0
 	var draw_pct: float = float(s.draws)  / s.count * 100.0
 
-	var win_col  := "[color=#6f6]" if win_pct > 50 else "[color=#f66]"
+	var win_col: String = "[color=#6f6]" if win_pct >= 50.0 else "[color=#f66]"
 
-	_print_line("[b]%s[/b]  (n=%d)" % [profile, s.count])
-	_print_line("  %sWin %.1f%%[/color]   Loss %.1f%%   Draw %.1f%%" % [
-		win_col, win_pct, loss_pct, draw_pct])
-	_print_line("  Avg turns: [b]%.1f[/b]   Avg player HP: [b]%+.0f[/b]   Avg enemy HP: [b]%+.0f[/b]" % [
+	_log.append_text("[b]%s[/b]  (n=%d)\n" % [label, s.count])
+	_log.append_text("  %sWin %.1f%%[/color]   Loss %.1f%%   Draw %.1f%%\n" % [win_col, win_pct, loss_pct, draw_pct])
+	_log.append_text("  Avg turns: [b]%.1f[/b]   Avg player HP: [b]%+.0f[/b]   Avg enemy HP: [b]%+.0f[/b]\n" % [
 		s.avg_turns, s.avg_player_hp, s.avg_enemy_hp])
 
-func _print_line(text: String) -> void:
-	_log.append_text(text + "\n")
+# ---------------------------------------------------------------------------
+# Helpers — state queries
+# ---------------------------------------------------------------------------
+
+func _count_checked() -> int:
+	var n := 0
+	for cb in _talent_checks.values():
+		if (cb as CheckBox).button_pressed: n += 1
+	return n
+
+func _get_checked_ids() -> Array[String]:
+	var out: Array[String] = []
+	for tid in _talent_checks:
+		if (_talent_checks[tid] as CheckBox).button_pressed:
+			out.append(tid)
+	return out
+
+func _parse_ids(text: String) -> Array[String]:
+	var out: Array[String] = []
+	for part in text.split(","):
+		var id := part.strip_edges()
+		if not id.is_empty():
+			out.append(id)
+	return out
 
 # ---------------------------------------------------------------------------
 # UI factory helpers
 # ---------------------------------------------------------------------------
 
-func _add_lineedit(parent: Control, label_text: String, default_text: String) -> LineEdit:
-	parent.add_child(_make_label(label_text))
-	var le := LineEdit.new()
-	le.text = default_text
-	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(le)
-	return le
+func _section_header(title: String) -> Control:
+	var p     := _panel(_C_SECTION)
+	p.custom_minimum_size.y = 28
+	var lbl   := Label.new()
+	lbl.text  = "  " + title
+	lbl.set_anchors_preset(Control.PRESET_CENTER_LEFT)
+	lbl.offset_left  = 0
+	lbl.offset_right = 400
+	lbl.add_theme_font_size_override("font_size", 11)
+	lbl.add_theme_color_override("font_color", _C_DIM)
+	p.add_child(lbl)
+	return p
 
-func _add_spinbox(parent: Control, label_text: String, default_val: float,
-		min_val: float, max_val: float, step: float) -> SpinBox:
-	parent.add_child(_make_label(label_text))
-	var sb := SpinBox.new()
-	sb.min_value = min_val
-	sb.max_value = max_val
-	sb.step      = step
-	sb.value     = default_val
-	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(sb)
-	return sb
+func _section_body(parent: Control) -> VBoxContainer:
+	var wrapper := PanelContainer.new()
+	var style   := StyleBoxFlat.new()
+	style.bg_color              = _C_PANEL
+	style.set_content_margin_all(10)
+	wrapper.add_theme_stylebox_override("panel", style)
+	wrapper.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(wrapper)
 
-func _make_label(text: String) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_color_override("font_color", Color(0.75, 0.75, 0.85))
-	return l
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrapper.add_child(vbox)
+	return vbox
 
-func _make_panel(color: Color) -> Panel:
-	var p    := Panel.new()
+func _flat_button(text: String) -> Button:
+	var btn          := Button.new()
+	btn.text          = text
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.flat          = false
+	_style_button(btn, false)
+	return btn
+
+func _style_button(btn: Button, selected: bool) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = _C_BTN_SEL if selected else _C_BTN_NRM
+	style.corner_radius_top_left     = 4
+	style.corner_radius_top_right    = 4
+	style.corner_radius_bottom_left  = 4
+	style.corner_radius_bottom_right = 4
+	style.set_content_margin_all(6)
+	btn.add_theme_stylebox_override("normal",   style)
+	btn.add_theme_stylebox_override("hover",    style)
+	btn.add_theme_stylebox_override("pressed",  style)
+	btn.add_theme_stylebox_override("disabled", style)
+	btn.add_theme_color_override("font_color", _C_TEXT if selected else _C_DIM)
+
+func _label(text: String, color: Color) -> Label:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_color_override("font_color", color)
+	return lbl
+
+func _panel(color: Color) -> Panel:
+	var p     := Panel.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
 	p.add_theme_stylebox_override("panel", style)
 	return p
-
-func _set_buttons_disabled(disabled: bool) -> void:
-	_run_button.disabled     = disabled
-	_run_all_button.disabled = disabled
-
-# ---------------------------------------------------------------------------
-# Parsing
-# ---------------------------------------------------------------------------
-
-func _parse_ids(text: String) -> Array[String]:
-	var result: Array[String] = []
-	for part in text.split(","):
-		var id := part.strip_edges()
-		if not id.is_empty():
-			result.append(id)
-	return result

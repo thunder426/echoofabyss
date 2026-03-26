@@ -16,7 +16,7 @@ func setup(enemy_ai) -> void:
 
 func _get_friendly_board() -> Array[MinionInstance]: return _ai.enemy_board
 func _get_opponent_board() -> Array[MinionInstance]: return _ai.player_board
-func _get_hand()           -> Array[CardData]:        return _ai.hand
+func _get_hand()           -> Array[CardInstance]:   return _ai.hand
 func _get_essence()        -> int: return _ai.essence
 func _set_essence(v: int)  -> void: _ai.essence = v
 func _get_mana()           -> int: return _ai.mana
@@ -49,17 +49,17 @@ func find_empty_slot() -> BoardSlot:
 # Actions
 # ---------------------------------------------------------------------------
 
-func commit_play_minion(mc: MinionCardData, slot: BoardSlot, chosen_target = null) -> bool:
-	return await _ai.commit_minion_play(mc, slot, chosen_target)
+func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
+	return await _ai.commit_minion_play(inst, slot, chosen_target)
 
-func commit_play_spell(spell: SpellCardData, chosen_target = null) -> bool:
-	return await _ai.commit_spell_cast(spell, chosen_target)
+func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
+	return await _ai.commit_spell_cast(inst, chosen_target)
 
-func commit_play_trap(trap: TrapCardData) -> bool:
-	return await _ai.commit_play_trap(trap)
+func commit_play_trap(inst: CardInstance) -> bool:
+	return await _ai.commit_play_trap(inst)
 
-func commit_play_environment(env: EnvironmentCardData) -> bool:
-	return await _ai.commit_play_environment(env)
+func commit_play_environment(inst: CardInstance) -> bool:
+	return await _ai.commit_play_environment(inst)
 
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	return await _ai.do_attack_minion(attacker, target)

@@ -115,6 +115,14 @@ enum MinionState {
 	SWIFT,     # Summoned with Swift — can attack enemy minions but not the enemy hero this turn
 }
 
+## How damage is delivered — determines scaling, shield interaction, and trigger reactions.
+enum DamageType {
+	PHYSICAL,   # Minion combat attacks
+	SPELL,      # Spell / effect damage (minion or hero target)
+	VOID_BOLT,  # Hero-targeted; scales with Void Marks; triggers bolt passives
+	# Future: TRAP, POISON, FIRE, CHAOS…
+}
+
 ## Buff and debuff types tracked per-minion by BuffSystem.
 ## Buffs are removed by Dispel; debuffs are removed by Cleanse.
 enum BuffType {

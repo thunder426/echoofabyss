@@ -15,8 +15,8 @@ signal attack_resolved(attacker: MinionInstance, defender: MinionInstance)
 ## Emitted when a minion's HP reaches 0 and it leaves the board
 signal minion_vanished(minion: MinionInstance)
 
-## Emitted when a hero takes damage ("player" or "enemy", amount)
-signal hero_damaged(target: String, amount: int)
+## Emitted when a hero takes damage ("player" or "enemy", amount, damage type)
+signal hero_damaged(target: String, amount: int, type: Enums.DamageType)
 
 ## Emitted when a hero is healed ("player" or "enemy", amount)
 signal hero_healed(target: String, amount: int)
@@ -27,8 +27,8 @@ signal hero_healed(target: String, amount: int)
 
 ## Resolve a full attack between two minions (simultaneous damage).
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
-	_deal_damage(defender, attacker.effective_atk())
-	_deal_damage(attacker, defender.effective_atk())
+	_deal_damage(defender, attacker.effective_atk(), Enums.DamageType.PHYSICAL)
+	_deal_damage(attacker, defender.effective_atk(), Enums.DamageType.PHYSICAL)
 
 	if attacker.has_lifedrain() and attacker.effective_atk() > 0:
 		hero_healed.emit(attacker.owner, attacker.effective_atk())
@@ -41,7 +41,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
 	var damage := attacker.effective_atk()
 	if damage > 0:
-		hero_damaged.emit(target_owner, damage)
+		hero_damaged.emit(target_owner, damage, Enums.DamageType.PHYSICAL)
 		if attacker.has_lifedrain():
 			hero_healed.emit(attacker.owner, damage)
 	attacker.attack_count += 1
@@ -51,8 +51,15 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 # Damage application
 # ---------------------------------------------------------------------------
 
+## Deliver typed damage to the opponent hero. All hero damage routes through here
+## so that type is available to signal listeners (passives, triggers, future resistances).
+func apply_hero_damage(target: String, amount: int, type: Enums.DamageType) -> void:
+	if amount > 0:
+		hero_damaged.emit(target, amount, type)
+
 ## Reduce a minion's HP, shield absorbs first. Emit minion_vanished if HP reaches 0.
-func _deal_damage(minion: MinionInstance, damage: int) -> void:
+## type is passed through for future use (spell shields, resistances, typed triggers).
+func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if damage <= 0:
 		return
 	# Shield absorbs damage before HP
@@ -70,9 +77,9 @@ func _deal_damage(minion: MinionInstance, damage: int) -> void:
 			minion.current_health = 0
 			minion_vanished.emit(minion)
 
-## Apply spell damage to a minion (same flow as combat damage).
+## Apply spell damage to a minion.
 func apply_spell_damage(minion: MinionInstance, damage: int) -> void:
-	_deal_damage(minion, damage)
+	_deal_damage(minion, damage, Enums.DamageType.SPELL)
 
 ## Instantly kill a minion, bypassing shield and health checks.
 ## Fires minion_vanished so On Death effects and board cleanup happen normally.

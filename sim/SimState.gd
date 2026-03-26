@@ -54,13 +54,13 @@ var enemy_mana_max:     int = 0
 # Decks / hands / discards
 # ---------------------------------------------------------------------------
 
-var player_deck:    Array[CardData] = []
-var player_hand:    Array[CardData] = []
-var player_discard: Array[CardData] = []
+var player_deck:    Array[CardInstance] = []
+var player_hand:    Array[CardInstance] = []
+var player_discard: Array[CardInstance] = []
 
-var enemy_deck:    Array[CardData] = []
-var enemy_hand:    Array[CardData] = []
-var enemy_discard: Array[CardData] = []
+var enemy_deck:    Array[CardInstance] = []
+var enemy_hand:    Array[CardInstance] = []
+var enemy_discard: Array[CardInstance] = []
 
 # ---------------------------------------------------------------------------
 # Traps / environment / void marks
@@ -140,13 +140,13 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	for id in p_deck_ids:
 		var card := CardDatabase.get_card(id)
 		if card:
-			player_deck.append(card)
+			player_deck.append(CardInstance.create(card))
 	player_deck.shuffle()
 
 	for id in e_deck_ids:
 		var card := CardDatabase.get_card(id)
 		if card:
-			enemy_deck.append(card)
+			enemy_deck.append(CardInstance.create(card))
 	enemy_deck.shuffle()
 
 	# Pre-allocate board slot placeholders (no scene tree — _ready never fires,
@@ -203,7 +203,7 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		ctx.minion = minion
 		trigger_manager.fire(ctx)
 
-func _on_hero_damaged(target: String, amount: int) -> void:
+func _on_hero_damaged(target: String, amount: int, _type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if target == "player":
 		player_hp -= amount
 		if player_hp <= 0 and winner.is_empty():
@@ -226,13 +226,20 @@ func _on_hero_healed(target: String, amount: int) -> void:
 func _friendly_board(owner: String) -> Array:
 	return player_board if owner == "player" else enemy_board
 
+func _count_type_on_board(type: Enums.MinionType, owner: String) -> int:
+	var count := 0
+	for m in _friendly_board(owner):
+		if (m as MinionInstance).card_data.minion_type == type:
+			count += 1
+	return count
+
 func _opponent_board(owner: String) -> Array:
 	return enemy_board if owner == "player" else player_board
 
 func _spell_dmg(minion: MinionInstance, amount: int) -> void:
 	combat_manager.apply_spell_damage(minion, amount)
 
-func _summon_token(card_id: String, owner: String, token_atk: int, token_hp: int, token_shield: int) -> void:
+func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
 	var base := CardDatabase.get_card(card_id)
 	if base == null or not (base is MinionCardData):
 		return
@@ -268,9 +275,12 @@ func _corrupt_minion(target: MinionInstance) -> void:
 func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
 
-func _deal_void_bolt_damage(amount: int) -> void:
-	for m in enemy_board.duplicate():
-		combat_manager.apply_spell_damage(m, amount)
+func _deal_void_bolt_damage(base_damage: int) -> void:
+	var bonus := enemy_void_marks * _void_mark_damage_per_stack()
+	combat_manager.apply_hero_damage("enemy", base_damage + bonus, Enums.DamageType.VOID_BOLT)
+
+func _void_mark_damage_per_stack() -> int:
+	return 50 if _has_talent("deepened_curse") else 25
 
 func _log(_msg: Variant, _type: int = 0) -> void:
 	pass  # no logging in headless sim
@@ -289,8 +299,13 @@ func _find_random_minion(board: Array) -> MinionInstance:
 		return null
 	return board[randi() % board.size()]
 
-func _refresh_dominion_aura(_active: bool, _amount: int = 100) -> void:
-	pass  # no aura UI in sim
+func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
+	for m in player_board:
+		if (m as MinionInstance).card_data.minion_type == Enums.MinionType.DEMON:
+			if active:
+				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune")
+			else:
+				BuffSystem.remove_source(m, "dominion_rune")
 
 func _find_last_non_echo_rune() -> TrapCardData:
 	for i in range(active_traps.size() - 1, -1, -1):
@@ -418,18 +433,19 @@ func _fire_ritual(ritual: RitualData) -> void:
 		_summon_void_imp()
 		_summon_void_imp()
 
-## Draw a random Rune card from the player's deck into hand.
+## Draw a random Rune card from the player's deck into hand, applying -1 cost via cost_delta.
 func _draw_rune_from_deck() -> void:
-	var runes_in_deck: Array = []
-	for c in player_deck:
-		if c is TrapCardData and (c as TrapCardData).is_rune:
-			runes_in_deck.append(c)
+	var runes_in_deck: Array[CardInstance] = []
+	for inst in player_deck:
+		if inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune:
+			runes_in_deck.append(inst)
 	if runes_in_deck.is_empty():
 		return
-	var chosen: CardData = runes_in_deck[randi() % runes_in_deck.size()]
+	var chosen: CardInstance = runes_in_deck[randi() % runes_in_deck.size()]
 	player_deck.erase(chosen)
 	if player_hand.size() < PLAYER_HAND_MAX:
 		player_hand.append(chosen)
+	chosen.cost_delta = -1
 
 ## Summon a Void Imp token on the player board (used by ritual_surge talent).
 func _summon_void_imp() -> void:
@@ -446,11 +462,11 @@ func _draw_player(count: int) -> void:
 	for _i in count:
 		if player_hand.size() >= PLAYER_HAND_MAX: break
 		if player_deck.is_empty(): break  # finite deck — no reshuffle
-		var card: CardData = player_deck.pop_front()
-		player_hand.append(card)
+		var inst: CardInstance = player_deck.pop_front()
+		player_hand.append(inst)
 		if trigger_manager != null:
 			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
-			ctx.card = card
+			ctx.card = inst.card_data
 			trigger_manager.fire(ctx)
 
 func _draw_enemy(count: int) -> void:
@@ -467,11 +483,20 @@ func _draw_enemy(count: int) -> void:
 # Turn helpers — called by CombatSim
 # ---------------------------------------------------------------------------
 
+## Optional override set by a CombatProfile to replace the default resource-growth logic.
+## Signature: func(turn_number: int) -> void
+var player_growth_override: Callable = Callable()
+
 func begin_player_turn(turn_number: int) -> void:
-	_grow_player_resources(turn_number)
+	if player_growth_override.is_valid():
+		player_growth_override.call(turn_number)
+	else:
+		_grow_player_resources(turn_number)
 	player_essence = player_essence_max
 	player_mana    = player_mana_max
 	imp_evolution_used_this_turn = false
+	for inst in player_hand:
+		inst.cost_delta = 0
 	if trigger_manager != null:
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
 	_draw_player(1)

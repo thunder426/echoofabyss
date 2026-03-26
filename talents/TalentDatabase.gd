@@ -132,7 +132,7 @@ func _register_lord_vael_talents() -> void:
 
 	_register(_make(
 		"rune_caller", "lord_vael", "Rune Caller",
-		"Playing a Void Imp from hand draws a random Rune from your deck.",
+		"Playing a Void Imp from hand draws a random Rune from your deck. That Rune costs 1 less Mana this turn.",
 		"rune_master", 0, ""))
 
 	_register(_make(

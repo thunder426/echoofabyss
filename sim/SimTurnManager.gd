@@ -16,7 +16,7 @@ func setup(sim: SimState) -> void:
 # EffectResolver API
 # ---------------------------------------------------------------------------
 
-var player_hand: Array[CardData]:
+var player_hand: Array[CardInstance]:
 	get: return _sim.player_hand
 
 func draw_card() -> void:
@@ -24,7 +24,7 @@ func draw_card() -> void:
 
 func add_to_hand(card: CardData) -> void:
 	if _sim.player_hand.size() < SimState.PLAYER_HAND_MAX:
-		_sim.player_hand.append(card)
+		_sim.player_hand.append(CardInstance.create(card))
 
 func gain_mana(amount: int) -> void:
 	_sim.player_mana = mini(_sim.player_mana + amount, _sim.player_mana_max)

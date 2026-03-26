@@ -93,9 +93,40 @@ offset_bottom = 118.0
 offset_left = 5.0
 offset_top = 124.0
 offset_right = 935.0
-offset_bottom = 720.0
+offset_bottom = 530.0
 
 [node name="DeckContainer" type="VBoxContainer" parent="UI/DeckPanel/DeckScroll"]
+custom_minimum_size = Vector2(910, 0)
+size_flags_horizontal = 3
+
+[node name="SavedDecksSep" type="HSeparator" parent="UI/DeckPanel"]
+offset_left = 10.0
+offset_top = 538.0
+offset_right = 930.0
+offset_bottom = 542.0
+
+[node name="SavedDecksLabel" type="Label" parent="UI/DeckPanel"]
+offset_left = 10.0
+offset_top = 548.0
+offset_right = 930.0
+offset_bottom = 574.0
+text = "My Saved Decks:"
+theme_override_colors/font_color = Color(0.80, 0.80, 0.90, 1)
+theme_override_font_sizes/font_size = 16
+
+[node name="SaveNameRow" type="HBoxContainer" parent="UI/DeckPanel"]
+offset_left = 10.0
+offset_top = 580.0
+offset_right = 930.0
+offset_bottom = 618.0
+
+[node name="SavedDecksScroll" type="ScrollContainer" parent="UI/DeckPanel"]
+offset_left = 5.0
+offset_top = 624.0
+offset_right = 935.0
+offset_bottom = 718.0
+
+[node name="SavedDecksContainer" type="VBoxContainer" parent="UI/DeckPanel/SavedDecksScroll"]
 custom_minimum_size = Vector2(910, 0)
 size_flags_horizontal = 3
 

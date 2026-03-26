@@ -190,7 +190,7 @@ const _FRAME_CONFIG: Dictionary = {
 	"abyss_trap": {
 		"path":    "res://assets/art/frames/abyss_order/abyss_trap.png",
 		"layout": {
-			"art":  [0.05, 0.10, 0.95, 0.78],
+			"art":  [0.05, 0.06, 0.95, 0.75],
 			"name": [0.15, 0.06, 0.93, 0.11],
 			"desc": [0.16, 0.72, 0.85, 0.90],
 			"mana": [0.06, 0.06, 0.20, 0.10],
@@ -266,7 +266,7 @@ const _FRAME_CONFIG: Dictionary = {
 	"neutral_trap": {
 		"path":    "res://assets/art/frames/neutral/neutral_trap.png",
 		"layout": {
-			"art":  [0.05, 0.14, 0.95, 0.70],
+			"art":  [0.05, 0.10, 0.95, 0.70],
 			"name": [0.15, 0.04, 0.85, 0.09],
 			"desc": [0.16, 0.69, 0.88, 0.85],
 			"mana": [0.01, 0.05, 0.22, 0.10],
@@ -350,6 +350,8 @@ var _kw_color_hex: String = "c080ff"
 # ---------------------------------------------------------------------------
 
 var card_data: CardData = null
+## Per-copy instance wrapper — set by HandDisplay after setup(). Null for non-hand visuals.
+var card_inst: CardInstance = null
 var is_selected: bool = false
 var is_playable: bool = true
 var condition_active: bool = false

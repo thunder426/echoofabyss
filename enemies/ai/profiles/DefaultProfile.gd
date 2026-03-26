@@ -12,19 +12,19 @@ func play_phase() -> void:
 	while made_a_play:
 		made_a_play = false
 		agent.hand.sort_custom(agent.sort_by_total_cost)
-		for card in agent.hand.duplicate():
-			if card is SpellCardData:
-				var spell := card as SpellCardData
+		for inst in agent.hand.duplicate():
+			if inst.card_data is SpellCardData:
+				var spell := inst.card_data as SpellCardData
 				var cost: int = agent.effective_spell_cost(spell)
 				if cost > agent.mana:
 					continue
 				agent.mana -= cost
-				if not await agent.commit_play_spell(spell, pick_spell_target(spell)):
+				if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 					return
 				made_a_play = true
 				break
-			elif card is MinionCardData:
-				var mc := card as MinionCardData
+			elif inst.card_data is MinionCardData:
+				var mc := inst.card_data as MinionCardData
 				if mc.essence_cost > agent.essence or mc.mana_cost > agent.mana:
 					continue
 				var slot: BoardSlot = agent.find_empty_slot()
@@ -32,7 +32,7 @@ func play_phase() -> void:
 					return  # board full — stop all play
 				agent.essence -= mc.essence_cost
 				agent.mana    -= mc.mana_cost
-				if not await agent.commit_play_minion(mc, slot, pick_on_play_target(mc)):
+				if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 					return
 				made_a_play = true
 				break

@@ -13,6 +13,9 @@ var owner: String = "player"  # "player" or "enemy"
 # Original card definition — never modified
 var card_data: MinionCardData
 
+## The CardInstance this minion was played from (null for tokens / AI-spawned minions).
+var card_instance: CardInstance = null
+
 # ---------------------------------------------------------------------------
 # Base stats — set once at creation, NEVER mutated directly after that.
 # All ATK modifications go through BuffSystem (ATK_BONUS, TEMP_ATK, CORRUPTION).

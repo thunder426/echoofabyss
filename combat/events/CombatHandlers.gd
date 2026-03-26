@@ -29,7 +29,7 @@ func on_player_turn_relics(_ctx: EventContext) -> void:
 	_scene.relic_first_card_free = "void_crystal" in relics
 	if "blood_pact" in relics:
 		_log("  Blood Pact: deal 100 damage to enemy hero.", _LOG_PLAYER)
-		_scene._on_hero_damaged("enemy", 100)
+		_scene.combat_manager.apply_hero_damage("enemy", 100, Enums.DamageType.SPELL)
 	if "soul_ember" in relics:
 		_scene.turn_manager.essence = mini(_scene.turn_manager.essence + 1, _scene.turn_manager.essence_max)
 		_scene.turn_manager.resources_changed.emit(
@@ -114,9 +114,10 @@ func on_card_drawn_void_echo(ctx: EventContext) -> void:
 	# Append directly — NOT via turn_manager.add_to_hand — to avoid re-triggering the drawn signal
 	var copy := CardDatabase.get_card("void_imp")
 	if copy and _scene.turn_manager.player_hand.size() < _scene.turn_manager.HAND_SIZE_MAX:
-		_scene.turn_manager.player_hand.append(copy)
+		var inst := CardInstance.create(copy)
+		_scene.turn_manager.player_hand.append(inst)
 		if "hand_display" in _scene and _scene.hand_display:
-			_scene.hand_display.add_card(copy)
+			_scene.hand_display.add_card(inst)
 			_scene.hand_display.refresh_playability(_scene.turn_manager.essence, _scene.turn_manager.mana)
 		_log("  Void Echo: Void Imp drawn — free copy added to hand.", _LOG_PLAYER)
 
@@ -268,7 +269,7 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 				_scene._summon_void_spark()
 		"deal_200_hero_on_friendly_death":
 			_log("  Abyssal Tide: deal 200 damage to enemy hero.", _LOG_PLAYER)
-			_scene._on_hero_damaged("enemy", 200)
+			_scene.combat_manager.apply_hero_damage("enemy", 200, Enums.DamageType.SPELL)
 		"void_mark_on_void_imp_death":
 			if _is_void_imp(dead):
 				_log("  Abyssal Sacrificer: %s died → 1 Void Mark." % dead.card_data.card_name, _LOG_PLAYER)

@@ -111,12 +111,13 @@ var _pending_slots: Array[BoardSlot] = []
 var active_environment: EnvironmentCardData = null
 
 # ---------------------------------------------------------------------------
-# Deck — real shuffled deck drawn without replacement; reshuffles when empty
+# Deck — real shuffled deck drawn without replacement; on draw a fresh replacement is
+# added back and the deck is reshuffled to simulate an infinite card pool.
 # ---------------------------------------------------------------------------
 
-var _deck: Array[CardData] = []
-var _discard: Array[CardData] = []
-var hand: Array[CardData] = []
+var _deck: Array[CardInstance] = []
+var _discard: Array[CardInstance] = []
+var hand: Array[CardInstance] = []
 const HAND_MAX := 5
 
 ## Fallback deck used when no encounter deck is configured.
@@ -138,6 +139,7 @@ const ACTION_DELAY := 0.55
 # ---------------------------------------------------------------------------
 
 ## Load and shuffle the enemy deck from a list of card IDs.
+## Each ID becomes a CardInstance; on draw, a fresh replacement is inserted and reshuffled.
 func setup_deck(card_ids: Array[String]) -> void:
 	_deck.clear()
 	_discard.clear()
@@ -148,14 +150,14 @@ func setup_deck(card_ids: Array[String]) -> void:
 	for id in ids:
 		var card := CardDatabase.get_card(id)
 		if card:
-			_deck.append(card)
+			_deck.append(CardInstance.create(card))
 	_deck.shuffle()
 	_draw_cards(5)
 
-## Add a card directly to the enemy's hand (used by ON_PLAY effects).
+## Add a CardData directly to the enemy's hand (used by ON_PLAY effects).
 func add_to_hand(card: CardData) -> void:
 	if hand.size() < HAND_MAX:
-		hand.append(card)
+		hand.append(CardInstance.create(card))
 
 ## Public wrapper — draw count cards from the enemy deck (used by passives).
 func draw_cards(count: int) -> void:
@@ -213,17 +215,20 @@ func _choose_resource_growth() -> void:
 # Private — card draw
 # ---------------------------------------------------------------------------
 
+## Draw count cards from the deck.
+## On each draw: move the instance to hand AND insert a fresh replacement into the deck,
+## then reshuffle — simulating an infinite card pool without recycling discards.
 func _draw_cards(count: int) -> void:
 	for _i in count:
 		if hand.size() >= HAND_MAX:
 			break
 		if _deck.is_empty():
-			if _discard.is_empty():
-				break
-			_deck = _discard.duplicate()
-			_discard.clear()
-			_deck.shuffle()
-		hand.append(_deck.pop_front())
+			break
+		var inst: CardInstance = _deck.pop_front()
+		hand.append(inst)
+		# Add a fresh replacement so the deck never truly empties
+		_deck.append(CardInstance.create(inst.card_data))
+		_deck.shuffle()
 
 # ---------------------------------------------------------------------------
 # Public helpers — utilities for profiles
@@ -272,15 +277,7 @@ func player_has_rune_or_environment() -> bool:
 			return true
 	return false
 
-## Comparator for sort_custom — sorts cards cheapest-total-cost first.
-func sort_by_total_cost(a: CardData, b: CardData) -> bool:
-	var ac := (a as MinionCardData).essence_cost + (a as MinionCardData).mana_cost \
-		if a is MinionCardData else (a as SpellCardData).cost
-	var bc := (b as MinionCardData).essence_cost + (b as MinionCardData).mana_cost \
-		if b is MinionCardData else (b as SpellCardData).cost
-	return ac < bc
-
-## Returns the effective mana cost of a spell after penalty and discounts.
+## Effective mana cost of a spell after penalty and discounts.
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return max(0, spell.cost + spell_cost_penalty - (spell_cost_discounts.get(spell.id, 0) as int))
 
@@ -291,12 +288,14 @@ func effective_spell_cost(spell: SpellCardData) -> int:
 ## Place a minion on the board (slot already found, resources already deducted).
 ## chosen_target: player minion chosen by the profile for the on-play effect, if any.
 ## Returns false if the scene tree is gone.
-func commit_minion_play(mc: MinionCardData, slot: BoardSlot, chosen_target = null) -> bool:
+func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
+	var mc := inst.card_data as MinionCardData
 	var instance := MinionInstance.create(mc, "enemy")
+	instance.card_instance = inst
 	enemy_board.append(instance)
 	_pending_slots.append(slot)  # reserve slot without touching its visual
-	hand.erase(mc)
-	_discard.append(mc)
+	hand.erase(inst)
+	_discard.append(inst)
 	minion_play_chosen_target = chosen_target
 	minion_summoned.emit(instance, slot)
 	if not is_inside_tree(): return false
@@ -310,9 +309,10 @@ func commit_minion_play(mc: MinionCardData, slot: BoardSlot, chosen_target = nul
 ## Cast a spell (resources already deducted).
 ## chosen_target: non-minion target (TrapCardData / EnvironmentCardData) chosen by the profile.
 ## Returns false if the scene tree is gone.
-func commit_spell_cast(spell: SpellCardData, chosen_target = null) -> bool:
-	hand.erase(spell)
-	_discard.append(spell)
+func commit_spell_cast(inst: CardInstance, chosen_target = null) -> bool:
+	var spell := inst.card_data as SpellCardData
+	hand.erase(inst)
+	_discard.append(inst)
 	spell_chosen_target = chosen_target
 	enemy_spell_cast.emit(spell)
 	if not is_inside_tree(): return false
@@ -321,9 +321,10 @@ func commit_spell_cast(spell: SpellCardData, chosen_target = null) -> bool:
 
 ## Place a trap or rune (resources already deducted).
 ## Returns false if the scene tree is gone.
-func commit_play_trap(trap: TrapCardData) -> bool:
-	hand.erase(trap)
-	_discard.append(trap)
+func commit_play_trap(inst: CardInstance) -> bool:
+	var trap := inst.card_data as TrapCardData
+	hand.erase(inst)
+	_discard.append(inst)
 	active_traps.append(trap)
 	trap_placed.emit(trap)
 	if not is_inside_tree(): return false
@@ -332,9 +333,10 @@ func commit_play_trap(trap: TrapCardData) -> bool:
 
 ## Play an environment card (resources already deducted).
 ## Returns false if the scene tree is gone.
-func commit_play_environment(env: EnvironmentCardData) -> bool:
-	hand.erase(env)
-	_discard.append(env)
+func commit_play_environment(inst: CardInstance) -> bool:
+	var env := inst.card_data as EnvironmentCardData
+	hand.erase(inst)
+	_discard.append(inst)
 	active_environment = env
 	environment_placed.emit(env)
 	if not is_inside_tree(): return false
