@@ -156,6 +156,10 @@ var relic_first_card_free: bool = false
 ## Void Mark stacks on the enemy hero (accumulate through the run)
 var enemy_void_marks: int = 0
 
+## Passive-configurable stats — set by CombatSetup from the registry at combat start.
+var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 50
+var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
+
 ## True until the first hit lands on the player (Shadow Veil: ignore first damage)
 var _shadow_veil_spent: bool = false
 
@@ -1521,9 +1525,9 @@ func _spell_mana_discount() -> int:
 		discount += m.card_data.mana_cost_discount
 	return discount
 
-## Void Bolt damage per Void Mark stack (25 base; 50 with deepened_curse).
+## Void Bolt damage per Void Mark stack. Set by CombatSetup (deepened_curse → 50).
 func _void_mark_damage_per_stack() -> int:
-	return 50 if _has_talent("deepened_curse") else 25
+	return void_mark_damage_per_stack
 
 ## Add Void Mark stacks to the enemy hero.
 func _apply_void_mark(stacks: int = 1) -> void:
@@ -2132,8 +2136,9 @@ func _remove_rune_aura(rune: TrapCardData) -> void:
 		var ctx := EffectContext.make(self, "player")
 		EffectResolver.run(rune.aura_on_remove_steps, ctx)
 
-## Apply or remove the Dominion Rune's ATK aura on all friendly Demons.
-## active=true adds the bonus per-minion; active=false removes all "dominion_rune" entries.
+## Apply or remove one layer of the Dominion Rune's ATK aura on all friendly Demons.
+## active=true adds one bonus entry per-minion; active=false removes one entry per-minion,
+## preserving buffs from any other Dominion Runes still on the board.
 ## amount is passed in from _apply_rune_aura so runic_attunement doubling is respected.
 func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
 	for m in player_board:
@@ -2141,7 +2146,7 @@ func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
 			if active:
 				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune")
 			else:
-				BuffSystem.remove_source(m, "dominion_rune")
+				BuffSystem.remove_one_source(m, "dominion_rune")
 			_refresh_slot_for(m)
 	if active:
 		_log("  Dominion Rune: all friendly Demons gain +%d ATK." % amount, _LogType.PLAYER)
@@ -2164,9 +2169,9 @@ func _draw_rune_from_deck() -> void:
 	_refresh_hand_spell_costs()
 	_log("  Rune Caller: drew %s from deck (costs 1 less mana this turn)." % chosen.card_data.card_name, _LogType.PLAYER)
 
-## Talent: runic_attunement — multiplier applied to all Rune aura numeric values.
+## Rune aura numeric multiplier. Set by CombatSetup (runic_attunement → 2).
 func _rune_aura_multiplier() -> int:
-	return 2 if _has_talent("runic_attunement") else 1
+	return rune_aura_multiplier
 
 ## Returns true if the rune board contains at least one of each required rune type.
 func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
@@ -3668,105 +3673,49 @@ func _highlight_valid_attack_targets() -> void:
 func _setup_triggers() -> void:
 	_handlers = CombatHandlers.new()
 	_handlers.setup(self)
-	_register_turn_start_triggers()
-	_register_play_triggers()
-	_register_summon_triggers()
-	_register_death_triggers()
-	_register_enemy_passive_triggers()
-	_register_trap_triggers()
-	_register_rune_triggers()
 
-## ON_PLAYER_TURN_START / ON_ENEMY_TURN_START / ON_PLAYER_CARD_DRAWN
-## Priority guide: 0=relics, 5=enemy passives, 10=environment, 21+=minion passives, 30=traps
-func _register_turn_start_triggers() -> void:
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_player_turn_relics,           0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_player_turn_environment,     10)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, _handlers.on_minion_turn_start_passives,  21)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,  _handlers.on_enemy_turn_environment,      10)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,  _trap_check_enemy_turn_start,             30)
-	if _has_talent("void_echo"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, _handlers.on_card_drawn_void_echo, 0)
-
-## ON_PLAYER_MINION_PLAYED / ON_PLAYER_SPELL_CAST
-## Priority guide: 0=board passives, 10=on-play effects
-func _register_play_triggers() -> void:
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,    _handlers.on_void_archmagus_spell,         0)
-	if _has_talent("rune_caller"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_played_rune_caller,       0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_player_minion_played_effect, 10)
-
-## ON_PLAYER_MINION_SUMMONED / ON_ENEMY_MINION_SUMMONED
-## Priority guide: 0=hero passives, 5-7=on-play effects, 10=relics, 20-25=talents, 30=board synergies/traps
-func _register_summon_triggers() -> void:
-	if HeroDatabase.has_passive(GameManager.current_hero, "void_imp_boost"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_passive_void_imp_boost,  0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_relic,                  10)
-	if _has_talent("swarm_discipline"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_swarm_discipline,       20)
-	if _has_talent("abyssal_legion"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_abyssal_legion,         21)
-	if _has_talent("piercing_void"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_piercing_void,          23)
-	if _has_talent("imp_evolution"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_evolution,          24)
-	if _has_talent("imp_warband"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_imp_warband,            25)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,     _handlers.on_summon_board_synergies,        30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,      _handlers.on_enemy_minion_played_effect,     5)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,      _handlers.on_enemy_summon_rogue_imp_elder,   7)
-
-## ON_PLAYER_MINION_DIED / ON_ENEMY_MINION_DIED
-## Priority guide: 0=board passives, 3-6=enemy passives, 5=deathrattle, 10=talents, 20=traps
-func _register_death_triggers() -> void:
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_player_minion_died_board_passives, 0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_minion_died_death_effect,          5)
-	if _has_talent("death_bolt"):
-		trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _handlers.on_player_minion_died_death_bolt, 10)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, _trap_check_friendly_death,                     20)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,  _handlers.on_minion_died_death_effect,           5)
-
-## Enemy encounter passives — loaded from EnemyData and registered conditionally.
-func _register_enemy_passive_triggers() -> void:
+	# Load active enemy passives before anything else
 	if GameManager.current_enemy != null:
 		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
-	if "feral_instinct" in _active_enemy_passives:
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,      _handlers.on_enemy_turn_feral_instinct_reset, 5)
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_enemy_summon_feral_instinct,     1)
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     _handlers.on_enemy_died_feral_instinct,       4)
-	if "pack_instinct" in _active_enemy_passives:
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _handlers.on_board_changed_pack_instinct,     9)
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     _handlers.on_board_changed_pack_instinct,     3)
-	if "corrupted_death" in _active_enemy_passives:
-		trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     _handlers.on_enemy_died_corrupted_death,      6)
+
+	# ── Live-only always-on handlers ─────────────────────────────────────────
+	# Priority guide: 0=relics, 5=enemy passives, 10=environment, 21+=minion passives, 30=traps/synergies
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,    _handlers.on_player_turn_relics,           0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,    _handlers.on_void_archmagus_spell,         0)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_player_minion_played_effect,  10)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_relic,               10)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_board_synergies,     30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  _handlers.on_enemy_minion_played_effect,  5)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    _trap_check_friendly_death,               20)
+	# Trap routing — scene-specific methods bridging events to _fire_traps_for()
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,      _trap_check_enemy_turn_start,             30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _trap_check_enemy_summon,                 30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,      _trap_check_enemy_spell,                  30)
+	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_ATTACK,          _trap_check_enemy_attack,                 30)
+	trigger_manager.register(Enums.TriggerEvent.ON_HERO_DAMAGED,          _trap_check_damage_taken,                 10)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _enemy_trap_check_player_summon,         35)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,      _enemy_trap_check_player_spell,          35)
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,      _enemy_trap_check_player_turn_start,     35)
+
+	# ── ancient_frenzy hand injection (live-only side effect) ─────────────────
 	if "ancient_frenzy" in _active_enemy_passives:
-		enemy_ai.spell_cost_discounts["pack_frenzy"] = 1
-		# Add one guaranteed Pack Frenzy to the opening hand (bypasses HAND_MAX —
-		# this is a startup passive grant, not a normal draw).
 		var pf_card := CardDatabase.get_card("pack_frenzy")
 		if pf_card:
-			enemy_ai.hand.append(pf_card)
+			enemy_ai.hand.append(CardInstance.create(pf_card))
 
-## Trap routing — player traps fire on enemy actions (priority 30), enemy traps fire on player actions (priority 35).
-func _register_trap_triggers() -> void:
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _trap_check_enemy_summon,             30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,      _trap_check_enemy_spell,              30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_ATTACK,          _trap_check_enemy_attack,             30)
-	trigger_manager.register(Enums.TriggerEvent.ON_HERO_DAMAGED,          _trap_check_damage_taken,             10)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _enemy_trap_check_player_summon,     35)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,      _enemy_trap_check_player_spell,      35)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,      _enemy_trap_check_player_turn_start, 35)
+	# ── Shared: talents, hero passives, enemy passives via registry ───────────
+	var hero_passive_ids: Array[String] = []
+	var hero := HeroDatabase.get_hero(GameManager.current_hero)
+	if hero:
+		for p in hero.passives:
+			hero_passive_ids.append(p.id)
 
-## ON_RUNE_PLACED / ON_RITUAL_ENVIRONMENT_PLAYED — Rune Warden passive and grand rituals from talents.
-func _register_rune_triggers() -> void:
-	trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, _handlers.on_player_minion_died_rune_warden, 5)
-	for talent_id in GameManager.unlocked_talents:
-		var talent: TalentData = TalentDatabase.get_talent(talent_id)
-		if talent != null and talent.grand_ritual != null:
-			var gr: RitualData = talent.grand_ritual
-			trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED,
-				func(_ctx: EventContext): _handlers.on_grand_ritual(gr), 0)
-			trigger_manager.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED,
-				func(_ctx: EventContext): _handlers.on_grand_ritual(gr), 0)
+	CombatSetup.new().setup(
+		trigger_manager, _handlers, self,
+		GameManager.unlocked_talents,
+		hero_passive_ids,
+		_active_enemy_passives
+	)
 
 # ---------------------------------------------------------------------------
 # Trap routing stubs — bridge TriggerManager events to _fire_traps_for()

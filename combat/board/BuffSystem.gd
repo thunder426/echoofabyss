@@ -46,6 +46,16 @@ static func remove_source(minion: MinionInstance, source: String) -> void:
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return e.source != source)
 	_clamp_shield(minion)
 
+## Remove only the FIRST buff entry matching the named source.
+## Used when one instance of a stackable aura is removed (e.g. one of two Dominion Runes
+## consumed by a ritual) so other instances' buffs are preserved.
+static func remove_one_source(minion: MinionInstance, source: String) -> void:
+	for i in minion.buffs.size():
+		if (minion.buffs[i] as BuffEntry).source == source:
+			minion.buffs.remove_at(i)
+			break
+	_clamp_shield(minion)
+
 ## Remove all entries of a specific buff type.
 static func remove_type(minion: MinionInstance, type: int) -> void:
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return e.type != type)

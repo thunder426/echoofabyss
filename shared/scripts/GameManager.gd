@@ -211,6 +211,27 @@ func get_talent_mana_modifier(card: CardData) -> int:
 # ---------------------------------------------------------------------------
 
 func get_encounter(index: int) -> EnemyData:
+	var e: EnemyData = _build_encounter(index)
+	if e == null:
+		return null
+	var key := "encounter_%d" % index
+	var saved := EnemySavedDecks.load_all()
+	if saved.has(key):
+		var custom: Array[String] = []
+		for id in (saved[key] as Array):
+			custom.append(id as String)
+		e.deck = custom
+	return e
+
+## Returns the default (non-overridden) deck for an encounter.
+## Used by EnemyDeckBuilder to load vanilla decks for editing.
+func get_default_encounter_deck(index: int) -> Array[String]:
+	var e: EnemyData = _build_encounter(index)
+	if e == null:
+		return []
+	return e.deck
+
+func _build_encounter(index: int) -> EnemyData:
 	match index:
 		# -- Act 1: Imp Lair --
 		0:
@@ -266,19 +287,22 @@ func get_encounter(index: int) -> EnemyData:
 				["shadow_hound", "shadow_hound", "abyssal_brute", "abyssal_brute", "void_bolt"],
 				"ENCOUNTER I",
 				"The Abyss Dungeon. Cultists who willingly surrendered themselves to the void patrol these stone corridors. They have given up their names, their faces — only devotion remains.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["human_imp_caller", "corrupt_authority"])
 		4:
 			return _make_encounter("Void Ritualist", 3600,
 				["shadow_hound", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
 				"ENCOUNTER II",
 				"A Void Ritualist performs an unending ceremony in the dungeon's depths. Runes of blood and shadow cover every wall. Whatever he is summoning, it must not be allowed to complete.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["human_imp_caller", "ritual_sacrifice"])
 		5:
 			return _make_encounter("Corrupted Handler", 4400,
 				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
 				"CORRUPTED HANDLER",
 				"The Handler was once a warden of this dungeon. Now something else wears his shape. His eyes are empty voids. His commands come in a language that shouldn't exist.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["human_imp_caller", "void_unraveling"])
 		# -- Act 3: Void Rift World --
 		6:
 			return _make_encounter("Rift Stalker", 4200,

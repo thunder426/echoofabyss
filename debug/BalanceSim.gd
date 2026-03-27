@@ -11,55 +11,24 @@ extends Control
 # Act 1 fight configs  (mirrors GameManager._make_encounter calls)
 # ---------------------------------------------------------------------------
 const _FIGHTS: Array = [
-	{
-		"label":   "Fight 1  —  Rogue Imp Pack",
-		"hp":      1800,
-		"profile": "feral_pack",
-		"deck": [
-			"rabid_imp","rabid_imp","rabid_imp","rabid_imp",
-			"brood_imp","brood_imp","brood_imp",
-			"imp_brawler","imp_brawler","imp_brawler",
-			"feral_surge","feral_surge",
-			"void_screech","void_screech","cyclone",
-		],
-		"talent_points": 1,
-	},
-	{
-		"label":   "Fight 2  —  Corrupted Broodlings",
-		"hp":      2200,
-		"profile": "corrupted_brood",
-		"deck": [
-			"brood_imp","brood_imp","brood_imp",
-			"void_touched_imp","void_touched_imp","void_touched_imp","void_touched_imp",
-			"imp_brawler","imp_brawler",
-			"frenzied_imp","frenzied_imp",
-			"rabid_imp","rabid_imp",
-			"brood_call","brood_call",
-			"void_screech","cyclone",
-		],
-		"talent_points": 1,
-	},
-	{
-		"label":   "Fight 3  —  Imp Matriarch",
-		"hp":      3000,
-		"profile": "matriarch",
-		"deck": [
-			"rabid_imp","rabid_imp","rabid_imp",
-			"brood_imp","brood_imp",
-			"imp_brawler","imp_brawler",
-			"void_touched_imp",
-			"rogue_imp_elder","matriarchs_broodling",
-			"pack_frenzy","pack_frenzy",
-			"feral_surge","void_screech","brood_call",
-		],
-		"talent_points": 1,
-	},
+	{"label": "Fight 1  —  Rogue Imp Pack",      "hp": 1800, "profile": "feral_pack",       "encounter": 0, "talent_points": 1},
+	{"label": "Fight 2  —  Corrupted Broodlings", "hp": 2200, "profile": "corrupted_brood",  "encounter": 1, "talent_points": 1},
+	{"label": "Fight 3  —  Imp Matriarch",         "hp": 3000, "profile": "matriarch",        "encounter": 2, "talent_points": 1},
 ]
 
 # ---------------------------------------------------------------------------
 # Preset player decks  — sourced from PresetDecks (cards/data/PresetDecks.gd)
 # ---------------------------------------------------------------------------
 const _PRESETS: Array = PresetDecks.DECKS
+
+# ---------------------------------------------------------------------------
+# Branch ID → display name  (matches HeroData.talent_branch_ids values)
+# ---------------------------------------------------------------------------
+const _BRANCH_DISPLAY: Dictionary = {
+	"swarm":       "Endless Tide",
+	"rune_master": "Rune Master",
+	"void_bolt":   "Void Resonance",
+}
 
 # ---------------------------------------------------------------------------
 # Player AI profiles
@@ -97,24 +66,29 @@ const _TALENTS: Array = [
 # UI node references
 # ---------------------------------------------------------------------------
 
-var _fight_buttons:    Array[Button]  = []
-var _profile_buttons:  Array[Button]  = []
-var _deck_dropdown:    OptionButton
-var _deck_cards:       Array          = []  # parallel to dropdown items: Array of Array[String]
-var _talent_checks:    Dictionary     = {}  # talent_id -> CheckBox
-var _talent_points_label: Label
-var _runs_input:       SpinBox
-var _run_button:       Button
-var _clear_button:     Button
-var _log:              RichTextLabel
+var _fight_buttons:        Array[Button]  = []
+var _profile_buttons:      Array[Button]  = []
+var _hero_buttons:         Dictionary     = {}  # hero_id -> Button
+var _hero_passives_label:  Label
+var _deck_dropdown:        OptionButton
+var _deck_cards:           Array          = []  # parallel to dropdown items: Array of Array[String]
+var _enemy_deck_dropdown:  OptionButton         # "Encounter Deck" + saved enemy deck names
+var _talent_checks:        Dictionary     = {}  # talent_id -> CheckBox
+var _branch_cols:          Dictionary     = {}  # branch display name -> VBoxContainer
+var _talent_points_label:  Label
+var _runs_input:           SpinBox
+var _run_button:           Button
+var _clear_button:         Button
+var _log:                  RichTextLabel
 
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 
-var _fight_idx: int          = 0
-var _points_used: int        = 0
+var _fight_idx: int            = 0
+var _points_used: int          = 0
 var _player_profile_id: String = "default"
+var _selected_hero_id: String  = "lord_vael"
 
 # ---------------------------------------------------------------------------
 # Theme colours
@@ -138,6 +112,7 @@ const _C_GOLD     := Color(0.95, 0.82, 0.45)
 
 func _ready() -> void:
 	_build_ui()
+	_select_hero("lord_vael")
 	_select_fight(0)
 	_select_profile(0)
 
@@ -184,7 +159,9 @@ func _build_ui() -> void:
 	left.add_theme_constant_override("separation", 0)
 	scroll.add_child(left)
 
+	_build_hero_section(left)
 	_build_enemy_section(left)
+	_build_enemy_deck_section(left)
 	_build_deck_section(left)
 	_build_profile_section(left)
 	_build_talent_section(left)
@@ -213,6 +190,26 @@ func _build_ui() -> void:
 # Section builders
 # ---------------------------------------------------------------------------
 
+func _build_hero_section(parent: Control) -> void:
+	parent.add_child(_section_header("HERO"))
+	var vbox := _section_body(parent)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(btn_row)
+
+	for hero: HeroData in HeroDatabase.get_all_heroes():
+		var btn := _flat_button(hero.hero_name)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.pressed.connect(_select_hero.bind(hero.id))
+		btn_row.add_child(btn)
+		_hero_buttons[hero.id] = btn
+
+	_hero_passives_label = _label("", _C_DIM)
+	_hero_passives_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(_hero_passives_label)
+
+
 func _build_enemy_section(parent: Control) -> void:
 	parent.add_child(_section_header("ENEMY"))
 	var vbox := _section_body(parent)
@@ -223,6 +220,39 @@ func _build_enemy_section(parent: Control) -> void:
 		btn.pressed.connect(_select_fight.bind(i))
 		vbox.add_child(btn)
 		_fight_buttons.append(btn)
+
+
+func _build_enemy_deck_section(parent: Control) -> void:
+	parent.add_child(_section_header("ENEMY DECK"))
+	var vbox := _section_body(parent)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	vbox.add_child(row)
+
+	_enemy_deck_dropdown = OptionButton.new()
+	_enemy_deck_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_enemy_deck_dropdown)
+
+	var edit_btn := _flat_button("Edit Decks →")
+	edit_btn.size_flags_horizontal = Control.SIZE_SHRINK_END
+	edit_btn.pressed.connect(func(): GameManager.go_to_scene("res://debug/EnemyDeckBuilder.tscn"))
+	row.add_child(edit_btn)
+
+	_rebuild_enemy_deck_dropdown()
+
+
+func _rebuild_enemy_deck_dropdown() -> void:
+	if _enemy_deck_dropdown == null:
+		return
+	_enemy_deck_dropdown.clear()
+	_enemy_deck_dropdown.add_item("Encounter Deck")
+	var saved := EnemySavedDecks.load_all()
+	var names: Array = saved.keys()
+	names.sort()
+	for name in names:
+		if not (name as String).begins_with("encounter_"):
+			_enemy_deck_dropdown.add_item(name as String)
 
 
 func _build_deck_section(parent: Control) -> void:
@@ -240,6 +270,9 @@ func _rebuild_deck_dropdown() -> void:
 	_deck_dropdown.clear()
 
 	for preset: Dictionary in _PRESETS:
+		var preset_hero: String = preset.get("hero", "") as String
+		if not preset_hero.is_empty() and preset_hero != _selected_hero_id:
+			continue
 		_deck_cards.append(preset.cards)
 		_deck_dropdown.add_item(preset.name as String)
 
@@ -291,6 +324,7 @@ func _build_talent_section(parent: Control) -> void:
 		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		col.add_theme_constant_override("separation", 2)
 		cols.add_child(col)
+		_branch_cols[branch] = col  # store for hero-based visibility
 
 		var branch_lbl := _label(branch, _C_GOLD)
 		branch_lbl.add_theme_font_size_override("font_size", 11)
@@ -345,12 +379,45 @@ func _build_run_section(parent: Control) -> void:
 # Interaction
 # ---------------------------------------------------------------------------
 
+func _select_hero(id: String) -> void:
+	_selected_hero_id = id
+	for hid in _hero_buttons:
+		_style_button(_hero_buttons[hid] as Button, hid == id)
+	var hero: HeroData = HeroDatabase.get_hero(id)
+	if hero != null and _hero_passives_label != null:
+		var lines: Array[String] = []
+		for p in hero.passives:
+			lines.append((p as HeroPassive).description)
+		_hero_passives_label.text = "\n".join(lines)
+	_refresh_talent_branches()
+	_rebuild_deck_dropdown()
+
+
+func _refresh_talent_branches() -> void:
+	var hero: HeroData = HeroDatabase.get_hero(_selected_hero_id)
+	if hero == null or _branch_cols.is_empty():
+		return
+	var active_displays: Array[String] = []
+	for branch_id in hero.talent_branch_ids:
+		var display: String = _BRANCH_DISPLAY.get(branch_id, "") as String
+		if not display.is_empty():
+			active_displays.append(display)
+	for display_name in _branch_cols:
+		var col: VBoxContainer = _branch_cols[display_name] as VBoxContainer
+		var is_active: bool = display_name in active_displays
+		col.visible = is_active
+		if not is_active:
+			for talent in _TALENTS:
+				if talent.branch == display_name:
+					(_talent_checks[talent.id] as CheckBox).set_pressed_no_signal(false)
+			_points_used = _count_checked()
+	_refresh_talent_ui()
+
+
 func _select_fight(idx: int) -> void:
 	_fight_idx = idx
-	# Highlight selected fight button
 	for i in _fight_buttons.size():
 		_style_button(_fight_buttons[i], i == idx)
-	# Drop talents that exceed new fight's point budget or require cleared prereqs
 	_clamp_talents_to_budget()
 	_refresh_talent_ui()
 
@@ -437,22 +504,45 @@ func _on_run_pressed() -> void:
 		_log.append_text("[color=#f66]Player deck is empty — select a deck from the dropdown.[/color]\n")
 		return
 
+	# Collect hero passives
+	var hero_passives: Array[String] = []
+	var hero: HeroData = HeroDatabase.get_hero(_selected_hero_id)
+	if hero != null:
+		for p in hero.passives:
+			hero_passives.append((p as HeroPassive).id)
+
 	_run_button.disabled = true
 	_clear_button.disabled = true
 
 	_log.append_text("\n")
+	var hero_name: String = hero.hero_name if hero != null else _selected_hero_id
 	var profile_name: String = (_PLAYER_PROFILES[0] as Dictionary).name as String
 	for p in _PLAYER_PROFILES:
 		if (p as Dictionary).id == _player_profile_id:
 			profile_name = (p as Dictionary).name as String
 	var deck_name: String = _deck_dropdown.get_item_text(sel_idx)
-	_log.append_text("[color=#ccb]Running %d sims  vs  [b]%s[/b]  [Deck: %s]  [Profile: %s][/color]\n" % [runs, fight.label, deck_name, profile_name])
+	var enemy_deck_label: String = _enemy_deck_dropdown.get_item_text(_enemy_deck_dropdown.selected)
+	_log.append_text("[color=#ccb]Running %d sims  vs  [b]%s[/b]  (enemy deck: %s)  [Hero: %s]  [Deck: %s]  [Profile: %s][/color]\n" % [runs, fight.label, enemy_deck_label, hero_name, deck_name, profile_name])
 	if not talents.is_empty():
 		_log.append_text("[color=#aaa]  Talents: %s[/color]\n" % ", ".join(talents))
+	if not hero_passives.is_empty():
+		_log.append_text("[color=#aaa]  Hero passives: %s[/color]\n" % ", ".join(hero_passives))
 
+	# Enemy deck: custom saved deck if selected, otherwise use encounter deck (override or default)
 	var enemy_deck: Array[String] = []
-	for id in fight.deck:
-		enemy_deck.append(id as String)
+	var enemy_deck_sel := _enemy_deck_dropdown.selected
+	if enemy_deck_sel > 0:
+		var enemy_deck_name: String = _enemy_deck_dropdown.get_item_text(enemy_deck_sel)
+		var saved_enemy := EnemySavedDecks.load_all()
+		if enemy_deck_name in saved_enemy:
+			for id in (saved_enemy[enemy_deck_name] as Array):
+				enemy_deck.append(id as String)
+	if enemy_deck.is_empty():
+		var enc_idx: int = (fight as Dictionary).get("encounter", _fight_idx) as int
+		var enc: EnemyData = GameManager.get_encounter(enc_idx)
+		if enc != null:
+			for id in enc.deck:
+				enemy_deck.append(id as String)
 
 	var sim   := CombatSim.new()
 	var stats: Dictionary = await sim.run_many(
@@ -463,7 +553,8 @@ func _on_run_pressed() -> void:
 			3000,
 			fight.hp as int,
 			talents,
-			_player_profile_id)
+			_player_profile_id,
+			hero_passives)
 
 	_print_results(fight.label, stats)
 

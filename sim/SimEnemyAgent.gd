@@ -11,6 +11,10 @@ extends CombatAgent
 
 var sim: SimState
 
+## Duck-types EnemyAI.minion_play_chosen_target so on_enemy_minion_played_effect
+## can read the target after the trigger fires.
+var minion_play_chosen_target = null
+
 func setup(s: SimState) -> void:
 	sim = s
 	sim.enemy_ai = self  # register as the scene's enemy_ai duck-type
@@ -49,6 +53,10 @@ var active_environment:
 	get: return sim.enemy_active_environment
 	set(v): sim.enemy_active_environment = v
 
+## Duck-type spell_cost_discounts so CombatSetup can write pack_frenzy discount.
+var spell_cost_discounts: Dictionary:
+	get: return sim.enemy_spell_cost_discounts
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -78,12 +86,15 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	slot.place_minion(instance)
 	sim.enemy_hand.erase(inst)
 	sim.enemy_discard.append(inst)
-	_resolve_on_play(mc, instance, chosen_target)
+	# Set target so on_enemy_minion_played_effect (always-on handler) can read it.
+	minion_play_chosen_target = chosen_target
 	if sim.trigger_manager != null:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 		ctx.minion = instance
 		ctx.card   = mc
 		sim.trigger_manager.fire(ctx)
+	else:
+		_resolve_on_play(mc, instance, chosen_target)
 	return sim.winner.is_empty()
 
 func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:

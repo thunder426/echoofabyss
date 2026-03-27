@@ -49,8 +49,10 @@ func _ready() -> void:
 
 func _build_ui() -> void:
 	# Full-screen background
-	var bg := ColorRect.new()
-	bg.color = Color(0.07, 0.05, 0.10, 1)
+	var bg := TextureRect.new()
+	bg.texture = load("res://assets/art/progression/backgrounds/talent_background.png")
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 

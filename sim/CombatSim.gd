@@ -59,11 +59,13 @@ func run(
 		player_hp: int = 3000,
 		enemy_hp:  int = 2000,
 		player_talents: Array[String] = [],
-		player_profile_id: String = "default") -> Dictionary:
+		player_profile_id: String = "default",
+		player_hero_passives: Array[String] = []) -> Dictionary:
 
 	var state := SimState.new()
 	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
 	state.talents = player_talents
+	state.hero_passives = player_hero_passives
 	state.enemy_passives.assign(_ENEMY_PASSIVES.get(enemy_profile_id, []))
 
 	# Build agents
@@ -134,7 +136,8 @@ func run_many(
 		player_hp: int = 3000,
 		enemy_hp:  int = 2000,
 		player_talents: Array[String] = [],
-		player_profile_id: String = "default") -> Dictionary:
+		player_profile_id: String = "default",
+		player_hero_passives: Array[String] = []) -> Dictionary:
 
 	var wins   := 0
 	var losses := 0
@@ -145,7 +148,8 @@ func run_many(
 
 	for _i in count:
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
-				enemy_deck_ids, player_hp, enemy_hp, player_talents, player_profile_id)
+				enemy_deck_ids, player_hp, enemy_hp, player_talents, player_profile_id,
+				player_hero_passives)
 		match r["winner"]:
 			"player": wins   += 1
 			"enemy":  losses += 1

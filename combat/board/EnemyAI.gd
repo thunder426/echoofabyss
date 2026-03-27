@@ -118,7 +118,7 @@ var active_environment: EnvironmentCardData = null
 var _deck: Array[CardInstance] = []
 var _discard: Array[CardInstance] = []
 var hand: Array[CardInstance] = []
-const HAND_MAX := 5
+const HAND_MAX := 10
 
 ## Fallback deck used when no encounter deck is configured.
 const FALLBACK_DECK: Array[String] = [

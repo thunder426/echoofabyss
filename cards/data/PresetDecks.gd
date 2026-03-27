@@ -4,10 +4,12 @@
 class_name PresetDecks
 extends RefCounted
 
-## Each entry: id, name, desc, cards (Array[String]).
+## Each entry: id, hero, name, desc, cards (Array[String]).
+## hero — the hero_id this deck is designed for (used by BalanceSim for filtering).
 const DECKS: Array = [
 	{
 		"id":   "swarm",
+		"hero": "lord_vael",
 		"name": "Swarm",
 		"desc": "Flood the board with Imps and Demons. Shadow Hound scales with board width; Void Devourer devours the swarm for a massive finisher.",
 		"cards": [
@@ -25,6 +27,7 @@ const DECKS: Array = [
 	},
 	{
 		"id":   "voidbolt_burst",
+		"hero": "lord_vael",
 		"name": "Voidbolt Burst",
 		"desc": "Sacrifice Imps to fuel your spells, then burn the enemy hero with Void Bolts.",
 		"cards": [
@@ -39,6 +42,7 @@ const DECKS: Array = [
 	},
 	{
 		"id":   "death_circle",
+		"hero": "lord_vael",
 		"name": "Death Circle",
 		"desc": "Place Runes to empower your Demons, then complete the ritual to summon a Demon Ascendant.",
 		"cards": [

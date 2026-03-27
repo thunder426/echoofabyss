@@ -1,0 +1,168 @@
+## CombatSetup.gd
+## Registers all conditional handlers (talents, hero passives, enemy passives)
+## and shared always-on handlers into TriggerManager.
+## Used by both CombatScene._setup_triggers() and SimTriggerSetup.
+##
+## To add a new talent, hero passive, or enemy passive:
+##   1. Add its handler method to CombatHandlers.gd
+##   2. Add an entry to _REGISTRY below — triggers and/or stat overrides
+##   No other files need to change.
+##
+## Registry entry shape:
+##   "passive_id": {
+##       "triggers": [ { "event": TriggerEvent, "method": "handler_name", "priority": int }, ... ],
+##       "stats":    { "scene_field_name": value, ... }   -- applied via scene.set() at setup
+##   }
+class_name CombatSetup
+extends RefCounted
+
+const _REGISTRY: Dictionary = {
+	# ── Player talents ────────────────────────────────────────────────────────
+	"void_echo": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN,      "method": "on_card_drawn_void_echo",        "priority": 0  }],
+		"stats":    {}
+	},
+	"rune_caller": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED,   "method": "on_played_rune_caller",          "priority": 0  }],
+		"stats":    {}
+	},
+	"swarm_discipline": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_swarm_discipline",     "priority": 20 }],
+		"stats":    {}
+	},
+	"abyssal_legion": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_abyssal_legion",       "priority": 21 }],
+		"stats":    {}
+	},
+	"piercing_void": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_piercing_void",        "priority": 23 }],
+		"stats":    {}
+	},
+	"imp_evolution": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_imp_evolution",        "priority": 24 }],
+		"stats":    {}
+	},
+	"imp_warband": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_imp_warband",          "priority": 25 }],
+		"stats":    {}
+	},
+	"death_bolt": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_DIED,     "method": "on_player_minion_died_death_bolt", "priority": 10 }],
+		"stats":    {}
+	},
+	"deepened_curse": {
+		"triggers": [],
+		"stats":    { "void_mark_damage_per_stack": 50 }
+	},
+	"runic_attunement": {
+		"triggers": [],
+		"stats":    { "rune_aura_multiplier": 2 }
+	},
+
+	# ── Hero passives ─────────────────────────────────────────────────────────
+	"void_imp_boost": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_passive_void_imp_boost", "priority": 0 }],
+		"stats":    {}
+	},
+
+	# ── Enemy passives ────────────────────────────────────────────────────────
+	"feral_instinct": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START,      "method": "on_enemy_turn_feral_instinct_reset", "priority": 5 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_feral_instinct",     "priority": 1 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_feral_instinct",       "priority": 4 },
+		],
+		"stats": {}
+	},
+	"pack_instinct": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_board_changed_pack_instinct", "priority": 9 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_board_changed_pack_instinct", "priority": 3 },
+		],
+		"stats": {}
+	},
+	"corrupted_death": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_corrupted_death", "priority": 6 }],
+		"stats":    {}
+	},
+	# ── Act 2 enemy passives ──────────────────────────────────────────────────
+	"human_imp_caller": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_human_imp_caller", "priority": 3 }],
+		"stats":    {}
+	},
+	"corrupt_authority": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_corrupt_authority_human", "priority": 2 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_corrupt_authority_imp",   "priority": 4 },
+		],
+		"stats": {}
+	},
+	"ritual_sacrifice": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_ritual_sacrifice", "priority": 2 }],
+		"stats":    {}
+	},
+	"void_unraveling": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_void_unraveling",   "priority": 2 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_void_unraveling", "priority": 2 },
+		],
+		"stats": {}
+	},
+	# ancient_frenzy: cost discount applied here; hand injection is live-only (handled in CombatScene._setup_triggers)
+	"ancient_frenzy": {
+		"triggers": [],
+		"stats":    {}
+	},
+}
+
+func setup(
+		tm: TriggerManager,
+		h: CombatHandlers,
+		scene: Object,
+		talents: Array[String],
+		hero_passives: Array[String],
+		enemy_passives: Array[String]) -> void:
+
+	# ── Shared always-on handlers (both live and sim) ─────────────────────────
+	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,     h.on_player_turn_environment,           10)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,     h.on_minion_turn_start_passives,        21)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,      h.on_enemy_turn_environment,            10)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,     h.on_void_archmagus_spell,               0)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED,  h.on_player_minion_played_effect,       10)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_summon_board_synergies,           30)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, h.on_enemy_minion_played_effect,         5)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, h.on_enemy_summon_rogue_imp_elder,       7)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_player_minion_died_board_passives,  0)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_minion_died_death_effect,           5)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     h.on_minion_died_death_effect,           5)
+	tm.register(Enums.TriggerEvent.ON_RUNE_PLACED,           h.on_player_minion_died_rune_warden,     5)
+
+	# ── Conditional: registry-driven registration and stat overrides ──────────
+	for id in talents:       _apply(id, tm, h, scene)
+	for id in hero_passives: _apply(id, tm, h, scene)
+	for id in enemy_passives:
+		_apply(id, tm, h, scene)
+		# ancient_frenzy: grant pack_frenzy cost discount (shared side effect)
+		if id == "ancient_frenzy":
+			var ai = scene.get("enemy_ai")
+			if ai != null:
+				(ai.spell_cost_discounts as Dictionary)["pack_frenzy"] = 1
+
+	# ── Grand rituals from talents (data-driven via TalentDatabase) ───────────
+	for talent_id in talents:
+		var talent: TalentData = TalentDatabase.get_talent(talent_id)
+		if talent != null and talent.grand_ritual != null:
+			var gr: RitualData = talent.grand_ritual
+			tm.register(Enums.TriggerEvent.ON_RUNE_PLACED,
+				func(_ctx: EventContext): h.on_grand_ritual(gr), 0)
+			tm.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED,
+				func(_ctx: EventContext): h.on_grand_ritual(gr), 0)
+
+func _apply(id: String, tm: TriggerManager, h: CombatHandlers, scene: Object) -> void:
+	if not _REGISTRY.has(id):
+		return
+	var entry: Dictionary = _REGISTRY[id]
+	for t in entry["triggers"]:
+		tm.register(t["event"], Callable(h, t["method"]), t["priority"])
+	for stat in entry["stats"]:
+		scene.set(stat, entry["stats"][stat])

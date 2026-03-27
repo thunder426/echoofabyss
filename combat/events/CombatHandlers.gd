@@ -202,7 +202,8 @@ func on_summon_board_synergies(ctx: EventContext) -> void:
 			_apply_board_passive_on_summon(pid, m, summoned)
 	if _is_void_imp(summoned):
 		_scene._refresh_slot_for(summoned)
-		_scene._check_champion_triggers()
+		if _scene.has_method("_check_champion_triggers"):
+			_scene._check_champion_triggers()
 
 func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionInstance, summoned: MinionInstance) -> void:
 	match passive_id:
@@ -382,6 +383,143 @@ func on_enemy_died_corrupted_death(ctx: EventContext) -> void:
 	for m in _scene.player_board:
 		_scene._corrupt_minion(m)
 	_log("  Corrupted Death: Void-Touched Imp death spreads Corruption to all player minions.", _LOG_ENEMY)
+
+## Human Imp Caller — shared Act 2 passive
+## When a human is summoned: add a random feral imp to the enemy's hand.
+func on_enemy_summon_human_imp_caller(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null or not (minion.card_data is MinionCardData):
+		return
+	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+		return
+	var feral_imps: Array[CardData] = []
+	for id in CardDatabase.get_all_card_ids():
+		var card: CardData = CardDatabase.get_card(id)
+		if _card_has_tag(card, "feral_imp"):
+			feral_imps.append(card)
+	if feral_imps.is_empty():
+		return
+	var chosen: CardData = feral_imps[randi() % feral_imps.size()]
+	_scene.enemy_ai.add_to_hand(chosen)
+	_log("  Imp Caller: %s summoned → enemy draws %s." % [minion.card_data.card_name, chosen.card_name], _LOG_ENEMY)
+
+## Corrupt Authority — encounter 3 (Abyss Cultist Patrol)
+## When a human is summoned: apply 1 Corruption to a random player minion.
+func on_enemy_summon_corrupt_authority_human(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null or (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+		return
+	if _scene.player_board.is_empty():
+		return
+	var target: MinionInstance = _scene.player_board[randi() % _scene.player_board.size()]
+	_scene._corrupt_minion(target)
+	_log("  Corrupt Authority: %s summoned → %s is Corrupted." % [minion.card_data.card_name, target.card_data.card_name], _LOG_ENEMY)
+
+## When a feral imp is summoned: consume all Corruption on each player minion, deal 200 damage per stack.
+func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null or not _has_tag(minion, "feral_imp"):
+		return
+	for m: MinionInstance in _scene.player_board.duplicate():
+		var stacks := 0
+		for b in m.buffs:
+			if (b as BuffEntry).type == Enums.BuffType.CORRUPTION:
+				stacks += 1
+		if stacks == 0:
+			continue
+		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
+		_scene._refresh_slot_for(m)
+		_scene.combat_manager.apply_spell_damage(m, 200 * stacks)
+		_log("  Corrupt Authority: %s had %d stack(s) → consumed, dealt %d damage." % [m.card_data.card_name, stacks, 200 * stacks], _LOG_ENEMY)
+
+## Ritual Sacrifice — encounter 4 (Void Ritualist)
+## When a feral imp is summoned and enemy has Blood Rune + Dominion Rune active:
+## consume both runes + the feral imp, deal 200 damage to 2 random player targets,
+## Special Summon a 500/500 Demon on the enemy board.
+func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null or not _has_tag(minion, "feral_imp"):
+		return
+	var blood_idx    := -1
+	var dominion_idx := -1
+	var enemy_traps: Array = _scene.enemy_ai.active_traps
+	for i in enemy_traps.size():
+		var trap: TrapCardData = enemy_traps[i] as TrapCardData
+		if not trap.is_rune:
+			continue
+		if trap.rune_type == Enums.RuneType.BLOOD_RUNE and blood_idx == -1:
+			blood_idx = i
+		elif trap.rune_type == Enums.RuneType.DOMINION_RUNE and dominion_idx == -1:
+			dominion_idx = i
+	if blood_idx == -1 or dominion_idx == -1:
+		return
+	# Remove runes — erase higher index first to preserve lower index position
+	var hi := maxi(blood_idx, dominion_idx)
+	var lo := mini(blood_idx, dominion_idx)
+	_scene.enemy_ai.active_traps.remove_at(hi)
+	_scene.enemy_ai.active_traps.remove_at(lo)
+	# Consume the feral imp that triggered this
+	_scene.combat_manager.kill_minion(minion)
+	_log("  Ritual Sacrifice: runes consumed + %s sacrificed — Demon Ascendant!" % minion.card_data.card_name, _LOG_ENEMY)
+	# Deal 200 damage to 2 random player targets (minion or hero if board is empty)
+	for _i in 2:
+		if _scene.player_board.is_empty():
+			_scene.combat_manager.apply_hero_damage("player", 200, Enums.DamageType.SPELL)
+		else:
+			var t: MinionInstance = _scene.player_board[randi() % _scene.player_board.size()]
+			_scene.combat_manager.apply_spell_damage(t, 200)
+	# Special Summon a 500/500 Demon
+	_scene._summon_token("void_demon", "enemy", 500, 500)
+
+## Void Unraveling — encounter 5 (Corrupted Handler)
+## When a friendly human dies: summon a 100/100 Void Spark on the enemy board.
+func on_enemy_died_void_unraveling(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null or (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+		return
+	_scene._summon_token("void_spark", "enemy", 100, 100)
+	_log("  Void Unraveling: %s died → a Void Spark arises on the enemy board." % minion.card_data.card_name, _LOG_ENEMY)
+
+## When a feral imp is summoned: apply 1 Corruption to all friendly Void Sparks and
+## transfer each to the player board. Destroy those that can't fit.
+func on_enemy_summon_void_unraveling(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null or not _has_tag(minion, "feral_imp"):
+		return
+	var sparks: Array[MinionInstance] = []
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "void_spark":
+			sparks.append(m)
+	if sparks.is_empty():
+		return
+	for spark: MinionInstance in sparks:
+		_scene._corrupt_minion(spark)
+		if not _transfer_to_player_board(spark):
+			_scene.combat_manager.kill_minion(spark)
+			_log("  Void Unraveling: player board full — Void Spark destroyed.", _LOG_ENEMY)
+		else:
+			_log("  Void Unraveling: Void Spark (Corrupted) transferred to player board!", _LOG_ENEMY)
+
+## Move a minion from the enemy board to an empty player board slot without firing death/summon events.
+## Returns false if the player board has no empty slot.
+func _transfer_to_player_board(m: MinionInstance) -> bool:
+	var target_slot: BoardSlot = null
+	for s: BoardSlot in _scene.player_slots:
+		if s.is_empty():
+			target_slot = s
+			break
+	if target_slot == null:
+		return false
+	for s: BoardSlot in _scene.enemy_slots:
+		if s.minion == m:
+			s.remove_minion()
+			break
+	_scene.enemy_board.erase(m)
+	m.owner = "player"
+	_scene.player_board.append(m)
+	target_slot.place_minion(m)
+	_scene._refresh_slot_for(m)
+	return true
 
 # ---------------------------------------------------------------------------
 # Shared helpers

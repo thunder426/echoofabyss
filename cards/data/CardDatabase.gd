@@ -1298,7 +1298,7 @@ func _register_wanderer_cards() -> void:
 	void_touched_imp.card_name    = "Void-Touched Imp"
 	void_touched_imp.essence_cost = 2
 	void_touched_imp.description  = "ON DEATH: Deal 100 damage to all enemy minions."
-	void_touched_imp.atk          = 100
+	void_touched_imp.atk          = 200
 	void_touched_imp.health       = 300
 	void_touched_imp.minion_type  = Enums.MinionType.DEMON
 	void_touched_imp.on_death_effect_steps = [

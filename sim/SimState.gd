@@ -13,7 +13,7 @@ extends RefCounted
 
 const BOARD_MAX          := 5
 const PLAYER_HAND_MAX    := 10  ## matches TurnManager.HAND_SIZE_MAX
-const ENEMY_HAND_MAX     := 5   ## matches EnemyAI.HAND_MAX
+const ENEMY_HAND_MAX     := 10  ## matches EnemyAI.HAND_MAX
 const COMBINED_RESOURCE_CAP := 11
 const ESSENCE_HARD_CAP   := 10
 
@@ -93,15 +93,22 @@ var enemy_spell_cost_discounts: Dictionary = {}
 ## Set of active talent IDs for the player. Example: ["piercing_void"]
 var talents: Array[String] = []
 
+## Hero passive IDs for the current hero. Set by CombatSim before SimTriggerSetup.setup().
+var hero_passives: Array[String] = []
+
+## Active passive IDs for the current enemy encounter (e.g. ["feral_instinct", "pack_instinct"]).
+## Set by CombatSim before calling SimTriggerSetup.setup().
+var enemy_passives: Array[String] = []
+
+## Passive-configurable stats — set by CombatSetup from the registry at combat start.
+var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 50
+var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
+
 ## Imp Evolution once-per-turn gate — reset at the start of each player turn.
 var imp_evolution_used_this_turn: bool = false
 
 ## Feral Instinct once-per-turn gate — reset at ON_ENEMY_TURN_START.
 var feral_instinct_granted_this_turn: bool = false
-
-## Active passive IDs for the current enemy encounter (e.g. ["feral_instinct", "pack_instinct"]).
-## Set by CombatSim before calling SimTriggerSetup.setup().
-var enemy_passives: Array[String] = []
 
 # ---------------------------------------------------------------------------
 # Sim result
@@ -276,11 +283,11 @@ func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
 
 func _deal_void_bolt_damage(base_damage: int) -> void:
-	var bonus := enemy_void_marks * _void_mark_damage_per_stack()
+	var bonus := enemy_void_marks * void_mark_damage_per_stack
 	combat_manager.apply_hero_damage("enemy", base_damage + bonus, Enums.DamageType.VOID_BOLT)
 
 func _void_mark_damage_per_stack() -> int:
-	return 50 if _has_talent("deepened_curse") else 25
+	return void_mark_damage_per_stack
 
 func _log(_msg: Variant, _type: int = 0) -> void:
 	pass  # no logging in headless sim
@@ -341,7 +348,7 @@ func _update_environment_display() -> void:
 	pass  # no UI
 
 func _rune_aura_multiplier() -> int:
-	return 2 if "runic_attunement" in talents else 1
+	return rune_aura_multiplier
 
 func _minion_has_tag(minion: MinionInstance, tag: String) -> bool:
 	if minion.card_data is MinionCardData:

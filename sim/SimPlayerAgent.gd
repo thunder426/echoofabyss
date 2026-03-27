@@ -61,12 +61,22 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	slot.place_minion(instance)
 	sim.player_hand.erase(inst)
 	sim.player_discard.append(inst)
-	_resolve_on_play(mc, instance, chosen_target)
 	if sim.trigger_manager != null:
-		var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-		ctx.minion = instance
-		ctx.card   = mc
-		sim.trigger_manager.fire(ctx)
+		# ON_PLAYER_MINION_PLAYED — triggers on-play effects and rune_caller
+		var played_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
+		played_ctx.minion = instance
+		played_ctx.card   = mc
+		if chosen_target is MinionInstance:
+			played_ctx.target = chosen_target
+		sim.trigger_manager.fire(played_ctx)
+		if not sim.winner.is_empty(): return false
+		# ON_PLAYER_MINION_SUMMONED — triggers board synergies and passive buffs
+		var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
+		summon_ctx.minion = instance
+		summon_ctx.card   = mc
+		sim.trigger_manager.fire(summon_ctx)
+	else:
+		_resolve_on_play(mc, instance, chosen_target)
 	return sim.winner.is_empty()
 
 func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
