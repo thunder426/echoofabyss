@@ -65,7 +65,7 @@ func load_profile() -> bool:
 	if run is Dictionary:
 		GameManager.run_active      = true
 		GameManager.current_hero    = run.get("current_hero", "lord_vael")
-		GameManager.run_node_index  = int(run.get("run_node_index", 0))
+		GameManager.run_node_index  = int(run.get("run_node_index", 1))
 		GameManager.player_hp_max   = int(run.get("player_hp_max", 3000))
 		GameManager.player_hp       = int(run.get("player_hp", GameManager.player_hp_max))
 		GameManager.core_unit_limit = int(run.get("core_unit_limit", 4))
@@ -106,7 +106,7 @@ func reset_all() -> void:
 	GameManager.player_relics.clear()
 	GameManager.unlocked_talents.clear()
 	GameManager.talent_points = 0
-	GameManager.run_node_index = 0
+	GameManager.run_node_index = 1
 	GameManager.deck_built = false
 	GameManager.current_enemy = null
 	if FileAccess.file_exists(SAVE_PATH):

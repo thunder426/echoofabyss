@@ -86,9 +86,12 @@ const _REGISTRY: Dictionary = {
 		"stats":    {}
 	},
 	# ── Act 2 enemy passives ──────────────────────────────────────────────────
-	"human_imp_caller": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_human_imp_caller", "priority": 3 }],
-		"stats":    {}
+	"feral_reinforcement": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_human_imp_caller", "priority": 3 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_reset_imp_caller", "priority": 0 },
+		],
+		"stats":    { "_imp_caller_fired": false }
 	},
 	"corrupt_authority": {
 		"triggers": [

@@ -367,7 +367,7 @@ func _register_wanderer_cards() -> void:
 	var spell_taxer := MinionCardData.new()
 	spell_taxer.id             = "spell_taxer"
 	spell_taxer.card_name      = "Spell Taxer"
-	spell_taxer.description    = "ON PLAY: enemy spells cost +1 Essence next turn."
+	spell_taxer.description    = "ON PLAY: enemy spells cost +1 Mana next turn."
 	spell_taxer.essence_cost   = 3
 	spell_taxer.atk            = 250
 	spell_taxer.health         = 300

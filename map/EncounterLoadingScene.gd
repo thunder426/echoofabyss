@@ -73,8 +73,17 @@ const BAR_IMG_H   := 56   ## Height of the progression bar image
 const BAR_TOP     := 6    ## Gap from screen top before the "ACT X" label
 const ACT_LABEL_H := 50
 
+const ACT_TITLES: Dictionary = {
+	1: "THE IMP LAIR",
+	2: "THE ABYSS DUNGEON",
+	3: "THE VOID RIFT",
+	4: "THE FINAL DESCENT",
+}
+
 func _add_act_bar(vp: Vector2) -> void:
-	var path := _get_progression_bar_path()
+	var bar_info := _get_progression_bar_info()
+	var path: String = bar_info.path
+	var act_num: int = bar_info.act
 	if path == "" or not ResourceLoader.exists(path):
 		return
 
@@ -82,16 +91,18 @@ func _add_act_bar(vp: Vector2) -> void:
 	var label_y := BAR_TOP
 	var bar_y   := label_y + ACT_LABEL_H + 4
 
-	# "ACT 1" label — bold, violet, centred above the bar
+	# "ACT X: TITLE" label — bold, violet, centred above the bar
+	var act_title: String = ACT_TITLES.get(act_num, "") as String
+	var label_text: String = "ACT %d: %s" % [act_num, act_title] if act_title != "" else "ACT %d" % act_num
 	var act_lbl := RichTextLabel.new()
 	act_lbl.bbcode_enabled = true
-	act_lbl.text = "[center][b]ACT 1[/b][/center]"
+	act_lbl.text = "[center][b]%s[/b][/center]" % label_text
 	act_lbl.scroll_active = false
 	act_lbl.add_theme_font_size_override("bold_font_size", 40)
 	act_lbl.add_theme_font_size_override("normal_font_size", 40)
 	act_lbl.add_theme_color_override("default_color", COLOR_PURPLE)
-	act_lbl.set_position(Vector2(bar_x, label_y))
-	act_lbl.set_size(Vector2(BAR_W, ACT_LABEL_H))
+	act_lbl.set_position(Vector2(0, label_y))
+	act_lbl.set_size(Vector2(vp.x, ACT_LABEL_H))
 	add_child(act_lbl)
 
 	# Clip container forces the bar image to exactly BAR_W × BAR_IMG_H
@@ -108,18 +119,29 @@ func _add_act_bar(vp: Vector2) -> void:
 	bar.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
 	clip.add_child(bar)
 
-func _get_progression_bar_path() -> String:
+## Returns {path: String, act: int} for the current fight's progression bar.
+## Reuses Act 1 bar images for acts with 3 fights (Acts 1-3).
+func _get_progression_bar_info() -> Dictionary:
 	var idx := GameManager.run_node_index
-	# Act 1 has per-fight progression bar images (fights 0, 1, 2).
-	const ACT1_BARS: Array = [
+	var act: int = GameManager._act_for_index(idx)
+	# Calculate fight number within this act (1-based)
+	var cumulative := 0
+	for i in act - 1:
+		cumulative += GameManager.ACT_SIZES[i]
+	var fight_in_act: int = idx - cumulative  # 1, 2, or 3
+
+	# Per-fight bar images — reused across 3-fight acts
+	const FIGHT_BARS: Array = [
 		"res://assets/art/progression/backgrounds/a1_fight1_progression_bar.png",
 		"res://assets/art/progression/backgrounds/a1_fight2_progression_bar.png",
 		"res://assets/art/progression/backgrounds/a1_fight3_progression_bar.png",
 	]
-	if idx < ACT1_BARS.size():
-		return ACT1_BARS[idx]
-	# Future acts: add their bar paths here.
-	return ""
+	if fight_in_act >= 1 and fight_in_act <= FIGHT_BARS.size():
+		return {path = FIGHT_BARS[fight_in_act - 1], act = act}
+	# Act 4 has 6 fights — use fight3 bar for fights 4-6 (last bar = most filled)
+	if fight_in_act > FIGHT_BARS.size():
+		return {path = FIGHT_BARS[FIGHT_BARS.size() - 1], act = act}
+	return {path = "", act = act}
 
 # ---------------------------------------------------------------------------
 # Story Panel (left side)

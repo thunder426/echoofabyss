@@ -11,9 +11,9 @@ extends Control
 # Act 1 fight configs  (mirrors GameManager._make_encounter calls)
 # ---------------------------------------------------------------------------
 const _FIGHTS: Array = [
-	{"label": "Fight 1  —  Rogue Imp Pack",      "hp": 1800, "profile": "feral_pack",       "encounter": 0, "talent_points": 1},
-	{"label": "Fight 2  —  Corrupted Broodlings", "hp": 2200, "profile": "corrupted_brood",  "encounter": 1, "talent_points": 1},
-	{"label": "Fight 3  —  Imp Matriarch",         "hp": 3000, "profile": "matriarch",        "encounter": 2, "talent_points": 1},
+	{"label": "Fight 1  —  Rogue Imp Pack",      "hp": 1800, "profile": "feral_pack",       "encounter": 1, "talent_points": 1},
+	{"label": "Fight 2  —  Corrupted Broodlings", "hp": 2400, "profile": "corrupted_brood",  "encounter": 2, "talent_points": 1},
+	{"label": "Fight 3  —  Imp Matriarch",         "hp": 3500, "profile": "matriarch",        "encounter": 3, "talent_points": 1},
 ]
 
 # ---------------------------------------------------------------------------

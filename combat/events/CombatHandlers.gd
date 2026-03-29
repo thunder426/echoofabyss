@@ -386,12 +386,18 @@ func on_enemy_died_corrupted_death(ctx: EventContext) -> void:
 
 ## Human Imp Caller — shared Act 2 passive
 ## When a human is summoned: add a random feral imp to the enemy's hand.
-func on_enemy_summon_human_imp_caller(ctx: EventContext) -> void:
+func on_enemy_turn_reset_imp_caller(_ctx: EventContext) -> void:
+	_scene.set("_imp_caller_fired", false)
+
+func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
+	if _scene.get("_imp_caller_fired") == true:
+		return
 	var minion := ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
 	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
 		return
+	_scene.set("_imp_caller_fired", true)
 	var feral_imps: Array[CardData] = []
 	for id in CardDatabase.get_all_card_ids():
 		var card: CardData = CardDatabase.get_card(id)
@@ -401,7 +407,7 @@ func on_enemy_summon_human_imp_caller(ctx: EventContext) -> void:
 		return
 	var chosen: CardData = feral_imps[randi() % feral_imps.size()]
 	_scene.enemy_ai.add_to_hand(chosen)
-	_log("  Imp Caller: %s summoned → enemy draws %s." % [minion.card_data.card_name, chosen.card_name], _LOG_ENEMY)
+	_log("  Feral Reinforcement: %s summoned → enemy draws %s." % [minion.card_data.card_name, chosen.card_name], _LOG_ENEMY)
 
 ## Corrupt Authority — encounter 3 (Abyss Cultist Patrol)
 ## When a human is summoned: apply 1 Corruption to a random player minion.

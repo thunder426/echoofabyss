@@ -42,7 +42,7 @@ func _make_act_column(act_idx: int) -> VBoxContainer:
 	col.add_child(hsep)
 
 	# Compute the starting global index for this act
-	var act_start: int = 0
+	var act_start: int = 1
 	for i in act_idx:
 		act_start += GameManager.ACT_SIZES[i]
 

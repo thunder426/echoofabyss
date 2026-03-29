@@ -18,24 +18,35 @@ extends RefCounted
 # ---------------------------------------------------------------------------
 
 const _ENEMY_PROFILES: Dictionary = {
-	"default":         preload("res://enemies/ai/profiles/DefaultProfile.gd"),
-	"feral_pack":      preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
-	"corrupted_brood": preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
-	"matriarch":       preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
+	"default":              preload("res://enemies/ai/profiles/DefaultProfile.gd"),
+	"feral_pack":           preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
+	"corrupted_brood":      preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
+	"matriarch":            preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
+	"cultist_patrol":       preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
+	"scored":               preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
+	"scored_feral_pack":    preload("res://enemies/ai/profiles/ScoredFeralPackProfile.gd"),
+	"scored_corrupted_brood": preload("res://enemies/ai/profiles/ScoredCorruptedBroodProfile.gd"),
+	"scored_matriarch":     preload("res://enemies/ai/profiles/ScoredMatriarchProfile.gd"),
 }
 
 ## Passive IDs active for each enemy profile — mirrors EnemyData.passives in the live game.
 const _ENEMY_PASSIVES: Dictionary = {
-	"feral_pack":      ["feral_instinct", "pack_instinct"],
-	"corrupted_brood": ["feral_instinct", "corrupted_death"],
-	"matriarch":       ["feral_instinct", "ancient_frenzy"],
-	"default":         [],
+	"feral_pack":           ["feral_instinct", "pack_instinct"],
+	"corrupted_brood":      ["feral_instinct", "corrupted_death"],
+	"matriarch":            ["feral_instinct", "ancient_frenzy"],
+	"default":              [],
+	"cultist_patrol":       ["feral_reinforcement", "corrupt_authority"],
+	"scored":               [],
+	"scored_feral_pack":    ["feral_instinct", "pack_instinct"],
+	"scored_corrupted_brood": ["feral_instinct", "corrupted_death"],
+	"scored_matriarch":     ["feral_instinct", "ancient_frenzy"],
 }
 
 const _PLAYER_PROFILES: Dictionary = {
 	"default":    preload("res://enemies/ai/profiles/DefaultPlayerProfile.gd"),
 	"spell_burn": preload("res://enemies/ai/profiles/SpellBurnPlayerProfile.gd"),
 	"rune_tempo": preload("res://enemies/ai/profiles/RuneTempoPlayerProfile.gd"),
+	"scored":     preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
 }
 
 ## Maximum turns before declaring a draw — prevents infinite loops.
@@ -88,6 +99,7 @@ func run(
 	var e_profile_script = _ENEMY_PROFILES.get(enemy_profile_id, _ENEMY_PROFILES["default"])
 	var e_profile: CombatProfile = e_profile_script.new()
 	e_profile.setup(e_agent)
+	e_profile.setup_resource_growth(state)
 
 	# Initialise resources (turn 1 starts at 1/1)
 	state.player_essence_max = 1

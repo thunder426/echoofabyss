@@ -17,6 +17,7 @@ const _PROFILES: Dictionary = {
 	"feral_pack":      preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
 	"matriarch":       preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
 	"corrupted_brood": preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
+	"cultist_patrol":  preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
 }
 
 var _active_profile: CombatProfile = null

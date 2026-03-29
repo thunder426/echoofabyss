@@ -637,9 +637,14 @@ func apply_cost_discount(discount: int) -> void:
 	if card_data == null or card_data is MinionCardData:
 		return
 	var effective := maxi(0, card_data.cost - discount)
-	var discounted := discount > 0 and card_data.cost > 0
 	if frame_cost_label and frame_cost_label.visible:
-		var _hex := "4dff4d" if discounted else "ffffff"
+		var _hex: String
+		if discount > 0 and card_data.cost > 0:
+			_hex = "4dff4d"  # Green — discounted
+		elif discount < 0:
+			_hex = "ff4d4d"  # Red — increased
+		else:
+			_hex = "ffffff"  # White — normal
 		frame_cost_label.text = "[center][color=#%s]%d[/color][/center]" % [_hex, effective]
 
 ## Updates displayed stats, cost, and description based on currently unlocked talents.

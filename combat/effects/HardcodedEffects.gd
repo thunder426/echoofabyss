@@ -40,7 +40,11 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			if ctx.owner == "player":
 				var _cur_tax = _scene.get("_spell_tax_for_enemy_turn")
 				_scene.set("_spell_tax_for_enemy_turn", (_cur_tax if _cur_tax != null else 0) + 1)
-				_log("  Spell Taxer: enemy spells cost +1 next turn.", _LOG_PLAYER)
+				_log("  Spell Taxer: enemy spells cost +1 Mana next turn.", _LOG_PLAYER)
+			elif ctx.owner == "enemy":
+				var _cur_tax = _scene.get("_spell_tax_for_player_turn")
+				_scene.set("_spell_tax_for_player_turn", (_cur_tax if _cur_tax != null else 0) + 1)
+				_log("  Spell Taxer: player spells cost +1 Mana next turn.", _LOG_ENEMY)
 		"saboteur_adept_effect":
 			if ctx.owner == "player":
 				_log("  Saboteur Adept: enemy traps blocked this turn (not yet active).", _LOG_PLAYER)

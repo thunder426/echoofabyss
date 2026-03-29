@@ -493,6 +493,7 @@ func _draw_enemy(count: int) -> void:
 ## Optional override set by a CombatProfile to replace the default resource-growth logic.
 ## Signature: func(turn_number: int) -> void
 var player_growth_override: Callable = Callable()
+var enemy_growth_override: Callable = Callable()
 
 func begin_player_turn(turn_number: int) -> void:
 	if player_growth_override.is_valid():
@@ -510,7 +511,10 @@ func begin_player_turn(turn_number: int) -> void:
 	_unexhaust_board(player_board)
 
 func begin_enemy_turn(turn_number: int) -> void:
-	_grow_enemy_resources(turn_number)
+	if enemy_growth_override.is_valid():
+		enemy_growth_override.call(turn_number)
+	else:
+		_grow_enemy_resources(turn_number)
 	enemy_essence = enemy_essence_max
 	enemy_mana    = enemy_mana_max
 	if trigger_manager != null:

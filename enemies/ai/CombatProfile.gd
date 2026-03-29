@@ -108,6 +108,11 @@ func _is_aggro() -> bool:
 func setup_resource_growth(_state: Object) -> void:
 	pass
 
+## Override to provide scoring weights (ScoredCombatProfile and subclasses).
+## Returning null means this profile does not use the scoring system.
+func get_weights() -> ScoringWeights:
+	return null
+
 ## Returns false to hold a spell this turn.
 ## Evaluates rules from _get_spell_rules(); override for logic not covered by rules.
 func can_cast_spell(spell: SpellCardData) -> bool:

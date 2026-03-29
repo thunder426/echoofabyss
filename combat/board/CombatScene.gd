@@ -169,6 +169,12 @@ var _combat_ended: bool = false
 ## Pending spell cost penalty to apply to the enemy on their next turn (from Spell Taxer).
 var _spell_tax_for_enemy_turn: int = 0
 
+## Pending spell cost penalty to apply to the player on their next turn (from enemy Spell Taxer).
+var _spell_tax_for_player_turn: int = 0
+
+## Active spell cost penalty for the player this turn (applied at turn start, cleared at turn end).
+var player_spell_cost_penalty: int = 0
+
 ## Set to true by Silence Trap to skip the enemy spell's effect resolution.
 var _spell_cancelled: bool = false
 
@@ -223,7 +229,7 @@ func _ready() -> void:
 		enemy_hp = GameManager.current_enemy.hp
 		enemy_hp_max = enemy_hp
 		if fight_label:
-			fight_label.text = "Fight %d / %d" % [GameManager.run_node_index + 1, GameManager.TOTAL_FIGHTS]
+			fight_label.text = "Fight %d / %d" % [GameManager.run_node_index, GameManager.TOTAL_FIGHTS]
 
 	# Build the deck from GameManager and begin combat
 	var deck_ids: Array[String] = GameManager.player_deck
@@ -419,6 +425,8 @@ func _on_turn_started(is_player_turn: bool) -> void:
 	# Fire turn-start events — all effects are handled by registered listeners in _setup_triggers().
 	if is_player_turn:
 		imp_evolution_used_this_turn     = false
+		player_spell_cost_penalty = _spell_tax_for_player_turn
+		_spell_tax_for_player_turn = 0
 		for inst in turn_manager.player_hand:
 			inst.cost_delta = 0
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
@@ -446,6 +454,8 @@ func _on_turn_ended(is_player_turn: bool) -> void:
 				_log("  Imp Overload: temp Void Imp expires.", _LogType.DEATH)
 				combat_manager.kill_minion(imp)
 		_temp_imps.clear()
+		# Clear player spell cost penalty after player turn ends
+		player_spell_cost_penalty = 0
 	else:
 		# Clear enemy spell cost penalty after their turn ends
 		enemy_ai.spell_cost_penalty = 0
@@ -1498,17 +1508,17 @@ func _has_talent(id: String) -> bool:
 
 ## Refresh hand card cost display and large preview to reflect the current board discount.
 func _refresh_hand_spell_costs() -> void:
-	var discount := _spell_mana_discount()
+	var net_discount := _spell_mana_discount() - player_spell_cost_penalty
 	if hand_display:
-		hand_display.refresh_spell_costs(discount)
+		hand_display.refresh_spell_costs(net_discount)
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	if _large_preview and _large_preview.visible:
 		var extra := -(_hovered_hand_visual.card_inst.cost_delta) if _hovered_hand_visual != null and _hovered_hand_visual.card_inst != null else 0
-		_large_preview.apply_cost_discount(discount + extra)
+		_large_preview.apply_cost_discount(net_discount + extra)
 
-## Effective mana cost for a player spell after applying board discount.
+## Effective mana cost for a player spell after applying board discount and tax penalty.
 func _effective_spell_cost(spell: SpellCardData) -> int:
-	return maxi(0, spell.cost - _spell_mana_discount())
+	return maxi(0, spell.cost - _spell_mana_discount() + player_spell_cost_penalty)
 
 ## Effective mana cost for a player trap/rune — reads cost_delta from the hovered card's CardInstance.
 ## Used for pip-blink preview only; actual play uses pending_play_card.effective_cost().
@@ -3163,6 +3173,23 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 			"name": "Ancient Frenzy",
 			"desc": "Pack Frenzy also grants all Feral Imps Lifedrain for the turn, and costs 1 less Mana. Starts with one extra Pack Frenzy in hand."
 		},
+		# ── Act 2 enemy passives ──────────────────────────────────────────────────
+		"feral_reinforcement": {
+			"name": "Feral Reinforcement",
+			"desc": "The first Human summoned each turn adds a random Feral Imp to the enemy's hand."
+		},
+		"corrupt_authority": {
+			"name": "Corrupt Authority",
+			"desc": "Each Human summoned applies 1 Corruption to a random player minion. Each Feral Imp summoned consumes all Corruption stacks on player minions, dealing 200 damage per stack."
+		},
+		"ritual_sacrifice": {
+			"name": "Ritual Sacrifice",
+			"desc": "When a Feral Imp is summoned and the enemy has a Blood Rune and Dominion Rune active: consume both runes and the imp, deal 200 damage to 2 random player targets, then summon a 500/500 Demon."
+		},
+		"void_unraveling": {
+			"name": "Void Unraveling",
+			"desc": "When a Feral Imp is summoned, all enemy Void Sparks are Corrupted and transferred to the player's board."
+		},
 	}
 
 	var icon_btn := Label.new()
@@ -3680,12 +3707,11 @@ func _setup_triggers() -> void:
 
 	# ── Live-only always-on handlers ─────────────────────────────────────────
 	# Priority guide: 0=relics, 5=enemy passives, 10=environment, 21+=minion passives, 30=traps/synergies
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,    _handlers.on_player_turn_relics,           0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,    _handlers.on_void_archmagus_spell,         0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, _handlers.on_player_minion_played_effect,  10)
+	# NOTE: on_player_minion_played_effect, on_enemy_minion_played_effect, on_void_archmagus_spell,
+	# and on_summon_board_synergies are registered by CombatSetup.setup() (shared with sim).
+	# Only register live-only handlers here to avoid double-registration.
+	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,      _handlers.on_player_turn_relics,         0)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_relic,               10)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_board_synergies,     30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  _handlers.on_enemy_minion_played_effect,  5)
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    _trap_check_friendly_death,               20)
 	# Trap routing — scene-specific methods bridging events to _fire_traps_for()
 	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,      _trap_check_enemy_turn_start,             30)
