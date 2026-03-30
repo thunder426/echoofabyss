@@ -86,6 +86,29 @@ var _env_ritual_handlers: Array = []
 var enemy_spell_cost_penalty:   int        = 0
 var enemy_spell_cost_discounts: Dictionary = {}
 
+## Pending spell tax applied at next turn start (set by Spell Taxer effect).
+var _spell_tax_for_enemy_turn:  int = 0
+var _spell_tax_for_player_turn: int = 0
+
+## Active player spell cost penalty this turn (applied at turn start, cleared at turn end).
+var player_spell_cost_penalty: int = 0
+
+## Debug counters for sim tracking.
+var _ritual_sacrifice_count: int = 0   ## Enemy ritual_sacrifice passive fires
+var _detonation_count: int = 0         ## Enemy corrupt_authority imp detonation fires
+var _player_ritual_count: int = 0      ## Player ritual fires (e.g. Demon Ascendant)
+
+var _spark_spawned_count: int = 0     ## Void Sparks spawned on enemy board (human died)
+var _spark_transfer_count: int = 0    ## Void Spark transfers to player board
+
+## Once-per-turn gate for feral_reinforcement passive.
+var _imp_caller_fired: bool = false
+
+## Relic state flags (set by RelicEffects, consumed by combat logic).
+var _relic_hero_immune: bool = false
+var _relic_cost_reduction: int = 0
+var _relic_extra_turn: bool = false
+
 # ---------------------------------------------------------------------------
 # Player talents (configure before running to simulate a talent build)
 # ---------------------------------------------------------------------------
@@ -212,6 +235,8 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 
 func _on_hero_damaged(target: String, amount: int, _type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if target == "player":
+		if _relic_hero_immune:
+			return  # Bone Shield: immune this turn
 		player_hp -= amount
 		if player_hp <= 0 and winner.is_empty():
 			winner = "enemy"
@@ -428,6 +453,7 @@ func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 
 ## Consume the required runes and cast the ritual effect.
 func _fire_ritual(ritual: RitualData) -> void:
+	_player_ritual_count += 1
 	for req in ritual.required_runes:
 		for i in active_traps.size():
 			if active_traps[i].is_rune and active_traps[i].rune_type == req:
@@ -502,6 +528,8 @@ func begin_player_turn(turn_number: int) -> void:
 		_grow_player_resources(turn_number)
 	player_essence = player_essence_max
 	player_mana    = player_mana_max
+	player_spell_cost_penalty = _spell_tax_for_player_turn
+	_spell_tax_for_player_turn = 0
 	imp_evolution_used_this_turn = false
 	for inst in player_hand:
 		inst.cost_delta = 0
@@ -510,6 +538,9 @@ func begin_player_turn(turn_number: int) -> void:
 	_draw_player(1)
 	_unexhaust_board(player_board)
 
+func end_player_turn() -> void:
+	player_spell_cost_penalty = 0
+
 func begin_enemy_turn(turn_number: int) -> void:
 	if enemy_growth_override.is_valid():
 		enemy_growth_override.call(turn_number)
@@ -517,10 +548,15 @@ func begin_enemy_turn(turn_number: int) -> void:
 		_grow_enemy_resources(turn_number)
 	enemy_essence = enemy_essence_max
 	enemy_mana    = enemy_mana_max
+	enemy_spell_cost_penalty = _spell_tax_for_enemy_turn
+	_spell_tax_for_enemy_turn = 0
 	if trigger_manager != null:
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START))
 	_draw_enemy(1)
 	_unexhaust_board(enemy_board)
+
+func end_enemy_turn() -> void:
+	enemy_spell_cost_penalty = 0
 
 func _grow_player_resources(turn_number: int) -> void:
 	if turn_number <= 1: return

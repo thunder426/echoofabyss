@@ -9,6 +9,9 @@ const HAND_SIZE_MAX = SimState.PLAYER_HAND_MAX  ## matches TurnManager.HAND_SIZE
 
 var _sim: SimState
 
+## No-op signal for duck-type compatibility with TurnManager.
+signal resources_changed(essence: int, essence_max: int, mana: int, mana_max: int)
+
 func setup(sim: SimState) -> void:
 	_sim = sim
 
@@ -18,6 +21,23 @@ func setup(sim: SimState) -> void:
 
 var player_hand: Array[CardInstance]:
 	get: return _sim.player_hand
+
+var player_deck: Array[CardInstance]:
+	get: return _sim.player_deck
+
+var essence: int:
+	get: return _sim.player_essence
+	set(v): _sim.player_essence = v
+
+var essence_max: int:
+	get: return _sim.player_essence_max
+
+var mana: int:
+	get: return _sim.player_mana
+	set(v): _sim.player_mana = v
+
+var mana_max: int:
+	get: return _sim.player_mana_max
 
 func draw_card() -> void:
 	_sim._draw_player(1)

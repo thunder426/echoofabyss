@@ -1,109 +1,102 @@
-## ScoredAITest.gd
-## Side-by-side comparison: Original enemy AI vs Scored enemy AI.
-## Uses real Act 1 encounters with correct decks, passives, talents, and profiles.
-## Each matchup runs both original and scored enemy, prints delta.
-##
-## Run via:  Godot --headless --path project/ res://debug/ScoredAITest.tscn
+## ScoredAITest.gd — Voidbolt full run: Act 1 (1 talent, no relic) + Act 2 (2 talents, 1 relic each)
 extends Node
 
-const RUNS_PER_TEST := 500
-
+const RUNS := 500
 const HERO_PASSIVES: Array[String] = ["void_imp_boost", "void_imp_extra_copy"]
-
-## Player configs: preset deck, matching player AI profile, matching tier-0 talent
-const PLAYER_CONFIGS: Array = [
-	{"deck": "swarm",          "profile": "default",    "talent": "imp_evolution"},
-	{"deck": "voidbolt_burst", "profile": "spell_burn", "talent": "piercing_void"},
-	{"deck": "death_circle",   "profile": "rune_tempo", "talent": "rune_caller"},
-]
+const T1: Array[String] = ["piercing_void"]
+const T2: Array[String] = ["piercing_void", "deepened_curse"]
+const RELICS: Array[String] = ["scouts_lantern", "imp_talisman", "mana_shard", "bone_shield"]
 
 const ENCOUNTERS: Array = [
-	{
-		"name": "Abyss Cultist Patrol",
-		"hp": 2800,
-		"original": "cultist_patrol",
-		"scored": "cultist_patrol",
-		"deck": [
-			"abyss_cultist", "abyss_cultist", "abyss_cultist", "abyss_cultist",
-			"void_netter", "void_netter",
-			"imp_recruiter", "imp_recruiter",
-			"corruption_weaver", "corruption_weaver",
-			"spell_taxer",
-			"soul_collector",
-			"void_screech", "void_screech",
-			"abyssal_plague", "abyssal_plague",
-		],
-	},
+	{"fight": 1, "name": "Rogue Imp Pack",       "hp": 1800, "profile": "feral_pack",       "tp": 1,
+	 "deck": ["rabid_imp","rabid_imp","rabid_imp","rabid_imp","brood_imp","brood_imp","brood_imp",
+			  "imp_brawler","imp_brawler","imp_brawler","feral_surge","feral_surge","void_screech","void_screech"]},
+	{"fight": 2, "name": "Corrupted Broodlings", "hp": 2400, "profile": "corrupted_brood",  "tp": 1,
+	 "deck": ["brood_imp","brood_imp","void_touched_imp","void_touched_imp","void_touched_imp","void_touched_imp",
+			  "rabid_imp","rabid_imp","rabid_imp","rabid_imp","void_screech","pack_frenzy","pack_frenzy"]},
+	{"fight": 3, "name": "Imp Matriarch",        "hp": 3000, "profile": "matriarch",        "tp": 1,
+	 "deck": ["rabid_imp","rabid_imp","rabid_imp","brood_imp","brood_imp","imp_brawler","imp_brawler",
+			  "void_touched_imp","rogue_imp_elder","matriarchs_broodling","pack_frenzy","pack_frenzy",
+			  "feral_surge","void_screech","brood_call"]},
+	{"fight": 4, "name": "Cultist Patrol",       "hp": 2800, "profile": "cultist_patrol",   "tp": 2,
+	 "deck": ["abyss_cultist","abyss_cultist","abyss_cultist","abyss_cultist",
+			  "void_netter","void_stalker","corruption_weaver","corruption_weaver",
+			  "cult_fanatic","cult_fanatic","void_stalker","spell_taxer","spell_taxer",
+			  "dark_command","dark_command"]},
+	{"fight": 5, "name": "Void Ritualist",       "hp": 3400, "profile": "void_ritualist",   "tp": 2,
+	 "deck": ["abyss_cultist","abyss_cultist","abyss_cultist",
+			  "cult_fanatic","cult_fanatic","cult_fanatic","corruption_weaver","corruption_weaver",
+			  "void_stalker","dominion_rune","dominion_rune","blood_rune","blood_rune",
+			  "dark_command","dark_command"]},
+	{"fight": 6, "name": "Corrupted Handler",    "hp": 4000, "profile": "corrupted_handler", "tp": 2,
+	 "deck": ["abyss_cultist","abyss_cultist","abyss_cultist",
+			  "cult_fanatic","cult_fanatic","cult_fanatic","corruption_weaver","corruption_weaver",
+			  "soul_collector","void_stalker","void_stalker","spell_taxer",
+			  "dark_command","dark_command"]},
 ]
 
 func _ready() -> void:
-	await _run_comparison()
+	await _run()
 	get_tree().quit()
 
-func _run_comparison() -> void:
+func _run() -> void:
 	print("")
-	print("╔═══════════════════════════════════════════════════════════════════════════════════════════╗")
-	print("║         Echo of Abyss — Original vs Scored Enemy AI  (real encounters)                  ║")
-	print("║         %d runs per matchup  |  Hero passives ON  |  1 talent point each                 ║" % RUNS_PER_TEST)
-	print("╚═══════════════════════════════════════════════════════════════════════════════════════════╝")
+	print("╔══════════════════════════════════════════════════════════════════════════════════════╗")
+	print("║   VOIDBOLT BURST Full Run  |  spell_burn  |  %d runs                                ║" % RUNS)
+	print("║   Act 1: 1 talent, no relic  |  Act 2: 2 talents, 1 relic (4 variants + baseline)   ║")
+	print("╚══════════════════════════════════════════════════════════════════════════════════════╝")
 	print("")
 
 	var sim := CombatSim.new()
+	var deck: Array[String] = PresetDecks.get_cards("voidbolt_burst")
 
-	for pc in PLAYER_CONFIGS:
-		var deck_id: String = pc["deck"]
-		var player_profile: String = pc["profile"]
-		var talent: String = pc["talent"]
-		var deck: Array[String] = PresetDecks.get_cards(deck_id)
-		if deck.is_empty():
-			continue
-		var talents: Array[String] = [talent]
+	print("  %-5s %-22s │ %4s │ %-16s │ %7s │ %8s │ %6s" % [
+		"Fight", "Enemy", "HP", "Relic", "Win%", "AvgPHP", "Uses"])
+	print("  ───── ──────────────────────┼──────┼──────────────────┼─────────┼──────────┼────────")
 
-		print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		print("  PLAYER: %s  |  profile: %s  |  talent: %s" % [deck_id.to_upper(), player_profile, talent])
-		print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		print("")
-		print("  %-22s │ %-16s │ %7s %7s %6s │ %8s %8s │ %s" % [
-			"Enemy", "Enemy AI", "Win%", "Loss%", "Draw%", "AvgTurns", "AvgPHP", "Delta"])
-		print("  ──────────────────────┼──────────────────┼───────────────────────┼───────────────────┼──────")
+	for enc in ENCOUNTERS:
+		var enc_deck: Array[String] = []
+		enc_deck.assign(enc["deck"])
+		var tp: int = enc["tp"]
+		var talents: Array[String] = T2 if tp >= 2 else T1
+		var is_act2: bool = tp >= 2
 
-		for enc in ENCOUNTERS:
-			var enc_name: String = enc["name"]
-			var enc_hp: int = enc["hp"]
-			var orig_id: String = enc["original"]
-			var scored_id: String = enc["scored"]
-			var enc_deck: Array[String] = []
-			enc_deck.assign(enc["deck"])
+		if is_act2:
+			# Baseline (no relic)
+			print("  Running F%d baseline..." % enc["fight"])
+			var s_base: Dictionary = await sim.run_many(
+				RUNS, deck, enc["profile"] as String, enc_deck,
+				3000, enc["hp"] as int, talents, "spell_burn", HERO_PASSIVES)
+			var base_win: float = s_base.win_rate * 100.0
+			print("  %-5d %-22s │ %4d │ %-16s │ %6.1f%% │ %+7.0f │    -" % [
+				enc["fight"], enc["name"], enc["hp"], "(none)", base_win, s_base.avg_player_hp])
 
-			# --- Original enemy ---
-			print("  Running %s vs %s [%s]..." % [deck_id, enc_name, orig_id])
-			var s_orig: Dictionary = await sim.run_many(
-				RUNS_PER_TEST, deck, orig_id, enc_deck,
-				3000, enc_hp, talents, player_profile, HERO_PASSIVES)
-			var o_win: float = s_orig.win_rate * 100.0
-			var o_loss: float = float(s_orig.losses) / s_orig.count * 100.0
-			var o_draw: float = float(s_orig.draws) / s_orig.count * 100.0
-			print("  %-22s │ %-16s │ %6.1f%% %6.1f%% %5.1f%% │ %7.1f  %+7.0f │" % [
-				enc_name, orig_id,
-				o_win, o_loss, o_draw, s_orig.avg_turns, s_orig.avg_player_hp])
+			# Each relic
+			for relic_id in RELICS:
+				var relic: RelicData = RelicDatabase.get_relic(relic_id)
+				var relic_ids: Array[String] = [relic_id]
+				print("  Running F%d + %s..." % [enc["fight"], relic_id])
+				var s: Dictionary = await sim.run_many(
+					RUNS, deck, enc["profile"] as String, enc_deck,
+					3000, enc["hp"] as int, talents, "spell_burn", HERO_PASSIVES,
+					relic_ids)
+				var win_pct: float = s.win_rate * 100.0
+				var avg_uses: float = s.get("avg_relic_activations", 0.0)
+				var delta: float = win_pct - base_win
+				print("  %-5s %-22s │ %4s │ %-16s │ %6.1f%% │ %+7.0f │ %5.2f (%+.1f%%)" % [
+					"", "", "", relic.relic_name if relic else relic_id,
+					win_pct, s.avg_player_hp, avg_uses, delta])
+		else:
+			# Act 1: no relic
+			print("  Running F%d..." % enc["fight"])
+			var s: Dictionary = await sim.run_many(
+				RUNS, deck, enc["profile"] as String, enc_deck,
+				3000, enc["hp"] as int, talents, "spell_burn", HERO_PASSIVES)
+			var win_pct: float = s.win_rate * 100.0
+			print("  %-5d %-22s │ %4d │ %-16s │ %6.1f%% │ %+7.0f │    -" % [
+				enc["fight"], enc["name"], enc["hp"], "-", win_pct, s.avg_player_hp])
 
-			# --- Scored enemy ---
-			print("  Running %s vs %s [%s]..." % [deck_id, enc_name, scored_id])
-			var s_scored: Dictionary = await sim.run_many(
-				RUNS_PER_TEST, deck, scored_id, enc_deck,
-				3000, enc_hp, talents, player_profile, HERO_PASSIVES)
-			var sc_win: float = s_scored.win_rate * 100.0
-			var sc_loss: float = float(s_scored.losses) / s_scored.count * 100.0
-			var sc_draw: float = float(s_scored.draws) / s_scored.count * 100.0
-			var delta: float = sc_win - o_win
-			var label: String = "HARDER" if delta < -2.0 else ("EASIER" if delta > 2.0 else "~SAME")
-			print("  %-22s │ %-16s │ %6.1f%% %6.1f%% %5.1f%% │ %7.1f  %+7.0f │ %s (%+.1f%%)" % [
-				"", scored_id,
-				sc_win, sc_loss, sc_draw, s_scored.avg_turns, s_scored.avg_player_hp,
-				label, delta])
-			print("  ──────────────────────┼──────────────────┼───────────────────────┼───────────────────┼──────")
-
-		print("")
+		print("  ───── ──────────────────────┼──────┼──────────────────┼─────────┼──────────┼────────")
 
 	print("")
-	print("Done. HARDER = scored enemy reduces player win rate. EASIER = scored enemy is weaker.")
+	print("Done.")

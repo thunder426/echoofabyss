@@ -24,26 +24,8 @@ func setup(scene: Object) -> void:
 # ON_PLAYER_TURN_START
 # ---------------------------------------------------------------------------
 
-func on_player_turn_relics(_ctx: EventContext) -> void:
-	var relics := GameManager.player_relics
-	_scene.relic_first_card_free = "void_crystal" in relics
-	if "blood_pact" in relics:
-		_log("  Blood Pact: deal 100 damage to enemy hero.", _LOG_PLAYER)
-		_scene.combat_manager.apply_hero_damage("enemy", 100, Enums.DamageType.SPELL)
-	if "soul_ember" in relics:
-		_scene.turn_manager.essence = mini(_scene.turn_manager.essence + 1, _scene.turn_manager.essence_max)
-		_scene.turn_manager.resources_changed.emit(
-			_scene.turn_manager.essence, _scene.turn_manager.essence_max,
-			_scene.turn_manager.mana, _scene.turn_manager.mana_max)
-		_log("  Soul Ember: +1 Essence.", _LOG_PLAYER)
-	if "ancient_tome" in relics:
-		_scene.turn_manager.draw_card()
-		_log("  Ancient Tome: draw 1 extra card.", _LOG_PLAYER)
-	if "void_surge" in relics and not _scene.player_board.is_empty():
-		for minion in _scene.player_board:
-			BuffSystem.apply(minion, Enums.BuffType.TEMP_ATK, 100, "void_surge", true)
-			_scene._refresh_slot_for(minion)
-		_log("  Void Surge: all friendly minions +100 ATK this turn.", _LOG_PLAYER)
+## Old passive relic system removed — relics are now activated abilities.
+## See RelicRuntime, RelicEffects, and RelicBar for the new system.
 
 func on_player_turn_environment(_ctx: EventContext) -> void:
 	if _scene.active_environment != null and not _scene.active_environment.passive_effect_steps.is_empty():
@@ -133,15 +115,7 @@ func on_summon_passive_void_imp_boost(ctx: EventContext) -> void:
 	var hero := HeroDatabase.get_hero(GameManager.current_hero)
 	_log("  %s: %s summoned with +100/+100." % [(hero.hero_name if hero else "Hero"), ctx.card.card_name], _LOG_PLAYER)
 
-func on_summon_relic(ctx: EventContext) -> void:
-	var relics := GameManager.player_relics
-	if "demon_pact" in relics and ctx.minion.card_data.minion_type == Enums.MinionType.DEMON:
-		BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "demon_pact")
-		_log("  Demon Pact: %s gains +100 ATK." % ctx.card.card_name, _LOG_PLAYER)
-	if "abyssal_core" in relics:
-		BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "abyssal_core")
-		ctx.minion.current_health += 100
-		_log("  Abyssal Core: %s gains +100/+100." % ctx.card.card_name, _LOG_PLAYER)
+## Old passive relic summon handlers removed — relics are now activated abilities.
 
 func on_summon_swarm_discipline(ctx: EventContext) -> void:
 	if not _is_void_imp(ctx.minion):
@@ -386,7 +360,7 @@ func on_enemy_died_corrupted_death(ctx: EventContext) -> void:
 
 ## Human Imp Caller — shared Act 2 passive
 ## When a human is summoned: add a random feral imp to the enemy's hand.
-func on_enemy_turn_reset_imp_caller(_ctx: EventContext) -> void:
+func on_enemy_turn_reset_feral_reinforcement(_ctx: EventContext) -> void:
 	_scene.set("_imp_caller_fired", false)
 
 func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
@@ -421,11 +395,13 @@ func on_enemy_summon_corrupt_authority_human(ctx: EventContext) -> void:
 	_scene._corrupt_minion(target)
 	_log("  Corrupt Authority: %s summoned → %s is Corrupted." % [minion.card_data.card_name, target.card_data.card_name], _LOG_ENEMY)
 
-## When a feral imp is summoned: consume all Corruption on each player minion, deal 200 damage per stack.
+## When a feral imp is summoned: consume all Corruption on each player minion, deal 100 damage per stack.
 func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not _has_tag(minion, "feral_imp"):
 		return
+	var _prev_det = _scene.get("_detonation_count")
+	_scene.set("_detonation_count", (_prev_det if _prev_det != null else 0) + 1)
 	for m: MinionInstance in _scene.player_board.duplicate():
 		var stacks := 0
 		for b in m.buffs:
@@ -435,8 +411,8 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 			continue
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		_scene._refresh_slot_for(m)
-		_scene.combat_manager.apply_spell_damage(m, 200 * stacks)
-		_log("  Corrupt Authority: %s had %d stack(s) → consumed, dealt %d damage." % [m.card_data.card_name, stacks, 200 * stacks], _LOG_ENEMY)
+		_scene.combat_manager.apply_spell_damage(m, 100 * stacks)
+		_log("  Corrupt Authority: %s had %d stack(s) → consumed, dealt %d damage." % [m.card_data.card_name, stacks, 100 * stacks], _LOG_ENEMY)
 
 ## Ritual Sacrifice — encounter 4 (Void Ritualist)
 ## When a feral imp is summoned and enemy has Blood Rune + Dominion Rune active:
@@ -446,9 +422,9 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not _has_tag(minion, "feral_imp"):
 		return
+	var enemy_traps: Array = _scene.enemy_ai.active_traps
 	var blood_idx    := -1
 	var dominion_idx := -1
-	var enemy_traps: Array = _scene.enemy_ai.active_traps
 	for i in enemy_traps.size():
 		var trap: TrapCardData = enemy_traps[i] as TrapCardData
 		if not trap.is_rune:
@@ -466,6 +442,8 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	_scene.enemy_ai.active_traps.remove_at(lo)
 	# Consume the feral imp that triggered this
 	_scene.combat_manager.kill_minion(minion)
+	var _prev_count = _scene.get("_ritual_sacrifice_count")
+	_scene.set("_ritual_sacrifice_count", (_prev_count if _prev_count != null else 0) + 1)
 	_log("  Ritual Sacrifice: runes consumed + %s sacrificed — Demon Ascendant!" % minion.card_data.card_name, _LOG_ENEMY)
 	# Deal 200 damage to 2 random player targets (minion or hero if board is empty)
 	for _i in 2:
@@ -483,6 +461,8 @@ func on_enemy_died_void_unraveling(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
 		return
+	var _prev = _scene.get("_spark_spawned_count")
+	_scene.set("_spark_spawned_count", (_prev if _prev != null else 0) + 1)
 	_scene._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Void Unraveling: %s died → a Void Spark arises on the enemy board." % minion.card_data.card_name, _LOG_ENEMY)
 
@@ -498,6 +478,8 @@ func on_enemy_summon_void_unraveling(ctx: EventContext) -> void:
 			sparks.append(m)
 	if sparks.is_empty():
 		return
+	var _prev = _scene.get("_spark_transfer_count")
+	_scene.set("_spark_transfer_count", (_prev if _prev != null else 0) + sparks.size())
 	for spark: MinionInstance in sparks:
 		_scene._corrupt_minion(spark)
 		if not _transfer_to_player_board(spark):

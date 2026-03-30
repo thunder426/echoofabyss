@@ -97,6 +97,14 @@ var combat_manager := CombatManager.new()
 var trigger_manager: TriggerManager
 var _handlers: CombatHandlers
 var _hardcoded: HardcodedEffects
+var _relic_runtime: RelicRuntime
+var _relic_effects: RelicEffects
+var _relic_bar: RelicBar
+
+## Relic state flags (set by relic effects, consumed by combat logic)
+var _relic_hero_immune: bool = false    ## Bone Shield: ignore damage this turn
+var _relic_cost_reduction: int = 0      ## Dark Mirror: reduce next card cost
+var _relic_extra_turn: bool = false     ## Void Hourglass: take extra turn
 
 # Live boards
 var player_board: Array[MinionInstance] = []
@@ -147,7 +155,7 @@ var _rune_aura_handlers: Array = []  # Array[{rune_id: String, entries: Array}]
 # ---------------------------------------------------------------------------
 
 ## True until the first card is played this turn (Void Crystal: first card free)
-var relic_first_card_free: bool = false
+## (Removed: relic_first_card_free — old passive relic system replaced by activated relics)
 
 # ---------------------------------------------------------------------------
 # Talent state — reset each combat
@@ -161,7 +169,7 @@ var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 50
 var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
 
 ## True until the first hit lands on the player (Shadow Veil: ignore first damage)
-var _shadow_veil_spent: bool = false
+## (Removed: _shadow_veil_spent — old Shadow Veil replaced by Bone Shield activated relic)
 
 ## Set to true the moment victory/defeat is triggered — prevents re-entrant damage/scene calls
 var _combat_ended: bool = false
@@ -244,6 +252,7 @@ func _ready() -> void:
 	_setup_player_status_panel()
 	_setup_large_preview()
 	_setup_triggers()
+	_setup_relics()
 	_setup_cheat_panel()
 	if TestConfig.enabled:
 		_apply_test_config.call_deferred()
@@ -427,8 +436,14 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		imp_evolution_used_this_turn     = false
 		player_spell_cost_penalty = _spell_tax_for_player_turn
 		_spell_tax_for_player_turn = 0
+		_relic_hero_immune = false
+		_relic_cost_reduction = 0
 		for inst in turn_manager.player_hand:
 			inst.cost_delta = 0
+		if _relic_runtime:
+			_relic_runtime.on_turn_start()
+			if _relic_bar:
+				_relic_bar.refresh()
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
 	else:
 		enemy_ai.spell_cost_penalty = _spell_tax_for_enemy_turn
@@ -456,6 +471,11 @@ func _on_turn_ended(is_player_turn: bool) -> void:
 		_temp_imps.clear()
 		# Clear player spell cost penalty after player turn ends
 		player_spell_cost_penalty = 0
+		# Void Hourglass: take another player turn instead of passing to enemy
+		if _relic_extra_turn:
+			_relic_extra_turn = false
+			_log("  Void Hourglass: extra turn!", _LogType.PLAYER)
+			turn_manager.start_player_turn()
 	else:
 		# Clear enemy spell cost penalty after their turn ends
 		enemy_ai.spell_cost_penalty = 0
@@ -597,7 +617,7 @@ func _start_pip_blink_for_card(card_data: CardData) -> void:
 		mna_spend = _effective_trap_cost(card_data as TrapCardData)
 	elif card_data is EnvironmentCardData:
 		mna_spend = (card_data as EnvironmentCardData).cost
-	if not relic_first_card_free and not turn_manager.can_afford(ess_spend, mna_spend):
+	if not turn_manager.can_afford(ess_spend, mna_spend):
 		return
 	_start_pip_blink(ess_spend, mna_spend, ess_gain, mna_gain)
 
@@ -605,7 +625,7 @@ func _start_pip_blink_for_card(card_data: CardData) -> void:
 ## Instant spells cast immediately (cost preview shown on hover).
 ## Targeted spells enter pending state and highlight valid targets.
 func _begin_spell_select(spell: SpellCardData) -> void:
-	if not relic_first_card_free and not turn_manager.can_afford(0, _effective_spell_cost(spell)):
+	if not turn_manager.can_afford(0, _effective_spell_cost(spell)):
 		_cancel_card_select()
 		return
 	if spell.requires_target:
@@ -619,7 +639,7 @@ func _begin_spell_select(spell: SpellCardData) -> void:
 func _begin_minion_select(mc: MinionCardData) -> void:
 	# Check affordability (Void Crystal relic bypasses cost for the first card)
 	var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
-	if not relic_first_card_free and not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
+	if not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
 		_cancel_card_select()
 		return
 	# Check board space before highlighting
@@ -1222,6 +1242,66 @@ var _cheat_card_input: LineEdit
 var _cheat_dmg_input:  SpinBox
 var _cheat_status_lbl: Label
 
+# ---------------------------------------------------------------------------
+# Relic System
+# ---------------------------------------------------------------------------
+
+func _setup_relics() -> void:
+	_relic_runtime = RelicRuntime.new()
+	_relic_runtime.setup(GameManager.player_relics, GameManager.relic_bonus_charges)
+	_relic_effects = RelicEffects.new()
+	_relic_effects.setup(self)
+
+	if _relic_runtime.relics.is_empty():
+		return
+
+	# Build relic bar UI just below the EndTurnPanel, same width, center-aligned
+	var ui_root: Node = get_node_or_null("UI")
+	if not ui_root:
+		return
+	_relic_bar = RelicBar.new()
+	# Match EndTurnPanel anchoring: right side, vertically centered
+	_relic_bar.anchor_left   = 1.0
+	_relic_bar.anchor_right  = 1.0
+	_relic_bar.anchor_top    = 0.5
+	_relic_bar.anchor_bottom = 0.5
+	_relic_bar.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	# Position just below EndTurnPanel (bottom = 16) with a small gap
+	_relic_bar.offset_left   = -185.0
+	_relic_bar.offset_right  = -10.0
+	_relic_bar.offset_top    = -26.0
+	_relic_bar.offset_bottom = 54.0
+	_relic_bar.add_theme_constant_override("separation", 6)
+	_relic_bar.alignment = BoxContainer.ALIGNMENT_CENTER
+	ui_root.add_child(_relic_bar)
+	_relic_bar.setup(_relic_runtime)
+	_relic_bar.relic_activated.connect(_on_relic_activated)
+	_relic_bar.relic_hovered.connect(_on_relic_hovered)
+	_relic_bar.relic_unhovered.connect(_on_relic_unhovered)
+
+func _on_relic_hovered(effect_id: String) -> void:
+	match effect_id:
+		"relic_refill_mana":
+			# Show mana gain preview: +2 mana (capped at max)
+			var gain: int = mini(2, turn_manager.mana_max - turn_manager.mana)
+			if gain > 0:
+				_start_pip_blink(0, 0, 0, gain)
+
+func _on_relic_unhovered() -> void:
+	_stop_pip_blink()
+
+func _on_relic_activated(index: int) -> void:
+	if not turn_manager.is_player_turn:
+		return
+	var effect_id: String = _relic_runtime.activate(index)
+	if effect_id == "":
+		return
+	_stop_pip_blink()
+	_relic_effects.resolve(effect_id)
+	if _relic_bar:
+		_relic_bar.refresh()
+	_refresh_hand_spell_costs()
+
 func _setup_cheat_panel() -> void:
 	_cheat_panel = CanvasLayer.new()
 	_cheat_panel.layer = 128
@@ -1558,14 +1638,22 @@ func _deal_void_bolt_damage(base_damage: int) -> void:
 		_log("  Void Bolt: %d damage." % total, _LogType.PLAYER)
 	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
 
-## Tries to spend a card's costs, respecting the Void Crystal relic.
+## Tries to spend a card's costs, applying Dark Mirror relic discount if active.
 ## Returns true if the card can be played (and costs are deducted).
 func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 	_stop_pip_blink()
-	if relic_first_card_free and "void_crystal" in GameManager.player_relics:
-		relic_first_card_free = false
-		_log("  Void Crystal: first card is free!", _LogType.PLAYER)
-		return true
+	# Dark Mirror: reduce the cost of the next card by up to _relic_cost_reduction
+	if _relic_cost_reduction > 0:
+		var total_reduction: int = _relic_cost_reduction
+		_relic_cost_reduction = 0
+		# Reduce mana first, then essence
+		var mana_reduction: int = mini(total_reduction, mana_cost)
+		mana_cost -= mana_reduction
+		total_reduction -= mana_reduction
+		var essence_reduction: int = mini(total_reduction, essence_cost)
+		essence_cost -= essence_reduction
+		if mana_reduction + essence_reduction > 0:
+			_log("  Dark Mirror: card cost reduced by %d!" % (mana_reduction + essence_reduction), _LogType.PLAYER)
 	if not turn_manager.can_afford(essence_cost, mana_cost):
 		return false
 	turn_manager.spend_essence(essence_cost)
@@ -1633,10 +1721,9 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 	if _combat_ended:
 		return
 	if target == "player":
-		# Shadow Veil — absorb the first hit of the combat
-		if not _shadow_veil_spent and "shadow_veil" in GameManager.player_relics:
-			_shadow_veil_spent = true
-			_log("  Shadow Veil absorbs %d damage!" % amount, _LogType.PLAYER)
+		# Bone Shield relic — hero immune this turn
+		if _relic_hero_immune:
+			_log("  Bone Shield absorbs %d damage!" % amount, _LogType.PLAYER)
 			return
 		player_hp -= amount
 		_update_player_status_panel()
@@ -1664,10 +1751,7 @@ func _on_hero_healed(target: String, amount: int) -> void:
 		player_hp = mini(player_hp + amount, GameManager.player_hp_max)
 		_update_player_status_panel()
 		_log("  You heal %d HP  (HP: %d)" % [amount, player_hp], _LogType.HEAL)
-		# Eternal Hunger — deal the healed amount to the enemy hero too
-		if "eternal_hunger" in GameManager.player_relics:
-			_log("  Eternal Hunger: deal %d damage to enemy hero." % amount, _LogType.PLAYER)
-			combat_manager.apply_hero_damage("enemy", amount, Enums.DamageType.SPELL)
+		## (Removed: Eternal Hunger passive relic — replaced by activated relic system)
 
 # ---------------------------------------------------------------------------
 # Targeted spell helpers
@@ -3180,7 +3264,7 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 		},
 		"corrupt_authority": {
 			"name": "Corrupt Authority",
-			"desc": "Each Human summoned applies 1 Corruption to a random player minion. Each Feral Imp summoned consumes all Corruption stacks on player minions, dealing 200 damage per stack."
+			"desc": "Each Human summoned applies 1 Corruption to a random player minion. Each Feral Imp summoned consumes all Corruption stacks on player minions, dealing 100 damage per stack."
 		},
 		"ritual_sacrifice": {
 			"name": "Ritual Sacrifice",
@@ -3710,8 +3794,8 @@ func _setup_triggers() -> void:
 	# NOTE: on_player_minion_played_effect, on_enemy_minion_played_effect, on_void_archmagus_spell,
 	# and on_summon_board_synergies are registered by CombatSetup.setup() (shared with sim).
 	# Only register live-only handlers here to avoid double-registration.
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,      _handlers.on_player_turn_relics,         0)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _handlers.on_summon_relic,               10)
+	# NOTE: Old passive relic handlers (on_player_turn_relics, on_summon_relic) removed.
+	# Relics are now activated abilities — see _setup_relics().
 	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    _trap_check_friendly_death,               20)
 	# Trap routing — scene-specific methods bridging events to _fire_traps_for()
 	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,      _trap_check_enemy_turn_start,             30)

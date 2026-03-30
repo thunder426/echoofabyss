@@ -25,13 +25,14 @@ func play_phase() -> void:
 				break
 			elif inst.card_data is MinionCardData:
 				var mc := inst.card_data as MinionCardData
-				if mc.essence_cost > agent.essence or mc.mana_cost > agent.mana:
+				var mana_cost: int = agent.effective_minion_mana_cost(mc)
+				if mc.essence_cost > agent.essence or mana_cost > agent.mana:
 					continue
 				var slot: BoardSlot = agent.find_empty_slot()
 				if slot == null:
 					return  # board full — stop all play
 				agent.essence -= mc.essence_cost
-				agent.mana    -= mc.mana_cost
+				agent.mana    -= mana_cost
 				if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 					return
 				made_a_play = true

@@ -39,7 +39,8 @@ var mana_max: int = 1
 
 # --- Deck & Cards ---
 var player_deck: Array[String] = []   # card IDs
-var player_relics: Array[String] = [] # relic IDs collected this run
+var player_relics: Array[String] = []          # relic IDs collected this run
+var relic_bonus_charges: Dictionary = {}       # relic_id → int bonus charges from upgrades
 var permanent_unlocks: Array[String] = []   # survives between runs
 var last_boss_unlocks: Array[String] = []   # cards unlocked by the most recent boss kill; cleared after display
 
@@ -70,6 +71,7 @@ func start_new_run() -> void:
 	run_active = true
 	run_node_index = 1
 	player_relics = []
+	relic_bonus_charges = {}
 	abyss_essence_max = 1
 	mana_max = 1
 	player_hp_max = 3000
@@ -282,13 +284,13 @@ func _build_encounter(index: int) -> EnemyData:
 			return _make_encounter("Abyss Cultist Patrol", 2800,
 				[
 					"abyss_cultist", "abyss_cultist", "abyss_cultist", "abyss_cultist",
-					"void_netter", "void_netter",
-					"imp_recruiter", "imp_recruiter",
+					"void_netter",
+					"void_stalker",
 					"corruption_weaver", "corruption_weaver",
-					"spell_taxer",
-					"soul_collector",
-					"void_screech", "void_screech",
-					"abyssal_plague", "abyssal_plague",
+					"cult_fanatic", "cult_fanatic",
+					"void_stalker",
+					"spell_taxer", "spell_taxer",
+					"dark_command", "dark_command",
 				],
 				"ENCOUNTER I",
 				"The Abyss Dungeon. Cultists who willingly surrendered themselves to the void patrol these stone corridors. They have given up their names, their faces — only devotion remains.",
@@ -296,18 +298,34 @@ func _build_encounter(index: int) -> EnemyData:
 				["feral_reinforcement", "corrupt_authority"], "cultist_patrol")
 		5:
 			return _make_encounter("Void Ritualist", 3400,
-				["shadow_hound", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				[
+					"abyss_cultist", "abyss_cultist", "abyss_cultist",
+					"cult_fanatic", "cult_fanatic", "cult_fanatic",
+					"corruption_weaver", "corruption_weaver",
+					"void_stalker",
+					"dominion_rune", "dominion_rune",
+					"blood_rune", "blood_rune",
+					"dark_command", "dark_command",
+				],
 				"ENCOUNTER II",
 				"A Void Ritualist performs an unending ceremony in the dungeon's depths. Runes of blood and shadow cover every wall. Whatever he is summoning, it must not be allowed to complete.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["feral_reinforcement", "ritual_sacrifice"])
+				["feral_reinforcement", "ritual_sacrifice"], "void_ritualist")
 		6:
-			return _make_encounter("Corrupted Handler", 4800,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+			return _make_encounter("Corrupted Handler", 4000,
+				[
+					"abyss_cultist", "abyss_cultist", "abyss_cultist",
+					"cult_fanatic", "cult_fanatic", "cult_fanatic",
+					"corruption_weaver", "corruption_weaver",
+					"soul_collector",
+					"void_stalker", "void_stalker",
+					"spell_taxer",
+					"dark_command", "dark_command",
+				],
 				"CORRUPTED HANDLER",
 				"The Handler was once a warden of this dungeon. Now something else wears his shape. His eyes are empty voids. His commands come in a language that shouldn't exist.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["feral_reinforcement", "void_unraveling"])
+				["feral_reinforcement", "void_unraveling"], "corrupted_handler")
 		# -- Act 3: Void Rift World --
 		7:
 			return _make_encounter("Rift Stalker", 3800,

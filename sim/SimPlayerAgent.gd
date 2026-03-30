@@ -25,6 +25,9 @@ func _get_scene()          -> Object: return sim
 func _get_friendly_hp() -> int: return sim.player_hp
 func _get_opponent_hp() -> int: return sim.enemy_hp
 
+func effective_spell_cost(spell: SpellCardData) -> int:
+	return maxi(0, spell.cost + sim.player_spell_cost_penalty)
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------

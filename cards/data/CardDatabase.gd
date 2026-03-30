@@ -18,6 +18,7 @@ var _cards: Dictionary = {}
 const _TOKEN_DEFS: Array[Dictionary] = [
 	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.",        "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
 	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning.", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
+	{"id": "relic_guardian", "name": "Guardian Spirit", "atk": 300, "hp": 300, "type": "SPIRIT", "faction": "neutral", "desc": "Summoned by Soul Anchor relic."},
 ]
 
 func _make_token(d: Dictionary) -> MinionCardData:
@@ -1091,10 +1092,10 @@ func _register_wanderer_cards() -> void:
 	imp_frenzy.id              = "imp_frenzy"
 	imp_frenzy.card_name       = "Imp Frenzy"
 	imp_frenzy.cost            = 1
-	imp_frenzy.description     = "Give a friendly VOID IMP +300 ATK this turn."
+	imp_frenzy.description     = "Give a friendly VOID IMP +300 ATK."
 	imp_frenzy.requires_target = true
 	imp_frenzy.target_type     = "friendly_void_imp"
-	imp_frenzy.effect_steps    = [{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "VOID_IMP", "amount": 300, "permanent": false}]
+	imp_frenzy.effect_steps    = [{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "VOID_IMP", "amount": 300, "permanent": true}]
 	imp_frenzy.art_path        = "res://assets/art/spells/abyss_order/imp_frenzy.png"
 	imp_frenzy.faction         = "abyss_order"
 	all.append(imp_frenzy)
@@ -1415,6 +1416,34 @@ func _register_wanderer_cards() -> void:
 	pack_frenzy.art_path  = "res://assets/art/spells/feral_imp_clan/pack_frenzy.png"
 	all.append(pack_frenzy)
 
+	# --- Abyss Dungeon — Act 2 enemy-only cards (pool="abyss_cultist_clan", not player-visible) ---
+
+	var cult_fanatic := MinionCardData.new()
+	cult_fanatic.id           = "cult_fanatic"
+	cult_fanatic.card_name    = "Cult Fanatic"
+	cult_fanatic.essence_cost = 2
+	cult_fanatic.description  = ""
+	cult_fanatic.atk          = 300
+	cult_fanatic.health       = 300
+	cult_fanatic.minion_type  = Enums.MinionType.HUMAN
+	cult_fanatic.art_path             = "res://assets/art/minions/abyss_cultist/cult_fanatic.png"
+	cult_fanatic.battlefield_art_path = "res://assets/art/minions/abyss_cultist/cult_fanatic_small.png"
+	cult_fanatic.faction      = "abyss_order"
+	all.append(cult_fanatic)
+
+	var dark_command := SpellCardData.new()
+	dark_command.id          = "dark_command"
+	dark_command.card_name   = "Dark Command"
+	dark_command.cost        = 1
+	dark_command.description = "Grant +100 ATK and +100 HP to all friendly Human minions."
+	dark_command.effect_steps = [
+		{"type": "BUFF_ATK", "scope": "ALL_FRIENDLY", "filter": "HUMAN", "amount": 100, "permanent": true},
+		{"type": "BUFF_HP",  "scope": "ALL_FRIENDLY", "filter": "HUMAN", "amount": 100},
+	]
+	dark_command.art_path    = "res://assets/art/spells/abyss_cultist/dark_command.png"
+	dark_command.faction     = "abyss_order"
+	all.append(dark_command)
+
 	# --- Pool assignments (controls deck builder visibility and collection) ---
 	# "" = token/internal; cards with no entry stay ""
 	var _card_pools := {
@@ -1472,6 +1501,8 @@ func _register_wanderer_cards() -> void:
 		"rogue_imp_elder": "feral_imp_clan",
 		"feral_surge": "feral_imp_clan",           "void_screech": "feral_imp_clan",
 		"brood_call": "feral_imp_clan",            "pack_frenzy": "feral_imp_clan",
+		# Abyss Dungeon — Act 2 enemy-only pool (not visible to players)
+		"cult_fanatic": "abyss_cultist_clan",     "dark_command": "abyss_cultist_clan",
 	}
 	# --- Act gate assignments (earliest act card appears in rewards/shop) ---
 	var _card_act_gates := {

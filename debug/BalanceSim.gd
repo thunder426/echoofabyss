@@ -11,9 +11,14 @@ extends Control
 # Act 1 fight configs  (mirrors GameManager._make_encounter calls)
 # ---------------------------------------------------------------------------
 const _FIGHTS: Array = [
-	{"label": "Fight 1  —  Rogue Imp Pack",      "hp": 1800, "profile": "feral_pack",       "encounter": 1, "talent_points": 1},
-	{"label": "Fight 2  —  Corrupted Broodlings", "hp": 2400, "profile": "corrupted_brood",  "encounter": 2, "talent_points": 1},
-	{"label": "Fight 3  —  Imp Matriarch",         "hp": 3500, "profile": "matriarch",        "encounter": 3, "talent_points": 1},
+	# Act 1
+	{"label": "Fight 1  —  Rogue Imp Pack",      "hp": 1800, "profile": "feral_pack",       "encounter": 1, "talent_points": 1, "act": 1},
+	{"label": "Fight 2  —  Corrupted Broodlings", "hp": 2400, "profile": "corrupted_brood",  "encounter": 2, "talent_points": 1, "act": 1},
+	{"label": "Fight 3  —  Imp Matriarch",         "hp": 3000, "profile": "matriarch",        "encounter": 3, "talent_points": 1, "act": 1},
+	# Act 2
+	{"label": "Fight 4  —  Abyss Cultist Patrol",  "hp": 2800, "profile": "cultist_patrol",   "encounter": 4, "talent_points": 2, "act": 2},
+	{"label": "Fight 5  —  Void Ritualist",         "hp": 3400, "profile": "void_ritualist",   "encounter": 5, "talent_points": 2, "act": 2},
+	{"label": "Fight 6  —  Corrupted Handler",      "hp": 4000, "profile": "corrupted_handler","encounter": 6, "talent_points": 2, "act": 2},
 ]
 
 # ---------------------------------------------------------------------------
@@ -89,6 +94,9 @@ var _fight_idx: int            = 0
 var _points_used: int          = 0
 var _player_profile_id: String = "default"
 var _selected_hero_id: String  = "lord_vael"
+var _relic_dropdown: OptionButton
+var _relic_section: Control
+var _relic_ids: Array[String]  = []  # parallel to dropdown items (index 0 = "None")
 
 # ---------------------------------------------------------------------------
 # Theme colours
@@ -135,7 +143,7 @@ func _build_ui() -> void:
 	root.add_child(title_bar)
 
 	var title_lbl := Label.new()
-	title_lbl.text = "  Balance Simulator  —  Act 1"
+	title_lbl.text = "  Balance Simulator  —  Act 1 & 2"
 	title_lbl.set_anchors_preset(Control.PRESET_CENTER_LEFT)
 	title_lbl.offset_left  = 8
 	title_lbl.offset_right = 500
@@ -165,6 +173,7 @@ func _build_ui() -> void:
 	_build_deck_section(left)
 	_build_profile_section(left)
 	_build_talent_section(left)
+	_build_relic_section(left)
 	_build_run_section(left)
 
 	# Right panel — log
@@ -214,8 +223,16 @@ func _build_enemy_section(parent: Control) -> void:
 	parent.add_child(_section_header("ENEMY"))
 	var vbox := _section_body(parent)
 
+	var current_act := 0
 	for i in _FIGHTS.size():
 		var fight: Dictionary = _FIGHTS[i]
+		var act: int = fight.get("act", 1) as int
+		if act != current_act:
+			current_act = act
+			var act_lbl := _label("── Act %d ──" % act, _C_GOLD)
+			act_lbl.add_theme_font_size_override("font_size", 11)
+			act_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			vbox.add_child(act_lbl)
 		var btn   := _flat_button(fight.label)
 		btn.pressed.connect(_select_fight.bind(i))
 		vbox.add_child(btn)
@@ -342,6 +359,43 @@ func _build_talent_section(parent: Control) -> void:
 			_talent_checks[talent.id] = cb
 
 
+func _build_relic_section(parent: Control) -> void:
+	_relic_section = _section_header("RELIC (Act 2+)")
+	parent.add_child(_relic_section)
+	var vbox := _section_body(parent)
+
+	_relic_dropdown = OptionButton.new()
+	_relic_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(_relic_dropdown)
+	_rebuild_relic_dropdown()
+
+
+func _rebuild_relic_dropdown() -> void:
+	if _relic_dropdown == null:
+		return
+	_relic_dropdown.clear()
+	_relic_ids.clear()
+
+	_relic_dropdown.add_item("None")
+	_relic_ids.append("")
+
+	# Show relics from acts below the current fight's act
+	var fight_act: int = (_FIGHTS[_fight_idx] as Dictionary).get("act", 1) as int
+	for act in range(1, fight_act):
+		var relics := RelicDatabase.get_offer_for_act(act)
+		# get_offer_for_act returns shuffled subset; get all instead
+		for r: RelicData in RelicDatabase.get_all():
+			if r.act != act:
+				continue
+			if r.id in _relic_ids:
+				continue
+			_relic_dropdown.add_item("Act %d: %s  (%d charges, %d cd)" % [r.act, r.relic_name, r.charges, r.cooldown])
+			_relic_ids.append(r.id)
+
+	if _relic_dropdown.item_count > 0:
+		_relic_dropdown.select(0)
+
+
 func _build_run_section(parent: Control) -> void:
 	parent.add_child(_section_header("RUN"))
 	var vbox := _section_body(parent)
@@ -420,6 +474,7 @@ func _select_fight(idx: int) -> void:
 		_style_button(_fight_buttons[i], i == idx)
 	_clamp_talents_to_budget()
 	_refresh_talent_ui()
+	_rebuild_relic_dropdown()
 
 func _select_profile(idx: int) -> void:
 	_player_profile_id = (_PLAYER_PROFILES[idx] as Dictionary).id as String
@@ -522,11 +577,23 @@ func _on_run_pressed() -> void:
 			profile_name = (p as Dictionary).name as String
 	var deck_name: String = _deck_dropdown.get_item_text(sel_idx)
 	var enemy_deck_label: String = _enemy_deck_dropdown.get_item_text(_enemy_deck_dropdown.selected)
+	# Relic selection
+	var relic_ids: Array[String] = []
+	var relic_label: String = "None"
+	if _relic_dropdown != null and _relic_dropdown.selected >= 0:
+		var sel_relic_idx: int = _relic_dropdown.selected
+		if sel_relic_idx < _relic_ids.size() and _relic_ids[sel_relic_idx] != "":
+			relic_ids.append(_relic_ids[sel_relic_idx])
+			var rd: RelicData = RelicDatabase.get_relic(_relic_ids[sel_relic_idx])
+			relic_label = rd.relic_name if rd else _relic_ids[sel_relic_idx]
+
 	_log.append_text("[color=#ccb]Running %d sims  vs  [b]%s[/b]  (enemy deck: %s)  [Hero: %s]  [Deck: %s]  [Profile: %s][/color]\n" % [runs, fight.label, enemy_deck_label, hero_name, deck_name, profile_name])
 	if not talents.is_empty():
 		_log.append_text("[color=#aaa]  Talents: %s[/color]\n" % ", ".join(talents))
 	if not hero_passives.is_empty():
 		_log.append_text("[color=#aaa]  Hero passives: %s[/color]\n" % ", ".join(hero_passives))
+	if not relic_ids.is_empty():
+		_log.append_text("[color=#aaa]  Relic: %s[/color]\n" % relic_label)
 
 	# Enemy deck: custom saved deck if selected, otherwise use encounter deck (override or default)
 	var enemy_deck: Array[String] = []
@@ -554,7 +621,8 @@ func _on_run_pressed() -> void:
 			fight.hp as int,
 			talents,
 			_player_profile_id,
-			hero_passives)
+			hero_passives,
+			relic_ids)
 
 	_print_results(fight.label, stats)
 
@@ -576,6 +644,9 @@ func _print_results(label: String, s: Dictionary) -> void:
 	_log.append_text("  %sWin %.1f%%[/color]   Loss %.1f%%   Draw %.1f%%\n" % [win_col, win_pct, loss_pct, draw_pct])
 	_log.append_text("  Avg turns: [b]%.1f[/b]   Avg player HP: [b]%+.0f[/b]   Avg enemy HP: [b]%+.0f[/b]\n" % [
 		s.avg_turns, s.avg_player_hp, s.avg_enemy_hp])
+	var avg_relic: float = s.get("avg_relic_activations", 0.0)
+	if avg_relic > 0.0:
+		_log.append_text("  Avg relic activations: [b]%.2f[/b]\n" % avg_relic)
 
 # ---------------------------------------------------------------------------
 # Helpers — state queries
