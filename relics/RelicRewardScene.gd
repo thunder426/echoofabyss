@@ -34,7 +34,7 @@ func _build_ui(act: int, offers: Array[RelicData]) -> void:
 
 func _make_relic_panel(relic: RelicData) -> PanelContainer:
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(380, 260)
+	panel.custom_minimum_size = Vector2(380, 380)
 
 	var style := StyleBoxFlat.new()
 	style.bg_color          = Color(0.10, 0.06, 0.18, 1)
@@ -53,6 +53,17 @@ func _make_relic_panel(relic: RelicData) -> PanelContainer:
 	name_lbl.add_theme_color_override("font_color", COLOR_PURPLE)
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(name_lbl)
+
+	# Relic icon
+	if relic.icon_path != "" and ResourceLoader.exists(relic.icon_path):
+		var icon_container := CenterContainer.new()
+		var icon := TextureRect.new()
+		icon.texture = load(relic.icon_path)
+		icon.custom_minimum_size = Vector2(96, 96)
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		icon_container.add_child(icon)
+		vbox.add_child(icon_container)
 
 	var sep := HSeparator.new()
 	vbox.add_child(sep)

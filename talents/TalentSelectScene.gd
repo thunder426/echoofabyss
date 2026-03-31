@@ -78,19 +78,6 @@ func _build_ui() -> void:
 	_points_label.add_theme_font_size_override("font_size", 20)
 	_root_vbox.add_child(_points_label)
 
-	# Revert button — only visible after picking something on this screen
-	_revert_btn = Button.new()
-	_revert_btn.text = "↩  Undo Last Choice"
-	_revert_btn.custom_minimum_size = Vector2(240, 44)
-	_revert_btn.add_theme_font_size_override("font_size", 16)
-	_revert_btn.add_theme_color_override("font_color", Color(1.0, 0.60, 0.30, 1))
-	_apply_btn_style(_revert_btn)
-	_revert_btn.visible = false
-	_revert_btn.pressed.connect(_on_revert_pressed)
-	var revert_center := CenterContainer.new()
-	revert_center.add_child(_revert_btn)
-	_root_vbox.add_child(revert_center)
-
 	# Branch columns
 	var cols_container := HBoxContainer.new()
 	cols_container.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -104,6 +91,19 @@ func _build_ui() -> void:
 		var col := _make_branch_column(branch)
 		_branch_columns[branch] = col
 		cols_container.add_child(col)
+
+	# Revert button — only visible after picking something on this screen
+	_revert_btn = Button.new()
+	_revert_btn.text = "↩  Undo Last Choice"
+	_revert_btn.custom_minimum_size = Vector2(240, 44)
+	_revert_btn.add_theme_font_size_override("font_size", 16)
+	_revert_btn.add_theme_color_override("font_color", Color(1.0, 0.60, 0.30, 1))
+	_apply_btn_style(_revert_btn)
+	_revert_btn.visible = false
+	_revert_btn.pressed.connect(_on_revert_pressed)
+	var revert_center := CenterContainer.new()
+	revert_center.add_child(_revert_btn)
+	_root_vbox.add_child(revert_center)
 
 	# Continue button
 	var done_btn := Button.new()
@@ -190,10 +190,10 @@ func _refresh() -> void:
 			btn.modulate = Color(1, 1, 1, 1)           # bright = clickable
 		elif id in available_ids:
 			btn.disabled = true
-			btn.modulate = Color(0.6, 0.6, 0.6, 1)    # greyed = no points
+			btn.modulate = Color(0.65, 0.60, 0.75, 1)  # muted = no points but readable
 		else:
 			btn.disabled = true
-			btn.modulate = Color(0.28, 0.22, 0.35, 1)  # dark = locked
+			btn.modulate = Color(0.45, 0.40, 0.55, 1)  # dim = locked but still readable
 
 # ---------------------------------------------------------------------------
 # Interaction

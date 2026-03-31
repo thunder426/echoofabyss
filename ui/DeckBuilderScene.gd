@@ -133,7 +133,7 @@ func _setup_predefined_deck_row() -> void:
 		btn.text = preset["name"]
 		btn.custom_minimum_size = Vector2(130, 38)
 		btn.add_theme_font_size_override("font_size", 14)
-		btn.tooltip_text = preset["desc"]
+		btn.tooltip_text = ""
 		btn.pressed.connect(_on_load_preset.bind(preset["id"]))
 		row.add_child(btn)
 
@@ -506,7 +506,7 @@ func _rebuild_deck_ui() -> void:
 
 		var btn := Button.new()
 		btn.custom_minimum_size = Vector2(0, 40)
-		btn.tooltip_text        = "Click to remove one copy"
+		btn.tooltip_text        = ""
 		btn.pressed.connect(_on_remove_card.bind(card_id))
 		btn.mouse_entered.connect(_show_preview.bind(card_id))
 		btn.mouse_exited.connect(_hide_preview)

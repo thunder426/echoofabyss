@@ -26,8 +26,12 @@ var hand_display: HandDisplay
 var environment_slot: Panel
 var environment_slot_name: Label
 var environment_slot_desc: Label
+var _env_art: TextureRect
 var trap_slot_panels: Array[Panel] = []
 var trap_slot_labels: Array[Label]  = []
+var _trap_slot_art_containers: Array[CenterContainer] = []
+var _trap_slot_arts: Array[TextureRect] = []
+var _trap_slot_glow_tweens: Array = []  # Tween or null per slot
 var enemy_trap_slot_panels: Array[Panel] = []
 var enemy_trap_slot_labels: Array[Label]  = []
 var turn_label: Label
@@ -304,12 +308,38 @@ func _find_nodes() -> void:
 		environment_slot      = $UI/EnvironmentSlot
 		environment_slot_name = $UI/EnvironmentSlot/SlotNameLabel if $UI/EnvironmentSlot.has_node("SlotNameLabel") else null
 		environment_slot_desc = $UI/EnvironmentSlot/SlotDescLabel if $UI/EnvironmentSlot.has_node("SlotDescLabel") else null
+		# Art rect — behind text, fills the slot
+		_env_art = TextureRect.new()
+		_env_art.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_env_art.stretch_mode = TextureRect.STRETCH_SCALE
+		_env_art.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+		_env_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_env_art.modulate     = Color(1, 1, 1, 0.4)  # semi-transparent behind text
+		_env_art.visible      = false
+		environment_slot.add_child(_env_art)
+		environment_slot.move_child(_env_art, 0)  # behind all labels
 	if has_node("UI/TrapSlotsRow"):
 		var row := $UI/TrapSlotsRow
 		for i in 3:
 			var panel := row.get_child(i) as Panel
 			trap_slot_panels.append(panel)
 			trap_slot_labels.append(panel.get_child(0) as Label)
+			# Add art TextureRect — square, centered in the slot via CenterContainer
+			var art_center := CenterContainer.new()
+			art_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+			art_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art_center.visible = false
+			var art := TextureRect.new()
+			art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			art.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+			art.custom_minimum_size = Vector2(72, 72)
+			art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art_center.add_child(art)
+			panel.add_child(art_center)
+			panel.move_child(art_center, 0)  # behind label
+			_trap_slot_art_containers.append(art_center)
+			_trap_slot_arts.append(art)
+			_trap_slot_glow_tweens.append(null)
 	if has_node("UI/EnemyTrapSlotsRow"):
 		var row := $UI/EnemyTrapSlotsRow
 		for i in 3:
@@ -758,18 +788,35 @@ func _update_environment_display() -> void:
 	if not environment_slot:
 		return
 	if active_environment:
-		_apply_slot_style(environment_slot, Color(0.06, 0.14, 0.09, 1), Color(0.15, 0.75, 0.35, 1))
+		_apply_slot_style(environment_slot, Color(0.02, 0.02, 0.04, 0.3), Color(0.15, 0.75, 0.35, 1))
 		if environment_slot_name:
-			environment_slot_name.visible = true
-			environment_slot_name.text = active_environment.card_name
+			environment_slot_name.visible = false
 		if environment_slot_desc:
-			environment_slot_desc.text = active_environment.passive_description
+			environment_slot_desc.visible = false
+		# Hide header label too
+		var header := environment_slot.get_node_or_null("HeaderLabel")
+		if header:
+			header.visible = false
 		environment_slot.tooltip_text = _build_environment_tooltip(active_environment)
+		# Show card art — full opacity, no text overlay
+		if _env_art:
+			_env_art.modulate = Color(1, 1, 1, 1)
+			if active_environment.art_path != "" and ResourceLoader.exists(active_environment.art_path):
+				_env_art.texture = load(active_environment.art_path)
+				_env_art.visible = true
+			else:
+				_env_art.visible = false
 	else:
 		_apply_empty_slot(environment_slot, environment_slot_name)
 		if environment_slot_desc:
+			environment_slot_desc.visible = true
 			environment_slot_desc.text = ""
+		var header := environment_slot.get_node_or_null("HeaderLabel")
+		if header:
+			header.visible = true
 		environment_slot.tooltip_text = ""
+		if _env_art:
+			_env_art.visible = false
 
 ## Build the hover tooltip text for an active environment card.
 ## Includes cost, passive, and ritual combinations if any.
@@ -2118,35 +2165,93 @@ func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
 	_log("Enemy plays environment: %s" % env.card_name, _LogType.ENEMY)
 	_update_enemy_status_panel()
 
+const _RUNE_GLOW_DEFAULT := Color(0.30, 0.15, 0.45, 1)  # Fallback dark purple
+
 func _update_trap_display_for(owner: String) -> void:
 	var panels: Array = trap_slot_panels      if owner == "player" else enemy_trap_slot_panels
 	var labels: Array = trap_slot_labels      if owner == "player" else enemy_trap_slot_labels
 	var traps:  Array = active_traps          if owner == "player" else (enemy_ai.active_traps if enemy_ai else [])
 	var is_enemy := owner == "enemy"
+	var is_player := owner == "player"
 	for i in panels.size():
 		var panel := panels[i] as Panel
 		var lbl   := labels[i] as Label
+		# Art + glow only for player trap slots
+		var art: TextureRect = _trap_slot_arts[i] if is_player and i < _trap_slot_arts.size() else null
+		var art_container: CenterContainer = _trap_slot_art_containers[i] if is_player and i < _trap_slot_art_containers.size() else null
 		if i < traps.size():
 			var trap := traps[i] as TrapCardData
-			lbl.visible = true
 			if trap.is_rune:
-				# Rune: face-up, persistent — purple/void colour scheme
-				_apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), Color(0.65, 0.25, 0.90, 1))
-				lbl.text = trap.card_name
+				# Rune: show battlefield art if available
+				var has_art := false
+				if is_player and art_container:
+					if trap.battlefield_art_path != "" and ResourceLoader.exists(trap.battlefield_art_path):
+						art.texture = load(trap.battlefield_art_path)
+						art_container.visible = true
+						has_art = true
+						lbl.visible = false
+						var border_color: Color = _get_rune_glow_color(trap)
+						_apply_slot_style(panel, Color(0.02, 0.02, 0.04, 0.2), border_color)
+					else:
+						art_container.visible = false
+				if not has_art:
+					lbl.visible = true
+					lbl.text = trap.card_name
+					var fallback_border: Color = _get_rune_glow_color(trap)
+					_apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), fallback_border)
 				panel.tooltip_text = "%s\n─\n%s" % [trap.card_name, trap.description]
+				# Start pulse glow for player runes
+				if is_player:
+					_start_rune_glow(i, trap)
 			elif is_enemy:
-				# Enemy traps are face-down — red scheme with hidden name
 				_apply_slot_style(panel, Color(0.14, 0.04, 0.04, 1), Color(0.80, 0.18, 0.18, 1))
+				lbl.visible = true
 				lbl.text = "??"
 				panel.tooltip_text = "Enemy Trap"
+				if art_container: art_container.visible = false
+				_stop_rune_glow(i)
 			else:
-				# Player trap: face-down — amber scheme
 				_apply_slot_style(panel, Color(0.12, 0.08, 0.05, 1), Color(0.85, 0.45, 0.10, 1))
+				lbl.visible = true
 				lbl.text = trap.card_name
 				panel.tooltip_text = "%s\n─\n%s" % [trap.card_name, trap.description]
+				if art_container: art_container.visible = false
+				_stop_rune_glow(i)
 		else:
 			_apply_empty_slot(panel, lbl)
 			panel.tooltip_text = ""
+			if art_container: art_container.visible = false
+			_stop_rune_glow(i)
+
+func _get_rune_glow_color(trap: TrapCardData) -> Color:
+	if trap.rune_glow_color.a > 0:
+		return trap.rune_glow_color
+	return _RUNE_GLOW_DEFAULT
+
+func _start_rune_glow(slot_idx: int, trap: TrapCardData) -> void:
+	if slot_idx >= _trap_slot_glow_tweens.size():
+		return
+	# Don't restart if already glowing
+	if _trap_slot_glow_tweens[slot_idx] != null:
+		return
+	var panel: Panel = trap_slot_panels[slot_idx]
+	var glow_color: Color = _get_rune_glow_color(trap)
+	var bright := Color(glow_color.r * 1.4, glow_color.g * 1.4, glow_color.b * 1.4, 1.0)
+	var dim    := Color(glow_color.r * 0.7, glow_color.g * 0.7, glow_color.b * 0.7, 1.0)
+	var tween := create_tween().set_loops()
+	tween.tween_property(panel, "modulate", bright, 1.2).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(panel, "modulate", dim, 1.2).set_ease(Tween.EASE_IN_OUT)
+	_trap_slot_glow_tweens[slot_idx] = tween
+
+func _stop_rune_glow(slot_idx: int) -> void:
+	if slot_idx >= _trap_slot_glow_tweens.size():
+		return
+	var tween = _trap_slot_glow_tweens[slot_idx]
+	if tween != null and tween is Tween:
+		(tween as Tween).kill()
+	_trap_slot_glow_tweens[slot_idx] = null
+	if slot_idx < trap_slot_panels.size():
+		trap_slot_panels[slot_idx].modulate = Color(1, 1, 1, 1)
 
 func _update_trap_display() -> void:
 	_update_trap_display_for("player")

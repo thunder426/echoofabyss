@@ -47,6 +47,10 @@ extends CardData
 ## Steps run once when the rune is removed / destroyed (e.g. Dominion Rune buff teardown).
 @export var aura_on_remove_steps: Array = []
 
+## Glow color for the rune on the battlefield. Used for border and pulse glow.
+## Default transparent = no custom glow (falls back to purple).
+@export var rune_glow_color: Color = Color(0, 0, 0, 0)
+
 func _init() -> void:
 	card_type = Enums.CardType.TRAP
 	cost_type = Enums.CostType.MANA
