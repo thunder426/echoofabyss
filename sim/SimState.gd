@@ -103,6 +103,7 @@ var _spark_transfer_count: int = 0    ## Void Spark transfers to player board
 
 ## Once-per-turn gate for feral_reinforcement passive.
 var _imp_caller_fired: bool = false
+var _soul_rune_fires_this_turn: int = 0
 
 ## Relic state flags (set by RelicEffects, consumed by combat logic).
 var _relic_hero_immune: bool = false
@@ -307,7 +308,7 @@ func _corrupt_minion(target: MinionInstance) -> void:
 func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
 
-func _deal_void_bolt_damage(base_damage: int) -> void:
+func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null) -> void:
 	var bonus := enemy_void_marks * void_mark_damage_per_stack
 	combat_manager.apply_hero_damage("enemy", base_damage + bonus, Enums.DamageType.VOID_BOLT)
 
@@ -444,22 +445,41 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 ## Returns true if the rune board satisfies the ritual's required rune types.
 func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 	var available: Array[int] = []
+	var wildcards: int = 0
 	for r in runes:
-		available.append((r as TrapCardData).rune_type)
+		var trap := r as TrapCardData
+		if trap.is_wildcard_rune:
+			wildcards += 1
+		else:
+			available.append(trap.rune_type)
+	var remaining_wildcards := wildcards
 	for req in required:
-		if req not in available:
+		if req in available:
+			available.erase(req)
+		elif remaining_wildcards > 0:
+			remaining_wildcards -= 1
+		else:
 			return false
 	return true
 
 ## Consume the required runes and cast the ritual effect.
+## Exact matches consumed first; wildcard runes fill remaining gaps.
 func _fire_ritual(ritual: RitualData) -> void:
 	_player_ritual_count += 1
 	for req in ritual.required_runes:
+		var consumed := false
 		for i in active_traps.size():
-			if active_traps[i].is_rune and active_traps[i].rune_type == req:
+			if active_traps[i].is_rune and not (active_traps[i] as TrapCardData).is_wildcard_rune and active_traps[i].rune_type == req:
 				_remove_rune_aura(active_traps[i])
 				active_traps.remove_at(i)
+				consumed = true
 				break
+		if not consumed:
+			for i in active_traps.size():
+				if active_traps[i].is_rune and (active_traps[i] as TrapCardData).is_wildcard_rune:
+					_remove_rune_aura(active_traps[i])
+					active_traps.remove_at(i)
+					break
 	var ritual_ctx := EffectContext.make(self, "player")
 	EffectResolver.run(ritual.effect_steps, ritual_ctx)
 	if "ritual_surge" in talents:
@@ -486,6 +506,15 @@ func _summon_void_imp() -> void:
 
 ## Reference to the CombatHandlers instance — set by SimTriggerSetup for env rituals.
 var _handlers_ref: CombatHandlers = null
+
+## Aliases for duck-typing compatibility with CombatScene — used by Act 3 AI profiles.
+var _active_enemy_passives: Array[String]:
+	get: return enemy_passives
+var _handlers: CombatHandlers:
+	get: return _handlers_ref
+
+## Pending mana drain flag (Void Rift Lord). SimState applies at player turn start.
+var _void_mana_drain_pending: bool = false
 
 # ---------------------------------------------------------------------------
 # Card draw helpers
@@ -530,6 +559,9 @@ func begin_player_turn(turn_number: int) -> void:
 	player_mana    = player_mana_max
 	player_spell_cost_penalty = _spell_tax_for_player_turn
 	_spell_tax_for_player_turn = 0
+	if _void_mana_drain_pending:
+		_void_mana_drain_pending = false
+		player_mana = 0
 	imp_evolution_used_this_turn = false
 	for inst in player_hand:
 		inst.cost_delta = 0

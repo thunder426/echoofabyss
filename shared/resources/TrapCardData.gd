@@ -47,6 +47,9 @@ extends CardData
 ## Steps run once when the rune is removed / destroyed (e.g. Dominion Rune buff teardown).
 @export var aura_on_remove_steps: Array = []
 
+## If true, this rune acts as a wildcard — can substitute for any rune type in rituals.
+@export var is_wildcard_rune: bool = false
+
 ## Glow color for the rune on the battlefield. Used for border and pulse glow.
 ## Default transparent = no custom glow (falls back to purple).
 @export var rune_glow_color: Color = Color(0, 0, 0, 0)

@@ -25,6 +25,7 @@ RelicDatabase="*res://relics/RelicDatabase.gd"
 TalentDatabase="*res://talents/TalentDatabase.gd"
 HeroDatabase="*res://heroes/HeroDatabase.gd"
 TestConfig="*res://debug/TestConfig.gd"
+AudioManager="*res://shared/scripts/AudioManager.gd"
 
 [display]
 

@@ -101,7 +101,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.VOID_BOLT:
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
-				ctx.scene._deal_void_bolt_damage(_amount(step, ctx))
+				ctx.scene._deal_void_bolt_damage(_amount(step, ctx), ctx.source)
 			return
 
 		EffectStep.EffectType.HARDCODED:

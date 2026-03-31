@@ -329,22 +329,53 @@ func _build_encounter(index: int) -> EnemyData:
 		# -- Act 3: Void Rift World --
 		7:
 			return _make_encounter("Rift Stalker", 3800,
-				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				[
+					"void_pulse", "void_pulse",
+					"phase_stalker", "phase_stalker",
+					"rift_collapse",
+					"void_behemoth",
+					"abyssal_brute", "abyssal_brute",
+					"void_stalker", "void_stalker",
+					"void_bolt", "void_bolt",
+					"abyssal_plague",
+				],
 				"ENCOUNTER I",
 				"The Void Rift World — a place where reality has frayed. Rift Stalkers phase between dimensions, attacking from angles that shouldn't exist. Stay focused. Don't let it disorient you.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_rift", "void_empowerment"], "rift_stalker")
 		8:
 			return _make_encounter("Void Aberration", 4600,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				[
+					"void_pulse", "void_pulse", "void_pulse",
+					"rift_collapse", "rift_collapse",
+					"dimensional_breach", "dimensional_breach",
+					"phase_stalker",
+					"void_behemoth",
+					"abyssal_brute", "abyssal_brute",
+					"void_bolt", "void_bolt",
+					"abyssal_plague",
+				],
 				"ENCOUNTER II",
 				"A Void Aberration — a creature that should not exist in any plane. It was assembled from the broken remnants of things consumed by the rift. It has no purpose except destruction.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_rift", "void_detonation_passive"], "void_aberration")
 		9:
 			return _make_encounter("Void Herald", 6500,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				[
+					"void_pulse", "void_pulse",
+					"phase_stalker", "phase_stalker",
+					"rift_collapse", "rift_collapse",
+					"void_behemoth", "void_behemoth",
+					"dimensional_breach", "dimensional_breach",
+					"void_rift_lord", "void_rift_lord",
+					"abyssal_brute",
+					"void_bolt",
+					"abyssal_plague",
+				],
 				"VOID HERALD",
 				"The Void Herald speaks with the voice of the Abyss itself. It has crossed countless worlds before this one. It carries a message: the Abyss Sovereign is coming, and nothing will remain.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_rift", "void_mastery"], "void_herald")
 		# -- Act 4: Void Castle --
 		10:
 			return _make_encounter("Void Scout", 5000,

@@ -6,6 +6,9 @@ var _continue_btn: Button
 var _reset_btn: Button
 var _reset_confirm_pending: bool = false
 var _reset_timer: SceneTreeTimer = null
+var _bg_active: VideoStreamPlayer
+var _bg_standby: VideoStreamPlayer
+const _BG_SWAP_MARGIN: float = 0.15
 
 const _BG_PATH          := "res://assets/menu/menu_background.png"
 const _BTN_PATH         := "res://assets/art/buttons/button_normal.png"
@@ -17,6 +20,10 @@ func _ready() -> void:
 	UserProfile.load_profile()
 
 	_apply_menu_assets()
+
+	_bg_active = $UI/BackgroundA
+	_bg_standby = $UI/BackgroundB
+	_bg_active.finished.connect(_on_bg_finished)
 
 	_continue_btn = $UI/ContinueButton
 	_reset_btn    = $UI/ResetButton
@@ -30,6 +37,24 @@ func _ready() -> void:
 	_continue_btn.disabled = not UserProfile.has_active_run()
 	if _continue_btn.disabled:
 		_continue_btn.modulate = Color(0.45, 0.45, 0.50, 1)
+
+func _process(_delta: float) -> void:
+	if not _bg_active.is_playing():
+		return
+	var remaining: float = _bg_active.get_stream_length() - _bg_active.stream_position
+	if remaining <= _BG_SWAP_MARGIN and not _bg_standby.is_playing():
+		_bg_standby.visible = true
+		_bg_standby.play()
+
+func _on_bg_finished() -> void:
+	_bg_active.stop()
+	_bg_active.visible = false
+	# Swap roles
+	var tmp: VideoStreamPlayer = _bg_active
+	_bg_active = _bg_standby
+	_bg_standby = tmp
+	_bg_active.finished.connect(_on_bg_finished)
+	_bg_standby.finished.disconnect(_on_bg_finished)
 
 func _on_new_run_pressed() -> void:
 	# Discard any saved run (permanent unlocks are kept).
@@ -85,9 +110,6 @@ func _make_btn_style(path: String) -> StyleBoxTexture:
 	return style
 
 func _apply_menu_assets() -> void:
-	if ResourceLoader.exists(_BG_PATH):
-		($UI/Background as TextureRect).texture = load(_BG_PATH)
-
 	if ResourceLoader.exists(_BTN_PATH):
 		var style_normal := _make_btn_style(_BTN_PATH)
 		var style_hover  := _make_btn_style(_BTN_HOVER_PATH   if ResourceLoader.exists(_BTN_HOVER_PATH)   else _BTN_PATH)

@@ -6,6 +6,9 @@
 [ext_resource type="Texture2D" uid="uid://c6of20n6po7c8" path="res://assets/art/buttons/button_hover.png" id="4"]
 [ext_resource type="Texture2D" uid="uid://c2iiff8aiv4ou" path="res://assets/art/buttons/button_pressed.png" id="5"]
 
+[sub_resource type="FFmpegVideoStream" id="FFmpegVideoStream_bg"]
+file = "res://assets/animation/background/main_screen_background_h264.mp4"
+
 [sub_resource type="StyleBoxTexture" id="StyleBoxTexture_normal"]
 texture = ExtResource("3")
 texture_margin_left = 16.0
@@ -44,13 +47,33 @@ script = ExtResource("1")
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=673162527]
 
-[node name="Background" type="TextureRect" parent="UI" unique_id=97949816]
+[node name="BackgroundColor" type="ColorRect" parent="UI"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-expand_mode = 1
+color = Color(0, 0, 0, 1)
+
+[node name="BackgroundA" type="VideoStreamPlayer" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+expand = true
+stream = SubResource("FFmpegVideoStream_bg")
+autoplay = true
+
+[node name="BackgroundB" type="VideoStreamPlayer" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+expand = true
+stream = SubResource("FFmpegVideoStream_bg")
+visible = false
 
 [node name="TitleLabel" type="Label" parent="UI" unique_id=335247894]
 offset_top = 160.0

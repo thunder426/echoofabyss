@@ -147,7 +147,7 @@ func on_played_rune_caller(ctx: EventContext) -> void:
 func on_summon_piercing_void(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp"):
 		return
-	_scene._deal_void_bolt_damage(200)
+	_scene._deal_void_bolt_damage(200, ctx.minion)
 	_scene._apply_void_mark(1)
 
 func on_summon_imp_evolution(ctx: EventContext) -> void:
@@ -270,6 +270,14 @@ func on_player_minion_played_effect(ctx: EventContext) -> void:
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
 	var mc := minion.card_data as MinionCardData
+	# Fire void bolt visual for void imps with DAMAGE_HERO on-play
+	if _card_has_tag(mc, "void_imp") and not mc.on_play_effect_steps.is_empty():
+		for raw in mc.on_play_effect_steps:
+			var step: EffectStep = EffectStep.from_dict(raw) if raw is Dictionary else raw as EffectStep
+			if step and step.effect_type == EffectStep.EffectType.DAMAGE_HERO:
+				if _scene.has_method("_fire_void_bolt_projectile"):
+					_scene._fire_void_bolt_projectile(ctx.minion)
+				break
 	if not mc.on_play_effect_steps.is_empty():
 		var ectx           := EffectContext.make(_scene, "player")
 		ectx.source        = minion
@@ -508,6 +516,40 @@ func _transfer_to_player_board(m: MinionInstance) -> bool:
 	target_slot.place_minion(m)
 	_scene._refresh_slot_for(m)
 	return true
+
+# ---------------------------------------------------------------------------
+# Act 3 — Void Rift World passive handlers
+# ---------------------------------------------------------------------------
+
+## Void Rift (shared Act 3): summon a 100/100 Void Spark on the enemy board at turn start.
+func on_enemy_turn_void_rift(_ctx: EventContext) -> void:
+	_scene._summon_token("void_spark", "enemy", 100, 100)
+	_log("  Void Rift: a Void Spark materialises on the enemy board.", _LOG_ENEMY)
+
+## Void Empowerment (Rift Stalker): all enemy Void Sparks enter as 200/200.
+func on_enemy_summon_void_empowerment(ctx: EventContext) -> void:
+	var minion: MinionInstance = ctx.minion
+	if minion == null or minion.card_data.id != "void_spark":
+		return
+	if minion.owner != "enemy":
+		return
+	var atk_diff: int = 200 - minion.current_atk
+	var hp_diff: int = 200 - minion.current_health
+	if atk_diff > 0:
+		minion.current_atk += atk_diff
+	if hp_diff > 0:
+		minion.current_health += hp_diff
+	_scene._refresh_slot_for(minion)
+	_log("  Void Empowerment: Void Spark empowered to 200/200.", _LOG_ENEMY)
+
+## Void Detonation (Void Aberration): called directly by AI when sparks are consumed as card cost.
+## Deals 100 damage per spark consumed to all player minions AND the player hero.
+func apply_void_detonation(spark_count: int) -> void:
+	for i in spark_count:
+		for m: MinionInstance in _scene.player_board.duplicate():
+			_scene.combat_manager.apply_spell_damage(m, 100)
+		_scene.combat_manager.apply_hero_damage("player", 100, Enums.DamageType.SPELL)
+		_log("  Void Detonation: Void Spark consumed — 100 damage to all player minions and hero!", _LOG_ENEMY)
 
 # ---------------------------------------------------------------------------
 # Shared helpers

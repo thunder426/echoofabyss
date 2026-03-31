@@ -72,7 +72,7 @@ func resolve(id: String, ctx: EffectContext) -> void:
 		"soul_rune_death":
 			_soul_rune_death(ctx)
 		"soul_rune_reset":
-			_scene.set("_soul_rune_fired", false)
+			_scene.set("_soul_rune_fires_this_turn", 0)
 		# --- vael_endless_tide ---
 		"colossal_guard_play":
 			pass  # Handled declaratively; stub for forward compat
@@ -85,6 +85,11 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			_echo_rune_fire()
 		"rune_seeker_play":
 			_rune_seeker_play()
+		# --- Void Rift World ---
+		"void_rift_lord_mana_drain":
+			if ctx.owner == "enemy":
+				_scene.set("_void_mana_drain_pending", true)
+				_log("  Void Rift Lord: player's Mana will be drained to 0 next turn!", _LOG_ENEMY)
 		# --- Feral Imp Clan ---
 		"frenzied_imp_play":
 			_frenzied_imp_play(ctx)
@@ -210,13 +215,19 @@ func _smoke_veil() -> void:
 # ---------------------------------------------------------------------------
 
 func _soul_rune_death(ctx: EffectContext) -> void:
-	if _scene.get("_soul_rune_fired") == true:
+	# Each Soul Rune can fire once per enemy turn. Track fires vs active soul rune count.
+	var fires: int = _scene.get("_soul_rune_fires_this_turn") if _scene.get("_soul_rune_fires_this_turn") != null else 0
+	var soul_rune_count := 0
+	for trap in _scene.active_traps:
+		if (trap as TrapCardData).is_rune and (trap as TrapCardData).rune_type == Enums.RuneType.SOUL_RUNE:
+			soul_rune_count += 1
+	if fires >= soul_rune_count:
 		return
 	if _scene.turn_manager.get("is_player_turn") != false:
 		return
 	if ctx.trigger_minion == null or ctx.trigger_minion.card_data.minion_type != Enums.MinionType.DEMON:
 		return
-	_scene.set("_soul_rune_fired", true)
+	_scene.set("_soul_rune_fires_this_turn", fires + 1)
 	var mult: int = _scene._rune_aura_multiplier()
 	_scene._summon_token("void_spark", "player", 100 * mult, 100 * mult)
 	_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [100 * mult, 100 * mult], _LOG_TRAP)

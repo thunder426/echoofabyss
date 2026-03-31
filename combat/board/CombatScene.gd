@@ -184,6 +184,9 @@ var _spell_tax_for_enemy_turn: int = 0
 ## Pending spell cost penalty to apply to the player on their next turn (from enemy Spell Taxer).
 var _spell_tax_for_player_turn: int = 0
 
+## When true, the player's current mana is set to 0 at the start of their next turn (Void Rift Lord).
+var _void_mana_drain_pending: bool = false
+
 ## Active spell cost penalty for the player this turn (applied at turn start, cleared at turn end).
 var player_spell_cost_penalty: int = 0
 
@@ -191,7 +194,7 @@ var player_spell_cost_penalty: int = 0
 var _spell_cancelled: bool = false
 
 ## Prevents Soul Rune from firing more than once per enemy turn.
-var _soul_rune_fired: bool = false
+var _soul_rune_fires_this_turn: int = 0
 
 ## Void Imps summoned by Imp Overload that must die at end of the player's turn.
 var _temp_imps: Array[MinionInstance] = []
@@ -466,6 +469,13 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		imp_evolution_used_this_turn     = false
 		player_spell_cost_penalty = _spell_tax_for_player_turn
 		_spell_tax_for_player_turn = 0
+		if _void_mana_drain_pending:
+			_void_mana_drain_pending = false
+			turn_manager.mana = 0
+			turn_manager.resources_changed.emit(
+				turn_manager.essence, turn_manager.essence_max,
+				turn_manager.mana, turn_manager.mana_max)
+			_log("  Void Rift Lord: your Mana has been drained to 0!", _LogType.ENEMY)
 		_relic_hero_immune = false
 		_relic_cost_reduction = 0
 		for inst in turn_manager.player_hand:
@@ -917,7 +927,7 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	# Talent: void_manifestation — Void Imps fire Void Bolt at enemy hero, ignoring Taunt
 	if _minion_has_tag(selected_attacker, "void_imp") and _has_talent("void_manifestation"):
 		_log("Your Void Imp fires a Void Bolt (ignores Taunt)!", _LogType.PLAYER)
-		_deal_void_bolt_damage(selected_attacker.effective_atk())
+		await _deal_void_bolt_damage(selected_attacker.effective_atk(), selected_attacker)
 		_apply_void_mark(1)
 		selected_attacker.state = Enums.MinionState.EXHAUSTED
 		_refresh_slot_for(selected_attacker)
@@ -1355,11 +1365,9 @@ func _setup_cheat_panel() -> void:
 	add_child(_cheat_panel)
 
 	var root := PanelContainer.new()
-	root.custom_minimum_size = Vector2(320, 0)
-	root.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	root.offset_left  = -330
-	root.offset_top   = 10
-	root.offset_right = -10
+	root.custom_minimum_size = Vector2(300, 0)
+	var vp_w: float = get_viewport().get_visible_rect().size.x
+	root.set_position(Vector2(vp_w - 520, 10))
 	_cheat_panel.add_child(root)
 
 	var vbox := VBoxContainer.new()
@@ -1473,6 +1481,39 @@ func _setup_cheat_panel() -> void:
 		turn_manager.gain_mana(turn_manager.mana_max))
 	vbox.add_child(res_btn)
 
+	vbox.add_child(HSeparator.new())
+
+	# Unlock talent
+	var talent_label := Label.new()
+	talent_label.text = "Unlock talent (ID):"
+	talent_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(talent_label)
+
+	var talent_row := HBoxContainer.new()
+	vbox.add_child(talent_row)
+	var talent_input := LineEdit.new()
+	talent_input.placeholder_text = "e.g. piercing_void"
+	talent_input.custom_minimum_size = Vector2(160, 0)
+	talent_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	talent_input.text_submitted.connect(func(_t): _cheat_unlock_talent(talent_input))
+	talent_row.add_child(talent_input)
+	var talent_btn := Button.new()
+	talent_btn.text = "Unlock"
+	talent_btn.pressed.connect(func(): _cheat_unlock_talent(talent_input))
+	talent_row.add_child(talent_btn)
+
+	# Quick talent buttons
+	var talent_quick := HBoxContainer.new()
+	talent_quick.add_theme_constant_override("separation", 4)
+	vbox.add_child(talent_quick)
+	for tid in ["piercing_void", "deepened_curse", "death_bolt", "void_manifestation",
+				"imp_evolution", "swarm_discipline", "rune_caller", "runic_attunement"]:
+		var qbtn := Button.new()
+		qbtn.text = tid.replace("_", " ").capitalize().left(12)
+		qbtn.add_theme_font_size_override("font_size", 9)
+		qbtn.pressed.connect(func(): _cheat_unlock_talent_by_id(tid))
+		talent_quick.add_child(qbtn)
+
 	# Status feedback
 	_cheat_status_lbl = Label.new()
 	_cheat_status_lbl.add_theme_color_override("font_color", Color(1, 0.4, 0.4))
@@ -1488,6 +1529,8 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_F12:
 			_cheat_visible = not _cheat_visible
 			_cheat_panel.visible = _cheat_visible
+			if _cheat_visible and _cheat_card_input:
+				_cheat_card_input.call_deferred("grab_focus")
 
 func _cheat_add_card() -> void:
 	var id := _cheat_card_input.text.strip_edges()
@@ -1500,6 +1543,27 @@ func _cheat_add_card() -> void:
 	turn_manager.add_to_hand(card)
 	_cheat_status_lbl.text = ""
 	_cheat_card_input.text = ""
+
+func _cheat_unlock_talent(input: LineEdit) -> void:
+	var id := input.text.strip_edges()
+	if id == "":
+		return
+	_cheat_unlock_talent_by_id(id)
+	input.text = ""
+
+func _cheat_unlock_talent_by_id(id: String) -> void:
+	var talent: TalentData = TalentDatabase.get_talent(id)
+	if talent == null:
+		_cheat_status_lbl.text = "Unknown talent: " + id
+		return
+	if GameManager.has_talent(id):
+		_cheat_status_lbl.text = "Already unlocked: " + id
+		return
+	GameManager.unlock_talent(id)
+	# Re-run trigger setup to register the new talent's handlers
+	_setup_triggers()
+	_cheat_status_lbl.text = "Unlocked: " + talent.talent_name
+	_log("  [CHEAT] Talent unlocked: %s" % talent.talent_name, _LogType.PLAYER)
 
 ## Entry point for EffectResolver HARDCODED steps — delegates to HardcodedEffects.
 func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
@@ -1676,14 +1740,83 @@ func _apply_void_mark(stacks: int = 1) -> void:
 ## CONVENTION: ALL Void Bolt damage in the game must go through this function
 ## so that talents like deepened_curse and future modifiers apply automatically.
 ## Void bolt passives are fired automatically in _on_hero_damaged when type == VOID_BOLT.
-func _deal_void_bolt_damage(base_damage: int) -> void:
+## source_minion: if provided, projectile fires from that minion's board slot.
+## If null, auto-detects: checks for active void rune (fires from rune slot),
+## otherwise fires from center-bottom (player hero area).
+func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null) -> void:
 	var bonus := enemy_void_marks * _void_mark_damage_per_stack()
 	var total := base_damage + bonus
 	if bonus > 0:
 		_log("  Void Bolt: %d dmg (base %d + %d from %d marks)" % [total, base_damage, bonus, enemy_void_marks], _LogType.PLAYER)
 	else:
 		_log("  Void Bolt: %d damage." % total, _LogType.PLAYER)
+	# Fire projectile and wait for it to arrive before applying damage
+	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_bolt_cast.wav")
+	var bolt := _fire_void_bolt_projectile(source_minion)
+	if bolt != null and is_inside_tree():
+		await bolt.impact_hit
 	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
+
+## Spawn and fly a void bolt projectile to the enemy hero panel.
+## Returns the bolt node (or null if not spawned) so caller can await impact_hit.
+func _fire_void_bolt_projectile(source_minion: MinionInstance = null) -> VoidBoltProjectile:
+	if not is_inside_tree():
+		return null
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	# Determine source position
+	var from_pos: Vector2
+	if source_minion != null:
+		# Fire from the minion's board slot
+		var found := false
+		for slot in player_slots:
+			if (slot as BoardSlot).minion == source_minion:
+				from_pos = (slot as BoardSlot).global_position + (slot as BoardSlot).size / 2.0
+				found = true
+				break
+		if not found:
+			from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
+	else:
+		# Check if a void rune is active — fire from its trap slot
+		var rune_pos := _find_void_rune_slot_position()
+		if rune_pos != Vector2.ZERO:
+			from_pos = rune_pos
+		else:
+			# Default: center-bottom (player hero area)
+			from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
+	# Target: enemy status panel center
+	var to_pos: Vector2
+	if _enemy_status_panel:
+		to_pos = _enemy_status_panel.global_position + _enemy_status_panel.size / 2.0
+	else:
+		to_pos = Vector2(vp_size.x / 2.0, 80)
+	var bolt := VoidBoltProjectile.create(from_pos, to_pos)
+	var ui_root: Node = get_node_or_null("UI")
+	if ui_root:
+		ui_root.add_child(bolt)
+	else:
+		add_child(bolt)
+	return bolt
+
+## Cycles through void rune slots so multiple runes alternate firing.
+var _void_rune_fire_index: int = 0
+
+## Find the global center position of the next Void Rune trap slot.
+## Cycles through all void runes so each one fires in turn.
+func _find_void_rune_slot_position() -> Vector2:
+	var rune_slots: Array[int] = []
+	for i in active_traps.size():
+		var trap := active_traps[i] as TrapCardData
+		if trap.is_rune and trap.rune_type == Enums.RuneType.VOID_RUNE:
+			if i < trap_slot_panels.size():
+				rune_slots.append(i)
+	if rune_slots.is_empty():
+		return Vector2.ZERO
+	# Pick the next rune in rotation
+	var idx: int = _void_rune_fire_index % rune_slots.size()
+	_void_rune_fire_index += 1
+	var slot_i: int = rune_slots[idx]
+	var panel := trap_slot_panels[slot_i] as Panel
+	return panel.global_position + panel.size / 2.0
 
 ## Tries to spend a card's costs, applying Dark Mirror relic discount if active.
 ## Returns true if the card can be played (and costs are deducted).
@@ -1776,9 +1909,9 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 		_update_player_status_panel()
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
 		if player_hp <= 0:
-			_flash_hero("player", amount, _on_defeat)
+			_flash_hero("player", amount, _on_defeat, type)
 		else:
-			_flash_hero("player", amount)
+			_flash_hero("player", amount, Callable(), type)
 			var _ctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
 			_ctx.damage = amount
 			trigger_manager.fire(_ctx)
@@ -1787,9 +1920,9 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], _LogType.DAMAGE)
 		_update_enemy_status_panel()
 		if enemy_hp <= 0:
-			_flash_hero("enemy", amount, _on_victory)
+			_flash_hero("enemy", amount, _on_victory, type)
 		else:
-			_flash_hero("enemy", amount)
+			_flash_hero("enemy", amount, Callable(), type)
 			if type == Enums.DamageType.VOID_BOLT and _handlers:
 				_handlers._apply_void_bolt_passives()
 
@@ -2373,23 +2506,47 @@ func _rune_aura_multiplier() -> int:
 	return rune_aura_multiplier
 
 ## Returns true if the rune board contains at least one of each required rune type.
+## Wildcard runes (is_wildcard_rune = true) can substitute for any missing type.
 func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
+	# Collect exact-match rune types and count wildcards
 	var available: Array[int] = []
+	var wildcards: int = 0
 	for r in runes:
-		available.append((r as TrapCardData).rune_type)
+		var trap := r as TrapCardData
+		if trap.is_wildcard_rune:
+			wildcards += 1
+		else:
+			available.append(trap.rune_type)
+	# Check each requirement: exact match first, then spend a wildcard
+	var remaining_wildcards := wildcards
 	for req in required:
-		if req not in available:
+		if req in available:
+			available.erase(req)  # consume one exact match
+		elif remaining_wildcards > 0:
+			remaining_wildcards -= 1  # wildcard fills the gap
+		else:
 			return false
 	return true
 
 ## Consume the required runes and cast the ritual effect.
+## Exact rune type matches are consumed first; wildcard runes fill remaining gaps.
 func _fire_ritual(ritual: RitualData) -> void:
 	for req in ritual.required_runes:
+		var consumed := false
+		# Try exact match first
 		for i in active_traps.size():
-			if active_traps[i].is_rune and active_traps[i].rune_type == req:
+			if active_traps[i].is_rune and not (active_traps[i] as TrapCardData).is_wildcard_rune and active_traps[i].rune_type == req:
 				_remove_rune_aura(active_traps[i])
 				active_traps.remove_at(i)
+				consumed = true
 				break
+		# Fall back to wildcard rune
+		if not consumed:
+			for i in active_traps.size():
+				if active_traps[i].is_rune and (active_traps[i] as TrapCardData).is_wildcard_rune:
+					_remove_rune_aura(active_traps[i])
+					active_traps.remove_at(i)
+					break
 	_update_trap_display()
 	_log("★ RITUAL — %s!" % ritual.ritual_name, _LogType.PLAYER)
 	var ritual_ctx := EffectContext.make(self, "player")
@@ -3502,6 +3659,10 @@ func _on_victory() -> void:
 	if _combat_ended:
 		return
 	_combat_ended = true
+	# Delay to let the final damage popup show before transitioning
+	await get_tree().create_timer(1.5).timeout
+	if not is_inside_tree():
+		return
 	# Grant shards: 3 for boss fights, 1 for normal fights
 	var _shard_amount := 3 if GameManager.run_node_index in GameManager.BOSS_INDICES else 1
 	GameManager.earn_shards(_shard_amount)
@@ -3640,6 +3801,7 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 	var tw := create_tween()
 	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
 	tw.tween_callback(func() -> void:
+		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav")
 		_flash_slot(def_slot)
 		if damage > 0:
 			_spawn_damage_popup(def_rect.get_center(), damage)
@@ -3688,6 +3850,7 @@ func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Panel) -> void:
 	var tw := create_tween()
 	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
 	tw.tween_callback(func() -> void:
+		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_attack_hero.wav")
 		# Flash the hero panel red on impact
 		var ftw := create_tween()
 		ftw.tween_property(hero_panel, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
@@ -3752,24 +3915,34 @@ func _spell_dmg(target: MinionInstance, damage: int) -> void:
 
 ## Flash a hero status panel and show a damage number.
 ## on_done (optional) is called after the flash animation completes.
-func _flash_hero(target: String, amount: int, on_done: Callable = Callable()) -> void:
+func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	var panel := _player_status_panel if target == "player" else _enemy_status_panel
 	if panel == null:
 		if on_done.is_valid():
 			on_done.call()
 		return
+	var flash_color: Color
+	if dmg_type == Enums.DamageType.VOID_BOLT:
+		flash_color = Color(1.2, 0.40, 1.8, 1.0)  # Purple flash for void bolt
+	else:
+		flash_color = Color(1.8, 0.30, 0.30, 1.0)  # Red flash for normal damage
 	var tw := create_tween()
-	tw.tween_property(panel, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
+	tw.tween_property(panel, "modulate", flash_color, 0.06)
 	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
 	if on_done.is_valid():
 		tw.tween_callback(on_done)
-	_spawn_damage_popup(panel.get_global_rect().get_center(), amount)
+	_spawn_damage_popup(panel.get_global_rect().get_center(), amount, dmg_type)
 
-func _spawn_damage_popup(screen_center: Vector2, damage: int) -> void:
+func _spawn_damage_popup(screen_center: Vector2, damage: int, dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	var lbl := Label.new()
 	lbl.text = "-%d" % damage
 	lbl.add_theme_font_size_override("font_size", 28)
-	lbl.add_theme_color_override("font_color", Color(1.0, 0.22, 0.22, 1.0))
+	var font_color: Color
+	if dmg_type == Enums.DamageType.VOID_BOLT:
+		font_color = Color(0.75, 0.30, 1.0, 1.0)  # Purple for void bolt
+	else:
+		font_color = Color(1.0, 0.22, 0.22, 1.0)   # Red for normal
+	lbl.add_theme_color_override("font_color", font_color)
 	var bold: Font = load("res://assets/fonts/cinzel/Cinzel-Bold.ttf") \
 		if ResourceLoader.exists("res://assets/fonts/cinzel/Cinzel-Bold.ttf") else null
 	if bold:

@@ -961,7 +961,7 @@ func _register_wanderer_cards() -> void:
 	soul_rune.id                       = "soul_rune"
 	soul_rune.card_name                = "Soul Rune"
 	soul_rune.cost                     = 2
-	soul_rune.description              = "RUNE: Whenever a friendly Demon dies during the enemy's turn, summon a 100/100 Void Spark. Triggers once per turn."
+	soul_rune.description              = "RUNE: Whenever a friendly Demon dies during the enemy's turn, summon a 100/100 Void Spark. Each copy triggers once per turn."
 	soul_rune.is_rune                  = true
 	soul_rune.rune_type                = Enums.RuneType.SOUL_RUNE
 	soul_rune.aura_trigger             = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
@@ -1243,8 +1243,9 @@ func _register_wanderer_cards() -> void:
 	echo_rune.id                 = "echo_rune"
 	echo_rune.card_name          = "Echo Rune"
 	echo_rune.cost               = 2
-	echo_rune.description        = "RUNE: At the start of your turn, fire the effect of the last Rune you placed once."
+	echo_rune.description        = "RUNE (Wildcard): At the start of your turn, fire the effect of the last Rune you placed. Counts as any rune type for rituals."
 	echo_rune.is_rune            = true
+	echo_rune.is_wildcard_rune   = true
 	echo_rune.aura_trigger       = Enums.TriggerEvent.ON_PLAYER_TURN_START
 	echo_rune.aura_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "echo_rune_fire"}]
 	echo_rune.art_path               = "res://assets/art/traps/abyss_order/echo_rune.png"
@@ -1456,6 +1457,81 @@ func _register_wanderer_cards() -> void:
 	dark_command.faction     = "abyss_order"
 	all.append(dark_command)
 
+	# --- Void Rift World — Act 3 enemy-only cards (dual cost: mana/essence + Void Sparks) ---
+
+	var void_pulse := SpellCardData.new()
+	void_pulse.id              = "void_pulse"
+	void_pulse.card_name       = "Void Pulse"
+	void_pulse.cost            = 1
+	void_pulse.void_spark_cost = 1
+	void_pulse.description     = "Consume 1 Void Spark. Draw 3 cards."
+	void_pulse.effect_steps    = [{"type": "DRAW", "amount": 3}]
+	void_pulse.faction         = "abyss_order"
+	all.append(void_pulse)
+
+	var phase_stalker := MinionCardData.new()
+	phase_stalker.id              = "phase_stalker"
+	phase_stalker.card_name       = "Phase Stalker"
+	phase_stalker.essence_cost    = 2
+	phase_stalker.void_spark_cost = 1
+	phase_stalker.description     = "Consume 1 Void Spark. Swift."
+	phase_stalker.atk             = 400
+	phase_stalker.health          = 300
+	phase_stalker.minion_type     = Enums.MinionType.SPIRIT
+	phase_stalker.keywords.append(Enums.Keyword.SWIFT)
+	phase_stalker.faction         = "abyss_order"
+	all.append(phase_stalker)
+
+	var rift_collapse := SpellCardData.new()
+	rift_collapse.id              = "rift_collapse"
+	rift_collapse.card_name       = "Rift Collapse"
+	rift_collapse.cost            = 2
+	rift_collapse.void_spark_cost = 1
+	rift_collapse.description     = "Consume 1 Void Spark. Deal 200 damage to all enemy minions."
+	rift_collapse.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 200}]
+	rift_collapse.faction         = "abyss_order"
+	all.append(rift_collapse)
+
+	var void_behemoth := MinionCardData.new()
+	void_behemoth.id              = "void_behemoth"
+	void_behemoth.card_name       = "Void Behemoth"
+	void_behemoth.essence_cost    = 3
+	void_behemoth.void_spark_cost = 2
+	void_behemoth.description     = "Consume 2 Void Sparks. Guard."
+	void_behemoth.atk             = 400
+	void_behemoth.health          = 600
+	void_behemoth.minion_type     = Enums.MinionType.SPIRIT
+	void_behemoth.keywords.append(Enums.Keyword.GUARD)
+	void_behemoth.faction         = "abyss_order"
+	all.append(void_behemoth)
+
+	var dimensional_breach := SpellCardData.new()
+	dimensional_breach.id              = "dimensional_breach"
+	dimensional_breach.card_name       = "Dimensional Breach"
+	dimensional_breach.cost            = 1
+	dimensional_breach.void_spark_cost = 2
+	dimensional_breach.description     = "Consume 2 Void Sparks. Summon 3 Void Sparks."
+	dimensional_breach.effect_steps    = [
+		{"type": "SUMMON", "card_id": "void_spark"},
+		{"type": "SUMMON", "card_id": "void_spark"},
+		{"type": "SUMMON", "card_id": "void_spark"},
+	]
+	dimensional_breach.faction         = "abyss_order"
+	all.append(dimensional_breach)
+
+	var void_rift_lord := MinionCardData.new()
+	void_rift_lord.id              = "void_rift_lord"
+	void_rift_lord.card_name       = "Void Rift Lord"
+	void_rift_lord.essence_cost    = 4
+	void_rift_lord.void_spark_cost = 3
+	void_rift_lord.description     = "Consume 3 Void Sparks. On play: set enemy Mana to 0 next turn."
+	void_rift_lord.atk             = 400
+	void_rift_lord.health          = 600
+	void_rift_lord.minion_type     = Enums.MinionType.SPIRIT
+	void_rift_lord.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_rift_lord_mana_drain"}]
+	void_rift_lord.faction         = "abyss_order"
+	all.append(void_rift_lord)
+
 	# --- Pool assignments (controls deck builder visibility and collection) ---
 	# "" = token/internal; cards with no entry stay ""
 	var _card_pools := {
@@ -1515,6 +1591,10 @@ func _register_wanderer_cards() -> void:
 		"brood_call": "feral_imp_clan",            "pack_frenzy": "feral_imp_clan",
 		# Abyss Dungeon — Act 2 enemy-only pool (not visible to players)
 		"cult_fanatic": "abyss_cultist_clan",     "dark_command": "abyss_cultist_clan",
+		# Void Rift World — Act 3 enemy-only pool (not visible to players)
+		"void_pulse": "void_rift",              "phase_stalker": "void_rift",
+		"rift_collapse": "void_rift",           "void_behemoth": "void_rift",
+		"dimensional_breach": "void_rift",      "void_rift_lord": "void_rift",
 	}
 	# --- Act gate assignments (earliest act card appears in rewards/shop) ---
 	var _card_act_gates := {

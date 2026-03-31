@@ -45,3 +45,8 @@ extends Resource
 ## Act gate: earliest act this card can appear in rewards/shop (1–4).
 ## 0 = token/internal card, not available through acquisition.
 @export var act_gate: int = 0
+
+## Void Spark cost — enemy-only dual cost. To play this card, the enemy must
+## sacrifice this many Void Spark tokens from their board IN ADDITION to the
+## normal mana/essence cost. 0 = no Spark cost (normal card).
+@export var void_spark_cost: int = 0

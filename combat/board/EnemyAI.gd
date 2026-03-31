@@ -20,6 +20,9 @@ const _PROFILES: Dictionary = {
 	"cultist_patrol":  preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
 	"void_ritualist":    preload("res://enemies/ai/profiles/VoidRitualistProfile.gd"),
 	"corrupted_handler": preload("res://enemies/ai/profiles/CorruptedHandlerProfile.gd"),
+	"rift_stalker":      preload("res://enemies/ai/profiles/RiftStalkerProfile.gd"),
+	"void_aberration":   preload("res://enemies/ai/profiles/VoidAberrationProfile.gd"),
+	"void_herald":       preload("res://enemies/ai/profiles/VoidHeraldProfile.gd"),
 }
 
 var _active_profile: CombatProfile = null

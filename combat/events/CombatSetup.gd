@@ -116,6 +116,25 @@ const _REGISTRY: Dictionary = {
 		"triggers": [],
 		"stats":    {}
 	},
+	# ── Act 3 enemy passives ──────────────────────────────────────────────────
+	"void_rift": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_void_rift", "priority": 3 }],
+		"stats":    {}
+	},
+	"void_empowerment": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_void_empowerment", "priority": 1 }],
+		"stats":    {}
+	},
+	# void_detonation_passive: no triggers — invoked directly by AI profile's _consume_sparks()
+	"void_detonation_passive": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# void_mastery: no triggers — AI profile checks for this passive to halve spark costs
+	"void_mastery": {
+		"triggers": [],
+		"stats":    {}
+	},
 }
 
 func setup(
