@@ -21,6 +21,9 @@ signal resources_changed(essence: int, essence_max: int, mana: int, mana_max: in
 ## Fired when the player draws a card. The scene adds it to the hand display.
 signal card_drawn(card_inst: CardInstance)
 
+## Fired when a card is generated into the hand (not drawn from deck).
+signal card_generated(card_inst: CardInstance)
+
 ## Fired at the start of each player turn to clear per-turn buffs on minions.
 signal player_turn_cleanup(player_board: Array[MinionInstance])
 
@@ -197,7 +200,7 @@ func add_instance_to_hand(inst: CardInstance) -> void:
 	if player_hand.size() >= HAND_SIZE_MAX:
 		return
 	player_hand.append(inst)
-	card_drawn.emit(inst)
+	card_generated.emit(inst)
 
 func _draw_card() -> void:
 	if player_deck.is_empty():

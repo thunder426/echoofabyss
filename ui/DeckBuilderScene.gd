@@ -431,6 +431,7 @@ func _rebuild_inventory_ui() -> void:
 		var maxed         := count_in_deck >= copy_limit
 
 		var btn := Button.new()
+		btn.set_meta("no_ui_sfx", true)
 		btn.custom_minimum_size = Vector2(0, 40)
 		btn.disabled            = maxed or deck_full
 		btn.modulate            = Color(0.60, 0.60, 0.60, 1) if maxed else Color(1, 1, 1, 1)
@@ -505,6 +506,7 @@ func _rebuild_deck_ui() -> void:
 		var count: int = counts[card_id]
 
 		var btn := Button.new()
+		btn.set_meta("no_ui_sfx", true)
 		btn.custom_minimum_size = Vector2(0, 40)
 		btn.tooltip_text        = ""
 		btn.pressed.connect(_on_remove_card.bind(card_id))

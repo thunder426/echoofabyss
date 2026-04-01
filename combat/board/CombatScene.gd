@@ -5,6 +5,7 @@
 extends Node2D
 
 const CARD_VISUAL_SCENE := preload("res://combat/ui/CardVisual.tscn")
+const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
 
 # ---------------------------------------------------------------------------
 # Node references — resolved automatically in _find_nodes()
@@ -389,6 +390,7 @@ func _connect_turn_manager() -> void:
 	turn_manager.turn_ended.connect(_on_turn_ended)
 	turn_manager.resources_changed.connect(_on_resources_changed)
 	turn_manager.card_drawn.connect(_on_card_drawn)
+	turn_manager.card_generated.connect(_on_card_generated)
 
 func _connect_board_slots() -> void:
 	for i in player_slots.size():
@@ -422,6 +424,7 @@ func _connect_ui() -> void:
 		hand_display.card_selected.connect(_on_hand_card_selected)
 		hand_display.card_hovered.connect(_on_hand_card_hovered)
 		hand_display.card_unhovered.connect(_on_hand_card_unhovered)
+		hand_display.card_anim_finished.connect(_on_card_anim_finished)
 		hand_display.card_deselected.connect(_on_hand_card_deselected)
 	if restart_button:
 		restart_button.pressed.connect(_on_restart_pressed)
@@ -556,11 +559,23 @@ func _refresh_end_turn_mode() -> void:
 func _on_card_drawn(inst: CardInstance) -> void:
 	if hand_display:
 		hand_display.add_card(inst)
-		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana)
-		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
+		# Don't refresh playability immediately — the shimmer animation sets modulate
+		# and _refresh_playable_state is called at the end of the tween
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
 	ctx.card = inst.card_data
 	trigger_manager.fire(ctx)
+
+func _on_card_generated(inst: CardInstance) -> void:
+	if hand_display:
+		hand_display.add_card_generated(inst)
+	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
+	ctx.card = inst.card_data
+	trigger_manager.fire(ctx)
+
+func _on_card_anim_finished() -> void:
+	if hand_display:
+		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana)
+		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 
 func _on_end_turn_essence_pressed() -> void:
 	turn_manager.grow_essence_max()
@@ -965,6 +980,7 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 	instance.card_instance = inst
 	# Place visually first so the slot is not mistakenly taken by tokens summoned during on-play.
 	# Do NOT append to player_board yet — on-play effects should not see this minion on the board.
+	AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav")
 	slot.place_minion(instance)
 	# Fire ON_PLAYER_MINION_PLAYED — carries the player-chosen target for targeted battle cries.
 	# The minion is not in player_board during this event, so ALL_FRIENDLY effects exclude it naturally.
@@ -1067,6 +1083,7 @@ func _animate_card_to_slot(visual: CardVisual, slot: BoardSlot, hand_index: int,
 		return
 
 	# Card has arrived — switch slot to minion view and fire triggers
+	AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav")
 	on_landing.call()
 	if not is_inside_tree():
 		return
@@ -2021,6 +2038,17 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 	_clear_all_highlights()
 	var captured_target: MinionInstance = target
 	_show_card_cast_anim(spell, false, func() -> void:
+		# Play spell-specific VFX before resolving damage
+		if spell.id == "void_execution":
+			var slot := _find_slot_for(captured_target)
+			if slot:
+				var vfx := VoidExecutionVFX.create(slot.get_global_rect().get_center())
+				var ui_root: Node = get_node_or_null("UI")
+				if ui_root:
+					ui_root.add_child(vfx)
+				else:
+					add_child(vfx)
+				await vfx.impact_hit
 		if not spell.effect_steps.is_empty():
 			var ctx := EffectContext.make(self, "player")
 			ctx.chosen_target = captured_target
@@ -2051,6 +2079,16 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 	pending_play_card = null
 	_clear_all_highlights()
 	_show_card_cast_anim(spell, false, func() -> void:
+		# Play spell-specific VFX before resolving damage
+		if spell.id == "void_execution" and _enemy_status_panel:
+			var target_pos: Vector2 = _enemy_status_panel.global_position + _enemy_status_panel.size / 2.0 + Vector2(0, 30)
+			var vfx := VoidExecutionVFX.create(target_pos, 0.55)
+			var ui_root: Node = get_node_or_null("UI")
+			if ui_root:
+				ui_root.add_child(vfx)
+			else:
+				add_child(vfx)
+			await vfx.impact_hit
 		# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount
 		var base_dmg: int = 0
 		for step in spell.effect_steps:
@@ -2209,6 +2247,7 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 	if enemy_ai:
 		enemy_ai._pending_slots.erase(slot)
 	if slot:
+		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav")
 		slot.place_minion(minion)
 	# ON_PLAY effects are resolved by CombatHandlers.on_enemy_minion_played_effect registered in _setup_triggers().
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
@@ -3775,6 +3814,37 @@ func _find_slot_for(minion: MinionInstance) -> BoardSlot:
 # Attack animation — lunge + flash + damage popup
 # ---------------------------------------------------------------------------
 
+## Reparent a slot from its HBoxContainer to $UI for free-position animation.
+## Returns [orig_parent, orig_index, placeholder] for later restore.
+func _reparent_slot_for_lunge(slot: BoardSlot) -> Array:
+	var atk_rect := slot.get_global_rect()
+	var orig_parent: Control = slot.get_parent()
+	var orig_index: int = slot.get_index()
+	var placeholder := Control.new()
+	placeholder.custom_minimum_size = Vector2(BoardSlot.SLOT_W, BoardSlot.SLOT_H)
+	placeholder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	orig_parent.add_child(placeholder)
+	orig_parent.move_child(placeholder, orig_index)
+	orig_parent.remove_child(slot)
+	$UI.add_child(slot)
+	slot.position = atk_rect.position
+	slot.size = atk_rect.size
+	return [orig_parent, orig_index, placeholder]
+
+## Restore a slot from $UI back to its original HBoxContainer position.
+## Also unfreezes visuals and fires deferred death animations.
+func _restore_slot_from_lunge(slot: BoardSlot, orig_parent: Control, orig_index: int, placeholder: Control) -> void:
+	$UI.remove_child(slot)
+	orig_parent.add_child(slot)
+	orig_parent.move_child(slot, orig_index)
+	placeholder.queue_free()
+	slot.freeze_visuals = false
+	slot._refresh_visuals()
+	var pending := _deferred_death_slots.duplicate()
+	_deferred_death_slots.clear()
+	for entry in pending:
+		_animate_minion_death(entry.slot, entry.pos)
+
 func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		attacker: MinionInstance = null, defender: MinionInstance = null) -> void:
 	var atk_rect  := atk_slot.get_global_rect()
@@ -3782,21 +3852,10 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 	var direction := (def_rect.get_center() - atk_rect.get_center()).normalized()
 	var lunge_pos := atk_rect.position + direction * 55.0
 
-	var orig_parent: Control = atk_slot.get_parent()
-	var orig_index:  int     = atk_slot.get_index()
-
-	# Placeholder keeps the gap in the HBoxContainer while slot is reparented
-	var placeholder := Control.new()
-	placeholder.custom_minimum_size = Vector2(BoardSlot.SLOT_W, BoardSlot.SLOT_H)
-	placeholder.mouse_filter        = Control.MOUSE_FILTER_IGNORE
-	orig_parent.add_child(placeholder)
-	orig_parent.move_child(placeholder, orig_index)   # inserts before slot (slot shifts +1)
-	orig_parent.remove_child(atk_slot)                # remove slot; placeholder holds the gap
-
-	# Move slot to $UI so its position is free from container layout
-	$UI.add_child(atk_slot)
-	atk_slot.position = atk_rect.position
-	atk_slot.size     = atk_rect.size
+	var lunge_info := _reparent_slot_for_lunge(atk_slot)
+	var orig_parent: Control = lunge_info[0]
+	var orig_index: int = lunge_info[1]
+	var placeholder: Control = lunge_info[2]
 
 	var tw := create_tween()
 	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
@@ -3808,23 +3867,11 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
-		$UI.remove_child(atk_slot)
-		orig_parent.add_child(atk_slot)
-		orig_parent.move_child(atk_slot, orig_index)
-		placeholder.queue_free()
-		# Unfreeze and refresh both slots now that lunge is done
-		atk_slot.freeze_visuals = false
+		_restore_slot_from_lunge(atk_slot, orig_parent, orig_index, placeholder)
 		def_slot.freeze_visuals = false
-		atk_slot._refresh_visuals()
 		def_slot._refresh_visuals()
 		if attacker: _refresh_slot_for(attacker)
 		if defender: _refresh_slot_for(defender)
-		# Fire death animations that were deferred because freeze_visuals blocked them.
-		# Use the pre-captured position — slot may not be laid out yet after reparenting.
-		var pending := _deferred_death_slots.duplicate()
-		_deferred_death_slots.clear()
-		for entry in pending:
-			_animate_minion_death(entry.slot, entry.pos)
 	)
 
 func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Panel) -> void:
@@ -3833,40 +3880,26 @@ func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Panel) -> void:
 	var direction  := (hero_rect.get_center() - atk_rect.get_center()).normalized()
 	var lunge_pos  := atk_rect.position + direction * 55.0
 
-	var orig_parent: Control = atk_slot.get_parent()
-	var orig_index:  int     = atk_slot.get_index()
-
-	var placeholder := Control.new()
-	placeholder.custom_minimum_size = Vector2(BoardSlot.SLOT_W, BoardSlot.SLOT_H)
-	placeholder.mouse_filter        = Control.MOUSE_FILTER_IGNORE
-	orig_parent.add_child(placeholder)
-	orig_parent.move_child(placeholder, orig_index)
-	orig_parent.remove_child(atk_slot)
-
-	$UI.add_child(atk_slot)
-	atk_slot.position = atk_rect.position
-	atk_slot.size     = atk_rect.size
+	var lunge_info := _reparent_slot_for_lunge(atk_slot)
+	var orig_parent: Control = lunge_info[0]
+	var orig_index: int = lunge_info[1]
+	var placeholder: Control = lunge_info[2]
 
 	var tw := create_tween()
 	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
 	tw.tween_callback(func() -> void:
 		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_attack_hero.wav")
-		# Flash the hero panel red on impact
 		var ftw := create_tween()
 		ftw.tween_property(hero_panel, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
 		ftw.tween_property(hero_panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
-		$UI.remove_child(atk_slot)
-		orig_parent.add_child(atk_slot)
-		orig_parent.move_child(atk_slot, orig_index)
-		placeholder.queue_free()
-		atk_slot._refresh_visuals()
+		_restore_slot_from_lunge(atk_slot, orig_parent, orig_index, placeholder)
 	)
 
 func _flash_slot(slot: BoardSlot) -> void:
-	var tw := create_tween()
+	var tw := slot.create_tween()
 	tw.tween_property(slot, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
 	tw.tween_property(slot, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
 
@@ -3943,13 +3976,10 @@ func _spawn_damage_popup(screen_center: Vector2, damage: int, dmg_type: Enums.Da
 	else:
 		font_color = Color(1.0, 0.22, 0.22, 1.0)   # Red for normal
 	lbl.add_theme_color_override("font_color", font_color)
-	var bold: Font = load("res://assets/fonts/cinzel/Cinzel-Bold.ttf") \
-		if ResourceLoader.exists("res://assets/fonts/cinzel/Cinzel-Bold.ttf") else null
-	if bold:
-		lbl.add_theme_font_override("font", bold)
+	lbl.add_theme_font_override("font", DAMAGE_FONT)
 	lbl.z_index = 200
 	$UI.add_child(lbl)
-	lbl.position = screen_center - Vector2(18, 18)
+	lbl.position = screen_center - Vector2(18, 18) + Vector2(randf_range(-20.0, 20.0), 0.0)
 
 	var tw := create_tween()
 	tw.set_parallel(true)

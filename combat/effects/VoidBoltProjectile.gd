@@ -12,7 +12,7 @@ extends Node2D
 signal finished
 signal impact_hit  ## Emitted the moment the bolt reaches the target (before cleanup)
 
-const CORE_TEXTURE_PATH := "res://assets/animation/void_bolt_core.png"
+const CORE_TEXTURE: Texture2D = preload("res://assets/animation/spells/void_bolt/void_bolt_core.png")
 const CORE_SIZE := 48.0          ## Display size of the core sprite
 const FLIGHT_DURATION := 0.8     ## Seconds to reach target
 const ARC_HEIGHT := 60.0         ## Peak height of the arc above the straight line
@@ -42,12 +42,10 @@ func _ready() -> void:
 
 func _build_core() -> void:
 	_core = Sprite2D.new()
-	if ResourceLoader.exists(CORE_TEXTURE_PATH):
-		_core.texture = load(CORE_TEXTURE_PATH)
-		# Scale texture down to CORE_SIZE
-		var tex_size: float = _core.texture.get_width()
-		if tex_size > 0:
-			_core.scale = Vector2.ONE * (CORE_SIZE / tex_size)
+	_core.texture = CORE_TEXTURE
+	var tex_size: float = _core.texture.get_width()
+	if tex_size > 0:
+		_core.scale = Vector2.ONE * (CORE_SIZE / tex_size)
 	_core.modulate = Color(1.2, 1.0, 1.4, 1.0)  # slight purple-bright tint
 	add_child(_core)
 
@@ -132,6 +130,8 @@ func _on_impact() -> void:
 
 	# Wait for particles to finish, then clean up
 	await get_tree().create_timer(0.5).timeout
+	if not is_inside_tree():
+		return
 	finished.emit()
 	queue_free()
 
@@ -166,11 +166,10 @@ func _spawn_impact_burst() -> void:
 
 	# Flash — bright expanding circle using the core texture
 	var flash := Sprite2D.new()
-	if ResourceLoader.exists(CORE_TEXTURE_PATH):
-		flash.texture = load(CORE_TEXTURE_PATH)
-		var tex_size: float = flash.texture.get_width()
-		if tex_size > 0:
-			flash.scale = Vector2.ONE * (30.0 / tex_size)
+	flash.texture = CORE_TEXTURE
+	var tex_size: float = flash.texture.get_width()
+	if tex_size > 0:
+		flash.scale = Vector2.ONE * (30.0 / tex_size)
 	flash.modulate = Color(0.8, 0.5, 1.0, 0.7)
 	add_child(flash)
 

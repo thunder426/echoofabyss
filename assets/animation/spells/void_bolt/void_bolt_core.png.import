@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dbqe0dadely3g"
-path="res://.godot/imported/void_bolt_core.png-e55abb906484aaa86f3f3a3910af370a.ctex"
+uid="uid://otu6kf5m7b65"
+path="res://.godot/imported/void_bolt_core.png-f19e927302bd1ec65ac8e9bdb0646dd1.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/animation/void_bolt_core.png"
-dest_files=["res://.godot/imported/void_bolt_core.png-e55abb906484aaa86f3f3a3910af370a.ctex"]
+source_file="res://assets/animation/spells/void_bolt/void_bolt_core.png"
+dest_files=["res://.godot/imported/void_bolt_core.png-f19e927302bd1ec65ac8e9bdb0646dd1.ctex"]
 
 [params]
 

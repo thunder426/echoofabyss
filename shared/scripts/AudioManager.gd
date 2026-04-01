@@ -33,6 +33,7 @@ const ACT_MUSIC: Dictionary = {
 const FADE_DURATION: float = 1.0
 
 var _current_track: String = ""
+var _current_scene_path: String = ""
 var _player: AudioStreamPlayer = null
 var _tween: Tween = null
 
@@ -42,14 +43,18 @@ func _ready() -> void:
 	_player.volume_db = -10.0
 	add_child(_player)
 	get_tree().tree_changed.connect(_on_tree_changed)
+	get_tree().node_added.connect(_on_node_added)
 
 func _on_tree_changed() -> void:
 	var scene: Node = get_tree().current_scene
 	if scene == null:
 		return
 	var path: String = scene.scene_file_path
-	if path == "":
+	if path == "" or path == _current_scene_path:
 		return
+	_current_scene_path = path
+	# Hook buttons already in the scene tree (only on scene change)
+	_hook_all_buttons(scene)
 	var target_track: String = _resolve_track(path)
 	if target_track == _current_track:
 		return
@@ -93,19 +98,61 @@ func _start_new_track(track_path: String) -> void:
 	_tween.tween_property(_player, "volume_db", -10.0, FADE_DURATION * 0.5)
 
 # ---------------------------------------------------------------------------
+# Global Button SFX
+# ---------------------------------------------------------------------------
+
+const BTN_HOVER_SFX := "res://assets/audio/sfx/ui/button_hover.wav"
+const BTN_CLICK_SFX := "res://assets/audio/sfx/ui/button_click.wav"
+
+func _on_node_added(node: Node) -> void:
+	if node is BaseButton:
+		_hook_button(node)
+
+func _hook_button(btn: BaseButton) -> void:
+	if not btn.mouse_entered.is_connected(_on_button_hover.bind(btn)):
+		btn.mouse_entered.connect(_on_button_hover.bind(btn))
+		btn.pressed.connect(_on_button_click.bind(btn))
+
+func _hook_all_buttons(node: Node) -> void:
+	if node is BaseButton:
+		_hook_button(node)
+	for child in node.get_children():
+		_hook_all_buttons(child)
+
+func _on_button_hover(btn: BaseButton) -> void:
+	if btn.has_meta("no_ui_sfx"):
+		return
+	play_sfx(BTN_HOVER_SFX, -5.0)
+
+func _on_button_click(btn: BaseButton) -> void:
+	if btn.has_meta("no_ui_sfx"):
+		return
+	play_sfx(BTN_CLICK_SFX)
+
+# ---------------------------------------------------------------------------
 # SFX
 # ---------------------------------------------------------------------------
 
+const MAX_CONCURRENT_SFX := 16
+var _active_sfx_count: int = 0
+
 ## Play a one-shot sound effect. Automatically frees the player when done.
+## Skips playback if MAX_CONCURRENT_SFX is already reached.
 func play_sfx(path: String, volume_db: float = 0.0) -> void:
+	if _active_sfx_count >= MAX_CONCURRENT_SFX:
+		return
 	var stream: AudioStream = load(path)
 	if stream == null:
 		push_warning("AudioManager: could not load SFX '%s'" % path)
 		return
+	_active_sfx_count += 1
 	var sfx := AudioStreamPlayer.new()
 	sfx.stream = stream
 	sfx.volume_db = volume_db
 	sfx.bus = "Master"
 	add_child(sfx)
 	sfx.play()
-	sfx.finished.connect(sfx.queue_free)
+	sfx.finished.connect(func() -> void:
+		_active_sfx_count -= 1
+		sfx.queue_free()
+	)

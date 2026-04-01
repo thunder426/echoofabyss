@@ -99,8 +99,7 @@ func on_card_drawn_void_echo(ctx: EventContext) -> void:
 		var inst := CardInstance.create(copy)
 		_scene.turn_manager.player_hand.append(inst)
 		if "hand_display" in _scene and _scene.hand_display:
-			_scene.hand_display.add_card(inst)
-			_scene.hand_display.refresh_playability(_scene.turn_manager.essence, _scene.turn_manager.mana)
+			_scene.hand_display.add_card_generated(inst)
 		_log("  Void Echo: Void Imp drawn — free copy added to hand.", _LOG_PLAYER)
 
 # ---------------------------------------------------------------------------
@@ -276,7 +275,9 @@ func on_player_minion_played_effect(ctx: EventContext) -> void:
 			var step: EffectStep = EffectStep.from_dict(raw) if raw is Dictionary else raw as EffectStep
 			if step and step.effect_type == EffectStep.EffectType.DAMAGE_HERO:
 				if _scene.has_method("_fire_void_bolt_projectile"):
-					_scene._fire_void_bolt_projectile(ctx.minion)
+					var bolt: VoidBoltProjectile = _scene._fire_void_bolt_projectile(ctx.minion)
+					if bolt != null and _scene.is_inside_tree():
+						await bolt.impact_hit
 				break
 	if not mc.on_play_effect_steps.is_empty():
 		var ectx           := EffectContext.make(_scene, "player")

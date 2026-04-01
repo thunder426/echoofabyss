@@ -23,6 +23,9 @@ signal card_hovered(card_data: CardData, visual: CardVisual)
 ## Emitted when the player stops hovering over a card
 signal card_unhovered()
 
+## Emitted after a generated card's animation finishes so playability can be refreshed
+signal card_anim_finished()
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -40,6 +43,12 @@ signal card_unhovered()
 
 var _card_visuals: Array[CardVisual] = []
 var _selected_visual: CardVisual = null
+var _draw_queue: Array[CardInstance] = []
+var _draw_playing: bool = false
+const _DRAW_STAGGER: float = 0.2
+var _gen_queue: Array[CardInstance] = []
+var _gen_playing: bool = false
+const _GEN_STAGGER: float = 0.5
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -53,15 +62,30 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 ## Add a new card to the hand display from a CardInstance.
+## Cards are queued and revealed one-by-one with a shimmer animation.
 func add_card(inst: CardInstance) -> void:
 	if card_visual_scene == null:
 		push_error("HandDisplay: card_visual_scene is not set in the Inspector.")
 		return
+	_draw_queue.append(inst)
+	if not _draw_playing:
+		_play_draw_queue()
 
+func _play_draw_queue() -> void:
+	_draw_playing = true
+	while not _draw_queue.is_empty():
+		var inst: CardInstance = _draw_queue.pop_front()
+		_add_card_with_shimmer(inst)
+		await get_tree().create_timer(_DRAW_STAGGER).timeout
+	_draw_playing = false
+
+func _add_card_with_shimmer(inst: CardInstance) -> void:
 	var visual: CardVisual = card_visual_scene.instantiate()
+	visual.modulate = Color(0.6, 0.3, 1.0, 0.0)
 	add_child(visual)
 	visual.apply_size_mode("hand")
 	visual.setup(inst.card_data)
+	visual.modulate = Color(0.6, 0.3, 1.0, 0.0)
 	visual.card_inst = inst
 	visual.apply_talent_overlay()
 	visual.card_clicked.connect(_on_card_clicked)
@@ -73,6 +97,96 @@ func add_card(inst: CardInstance) -> void:
 			visual.z_index = 0
 		card_unhovered.emit())
 	_card_visuals.append(visual)
+
+	# Void shimmer animation
+	var s: Vector2 = visual.size if visual.size != Vector2.ZERO else visual.custom_minimum_size
+	visual.pivot_offset = s / 2.0
+	visual.scale = Vector2(0.7, 0.7)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	# Scale up
+	tw.tween_property(visual, "scale", Vector2.ONE, 0.25).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	# Fade in with purple tint then settle
+	tw.tween_property(visual, "modulate", Color(0.8, 0.6, 1.3, 1.0), 0.15).set_ease(Tween.EASE_OUT)
+	tw.tween_property(visual, "modulate", Color(1, 1, 1, 1), 0.2).set_delay(0.15)
+	# Refresh playability after animation completes
+	tw.chain().tween_callback(card_anim_finished.emit)
+
+## Add a generated card with a shadow rise effect.
+## Cards are queued and revealed one-by-one.
+func add_card_generated(inst: CardInstance) -> void:
+	if card_visual_scene == null:
+		push_error("HandDisplay: card_visual_scene is not set in the Inspector.")
+		return
+	_gen_queue.append(inst)
+	if not _gen_playing:
+		_play_gen_queue()
+
+func _play_gen_queue() -> void:
+	_gen_playing = true
+	while not _gen_queue.is_empty():
+		var inst: CardInstance = _gen_queue.pop_front()
+		_add_card_with_shadow_rise(inst)
+		await get_tree().create_timer(_GEN_STAGGER).timeout
+	_gen_playing = false
+
+func _add_card_with_shadow_rise(inst: CardInstance) -> void:
+	var visual: CardVisual = card_visual_scene.instantiate()
+	visual.modulate = Color(0.1, 0.0, 0.15, 0.0)
+	add_child(visual)
+	visual.apply_size_mode("hand")
+	visual.setup(inst.card_data)
+	visual.modulate = Color(0.1, 0.0, 0.15, 0.0)
+	visual.card_inst = inst
+	visual.apply_talent_overlay()
+	visual.card_clicked.connect(_on_card_clicked)
+	visual.mouse_entered.connect(func() -> void:
+		visual.z_index = 2
+		card_hovered.emit(inst.card_data, visual))
+	visual.mouse_exited.connect(func() -> void:
+		if _selected_visual != visual:
+			visual.z_index = 0
+		card_unhovered.emit())
+	_card_visuals.append(visual)
+
+	var s: Vector2 = visual.size if visual.size != Vector2.ZERO else visual.custom_minimum_size
+	visual.pivot_offset = Vector2(s.x / 2.0, s.y)
+	# Start below final position
+	visual.position.y += s.y * 0.4
+
+	# Add dark glow behind the card
+	var glow := Panel.new()
+	var glow_style := StyleBoxFlat.new()
+	glow_style.bg_color = Color(0.1, 0.0, 0.2, 0.8)
+	glow_style.set_corner_radius_all(12)
+	glow_style.shadow_color = Color(0.0, 0.0, 0.0, 0.9)
+	glow_style.shadow_size = 20
+	glow_style.shadow_offset = Vector2(0, 4)
+	glow.add_theme_stylebox_override("panel", glow_style)
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glow.size = s + Vector2(16, 16)
+	glow.position = Vector2(-8, -8)
+	glow.modulate = Color(1, 1, 1, 0)
+	visual.add_child(glow)
+	visual.move_child(glow, 0)
+
+	# Shadow rise: slide up from below, dark silhouette brightens to full color
+	var tw := create_tween()
+	tw.set_parallel(true)
+	# Slide up
+	tw.tween_property(visual, "position:y", visual.position.y - s.y * 0.4, 0.35).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	# Dark glow appears then fades
+	tw.tween_property(glow, "modulate:a", 1.0, 0.15)
+	tw.tween_property(glow, "modulate:a", 0.0, 0.3).set_delay(0.3)
+	# Dark silhouette fades in
+	tw.tween_property(visual, "modulate", Color(0.2, 0.1, 0.3, 0.8), 0.15)
+	# Then brightens with purple tint
+	tw.tween_property(visual, "modulate", Color(0.7, 0.4, 1.0, 1.0), 0.2).set_delay(0.15)
+	# Then settles to normal
+	tw.tween_property(visual, "modulate", Color(1, 1, 1, 1), 0.2).set_delay(0.35)
+	# Clean up glow and refresh playability
+	tw.chain().tween_callback(glow.queue_free)
+	tw.chain().tween_callback(card_anim_finished.emit)
 
 ## Remove the card matching inst from the hand display.
 func remove_card(inst: CardInstance) -> void:

@@ -24,6 +24,9 @@ func _ready() -> void:
 	_bg_active = $UI/BackgroundA
 	_bg_standby = $UI/BackgroundB
 	_bg_active.finished.connect(_on_bg_finished)
+	# Pre-warm standby so its first frame is decoded and ready.
+	_bg_standby.play()
+	_bg_standby.paused = true
 
 	_continue_btn = $UI/ContinueButton
 	_reset_btn    = $UI/ResetButton
@@ -42,9 +45,12 @@ func _process(_delta: float) -> void:
 	if not _bg_active.is_playing():
 		return
 	var remaining: float = _bg_active.get_stream_length() - _bg_active.stream_position
-	if remaining <= _BG_SWAP_MARGIN and not _bg_standby.is_playing():
+	if remaining <= _BG_SWAP_MARGIN and not _bg_standby.visible:
 		_bg_standby.visible = true
-		_bg_standby.play()
+		if _bg_standby.paused:
+			_bg_standby.paused = false
+		else:
+			_bg_standby.play()
 
 func _on_bg_finished() -> void:
 	_bg_active.stop()
