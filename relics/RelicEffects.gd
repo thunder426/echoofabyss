@@ -44,34 +44,35 @@ func resolve(effect_id: String) -> bool:
 			for m in (_scene._opponent_board("player") as Array).duplicate():
 				_scene._corrupt_minion(m)
 			for m in (_scene._opponent_board("player") as Array).duplicate():
-				_scene.combat_manager.apply_spell_damage(m, 100)
+				_scene._spell_dmg(m, 100)
 			_log("  Relic: Void Lens — Abyssal Plague cast!")
 			return true
 
 		"relic_summon_guardian":
-			_scene._summon_token("relic_guardian", "player", 300, 300)
+			_scene._summon_token("void_spark", "player", 300, 300)
 			# Grant Guard to the summoned token
 			var board: Array = _scene.player_board
 			if not board.is_empty():
-				var guardian: MinionInstance = board[board.size() - 1]
-				BuffSystem.apply(guardian, Enums.BuffType.GRANT_GUARD, 1, "relic_guardian")
-				_scene._refresh_slot_for(guardian)
-			_log("  Relic: Soul Anchor — summoned a 300/300 Guardian with Guard!")
+				var spark: MinionInstance = board[board.size() - 1]
+				BuffSystem.apply(spark, Enums.BuffType.GRANT_GUARD, 1, "relic_guardian")
+				_scene._refresh_slot_for(spark)
+			_log("  Relic: Soul Anchor — summoned a 300/300 Void Spark with Guard!")
 			return true
 
 		"relic_cost_reduction":
 			_scene.set("_relic_cost_reduction", 2)
-			_log("  Relic: Dark Mirror — next card costs 2 less.")
+			_log("  Relic: Dark Mirror — next card costs 2 Essence and 2 Mana less.")
 			return true
 
 		"relic_execute":
-			# Deal 500 damage to the highest-ATK enemy minion
+			# Deal 500 damage to the highest-ATK enemy minion, or enemy hero if no minions
 			var target: MinionInstance = _pick_highest_atk_enemy()
 			if target:
 				_scene.combat_manager.apply_spell_damage(target, 500)
 				_log("  Relic: Blood Chalice — dealt 500 damage to %s." % target.card_data.card_name)
 			else:
-				_log("  Relic: Blood Chalice — no target.")
+				_scene.combat_manager.apply_hero_damage("enemy", 500, Enums.DamageType.SPELL)
+				_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.")
 			return true
 
 		# ── Act 3 ────────────────────────────────────────────────────────────

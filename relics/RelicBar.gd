@@ -28,7 +28,7 @@ var _tooltip_layer: CanvasLayer
 var _tooltip: PanelContainer
 var _tip_name: Label
 var _tip_desc: Label
-var _tip_stats: Label
+var _tip_stats: RichTextLabel
 
 # ---------------------------------------------------------------------------
 # Clock overlay — draws a pie-shaped dim sector like a clock timer
@@ -119,9 +119,16 @@ func _build_tooltip() -> void:
 	_tip_desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tip_desc)
 
-	_tip_stats = Label.new()
-	_tip_stats.add_theme_font_size_override("font_size", 12)
-	_tip_stats.add_theme_color_override("font_color", COLOR_STATS)
+	_tip_stats = RichTextLabel.new()
+	_tip_stats.bbcode_enabled = true
+	_tip_stats.fit_content = true
+	_tip_stats.scroll_active = false
+	_tip_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tip_stats.custom_minimum_size.x = 220
+	_tip_stats.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_tip_stats.add_theme_font_size_override("normal_font_size", 13)
+	_tip_stats.add_theme_font_size_override("bold_font_size", 14)
+	_tip_stats.add_theme_color_override("default_color", COLOR_STATS)
 	_tip_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tip_stats)
 
@@ -246,19 +253,19 @@ func _on_hover_enter(index: int, container: Control) -> void:
 	_tip_name.text = rs.data.relic_name
 	_tip_desc.text = rs.data.description
 
-	var status: String
+	var status_bbcode: String
 	if rs.charges_remaining <= 0:
-		status = "Spent"
+		status_bbcode = "[b][color=#ff5555]Depleted[/color][/b]"
 	elif rs.cooldown_remaining > 0:
-		status = "Ready in %d turn(s)" % rs.cooldown_remaining
+		status_bbcode = "[b][color=#ffcc44]Ready in %d turn(s)[/color][/b]" % rs.cooldown_remaining
 	elif _runtime.activated_this_turn:
-		status = "Already used a relic this turn"
+		status_bbcode = "[b][color=#ff5555]Already used a relic this turn[/color][/b]"
 	else:
-		status = "Ready — click to activate"
+		status_bbcode = "[b][color=#55ff55]Ready — click to activate[/color][/b]"
 
 	_tip_stats.text = "Charges: %d / %d  |  Cooldown: %d turns\n%s" % [
 		rs.charges_remaining, rs.data.charges + rs.bonus_charges,
-		rs.data.cooldown, status]
+		rs.data.cooldown, status_bbcode]
 
 	var btn: Button = _buttons[index]
 	var btn_global: Vector2 = btn.global_position

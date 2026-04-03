@@ -82,16 +82,20 @@ func _register_all_relics() -> void:
 
 	# ── Act 2 (tempo / removal) ───────────────────────────────────────────
 	_reg(_make("void_lens", "Void Lens",
-		"Cast Abyssal Plague: apply 1 Corruption to all enemies and deal 100 damage to all enemies.", 2, 1, 4, "relic_cast_plague"))
+		"Cast Abyssal Plague: apply 1 Corruption to all enemies and deal 100 damage to all enemies.", 2, 1, 4, "relic_cast_plague",
+		"res://assets/art/relics/void_lens.png"))
 
 	_reg(_make("soul_anchor", "Soul Anchor",
-		"Summon a 300/300 Spirit with Guard.", 2, 1, 4, "relic_summon_guardian"))
+		"Summon a 300/300 Void Spark and grant it Guard.", 2, 1, 4, "relic_summon_guardian",
+		"res://assets/art/relics/soul_anchor.png"))
 
 	_reg(_make("dark_mirror", "Dark Mirror",
-		"Reduce the cost of your next card by 2.", 2, 2, 2, "relic_cost_reduction"))
+		"Reduce the cost of your next card by 2 Essence and 2 Mana (minimum 0).", 2, 1, 3, "relic_cost_reduction",
+		"res://assets/art/relics/dark_mirror.png"))
 
 	_reg(_make("blood_chalice", "Blood Chalice",
-		"Deal 500 damage to a target enemy minion.", 2, 1, 3, "relic_execute"))
+		"Deal 500 damage to a target enemy.", 2, 1, 3, "relic_execute",
+		"res://assets/art/relics/blood_chalice.png"))
 
 	# ── Act 3 (powerful / game-swinging) ──────────────────────────────────
 	_reg(_make("void_hourglass", "Void Hourglass",

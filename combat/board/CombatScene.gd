@@ -35,6 +35,8 @@ var _trap_slot_arts: Array[TextureRect] = []
 var _trap_slot_glow_tweens: Array = []  # Tween or null per slot
 var enemy_trap_slot_panels: Array[Panel] = []
 var enemy_trap_slot_labels: Array[Label]  = []
+var _enemy_trap_slot_art_containers: Array[CenterContainer] = []
+var _enemy_trap_slot_arts: Array[TextureRect] = []
 var turn_label: Label
 var deck_count_label: Label
 var game_over_panel: Panel
@@ -142,6 +144,11 @@ var pending_minion_target: MinionInstance = null
 # False when no valid targets existed (skip straight to placement) or after target is chosen.
 var _awaiting_minion_target: bool = false
 
+# Relic targeting — set when a relic (e.g. Blood Chalice) needs the player to pick a target.
+# Stores the effect_id; cleared after the target is chosen or cancelled.
+var _pending_relic_target: String = ""
+var _pending_relic_index: int = -1  ## Index into RelicRuntime.relics — used for refund on cancel
+
 # Active global environment
 var active_environment: EnvironmentCardData = null
 
@@ -193,6 +200,12 @@ var player_spell_cost_penalty: int = 0
 
 ## Set to true by Silence Trap to skip the enemy spell's effect resolution.
 var _spell_cancelled: bool = false
+
+## When true, enemy traps cannot trigger (set by Saboteur Adept, cleared at player turn end).
+var _enemy_traps_blocked: bool = false
+
+## When true, player traps cannot trigger (set by enemy Saboteur Adept, cleared at enemy turn end).
+var _player_traps_blocked: bool = false
 
 ## Prevents Soul Rune from firing more than once per enemy turn.
 var _soul_rune_fires_this_turn: int = 0
@@ -267,10 +280,10 @@ func _ready() -> void:
 
 func _load_combat_background() -> void:
 	const ACT_BACKGROUNDS := [
-		"res://assets/art/progression/backgrounds/a1_combat_background.png",
-		"res://assets/art/progression/backgrounds/a1_combat_background.png",
-		"res://assets/art/progression/backgrounds/a1_combat_background.png",
-		"res://assets/art/progression/backgrounds/a1_combat_background.png",
+		"res://assets/art/progression/backgrounds/a1_combat.png",
+		"res://assets/art/progression/backgrounds/a2_combat.png",
+		"res://assets/art/progression/backgrounds/a3_combat.png",
+		"res://assets/art/progression/backgrounds/a4_combat.png",
 	]
 	var act: int = clamp(GameManager.get_current_act() - 1, 0, ACT_BACKGROUNDS.size() - 1)
 	var path: String = ACT_BACKGROUNDS[act]
@@ -350,6 +363,20 @@ func _find_nodes() -> void:
 			var panel := row.get_child(i) as Panel
 			enemy_trap_slot_panels.append(panel)
 			enemy_trap_slot_labels.append(panel.get_child(0) as Label)
+			var art_center := CenterContainer.new()
+			art_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+			art_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art_center.visible = false
+			var art := TextureRect.new()
+			art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			art.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+			art.custom_minimum_size = Vector2(72, 72)
+			art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art_center.add_child(art)
+			panel.add_child(art_center)
+			panel.move_child(art_center, 0)
+			_enemy_trap_slot_art_containers.append(art_center)
+			_enemy_trap_slot_arts.append(art)
 	turn_label      = $UI/TurnLabel      if has_node("UI/TurnLabel")      else null
 	deck_count_label = $UI/DeckSlot/DeckCountLabel if has_node("UI/DeckSlot/DeckCountLabel") else null
 	game_over_panel   = $UI/GameOverPanel
@@ -483,6 +510,7 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		_relic_cost_reduction = 0
 		for inst in turn_manager.player_hand:
 			inst.cost_delta = 0
+		_refresh_hand_spell_costs()
 		if _relic_runtime:
 			_relic_runtime.on_turn_start()
 			if _relic_bar:
@@ -514,6 +542,7 @@ func _on_turn_ended(is_player_turn: bool) -> void:
 		_temp_imps.clear()
 		# Clear player spell cost penalty after player turn ends
 		player_spell_cost_penalty = 0
+		_enemy_traps_blocked = false
 		# Void Hourglass: take another player turn instead of passing to enemy
 		if _relic_extra_turn:
 			_relic_extra_turn = false
@@ -522,6 +551,7 @@ func _on_turn_ended(is_player_turn: bool) -> void:
 	else:
 		# Clear enemy spell cost penalty after their turn ends
 		enemy_ai.spell_cost_penalty = 0
+		_player_traps_blocked = false
 
 func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
 	if essence_label:
@@ -529,7 +559,7 @@ func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: 
 	if mana_label:
 		mana_label.text = "%d/%d" % [mana, mana_max]
 	if hand_display:
-		hand_display.refresh_playability(essence, mana)
+		hand_display.refresh_playability(essence, mana, _relic_cost_reduction, _relic_cost_reduction)
 	_refresh_hand_spell_costs()
 	_update_pip_bars(essence, essence_max, mana, mana_max)
 	# Pulse the column border to signal gain (green) or spend (red/orange)
@@ -574,7 +604,7 @@ func _on_card_generated(inst: CardInstance) -> void:
 
 func _on_card_anim_finished() -> void:
 	if hand_display:
-		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana)
+		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana, _relic_cost_reduction, _relic_cost_reduction)
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 
 func _on_end_turn_essence_pressed() -> void:
@@ -618,6 +648,9 @@ func _on_hand_card_selected(inst: CardInstance) -> void:
 func _cancel_card_select() -> void:
 	_stop_pip_blink()
 	pending_play_card = null
+	pending_minion_target = null
+	_awaiting_minion_target = false
+	_clear_all_highlights()
 	if hand_display:
 		hand_display.deselect_current()
 
@@ -665,13 +698,17 @@ func _start_pip_blink_for_card(card_data: CardData) -> void:
 			elif to == "mana":  mna_gain += actual
 	elif card_data is MinionCardData:
 		var mc := card_data as MinionCardData
-		var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
+		var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
 		ess_spend = mc.essence_cost
 		mna_spend = mc.mana_cost + extra_mana
 	elif card_data is TrapCardData:
 		mna_spend = _effective_trap_cost(card_data as TrapCardData)
 	elif card_data is EnvironmentCardData:
 		mna_spend = (card_data as EnvironmentCardData).cost
+	# Dark Mirror: reduce both costs for preview
+	if _relic_cost_reduction > 0:
+		ess_spend = maxi(0, ess_spend - _relic_cost_reduction)
+		mna_spend = maxi(0, mna_spend - _relic_cost_reduction)
 	if not turn_manager.can_afford(ess_spend, mna_spend):
 		return
 	_start_pip_blink(ess_spend, mna_spend, ess_gain, mna_gain)
@@ -693,7 +730,7 @@ func _begin_spell_select(spell: SpellCardData) -> void:
 ## Checks affordability and board space, then highlights valid placement/target slots.
 func _begin_minion_select(mc: MinionCardData) -> void:
 	# Check affordability (Void Crystal relic bypasses cost for the first card)
-	var extra_mana := 1 if (_card_has_tag(mc, "void_imp") and _has_talent("piercing_void")) else 0
+	var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
 	if not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
 		_cancel_card_select()
 		return
@@ -751,6 +788,15 @@ func _try_play_trap(trap: TrapCardData) -> void:
 		if hand_display:
 			hand_display.deselect_current()
 		return
+	# Non-rune traps: only one of each type allowed on the board
+	if not trap.is_rune:
+		for existing in active_traps:
+			if not existing.is_rune and existing.id == trap.id:
+				_log("You already have %s set." % trap.card_name, _LogType.PLAYER)
+				if hand_display:
+					hand_display.deselect_current()
+				pending_play_card = null
+				return
 	if not _pay_card_cost(0, pending_play_card.effective_cost()):
 		if hand_display:
 			hand_display.deselect_current()
@@ -822,7 +868,7 @@ func _update_environment_display() -> void:
 		var header := environment_slot.get_node_or_null("HeaderLabel")
 		if header:
 			header.visible = false
-		environment_slot.tooltip_text = _build_environment_tooltip(active_environment)
+		environment_slot.tooltip_text = ""
 		# Show card art — full opacity, no text overlay
 		if _env_art:
 			_env_art.modulate = Color(1, 1, 1, 1)
@@ -923,6 +969,10 @@ func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) 
 func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if not turn_manager.is_player_turn:
 		return
+	# If a relic is awaiting a target, resolve it
+	if _pending_relic_target != "":
+		_resolve_relic_target_minion(minion)
+		return
 	# If a targeted spell that can hit enemy minions is pending, apply it here
 	if pending_play_card != null and pending_play_card.card_data is SpellCardData:
 		var spell := pending_play_card.card_data as SpellCardData
@@ -938,16 +988,6 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 			_highlight_empty_player_slots()
 			return
 	if selected_attacker == null:
-		return
-	# Talent: void_manifestation — Void Imps fire Void Bolt at enemy hero, ignoring Taunt
-	if _minion_has_tag(selected_attacker, "void_imp") and _has_talent("void_manifestation"):
-		_log("Your Void Imp fires a Void Bolt (ignores Taunt)!", _LogType.PLAYER)
-		await _deal_void_bolt_damage(selected_attacker.effective_atk(), selected_attacker)
-		_apply_void_mark(1)
-		selected_attacker.state = Enums.MinionState.EXHAUSTED
-		_refresh_slot_for(selected_attacker)
-		selected_attacker = null
-		_clear_all_highlights()
 		return
 	# Enforce Guard — must attack a Guard minion if one exists
 	if CombatManager.board_has_taunt(enemy_board) and not minion.has_guard():
@@ -971,8 +1011,8 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 	if not slot.is_empty():
 		return
 	var card := inst.card_data as MinionCardData
-	# Talent: piercing_void — Void Imps cost +1 Mana
-	var extra_mana := 1 if (_card_has_tag(card, "void_imp") and _has_talent("piercing_void")) else 0
+	# Talent: piercing_void — base Void Imp costs +1 Mana
+	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
 	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
 		return
 	_log("You play: %s" % card.card_name)
@@ -980,7 +1020,7 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 	instance.card_instance = inst
 	# Place visually first so the slot is not mistakenly taken by tokens summoned during on-play.
 	# Do NOT append to player_board yet — on-play effects should not see this minion on the board.
-	AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav")
+	AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
 	slot.place_minion(instance)
 	# Fire ON_PLAYER_MINION_PLAYED — carries the player-chosen target for targeted battle cries.
 	# The minion is not in player_board during this event, so ALL_FRIENDLY effects exclude it naturally.
@@ -1009,7 +1049,7 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 	if not slot.is_empty():
 		return
 	var card := inst.card_data as MinionCardData
-	var extra_mana := 1 if (_card_has_tag(card, "void_imp") and _has_talent("piercing_void")) else 0
+	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
 	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
 		return
 	_log("You play: %s" % card.card_name)
@@ -1083,7 +1123,7 @@ func _animate_card_to_slot(visual: CardVisual, slot: BoardSlot, hand_index: int,
 		return
 
 	# Card has arrived — switch slot to minion view and fire triggers
-	AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav")
+	AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
 	on_landing.call()
 	if not is_inside_tree():
 		return
@@ -1315,12 +1355,20 @@ var _cheat_visible: bool = false
 var _cheat_card_input: LineEdit
 var _cheat_dmg_input:  SpinBox
 var _cheat_status_lbl: Label
+var _cheat_talent_dropdown: OptionButton
+var _cheat_relic_dropdown: OptionButton
+var _cheat_enemy_dropdown: OptionButton
+var _talent_tip_vbox: VBoxContainer  ## Talent tooltip content — rebuilt after cheat unlocks
 
 # ---------------------------------------------------------------------------
 # Relic System
 # ---------------------------------------------------------------------------
 
 func _setup_relics() -> void:
+	# Clean up existing relic bar when rebuilding (e.g. from cheat panel)
+	if _relic_bar != null:
+		_relic_bar.queue_free()
+		_relic_bar = null
 	_relic_runtime = RelicRuntime.new()
 	_relic_runtime.setup(GameManager.player_relics, GameManager.relic_bonus_charges)
 	_relic_effects = RelicEffects.new()
@@ -1371,10 +1419,76 @@ func _on_relic_activated(index: int) -> void:
 	if effect_id == "":
 		return
 	_stop_pip_blink()
+	# Blood Chalice: enter targeting mode instead of resolving immediately
+	if effect_id == "relic_execute":
+		_pending_relic_index = index
+		_begin_relic_targeting(effect_id)
+		if _relic_bar:
+			_relic_bar.refresh()
+		return
 	_relic_effects.resolve(effect_id)
 	if _relic_bar:
 		_relic_bar.refresh()
 	_refresh_hand_spell_costs()
+
+## Enter relic targeting mode — highlight all enemy minions + enemy hero as valid targets.
+func _begin_relic_targeting(effect_id: String) -> void:
+	_clear_all_highlights()  # This resets _pending_relic_target — set it after
+	_pending_relic_target = effect_id
+	selected_attacker = null
+	if hand_display:
+		hand_display.deselect_current()
+	pending_play_card = null
+	_highlight_slots(enemy_slots, func(s: BoardSlot) -> bool: return not s.is_empty())
+	if _enemy_status_panel:
+		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		_enemy_status_panel.gui_input.connect(_on_relic_target_hero_input)
+		_start_hero_spell_pulse()
+	_log("  Blood Chalice: choose a target (right-click to cancel).", _LogType.PLAYER)
+
+## Resolve a relic effect on a chosen enemy minion target.
+func _resolve_relic_target_minion(minion: MinionInstance) -> void:
+	var effect := _pending_relic_target
+	_pending_relic_target = ""
+	_pending_relic_index = -1
+	_clear_all_highlights()
+	match effect:
+		"relic_execute":
+			_spell_dmg(minion, 500)
+			_log("  Relic: Blood Chalice — dealt 500 damage to %s." % minion.card_data.card_name, _LogType.PLAYER)
+
+## Resolve a relic effect on the enemy hero.
+func _resolve_relic_target_hero() -> void:
+	var effect := _pending_relic_target
+	_pending_relic_target = ""
+	_pending_relic_index = -1
+	_clear_all_highlights()
+	match effect:
+		"relic_execute":
+			combat_manager.apply_hero_damage("enemy", 500, Enums.DamageType.SPELL)
+			_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.", _LogType.PLAYER)
+
+## Cancel relic targeting — refund the charge and reset state.
+func _cancel_relic_targeting() -> void:
+	if _pending_relic_index >= 0 and _relic_runtime:
+		_relic_runtime.refund(_pending_relic_index)
+		_log("  Relic cancelled — charge refunded.", _LogType.PLAYER)
+	_pending_relic_target = ""
+	_pending_relic_index = -1
+	_clear_all_highlights()
+	if _relic_bar:
+		_relic_bar.refresh()
+
+## Fired when player clicks the enemy hero panel while relic targeting is active.
+func _on_relic_target_hero_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	if _pending_relic_target == "":
+		return
+	if event.button_index == MOUSE_BUTTON_LEFT:
+		_resolve_relic_target_hero()
+	elif event.button_index == MOUSE_BUTTON_RIGHT:
+		_cancel_relic_targeting()
 
 func _setup_cheat_panel() -> void:
 	_cheat_panel = CanvasLayer.new()
@@ -1466,30 +1580,6 @@ func _setup_cheat_panel() -> void:
 
 	vbox.add_child(HSeparator.new())
 
-	# Summon token
-	var summon_label := Label.new()
-	summon_label.text = "Summon minion (ID):"
-	summon_label.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(summon_label)
-
-	var summon_row := HBoxContainer.new()
-	vbox.add_child(summon_row)
-	var summon_input := LineEdit.new()
-	summon_input.placeholder_text = "e.g. shadow_hound"
-	summon_input.custom_minimum_size = Vector2(160, 0)
-	summon_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	summon_row.add_child(summon_input)
-	var summon_player_btn := Button.new()
-	summon_player_btn.text = "Mine"
-	summon_player_btn.pressed.connect(func(): _summon_token(summon_input.text.strip_edges(), "player"))
-	summon_row.add_child(summon_player_btn)
-	var summon_enemy_btn := Button.new()
-	summon_enemy_btn.text = "Enemy"
-	summon_enemy_btn.pressed.connect(func(): _summon_token(summon_input.text.strip_edges(), "enemy"))
-	summon_row.add_child(summon_enemy_btn)
-
-	vbox.add_child(HSeparator.new())
-
 	# Resources
 	var res_btn := Button.new()
 	res_btn.text = "Refill Resources (Essence + Mana)"
@@ -1502,34 +1592,61 @@ func _setup_cheat_panel() -> void:
 
 	# Unlock talent
 	var talent_label := Label.new()
-	talent_label.text = "Unlock talent (ID):"
+	talent_label.text = "Unlock talent:"
 	talent_label.add_theme_font_size_override("font_size", 12)
 	vbox.add_child(talent_label)
 
 	var talent_row := HBoxContainer.new()
 	vbox.add_child(talent_row)
-	var talent_input := LineEdit.new()
-	talent_input.placeholder_text = "e.g. piercing_void"
-	talent_input.custom_minimum_size = Vector2(160, 0)
-	talent_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	talent_input.text_submitted.connect(func(_t): _cheat_unlock_talent(talent_input))
-	talent_row.add_child(talent_input)
+	_cheat_talent_dropdown = OptionButton.new()
+	_cheat_talent_dropdown.custom_minimum_size = Vector2(200, 0)
+	_cheat_talent_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cheat_populate_talent_dropdown()
+	talent_row.add_child(_cheat_talent_dropdown)
 	var talent_btn := Button.new()
 	talent_btn.text = "Unlock"
-	talent_btn.pressed.connect(func(): _cheat_unlock_talent(talent_input))
+	talent_btn.pressed.connect(_cheat_unlock_selected_talent)
 	talent_row.add_child(talent_btn)
 
-	# Quick talent buttons
-	var talent_quick := HBoxContainer.new()
-	talent_quick.add_theme_constant_override("separation", 4)
-	vbox.add_child(talent_quick)
-	for tid in ["piercing_void", "deepened_curse", "death_bolt", "void_manifestation",
-				"imp_evolution", "swarm_discipline", "rune_caller", "runic_attunement"]:
-		var qbtn := Button.new()
-		qbtn.text = tid.replace("_", " ").capitalize().left(12)
-		qbtn.add_theme_font_size_override("font_size", 9)
-		qbtn.pressed.connect(func(): _cheat_unlock_talent_by_id(tid))
-		talent_quick.add_child(qbtn)
+	vbox.add_child(HSeparator.new())
+
+	# Grant relic
+	var relic_label := Label.new()
+	relic_label.text = "Grant relic:"
+	relic_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(relic_label)
+
+	var relic_row := HBoxContainer.new()
+	vbox.add_child(relic_row)
+	_cheat_relic_dropdown = OptionButton.new()
+	_cheat_relic_dropdown.custom_minimum_size = Vector2(200, 0)
+	_cheat_relic_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cheat_populate_relic_dropdown()
+	relic_row.add_child(_cheat_relic_dropdown)
+	var relic_btn := Button.new()
+	relic_btn.text = "Grant"
+	relic_btn.pressed.connect(_cheat_grant_selected_relic)
+	relic_row.add_child(relic_btn)
+
+	vbox.add_child(HSeparator.new())
+
+	# Change enemy encounter
+	var enemy_label := Label.new()
+	enemy_label.text = "Switch enemy:"
+	enemy_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(enemy_label)
+
+	var enemy_row := HBoxContainer.new()
+	vbox.add_child(enemy_row)
+	_cheat_enemy_dropdown = OptionButton.new()
+	_cheat_enemy_dropdown.custom_minimum_size = Vector2(200, 0)
+	_cheat_enemy_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_cheat_populate_enemy_dropdown()
+	enemy_row.add_child(_cheat_enemy_dropdown)
+	var enemy_btn := Button.new()
+	enemy_btn.text = "Switch"
+	enemy_btn.pressed.connect(_cheat_switch_enemy)
+	enemy_row.add_child(enemy_btn)
 
 	# Status feedback
 	_cheat_status_lbl = Label.new()
@@ -1548,6 +1665,19 @@ func _input(event: InputEvent) -> void:
 			_cheat_panel.visible = _cheat_visible
 			if _cheat_visible and _cheat_card_input:
 				_cheat_card_input.call_deferred("grab_focus")
+	# Right-click cancels relic targeting, spell targeting, or minion placement
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		if _pending_relic_target != "":
+			_cancel_relic_targeting()
+			get_viewport().set_input_as_handled()
+		elif pending_play_card != null:
+			_cancel_card_select()
+			get_viewport().set_input_as_handled()
+		elif selected_attacker != null:
+			selected_attacker = null
+			_clear_all_highlights()
+			_show_hero_button(false)
+			get_viewport().set_input_as_handled()
 
 func _cheat_add_card() -> void:
 	var id := _cheat_card_input.text.strip_edges()
@@ -1561,26 +1691,135 @@ func _cheat_add_card() -> void:
 	_cheat_status_lbl.text = ""
 	_cheat_card_input.text = ""
 
-func _cheat_unlock_talent(input: LineEdit) -> void:
-	var id := input.text.strip_edges()
-	if id == "":
-		return
-	_cheat_unlock_talent_by_id(id)
-	input.text = ""
+func _cheat_populate_talent_dropdown() -> void:
+	_cheat_talent_dropdown.clear()
+	var talents: Array[TalentData] = TalentDatabase.get_talents_for_hero(GameManager.current_hero)
+	for t in talents:
+		var suffix := " [OWNED]" if GameManager.has_talent(t.id) else ""
+		_cheat_talent_dropdown.add_item(t.talent_name + suffix)
+		_cheat_talent_dropdown.set_item_metadata(_cheat_talent_dropdown.item_count - 1, t.id)
 
-func _cheat_unlock_talent_by_id(id: String) -> void:
-	var talent: TalentData = TalentDatabase.get_talent(id)
-	if talent == null:
-		_cheat_status_lbl.text = "Unknown talent: " + id
+func _cheat_unlock_selected_talent() -> void:
+	var idx: int = _cheat_talent_dropdown.selected
+	if idx < 0:
 		return
+	var id: String = _cheat_talent_dropdown.get_item_metadata(idx)
 	if GameManager.has_talent(id):
 		_cheat_status_lbl.text = "Already unlocked: " + id
 		return
+	# Grant a talent point so unlock_talent succeeds
+	GameManager.add_talent_point()
 	GameManager.unlock_talent(id)
-	# Re-run trigger setup to register the new talent's handlers
+	# Clear and re-run trigger setup to register the new talent's handlers
+	trigger_manager.clear()
 	_setup_triggers()
+	# Refresh the talent tooltip and dropdown
+	_rebuild_talent_tooltip_content()
+	_cheat_populate_talent_dropdown()
+	var talent: TalentData = TalentDatabase.get_talent(id)
 	_cheat_status_lbl.text = "Unlocked: " + talent.talent_name
 	_log("  [CHEAT] Talent unlocked: %s" % talent.talent_name, _LogType.PLAYER)
+
+func _cheat_populate_relic_dropdown() -> void:
+	_cheat_relic_dropdown.clear()
+	var all_relics: Array[RelicData] = RelicDatabase.get_all()
+	all_relics.sort_custom(func(a: RelicData, b: RelicData) -> bool: return a.act < b.act)
+	for r in all_relics:
+		var suffix := " [OWNED]" if r.id in GameManager.player_relics else ""
+		_cheat_relic_dropdown.add_item("Act %d: %s%s" % [r.act, r.relic_name, suffix])
+		_cheat_relic_dropdown.set_item_metadata(_cheat_relic_dropdown.item_count - 1, r.id)
+
+func _cheat_grant_selected_relic() -> void:
+	var idx: int = _cheat_relic_dropdown.selected
+	if idx < 0:
+		return
+	var id: String = _cheat_relic_dropdown.get_item_metadata(idx)
+	if id in GameManager.player_relics:
+		_cheat_status_lbl.text = "Already owned: " + id
+		return
+	GameManager.player_relics.append(id)
+	# Rebuild relic runtime and bar
+	_setup_relics()
+	_cheat_populate_relic_dropdown()
+	var relic: RelicData = RelicDatabase.get_relic(id)
+	_cheat_status_lbl.text = "Granted: " + relic.relic_name
+	_log("  [CHEAT] Relic granted: %s" % relic.relic_name, _LogType.PLAYER)
+
+func _cheat_populate_enemy_dropdown() -> void:
+	_cheat_enemy_dropdown.clear()
+	# ACT_SIZES: [3, 3, 3, 6] — map encounter index to act
+	const ACT_SIZES := [3, 3, 3, 6]
+	for i in range(1, 16):
+		var e: EnemyData = GameManager.get_encounter(i)
+		if e == null:
+			continue
+		var act := 1
+		var cumulative := 0
+		for a in ACT_SIZES.size():
+			cumulative += ACT_SIZES[a]
+			if i <= cumulative:
+				act = a + 1
+				break
+		var label := "A%d-%d: %s" % [act, i, e.enemy_name]
+		_cheat_enemy_dropdown.add_item(label)
+		_cheat_enemy_dropdown.set_item_metadata(_cheat_enemy_dropdown.item_count - 1, i)
+
+func _cheat_switch_enemy() -> void:
+	var idx: int = _cheat_enemy_dropdown.selected
+	if idx < 0:
+		return
+	var encounter_idx: int = _cheat_enemy_dropdown.get_item_metadata(idx)
+	GameManager.current_enemy = GameManager.get_encounter(encounter_idx)
+	GameManager.run_node_index = encounter_idx
+	# Reset AudioManager's scene tracking so it re-evaluates music for the new act
+	AudioManager._current_scene_path = ""
+	GameManager.go_to_scene("res://combat/board/CombatScene.tscn")
+
+func _rebuild_talent_tooltip_content() -> void:
+	if _talent_tip_vbox == null:
+		return
+	# Remove only talent entries (everything after the TALENTS header)
+	var found_talents := false
+	var to_remove: Array[Node] = []
+	for child in _talent_tip_vbox.get_children():
+		if child is Label and (child as Label).text == "TALENTS":
+			found_talents = true
+			continue
+		if found_talents:
+			to_remove.append(child)
+	for child in to_remove:
+		child.queue_free()
+	# Re-add talent entries
+	if GameManager.unlocked_talents.is_empty():
+		var none_lbl := Label.new()
+		none_lbl.text = "No talents unlocked"
+		none_lbl.add_theme_font_size_override("font_size", 13)
+		none_lbl.add_theme_color_override("font_color", Color(0.55, 0.52, 0.60, 1))
+		none_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_talent_tip_vbox.add_child(none_lbl)
+	else:
+		for tid in GameManager.unlocked_talents:
+			var td: TalentData = TalentDatabase.get_talent(tid)
+			if td == null:
+				continue
+			var row := VBoxContainer.new()
+			row.add_theme_constant_override("separation", 3)
+			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_talent_tip_vbox.add_child(row)
+			var t_name := Label.new()
+			t_name.text = td.talent_name
+			t_name.add_theme_font_size_override("font_size", 15)
+			t_name.add_theme_color_override("font_color", Color(0.92, 0.85, 1.0, 1))
+			t_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			t_name.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			row.add_child(t_name)
+			var t_desc := Label.new()
+			t_desc.text = td.description
+			t_desc.add_theme_font_size_override("font_size", 12)
+			t_desc.add_theme_color_override("font_color", Color(0.65, 0.62, 0.72, 1))
+			t_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			t_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+			row.add_child(t_desc)
 
 ## Entry point for EffectResolver HARDCODED steps — delegates to HardcodedEffects.
 func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
@@ -1717,12 +1956,18 @@ func _has_talent(id: String) -> bool:
 ## Refresh hand card cost display and large preview to reflect the current board discount.
 func _refresh_hand_spell_costs() -> void:
 	var net_discount := _spell_mana_discount() - player_spell_cost_penalty
+	var relic_red := _relic_cost_reduction
 	if hand_display:
-		hand_display.refresh_spell_costs(net_discount)
+		# Non-minion cards: mana discount includes relic reduction
+		hand_display.refresh_spell_costs(net_discount + relic_red)
+		# Minion cards: show essence and mana reductions from Dark Mirror
+		hand_display.refresh_relic_cost_preview(relic_red, relic_red)
+		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana, relic_red, relic_red)
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	if _large_preview and _large_preview.visible:
 		var extra := -(_hovered_hand_visual.card_inst.cost_delta) if _hovered_hand_visual != null and _hovered_hand_visual.card_inst != null else 0
-		_large_preview.apply_cost_discount(net_discount + extra)
+		_large_preview.apply_cost_discount(net_discount + relic_red + extra)
+		_large_preview.apply_relic_cost_preview(relic_red, relic_red)
 
 ## Effective mana cost for a player spell after applying board discount and tax penalty.
 func _effective_spell_cost(spell: SpellCardData) -> int:
@@ -1760,7 +2005,7 @@ func _apply_void_mark(stacks: int = 1) -> void:
 ## source_minion: if provided, projectile fires from that minion's board slot.
 ## If null, auto-detects: checks for active void rune (fires from rune slot),
 ## otherwise fires from center-bottom (player hero area).
-func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null) -> void:
+func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false) -> void:
 	var bonus := enemy_void_marks * _void_mark_damage_per_stack()
 	var total := base_damage + bonus
 	if bonus > 0:
@@ -1769,14 +2014,14 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 		_log("  Void Bolt: %d damage." % total, _LogType.PLAYER)
 	# Fire projectile and wait for it to arrive before applying damage
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_bolt_cast.wav")
-	var bolt := _fire_void_bolt_projectile(source_minion)
+	var bolt := _fire_void_bolt_projectile(source_minion, from_rune)
 	if bolt != null and is_inside_tree():
 		await bolt.impact_hit
 	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
 
 ## Spawn and fly a void bolt projectile to the enemy hero panel.
 ## Returns the bolt node (or null if not spawned) so caller can await impact_hit.
-func _fire_void_bolt_projectile(source_minion: MinionInstance = null) -> VoidBoltProjectile:
+func _fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune: bool = false) -> VoidBoltProjectile:
 	if not is_inside_tree():
 		return null
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
@@ -1792,14 +2037,16 @@ func _fire_void_bolt_projectile(source_minion: MinionInstance = null) -> VoidBol
 				break
 		if not found:
 			from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
-	else:
-		# Check if a void rune is active — fire from its trap slot
+	elif from_rune:
+		# Fire from the void rune's trap slot
 		var rune_pos := _find_void_rune_slot_position()
 		if rune_pos != Vector2.ZERO:
 			from_pos = rune_pos
 		else:
-			# Default: center-bottom (player hero area)
 			from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
+	else:
+		# Default: center-bottom (player hero area)
+		from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
 	# Target: enemy status panel center
 	var to_pos: Vector2
 	if _enemy_status_panel:
@@ -1839,18 +2086,16 @@ func _find_void_rune_slot_position() -> Vector2:
 ## Returns true if the card can be played (and costs are deducted).
 func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 	_stop_pip_blink()
-	# Dark Mirror: reduce the cost of the next card by up to _relic_cost_reduction
+	# Dark Mirror: reduce both essence and mana costs independently (minimum 0)
 	if _relic_cost_reduction > 0:
-		var total_reduction: int = _relic_cost_reduction
+		var reduction: int = _relic_cost_reduction
 		_relic_cost_reduction = 0
-		# Reduce mana first, then essence
-		var mana_reduction: int = mini(total_reduction, mana_cost)
-		mana_cost -= mana_reduction
-		total_reduction -= mana_reduction
-		var essence_reduction: int = mini(total_reduction, essence_cost)
+		var essence_reduction: int = mini(reduction, essence_cost)
+		var mana_reduction: int = mini(reduction, mana_cost)
 		essence_cost -= essence_reduction
-		if mana_reduction + essence_reduction > 0:
-			_log("  Dark Mirror: card cost reduced by %d!" % (mana_reduction + essence_reduction), _LogType.PLAYER)
+		mana_cost -= mana_reduction
+		if essence_reduction + mana_reduction > 0:
+			_log("  Dark Mirror: cost reduced by %d Essence and %d Mana!" % [essence_reduction, mana_reduction], _LogType.PLAYER)
 	if not turn_manager.can_afford(essence_cost, mana_cost):
 		return false
 	turn_manager.spend_essence(essence_cost)
@@ -2180,28 +2425,45 @@ func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 
 ## Fire all non-rune traps for owner ("player"/"enemy") whose trigger matches trigger.
 ## triggering_minion is the relevant minion (attacker, summoned minion, dead minion, etc.).
+## Traps play their animations one-by-one so they don't overlap.
 func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInstance = null) -> void:
+	if owner == "enemy" and _enemy_traps_blocked:
+		return
+	if owner == "player" and _player_traps_blocked:
+		return
 	var traps: Array = active_traps if owner == "player" else (enemy_ai.active_traps if enemy_ai else [])
 	if owner == "enemy" and enemy_ai == null:
 		return
+	# Collect matching traps first, then resolve sequentially
+	var matching: Array[TrapCardData] = []
 	for trap in traps.duplicate():
 		if trap.is_rune:
-			continue  # Runes are persistent — handled by ritual/aura system
+			continue
 		if trap.trigger != trigger:
 			continue
+		matching.append(trap)
+	for trap in matching:
+		if not is_inside_tree():
+			return
 		var slot_idx := traps.find(trap)
 		_flash_trap_slot_for(owner, slot_idx)
 		_log("⚡ %s%s triggered!" % [("Enemy " if owner == "enemy" else ""), trap.card_name], _LogType.TRAP)
-		var captured_trap:   TrapCardData   = trap
-		var captured_minion: MinionInstance = triggering_minion
-		_show_card_cast_anim(captured_trap, owner == "enemy", func() -> void:
+		var effect_resolved := false
+		_show_card_cast_anim(trap, owner == "enemy", func() -> void:
 			var ctx := EffectContext.make(self, owner)
-			ctx.trigger_minion = captured_minion
-			EffectResolver.run(captured_trap.effect_steps, ctx)
-			if not captured_trap.reusable:
-				traps.erase(captured_trap)
+			ctx.trigger_minion = triggering_minion
+			EffectResolver.run(trap.effect_steps, ctx)
+			if not trap.reusable:
+				traps.erase(trap)
 				_update_trap_display_for(owner)
+			effect_resolved = true
 		)
+		# Wait for the full card animation to finish (~1.1s)
+		while not effect_resolved and is_inside_tree():
+			await get_tree().process_frame
+		# Small gap between sequential traps
+		if is_inside_tree():
+			await get_tree().create_timer(0.6).timeout
 
 ## Flash a trap slot gold to indicate it fired.
 func _flash_trap_slot_for(owner: String, slot_idx: int) -> void:
@@ -2247,7 +2509,7 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 	if enemy_ai:
 		enemy_ai._pending_slots.erase(slot)
 	if slot:
-		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav")
+		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
 		slot.place_minion(minion)
 	# ON_PLAY effects are resolved by CombatHandlers.on_enemy_minion_played_effect registered in _setup_triggers().
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
@@ -2338,6 +2600,9 @@ func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
 	_update_enemy_status_panel()
 
 const _RUNE_GLOW_DEFAULT := Color(0.30, 0.15, 0.45, 1)  # Fallback dark purple
+const _TRAP_BATTLEFIELD_ART := "res://assets/art/traps/trap_battlefield.png"
+const _TRAP_SEALED_BORDER := Color(0.25, 0.12, 0.35, 0.6)  # Muted purple border
+const _TRAP_SEALED_BG     := Color(0.04, 0.02, 0.06, 0.7)  # Near-black background
 
 func _update_trap_display_for(owner: String) -> void:
 	var panels: Array = trap_slot_panels      if owner == "player" else enemy_trap_slot_panels
@@ -2348,17 +2613,26 @@ func _update_trap_display_for(owner: String) -> void:
 	for i in panels.size():
 		var panel := panels[i] as Panel
 		var lbl   := labels[i] as Label
-		# Art + glow only for player trap slots
-		var art: TextureRect = _trap_slot_arts[i] if is_player and i < _trap_slot_arts.size() else null
-		var art_container: CenterContainer = _trap_slot_art_containers[i] if is_player and i < _trap_slot_art_containers.size() else null
+		var art: TextureRect
+		var art_container: CenterContainer
+		if is_player and i < _trap_slot_arts.size():
+			art = _trap_slot_arts[i]
+			art_container = _trap_slot_art_containers[i]
+		elif is_enemy and i < _enemy_trap_slot_arts.size():
+			art = _enemy_trap_slot_arts[i]
+			art_container = _enemy_trap_slot_art_containers[i]
+		else:
+			art = null
+			art_container = null
 		if i < traps.size():
 			var trap := traps[i] as TrapCardData
 			if trap.is_rune:
 				# Rune: show battlefield art if available
 				var has_art := false
-				if is_player and art_container:
+				if art_container:
 					if trap.battlefield_art_path != "" and ResourceLoader.exists(trap.battlefield_art_path):
 						art.texture = load(trap.battlefield_art_path)
+						art.modulate = Color(1, 1, 1, 1)
 						art_container.visible = true
 						has_art = true
 						lbl.visible = false
@@ -2371,7 +2645,7 @@ func _update_trap_display_for(owner: String) -> void:
 					lbl.text = trap.card_name
 					var fallback_border: Color = _get_rune_glow_color(trap)
 					_apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), fallback_border)
-				panel.tooltip_text = "%s\n─\n%s" % [trap.card_name, trap.description]
+				panel.tooltip_text = ""
 				# Start pulse glow for player runes
 				if is_player:
 					_start_rune_glow(i, trap)
@@ -2379,16 +2653,25 @@ func _update_trap_display_for(owner: String) -> void:
 				_apply_slot_style(panel, Color(0.14, 0.04, 0.04, 1), Color(0.80, 0.18, 0.18, 1))
 				lbl.visible = true
 				lbl.text = "??"
-				panel.tooltip_text = "Enemy Trap"
+				panel.tooltip_text = ""
 				if art_container: art_container.visible = false
 				_stop_rune_glow(i)
 			else:
-				_apply_slot_style(panel, Color(0.12, 0.08, 0.05, 1), Color(0.85, 0.45, 0.10, 1))
-				lbl.visible = true
-				lbl.text = trap.card_name
-				panel.tooltip_text = "%s\n─\n%s" % [trap.card_name, trap.description]
-				if art_container: art_container.visible = false
-				_stop_rune_glow(i)
+				# Player trap (non-rune): sealed/hidden look
+				if is_player and art_container and ResourceLoader.exists(_TRAP_BATTLEFIELD_ART):
+					art.texture = load(_TRAP_BATTLEFIELD_ART)
+					art.modulate = Color(0.55, 0.35, 0.65, 0.6)  # dark purple tint, low opacity
+					art_container.visible = true
+					lbl.visible = false
+				else:
+					if art_container: art_container.visible = false
+					lbl.visible = true
+					lbl.text = trap.card_name
+				_apply_slot_style(panel, _TRAP_SEALED_BG, _TRAP_SEALED_BORDER)
+				panel.tooltip_text = ""
+				# Slow dim pulse — sealed energy leaking through
+				if is_player:
+					_start_trap_sealed_pulse(i)
 		else:
 			_apply_empty_slot(panel, lbl)
 			panel.tooltip_text = ""
@@ -2424,6 +2707,18 @@ func _stop_rune_glow(slot_idx: int) -> void:
 	_trap_slot_glow_tweens[slot_idx] = null
 	if slot_idx < trap_slot_panels.size():
 		trap_slot_panels[slot_idx].modulate = Color(1, 1, 1, 1)
+
+## Slow, subtle pulse for sealed traps — dim energy bleeding through.
+func _start_trap_sealed_pulse(slot_idx: int) -> void:
+	if slot_idx >= _trap_slot_glow_tweens.size():
+		return
+	if _trap_slot_glow_tweens[slot_idx] != null:
+		return
+	var panel: Panel = trap_slot_panels[slot_idx]
+	var tween := create_tween().set_loops()
+	tween.tween_property(panel, "modulate", Color(1.15, 1.0, 1.2, 1.0), 2.0).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(panel, "modulate", Color(0.7, 0.6, 0.75, 1.0), 2.0).set_ease(Tween.EASE_IN_OUT)
+	_trap_slot_glow_tweens[slot_idx] = tween
 
 func _update_trap_display() -> void:
 	_update_trap_display_for("player")
@@ -2472,6 +2767,7 @@ func _apply_rune_aura(rune: TrapCardData) -> void:
 		var h := func(event_ctx: EventContext):
 			var ctx := EffectContext.make(self, "player")
 			ctx.trigger_minion = event_ctx.minion
+			ctx.from_rune = true
 			EffectResolver.run(rune.aura_effect_steps, ctx)
 		trigger_manager.register(rune.aura_trigger, h, 20)
 		entries.append({event = rune.aura_trigger, handler = h})
@@ -3455,6 +3751,7 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 	var scaffold := _build_hover_tooltip_scaffold(ui_root, 400, Color(0.05, 0.02, 0.10, 0.97), Color(0.55, 0.30, 0.85, 0.90))
 	var tip: PanelContainer = scaffold.tip
 	var tip_vbox: VBoxContainer = scaffold.tip_vbox
+	_talent_tip_vbox = tip_vbox
 
 	# --- Passives section ---
 	var hero_data := HeroDatabase.get_hero(GameManager.current_hero)
@@ -3663,7 +3960,8 @@ func _show_large_preview(card_data: CardData, source_visual: CardVisual = null) 
 	_large_preview.setup(card_data)
 	_large_preview.enable_tooltip()
 	var extra := -(source_visual.card_inst.cost_delta) if source_visual != null and source_visual.card_inst != null else 0
-	_large_preview.apply_cost_discount(_spell_mana_discount() + extra)
+	_large_preview.apply_cost_discount(_spell_mana_discount() + _relic_cost_reduction + extra)
+	_large_preview.apply_relic_cost_preview(_relic_cost_reduction, _relic_cost_reduction)
 	_large_preview.visible = true
 
 func _hide_large_preview() -> void:
@@ -3680,6 +3978,19 @@ func _on_enemy_hero_button_pressed() -> void:
 	if CombatManager.board_has_taunt(enemy_board):
 		return
 	if not selected_attacker.can_attack_hero():
+		return
+	# Void Manifestation: Void Imp clan minions deal Void Bolt damage to enemy hero
+	if _minion_has_tag(selected_attacker, "void_imp") and _has_talent("void_manifestation"):
+		var atk := selected_attacker.effective_atk()
+		_log("Your %s attacks Enemy Hero with a Void Bolt!" % selected_attacker.card_data.card_name, _LogType.PLAYER)
+		selected_attacker.attack_count += 1
+		selected_attacker.state = Enums.MinionState.EXHAUSTED
+		_refresh_slot_for(selected_attacker)
+		var attacker_ref := selected_attacker
+		selected_attacker = null
+		_clear_all_highlights()
+		_show_hero_button(false)
+		await _deal_void_bolt_damage(atk, attacker_ref)
 		return
 	_log("Your %s attacks Enemy Hero" % selected_attacker.card_data.card_name)
 	var _hero_atk_slot := _find_slot_for(selected_attacker)
@@ -3802,6 +4113,11 @@ func _clear_all_highlights() -> void:
 		_enemy_status_panel.gui_input.disconnect(_on_enemy_hero_spell_input)
 		_stop_hero_spell_pulse()
 		_show_hero_button(_enemy_hero_attackable)
+	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_relic_target_hero_input):
+		_enemy_status_panel.gui_input.disconnect(_on_relic_target_hero_input)
+		_stop_hero_spell_pulse()
+		_show_hero_button(_enemy_hero_attackable)
+	_pending_relic_target = ""
 
 func _find_slot_for(minion: MinionInstance) -> BoardSlot:
 	var slots := player_slots if minion.owner == "player" else enemy_slots
@@ -3860,7 +4176,7 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 	var tw := create_tween()
 	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
 	tw.tween_callback(func() -> void:
-		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav")
+		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav", -10.0)
 		_flash_slot(def_slot)
 		if damage > 0:
 			_spawn_damage_popup(def_rect.get_center(), damage)

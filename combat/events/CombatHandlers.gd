@@ -91,7 +91,7 @@ func _apply_void_bolt_passive(effect_id: String, count: int) -> void:
 # ---------------------------------------------------------------------------
 
 func on_card_drawn_void_echo(ctx: EventContext) -> void:
-	if ctx.card == null or not _card_has_tag(ctx.card, "void_imp"):
+	if ctx.card == null or not _card_has_tag(ctx.card, "base_void_imp"):
 		return
 	# Append directly — NOT via turn_manager.add_to_hand — to avoid re-triggering the drawn signal
 	var copy := CardDatabase.get_card("void_imp")
@@ -139,7 +139,7 @@ func on_summon_abyssal_legion(ctx: EventContext) -> void:
 					_log("  Abyssal Legion: %s +100/+100." % m.card_data.card_name, _LOG_PLAYER)
 
 func on_played_rune_caller(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "void_imp"):
+	if not _card_has_tag(ctx.card, "base_void_imp"):
 		return
 	_scene._draw_rune_from_deck()
 
@@ -269,16 +269,8 @@ func on_player_minion_played_effect(ctx: EventContext) -> void:
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
 	var mc := minion.card_data as MinionCardData
-	# Fire void bolt visual for void imps with DAMAGE_HERO on-play
-	if _card_has_tag(mc, "void_imp") and not mc.on_play_effect_steps.is_empty():
-		for raw in mc.on_play_effect_steps:
-			var step: EffectStep = EffectStep.from_dict(raw) if raw is Dictionary else raw as EffectStep
-			if step and step.effect_type == EffectStep.EffectType.DAMAGE_HERO:
-				if _scene.has_method("_fire_void_bolt_projectile"):
-					var bolt: VoidBoltProjectile = _scene._fire_void_bolt_projectile(ctx.minion)
-					if bolt != null and _scene.is_inside_tree():
-						await bolt.impact_hit
-				break
+	# Void bolt visual is handled by _deal_void_bolt_damage (called from
+	# on_summon_piercing_void) — no extra projectile needed here.
 	if not mc.on_play_effect_steps.is_empty():
 		var ectx           := EffectContext.make(_scene, "player")
 		ectx.source        = minion

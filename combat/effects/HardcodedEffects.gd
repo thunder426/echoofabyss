@@ -47,7 +47,11 @@ func resolve(id: String, ctx: EffectContext) -> void:
 				_log("  Spell Taxer: player spells cost +1 Mana next turn.", _LOG_ENEMY)
 		"saboteur_adept_effect":
 			if ctx.owner == "player":
-				_log("  Saboteur Adept: enemy traps blocked this turn (not yet active).", _LOG_PLAYER)
+				_scene._enemy_traps_blocked = true
+				_log("  Saboteur Adept: enemy traps blocked this turn.", _LOG_PLAYER)
+			elif ctx.owner == "enemy":
+				_scene._player_traps_blocked = true
+				_log("  Saboteur Adept: player traps blocked this turn.", _LOG_ENEMY)
 		# --- Environment passives ---
 		"dark_covenant_passive":
 			_dark_covenant_passive()

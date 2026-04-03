@@ -30,6 +30,9 @@ var trigger_minion: MinionInstance = null
 ## The minion that just died — populated in on-death passive contexts.
 var dead_minion: MinionInstance = null
 
+## True when the effect was fired by a rune aura (used for Void Bolt projectile origin).
+var from_rune: bool = false
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------

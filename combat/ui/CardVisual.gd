@@ -647,6 +647,28 @@ func apply_cost_discount(discount: int) -> void:
 			_hex = "ffffff"  # White — normal
 		frame_cost_label.text = "[center][color=#%s]%d[/color][/center]" % [_hex, effective]
 
+## Apply Dark Mirror relic preview: reduce both essence and mana costs independently.
+## Overlays on top of any existing discount. For minions, shows dual-cost with green highlights.
+## For spells/traps/envs, handled via apply_cost_discount which is called separately.
+func apply_relic_cost_preview(ess_reduction: int, mana_reduction: int) -> void:
+	if card_data == null or not (card_data is MinionCardData):
+		return
+	if frame_cost_label == null or not frame_cost_label.visible:
+		return
+	var md := card_data as MinionCardData
+	var talent_mana := GameManager.get_talent_mana_modifier(md)
+	var base_ess := md.essence_cost
+	var base_mana := md.mana_cost + talent_mana
+	var eff_ess := maxi(0, base_ess - ess_reduction)
+	var eff_mana := maxi(0, base_mana - mana_reduction)
+	var ess_color := "4dff4d" if ess_reduction > 0 and base_ess > 0 else "d4a0ff"
+	var mana_color := "4dff4d" if mana_reduction > 0 and base_mana > 0 else "90c8ff"
+	if base_mana > 0:
+		frame_cost_label.text = "[center][color=#%s]%d[/color][color=#cccccc]/[/color][color=#%s]%d[/color][/center]" % [ess_color, eff_ess, mana_color, eff_mana]
+	else:
+		var c := "4dff4d" if ess_reduction > 0 and base_ess > 0 else "ffffff"
+		frame_cost_label.text = "[center][color=#%s]%d[/color][/center]" % [c, eff_ess]
+
 ## Updates displayed stats, cost, and description based on currently unlocked talents.
 ## Only meaningful during combat; DeckBuilder previews call setup() before talents exist.
 func apply_talent_overlay() -> void:
@@ -857,7 +879,7 @@ const _TRIGGER_TERMS: Array[String] = [
 	"ON TURN START", "ON TURN END", "ON DRAW", "ON DISCARD",
 	"PASSIVE", "AURA", "RITUAL", "RUNE", "CORRUPTION", "CORRUPT",
 	"VOID MARKS", "VOID MARK", "DEATHLESS",
-	"VOID IMPS", "VOID IMP",    # clan name — plural before singular to avoid partial match
+	"VOID IMP CLAN",    # clan name highlight (minion/minions left unhighlighted)
 	"FERAL IMPS", "FERAL IMP", # clan name — plural before singular to avoid partial match
 ]
 

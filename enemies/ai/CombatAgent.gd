@@ -141,15 +141,15 @@ func sort_by_total_cost(a: CardInstance, b: CardInstance) -> bool:
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return spell.cost
 
-## Effective mana cost of a minion. Accounts for piercing_void (+1 Mana on Void Imps).
+## Effective mana cost of a minion. Accounts for piercing_void (+1 Mana on base Void Imp).
 ## Override in subclasses for additional modifiers.
 func effective_minion_mana_cost(mc: MinionCardData) -> int:
 	var extra := 0
 	if scene != null and mc.mana_cost == 0:
-		# Check piercing_void talent: Void Imps cost +1 Mana
+		# Check piercing_void talent: base Void Imp costs +1 Mana
 		var talents = scene.get("talents")
 		if talents is Array and "piercing_void" in talents:
-			if "void_imp" in mc.minion_tags:
+			if "base_void_imp" in mc.minion_tags:
 				extra = 1
 	return mc.mana_cost + extra
 

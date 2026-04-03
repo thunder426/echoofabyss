@@ -113,17 +113,17 @@ func _register_lord_vael_talents() -> void:
 
 	_register(_make(
 		"swarm_discipline", "lord_vael", "Swarm Discipline",
-		"Void Imps gain +100 HP.",
+		"VOID IMP CLAN minions gain +100 HP.",
 		"swarm", 1, "imp_evolution"))
 
 	_register(_make(
 		"imp_warband", "lord_vael", "Imp Warband",
-		"When you summon a Senior Void Imp, all Void Imps gain +50 ATK permanently.",
+		"When you summon a Senior Void Imp, all VOID IMP CLAN minions gain +50 ATK permanently.",
 		"swarm", 2, "swarm_discipline"))
 
 	_register(_make(
 		"void_echo", "lord_vael", "Void Echo",
-		"CAPSTONE: Whenever you draw a Void Imp, add a free copy to your hand.",
+		"CAPSTONE: Whenever you draw a Void Imp, add a free Void Imp copy to your hand.",
 		"swarm", 3, "imp_warband"))
 
 	# -----------------------------------------------------------------------
@@ -181,10 +181,10 @@ func _register_lord_vael_talents() -> void:
 
 	_register(_make(
 		"death_bolt", "lord_vael", "Death Bolt",
-		"When a Void Imp dies, deal 100 Void Bolt damage to the enemy hero.",
+		"When a VOID IMP CLAN minion dies, deal 100 Void Bolt damage to the enemy hero.",
 		"void_bolt", 2, "deepened_curse"))
 
 	_register(_make(
 		"void_manifestation", "lord_vael", "Void Manifestation",
-		"CAPSTONE: Void Imps' attacks become Void Bolts targeting the enemy hero, ignoring Taunt.",
+		"CAPSTONE: VOID IMP CLAN minions deal Void Bolt damage when attacking the enemy hero.",
 		"void_bolt", 3, "death_bolt"))

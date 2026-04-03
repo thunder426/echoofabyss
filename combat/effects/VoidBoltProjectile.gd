@@ -25,6 +25,7 @@ var _from: Vector2
 var _to: Vector2
 var _core: Sprite2D
 var _particles: CPUParticles2D
+var _sparks: CPUParticles2D
 var _elapsed: float = 0.0
 var _active: bool = true
 
@@ -39,6 +40,7 @@ func _ready() -> void:
 	position = _from
 	_build_core()
 	_build_particles()
+	_build_sparks()
 
 func _build_core() -> void:
 	_core = Sprite2D.new()
@@ -52,36 +54,76 @@ func _build_core() -> void:
 func _build_particles() -> void:
 	_particles = CPUParticles2D.new()
 	_particles.emitting = true
-	_particles.amount = 40
-	_particles.lifetime = 0.8
+	_particles.amount = 48
+	_particles.lifetime = 0.7
 	_particles.one_shot = false
 	_particles.explosiveness = 0.0
 	_particles.local_coords = false  # particles stay in world space (trail behind)
 
-	# Emission
-	_particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
-	_particles.emission_sphere_radius = 10.0
+	# Soft circle texture so particles aren't squares
+	_particles.texture = _make_soft_circle()
 
-	# Movement — slight outward drift
+	# Emission — tight cluster around the core
+	_particles.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	_particles.emission_sphere_radius = 5.0
+
+	# Movement — gentle drift outward
 	_particles.direction = Vector2(0, 0)
 	_particles.spread = 180.0
-	_particles.initial_velocity_min = 20.0
-	_particles.initial_velocity_max = 60.0
+	_particles.initial_velocity_min = 8.0
+	_particles.initial_velocity_max = 25.0
 	_particles.gravity = Vector2.ZERO
 
-	# Size — larger particles that shrink over lifetime
-	_particles.scale_amount_min = 5.0
-	_particles.scale_amount_max = 9.0
+	# Size — soft dots that shrink over lifetime
+	_particles.scale_amount_min = 0.18
+	_particles.scale_amount_max = 0.4
 	_particles.scale_amount_curve = _make_fade_curve()
 
-	# Color — bright purple to transparent, longer visible
+	# Color — bright purple core fading to transparent
 	var gradient := Gradient.new()
-	gradient.set_color(0, Color(0.85, 0.45, 1.0, 0.9))
-	gradient.add_point(0.3, Color(0.6, 0.2, 0.9, 0.7))
-	gradient.set_color(gradient.get_point_count() - 1, Color(0.2, 0.05, 0.4, 0.0))
+	gradient.set_color(0, Color(0.9, 0.55, 1.0, 0.85))
+	gradient.add_point(0.35, Color(0.6, 0.25, 0.9, 0.5))
+	gradient.set_color(gradient.get_point_count() - 1, Color(0.3, 0.1, 0.5, 0.0))
 	_particles.color_ramp = gradient
 
 	add_child(_particles)
+
+func _build_sparks() -> void:
+	_sparks = CPUParticles2D.new()
+	_sparks.emitting = true
+	_sparks.amount = 18
+	_sparks.lifetime = 0.35
+	_sparks.one_shot = false
+	_sparks.explosiveness = 0.0
+	_sparks.randomness = 1.0
+	_sparks.local_coords = false
+
+	_sparks.texture = _make_soft_circle()
+
+	_sparks.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	_sparks.emission_sphere_radius = 8.0
+
+	# Sparks shoot outward faster than trail
+	_sparks.direction = Vector2(0, 0)
+	_sparks.spread = 180.0
+	_sparks.initial_velocity_min = 40.0
+	_sparks.initial_velocity_max = 120.0
+	_sparks.damping_min = 80.0
+	_sparks.damping_max = 150.0
+	_sparks.gravity = Vector2.ZERO
+
+	# Tiny bright dots
+	_sparks.scale_amount_min = 0.06
+	_sparks.scale_amount_max = 0.14
+
+	# Flash in bright, vanish fast
+	var spark_grad := Gradient.new()
+	spark_grad.set_color(0, Color(1.0, 0.9, 1.0, 1.0))    # white-hot flash
+	spark_grad.add_point(0.15, Color(0.95, 0.6, 1.0, 0.9)) # bright purple
+	spark_grad.set_color(spark_grad.get_point_count() - 1, Color(0.5, 0.2, 0.8, 0.0))
+	_sparks.color_ramp = spark_grad
+
+	add_child(_sparks)
 
 func _process(delta: float) -> void:
 	if not _active:
@@ -115,9 +157,11 @@ func _process(delta: float) -> void:
 func _on_impact() -> void:
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_bolt_impact.wav")
 	impact_hit.emit()
-	# Stop trail emission
+	# Stop trail and spark emission
 	if _particles:
 		_particles.emitting = false
+	if _sparks:
+		_sparks.emitting = false
 
 	# Impact burst — spawn a quick expanding ring + flash
 	_spawn_impact_burst()
@@ -138,27 +182,29 @@ func _on_impact() -> void:
 func _spawn_impact_burst() -> void:
 	var burst := CPUParticles2D.new()
 	burst.emitting = true
-	burst.amount = 16
-	burst.lifetime = 0.35
+	burst.amount = 12
+	burst.lifetime = 0.3
 	burst.one_shot = true
 	burst.explosiveness = 1.0
 	burst.local_coords = true
 
+	burst.texture = _make_soft_circle()
+
 	burst.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
-	burst.emission_sphere_radius = 4.0
+	burst.emission_sphere_radius = 3.0
 
 	burst.direction = Vector2(0, 0)
 	burst.spread = 180.0
-	burst.initial_velocity_min = 80.0
-	burst.initial_velocity_max = 180.0
+	burst.initial_velocity_min = 60.0
+	burst.initial_velocity_max = 140.0
 	burst.gravity = Vector2.ZERO
 
-	burst.scale_amount_min = 2.0
-	burst.scale_amount_max = 4.0
+	burst.scale_amount_min = 0.1
+	burst.scale_amount_max = 0.25
 	burst.scale_amount_curve = _make_fade_curve()
 
 	var gradient := Gradient.new()
-	gradient.set_color(0, Color(1.0, 0.8, 1.0, 1.0))   # Bright white-purple
+	gradient.set_color(0, Color(1.0, 0.85, 1.0, 1.0))   # Bright white-purple
 	gradient.set_color(1, Color(0.5, 0.15, 0.7, 0.0))   # Fade to transparent purple
 	burst.color_ramp = gradient
 
@@ -183,3 +229,18 @@ func _make_fade_curve() -> Curve:
 	curve.add_point(Vector2(0, 1))
 	curve.add_point(Vector2(1, 0))
 	return curve
+
+## Generate a 32x32 soft radial gradient circle texture at runtime.
+## Used as particle texture so particles render as soft dots instead of squares.
+static func _make_soft_circle() -> ImageTexture:
+	var size := 32
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var center := Vector2(size * 0.5, size * 0.5)
+	var radius := size * 0.5
+	for y in size:
+		for x in size:
+			var dist: float = Vector2(x + 0.5, y + 0.5).distance_to(center)
+			var alpha: float = clampf(1.0 - dist / radius, 0.0, 1.0)
+			alpha *= alpha  # quadratic falloff for softer edges
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, alpha))
+	return ImageTexture.create_from_image(img)

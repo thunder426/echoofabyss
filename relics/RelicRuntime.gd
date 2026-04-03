@@ -97,3 +97,14 @@ func activate(index: int) -> String:
 	activated_this_turn = true
 	total_activations += 1
 	return rs.data.effect_id
+
+## Undo a previous activate() — restore the charge, clear cooldown, and
+## reset the once-per-turn flag so the player can use a relic again.
+func refund(index: int) -> void:
+	if index < 0 or index >= relics.size():
+		return
+	var rs: RelicState = relics[index]
+	rs.charges_remaining += 1
+	rs.cooldown_remaining = 0
+	activated_this_turn = false
+	total_activations -= 1

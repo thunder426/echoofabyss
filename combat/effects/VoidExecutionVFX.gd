@@ -17,8 +17,8 @@ const ARC_TEXTURE: Texture2D = preload("res://assets/animation/spells/void_execu
 const EXPLOSION_TEXTURE: Texture2D = preload("res://assets/animation/spells/void_execution/void_execution_explosion.png")
 const WIPE_SHADER: Shader = preload("res://combat/effects/void_execution_wipe.gdshader")
 
-const DEFAULT_ARC_SIZE := 280.0
-const DEFAULT_EXPLOSION_SIZE := 320.0
+const DEFAULT_ARC_SIZE := 200.0
+const DEFAULT_EXPLOSION_SIZE := 200.0
 var _arc_size: float = DEFAULT_ARC_SIZE
 var _explosion_size: float = DEFAULT_EXPLOSION_SIZE
 const ARC_DURATION := 0.45

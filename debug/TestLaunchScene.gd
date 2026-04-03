@@ -171,7 +171,7 @@ func _preset_empty() -> void:
 	_enemy_hp_input.value     = 500
 
 func _preset_full_hand() -> void:
-	_hand_input.text          = "arcane_strike, precision_strike, tactical_planning, hurricane, mark_the_target, abyssal_sacrifice"
+	_hand_input.text          = "smoke_veil, hidden_ambush, silence_trap, death_trap"
 	_player_deck_input.text   = ""
 	_player_board_input.text  = ""
 	_enemy_board_input.text   = "shadow_hound, abyssal_brute"

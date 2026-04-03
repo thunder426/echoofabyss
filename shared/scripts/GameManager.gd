@@ -294,7 +294,7 @@ func _build_encounter(index: int) -> EnemyData:
 				],
 				"ENCOUNTER I",
 				"The Abyss Dungeon. Cultists who willingly surrendered themselves to the void patrol these stone corridors. They have given up their names, their faces — only devotion remains.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				"res://assets/art/progression/backgrounds/fight4_loading.png",
 				["feral_reinforcement", "corrupt_authority"], "cultist_patrol")
 		5:
 			return _make_encounter("Void Ritualist", 3400,
@@ -309,7 +309,7 @@ func _build_encounter(index: int) -> EnemyData:
 				],
 				"ENCOUNTER II",
 				"A Void Ritualist performs an unending ceremony in the dungeon's depths. Runes of blood and shadow cover every wall. Whatever he is summoning, it must not be allowed to complete.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				"res://assets/art/progression/backgrounds/fight5_loading.png",
 				["feral_reinforcement", "ritual_sacrifice"], "void_ritualist")
 		6:
 			return _make_encounter("Corrupted Handler", 4000,
@@ -324,7 +324,7 @@ func _build_encounter(index: int) -> EnemyData:
 				],
 				"CORRUPTED HANDLER",
 				"The Handler was once a warden of this dungeon. Now something else wears his shape. His eyes are empty voids. His commands come in a language that shouldn't exist.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				"res://assets/art/progression/backgrounds/fight6_loading.png",
 				["feral_reinforcement", "void_unraveling"], "corrupted_handler")
 		# -- Act 3: Void Rift World --
 		7:
@@ -341,7 +341,7 @@ func _build_encounter(index: int) -> EnemyData:
 				],
 				"ENCOUNTER I",
 				"The Void Rift World — a place where reality has frayed. Rift Stalkers phase between dimensions, attacking from angles that shouldn't exist. Stay focused. Don't let it disorient you.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				"res://assets/art/progression/backgrounds/fight7_loading.png",
 				["void_rift", "void_empowerment"], "rift_stalker")
 		8:
 			return _make_encounter("Void Aberration", 4600,
@@ -357,7 +357,7 @@ func _build_encounter(index: int) -> EnemyData:
 				],
 				"ENCOUNTER II",
 				"A Void Aberration — a creature that should not exist in any plane. It was assembled from the broken remnants of things consumed by the rift. It has no purpose except destruction.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				"res://assets/art/progression/backgrounds/fight8_loading.png",
 				["void_rift", "void_detonation_passive"], "void_aberration")
 		9:
 			return _make_encounter("Void Herald", 6500,
@@ -374,7 +374,7 @@ func _build_encounter(index: int) -> EnemyData:
 				],
 				"VOID HERALD",
 				"The Void Herald speaks with the voice of the Abyss itself. It has crossed countless worlds before this one. It carries a message: the Abyss Sovereign is coming, and nothing will remain.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				"res://assets/art/progression/backgrounds/fight9_loading.png",
 				["void_rift", "void_mastery"], "void_herald")
 		# -- Act 4: Void Castle --
 		10:

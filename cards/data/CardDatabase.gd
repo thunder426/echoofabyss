@@ -18,7 +18,6 @@ var _cards: Dictionary = {}
 const _TOKEN_DEFS: Array[Dictionary] = [
 	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.",        "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
 	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning.", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
-	{"id": "relic_guardian", "name": "Guardian Spirit", "atk": 300, "hp": 300, "type": "SPIRIT", "faction": "neutral", "desc": "Summoned by Soul Anchor relic."},
 ]
 
 func _make_token(d: Dictionary) -> MinionCardData:
@@ -724,7 +723,7 @@ func _register_wanderer_cards() -> void:
 	nyx_ael.id           = "nyx_ael"
 	nyx_ael.card_name    = "Nyx'ael, Void Sovereign"
 	nyx_ael.essence_cost = 5
-	nyx_ael.description  = "CHAMPION: Summoned when 3 VOID IMPS are on the battlefield. \nPASSIVE: At the start of your turn, deal 200 damage to all enemy minions."
+	nyx_ael.description  = "CHAMPION: Summoned when 3 VOID IMP CLAN minions are on the battlefield. \nPASSIVE: At the start of your turn, deal 200 damage to all enemy minions."
 	nyx_ael.atk          = 500
 	nyx_ael.health       = 500
 	nyx_ael.minion_type  = Enums.MinionType.DEMON
@@ -888,7 +887,7 @@ func _register_wanderer_cards() -> void:
 	var imp_recruiter := MinionCardData.new()
 	imp_recruiter.id             = "imp_recruiter"
 	imp_recruiter.card_name      = "Imp Recruiter"
-	imp_recruiter.description    = "ON PLAY: add a void imp to your hand."
+	imp_recruiter.description    = "ON PLAY: Add a Void Imp to your hand."
 	imp_recruiter.essence_cost   = 2
 	imp_recruiter.atk            = 200
 	imp_recruiter.health         = 300
@@ -1102,7 +1101,7 @@ func _register_wanderer_cards() -> void:
 	imp_frenzy.id              = "imp_frenzy"
 	imp_frenzy.card_name       = "Imp Frenzy"
 	imp_frenzy.cost            = 1
-	imp_frenzy.description     = "Give a friendly VOID IMP +300 ATK."
+	imp_frenzy.description     = "Give a friendly VOID IMP CLAN minion +300 ATK."
 	imp_frenzy.requires_target = true
 	imp_frenzy.target_type     = "friendly_void_imp"
 	imp_frenzy.effect_steps    = [{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "VOID_IMP", "amount": 300, "permanent": true}]
@@ -1114,7 +1113,7 @@ func _register_wanderer_cards() -> void:
 	imp_martyr.id                  = "imp_martyr"
 	imp_martyr.card_name           = "Imp Martyr"
 	imp_martyr.essence_cost        = 2
-	imp_martyr.description         = "ON DEATH: Give all friendly VOID IMPS +100/+100 permanently."
+	imp_martyr.description         = "ON DEATH: Give all friendly VOID IMP CLAN minions +100/+100 permanently."
 	imp_martyr.atk                 = 100
 	imp_martyr.health              = 100
 	imp_martyr.minion_type         = Enums.MinionType.DEMON
@@ -1133,7 +1132,7 @@ func _register_wanderer_cards() -> void:
 	imp_vessel.id                  = "imp_vessel"
 	imp_vessel.card_name           = "Imp Vessel"
 	imp_vessel.essence_cost        = 3
-	imp_vessel.description         = "ON DEATH: Summon 2 void imps."
+	imp_vessel.description         = "ON DEATH: Summon 2 Void Imps."
 	imp_vessel.atk                 = 100
 	imp_vessel.health              = 200
 	imp_vessel.minion_type         = Enums.MinionType.DEMON
@@ -1152,7 +1151,7 @@ func _register_wanderer_cards() -> void:
 	imp_idol.id                    = "imp_idol"
 	imp_idol.card_name             = "Imp Idol"
 	imp_idol.essence_cost          = 5
-	imp_idol.description           = "ON PLAY: Give all friendly VOID IMPS DEATHLESS."
+	imp_idol.description           = "ON PLAY: Give all friendly VOID IMP CLAN minions DEATHLESS."
 	imp_idol.atk                   = 300
 	imp_idol.health                = 600
 	imp_idol.minion_type           = Enums.MinionType.DEMON
@@ -1170,7 +1169,7 @@ func _register_wanderer_cards() -> void:
 	vaels_colossal_guard.id                   = "vaels_colossal_guard"
 	vaels_colossal_guard.card_name            = "Vael's Colossal Guard"
 	vaels_colossal_guard.essence_cost         = 7
-	vaels_colossal_guard.description          = "ON PLAY: Gain +300/+300 for each other VOID IMP on board. Give all other VOID IMPS +100 ATK permanently."
+	vaels_colossal_guard.description          = "ON PLAY: Gain +300/+300 for each other VOID IMP CLAN minion on board. Give all other VOID IMP CLAN minions +100 ATK permanently."
 	vaels_colossal_guard.atk                  = 300
 	vaels_colossal_guard.health               = 300
 	vaels_colossal_guard.minion_type          = Enums.MinionType.DEMON

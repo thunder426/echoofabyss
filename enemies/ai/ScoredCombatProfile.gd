@@ -123,6 +123,8 @@ func _score_play(inst: CardInstance, w: ScoringWeights) -> float:
 	return -1.0
 
 func _score_play_minion(inst: CardInstance, mc: MinionCardData, w: ScoringWeights) -> float:
+	if mc.void_spark_cost > 0:
+		return -1.0
 	if mc.essence_cost > agent.essence or mc.mana_cost > agent.mana:
 		return -1.0
 	var empty_slots: int = agent.empty_slot_count()
@@ -139,6 +141,8 @@ func _score_play_minion(inst: CardInstance, mc: MinionCardData, w: ScoringWeight
 	return minion_value + on_play_value
 
 func _score_play_spell(inst: CardInstance, spell: SpellCardData, w: ScoringWeights) -> float:
+	if spell.void_spark_cost > 0:
+		return -1.0
 	var cost: int = agent.effective_spell_cost(spell)
 	if cost > agent.mana:
 		return -1.0

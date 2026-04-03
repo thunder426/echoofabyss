@@ -73,10 +73,18 @@ func _build_ui() -> void:
 	_vp = get_viewport_rect().size
 
 	# Background
-	var bg := ColorRect.new()
+	var bg := TextureRect.new()
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = COLOR_BG
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
+	bg.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	var bg_path := "res://assets/art/progression/backgrounds/shop.png"
+	bg.texture = load(bg_path) if ResourceLoader.exists(bg_path) else null
 	add_child(bg)
+	# Dark overlay for readability
+	var bg_overlay := ColorRect.new()
+	bg_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg_overlay.color = Color(0.04, 0.02, 0.08, 0.72)
+	add_child(bg_overlay)
 
 	# Title
 	var title_lbl := Label.new()
@@ -173,6 +181,9 @@ func _fill_card_offers(pool: Array[String], count: int) -> void:
 		# First shop: no champion cards
 		if _is_first_shop and is_champ:
 			continue
+		# Skip cards already at max copies in deck
+		if GameManager.player_deck.count(card_id) >= _copy_cap(card_id, card):
+			continue
 		var cost := CHAMPION_COST if is_champ else STANDARD_COST
 		_card_offers.append({card_id = card_id, cost = cost})
 		added += 1
@@ -208,9 +219,7 @@ func _add_card_slot(offer: Dictionary) -> void:
 	btn.custom_minimum_size = Vector2(200, 36)
 	btn.add_theme_font_size_override("font_size", 15)
 	var copies := GameManager.player_deck.count(card_id)
-	var is_champ := card is MinionCardData and (card as MinionCardData).is_champion
-	var cap := 1 if is_champ else COPY_CAP
-	var can_buy := GameManager.void_shards >= cost and copies < cap
+	var can_buy := GameManager.void_shards >= cost and copies < _copy_cap(card_id, card)
 	btn.disabled = not can_buy
 	btn.pressed.connect(_on_buy_card.bind(card_id, cost, wrapper))
 	wrapper.add_child(btn)
@@ -335,9 +344,7 @@ func _grant_random_card() -> void:
 		var card := CardDatabase.get_card(card_id)
 		if card == null:
 			continue
-		var is_champ := card is MinionCardData and (card as MinionCardData).is_champion
-		var cap := 1 if is_champ else COPY_CAP
-		if GameManager.player_deck.count(card_id) < cap:
+		if GameManager.player_deck.count(card_id) < _copy_cap(card_id, card):
 			GameManager.player_deck.append(card_id)
 			return
 
@@ -473,6 +480,17 @@ func _get_full_pool() -> Array[String]:
 	return pool
 
 # ---------------------------------------------------------------------------
+# Copy cap
+# ---------------------------------------------------------------------------
+
+func _copy_cap(card_id: String, card: CardData) -> int:
+	if card is MinionCardData and (card as MinionCardData).is_champion:
+		return 1
+	if card_id == "void_imp":
+		return GameManager.core_unit_limit
+	return COPY_CAP
+
+# ---------------------------------------------------------------------------
 # UI helpers
 # ---------------------------------------------------------------------------
 
@@ -496,9 +514,7 @@ func _update_remaining_buy_buttons() -> void:
 				var card := CardDatabase.get_card(offer.card_id)
 				if card == null:
 					continue
-				var is_champ := card is MinionCardData and (card as MinionCardData).is_champion
-				var cap := 1 if is_champ else COPY_CAP
-				btn.disabled = GameManager.void_shards < offer.cost or GameManager.player_deck.count(offer.card_id) >= cap
+				btn.disabled = GameManager.void_shards < offer.cost or GameManager.player_deck.count(offer.card_id) >= _copy_cap(offer.card_id, card)
 
 # ---------------------------------------------------------------------------
 # Navigation

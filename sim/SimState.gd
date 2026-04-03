@@ -93,6 +93,12 @@ var _spell_tax_for_player_turn: int = 0
 ## Active player spell cost penalty this turn (applied at turn start, cleared at turn end).
 var player_spell_cost_penalty: int = 0
 
+## When true, enemy traps cannot trigger (set by Saboteur Adept, cleared at player turn end).
+var _enemy_traps_blocked: bool = false
+
+## When true, player traps cannot trigger (set by enemy Saboteur Adept, cleared at enemy turn end).
+var _player_traps_blocked: bool = false
+
 ## Debug counters for sim tracking.
 var _ritual_sacrifice_count: int = 0   ## Enemy ritual_sacrifice passive fires
 var _detonation_count: int = 0         ## Enemy corrupt_authority imp detonation fires
@@ -308,7 +314,7 @@ func _corrupt_minion(target: MinionInstance) -> void:
 func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
 
-func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null) -> void:
+func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, _from_rune: bool = false) -> void:
 	var bonus := enemy_void_marks * void_mark_damage_per_stack
 	combat_manager.apply_hero_damage("enemy", base_damage + bonus, Enums.DamageType.VOID_BOLT)
 
@@ -431,6 +437,8 @@ func _unregister_env_aura(env: EnvironmentCardData) -> void:
 
 ## Fire matching non-rune traps for the given trigger event.
 func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = null) -> void:
+	if _player_traps_blocked:
+		return
 	for trap in active_traps.duplicate():
 		if trap.is_rune:
 			continue
@@ -572,6 +580,7 @@ func begin_player_turn(turn_number: int) -> void:
 
 func end_player_turn() -> void:
 	player_spell_cost_penalty = 0
+	_enemy_traps_blocked = false
 
 func begin_enemy_turn(turn_number: int) -> void:
 	if enemy_growth_override.is_valid():
@@ -589,6 +598,7 @@ func begin_enemy_turn(turn_number: int) -> void:
 
 func end_enemy_turn() -> void:
 	enemy_spell_cost_penalty = 0
+	_player_traps_blocked = false
 
 func _grow_player_resources(turn_number: int) -> void:
 	if turn_number <= 1: return

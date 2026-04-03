@@ -58,10 +58,10 @@ func _pick_card_rewards() -> void:
 func _build_normal_pool() -> Array[String]:
 	var pool: Array[String] = []
 	for id in CardDatabase.get_card_ids_in_pools(CORE_POOL_NAMES):
-		if id not in VARIANT_CORE_UNITS:
+		if id not in VARIANT_CORE_UNITS and not _is_champion(id):
 			pool.append(id)
 	for card_id in _get_active_support_pool_ids():
-		if card_id in GameManager.permanent_unlocks and card_id not in VARIANT_CORE_UNITS:
+		if card_id in GameManager.permanent_unlocks and card_id not in VARIANT_CORE_UNITS and not _is_champion(card_id):
 			pool.append(card_id)
 	return pool
 
@@ -70,13 +70,17 @@ func _build_normal_pool() -> Array[String]:
 func _build_boss_pool() -> Array[String]:
 	var pool: Array[String] = []
 	for card_id in _get_active_support_pool_ids():
-		if card_id in GameManager.permanent_unlocks and card_id not in VARIANT_CORE_UNITS:
+		if card_id in GameManager.permanent_unlocks and card_id not in VARIANT_CORE_UNITS and not _is_champion(card_id):
 			pool.append(card_id)
 	if pool.is_empty():
 		for id in CardDatabase.get_card_ids_in_pools(CORE_POOL_NAMES):
-			if id not in VARIANT_CORE_UNITS:
+			if id not in VARIANT_CORE_UNITS and not _is_champion(id):
 				pool.append(id)
 	return pool
+
+func _is_champion(card_id: String) -> bool:
+	var card: CardData = CardDatabase.get_card(card_id)
+	return card is MinionCardData and card.is_champion
 
 ## Returns card IDs from all support pools active in this run (based on talents taken).
 func _get_active_support_pool_ids() -> Array[String]:

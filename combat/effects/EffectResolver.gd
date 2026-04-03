@@ -100,8 +100,13 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			return
 
 		EffectStep.EffectType.VOID_BOLT:
-			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
-				ctx.scene._deal_void_bolt_damage(_amount(step, ctx), ctx.source)
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var dmg := _amount(step, ctx)
+				if ctx.owner == "player":
+					ctx.scene._deal_void_bolt_damage(dmg, ctx.source, ctx.from_rune)
+				else:
+					var opponent := "player"
+					ctx.scene.combat_manager.apply_hero_damage(opponent, dmg, Enums.DamageType.SPELL)
 			return
 
 		EffectStep.EffectType.HARDCODED:

@@ -209,7 +209,7 @@ func _play_minions_pass() -> void:
 		placed = false
 		var minion_hand: Array[CardInstance] = []
 		for inst in agent.hand:
-			if inst.card_data is MinionCardData:
+			if inst.card_data is MinionCardData and inst.card_data.void_spark_cost <= 0:
 				minion_hand.append(inst)
 		# Last slot: prefer highest-value card to avoid wasting it on a cheap throwaway.
 		# Multiple slots: cheapest-first to flood the board.
@@ -240,7 +240,7 @@ func _play_spells_pass() -> void:
 		cast = false
 		var spell_hand: Array[CardInstance] = []
 		for inst in agent.hand:
-			if inst.card_data is SpellCardData:
+			if inst.card_data is SpellCardData and inst.card_data.void_spark_cost <= 0:
 				spell_hand.append(inst)
 		spell_hand.sort_custom(agent.sort_by_total_cost)
 		for inst in spell_hand:
