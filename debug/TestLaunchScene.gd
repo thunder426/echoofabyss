@@ -97,6 +97,7 @@ func _build_ui() -> void:
 	_preset_btn(presets, "Empty Board",   _preset_empty)
 	_preset_btn(presets, "Full Hand",     _preset_full_hand)
 	_preset_btn(presets, "Board Fight",   _preset_board_fight)
+	_preset_btn(presets, "Spirit Fuel",   _preset_spirit_fuel)
 
 	vbox.add_child(_sep())
 
@@ -187,6 +188,17 @@ func _preset_board_fight() -> void:
 	_enemy_name_input.text    = "Sparring Partner"
 	_player_hp_input.value    = 3000
 	_enemy_hp_input.value     = 3000
+
+func _preset_spirit_fuel() -> void:
+	_hand_input.text          = "void_wisp, void_shade, void_wraith, void_revenant, bastion_colossus, sovereigns_decree, thrones_command, sovereigns_edict, sovereigns_herald"
+	_player_deck_input.text   = "phase_stalker, void_pulse, rift_collapse, void_behemoth"
+	_player_board_input.text  = ""
+	_enemy_board_input.text   = "void_wisp, void_shade, void_wraith"
+	_enemy_deck_input.text    = "bastion_colossus, sovereigns_decree, thrones_command, phase_stalker, void_pulse"
+	_enemy_name_input.text    = "Spirit Test"
+	_player_hp_input.value    = 3000
+	_enemy_hp_input.value     = 5000
+	_inf_res_check.button_pressed = true
 
 # ---------------------------------------------------------------------------
 # UI helpers

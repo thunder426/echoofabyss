@@ -379,40 +379,107 @@ func _build_encounter(index: int) -> EnemyData:
 		# -- Act 4: Void Castle --
 		10:
 			return _make_encounter("Void Scout", 5000,
-				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				[
+					"void_wisp", "void_wisp", "void_wisp", "void_wisp",
+					"void_shade", "void_shade", "void_shade",
+					"sovereigns_herald", "sovereigns_herald",
+					"void_pulse", "void_pulse",
+					"phase_stalker",
+					"rift_collapse",
+					"void_behemoth",
+					"bastion_colossus",
+				],
 				"ENCOUNTER I",
 				"The Void Castle looms at the edge of existence. Void Scouts patrol its outer walls — swift, precise, and utterly loyal. The Sovereign's inner sanctum is somewhere beyond.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_might", "void_precision"], "void_scout")
 		11:
 			return _make_encounter("Void Warband", 5600,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague"],
+				[
+					"void_wisp", "void_wisp",
+					"void_shade", "void_shade",
+					"void_wraith", "void_wraith",
+					"sovereigns_herald",
+					"void_pulse", "void_pulse",
+					"phase_stalker", "phase_stalker",
+					"rift_collapse",
+					"void_behemoth", "void_behemoth",
+					"bastion_colossus",
+				],
 				"ENCOUNTER II",
 				"A full Void Warband stands between you and the castle's keep. These are the Sovereign's chosen soldiers — hardened by centuries of conquest across dying worlds.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_might", "spirit_conscription"])
 		12:
 			return _make_encounter("Void Captain", 6200,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				[
+					"void_wisp", "void_wisp",
+					"void_shade", "void_shade",
+					"void_wraith", "void_wraith",
+					"sovereigns_herald", "sovereigns_herald",
+					"void_pulse", "void_pulse",
+					"phase_stalker", "phase_stalker",
+					"rift_collapse",
+					"thrones_command",
+					"bastion_colossus",
+				],
 				"VOID CAPTAIN",
 				"The Void Captain commands the castle's garrison. A veteran of a hundred conquests, she has never known defeat. She regards you with curiosity — a new species of prey.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_might", "captain_orders"])
 		13:
 			return _make_encounter("Void Ritualist Prime", 7000,
-				["abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
-				"ENCOUNTER IV",
+				[
+					"void_wisp", "void_wisp",
+					"void_shade", "void_shade",
+					"void_wraith",
+					"sovereigns_herald", "sovereigns_herald",
+					"void_pulse", "void_pulse",
+					"rift_collapse",
+					"sovereigns_decree",
+					"void_bolt", "void_bolt",
+					"arcane_strike", "arcane_strike",
+				],
+				"VOID RITUALIST PRIME",
 				"The Ritualist Prime is the Sovereign's high priest. He has spent his eternal life weaving void energy into a prison for the soul. He will try to do the same to you.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_might", "dark_channeling"])
 		14:
 			return _make_encounter("Void Champion", 7800,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				[
+					"void_wisp", "void_wisp",
+					"void_shade", "void_shade",
+					"void_wraith", "void_wraith",
+					"void_revenant",
+					"sovereigns_herald", "sovereigns_herald",
+					"void_pulse", "void_pulse",
+					"phase_stalker",
+					"thrones_command",
+					"void_behemoth",
+					"bastion_colossus",
+				],
 				"VOID CHAMPION",
 				"The last guardian before the throne. The Void Champion was forged from pure abyss energy — no flesh, no weakness, no mercy. Beyond him, the Sovereign waits.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_might", "champion_duel"])
 		15:
 			return _make_encounter("Abyss Sovereign", 10000,
-				["abyssal_brute", "abyssal_brute", "abyssal_brute", "abyssal_brute", "void_bolt", "void_bolt", "void_bolt", "abyssal_plague", "abyssal_plague"],
+				[
+					"void_wisp", "void_wisp",
+					"void_shade", "void_shade",
+					"void_wraith",
+					"void_revenant",
+					"sovereigns_herald", "sovereigns_herald",
+					"void_pulse", "void_pulse",
+					"phase_stalker", "phase_stalker",
+					"sovereigns_decree",
+					"void_bolt",
+					"bastion_colossus",
+				],
 				"ABYSS SOVEREIGN",
 				"At last. The Abyss Sovereign — the source of all corruption, the end of all things. It has devoured worlds without count. Today, it faces something it has never encountered: defiance.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png")
+				"res://assets/art/progression/backgrounds/a1_combat_background.png",
+				["void_might", "void_precision", "dark_channeling"])
 	return null
 
 func _make_encounter(ename: String, ehp: int, pool: Array[String],

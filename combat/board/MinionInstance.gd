@@ -117,6 +117,18 @@ func has_lifedrain() -> bool:
 func has_shield() -> bool:
 	return shield_cap() > 0
 
+## True if this minion has Critical Strike stacks.
+func has_critical_strike() -> bool:
+	return BuffSystem.has_type(self, Enums.BuffType.CRITICAL_STRIKE)
+
+## Number of Critical Strike stacks on this minion.
+func critical_strike_stacks() -> int:
+	return BuffSystem.sum_type(self, Enums.BuffType.CRITICAL_STRIKE)
+
+## True if this minion is immune to spells (runtime grant via buff).
+func has_spell_immune() -> bool:
+	return BuffSystem.has_type(self, Enums.BuffType.GRANT_SPELL_IMMUNE)
+
 # ---------------------------------------------------------------------------
 # Turn lifecycle
 # ---------------------------------------------------------------------------

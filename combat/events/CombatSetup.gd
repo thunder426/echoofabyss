@@ -135,6 +135,44 @@ const _REGISTRY: Dictionary = {
 		"triggers": [],
 		"stats":    {}
 	},
+	# ── Act 4 enemy passives ──────────────────────────────────────────────────
+	"void_might": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_void_might", "priority": 5 }],
+		"stats":    {}
+	},
+	"abyss_awakened": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_abyss_awakened", "priority": 5 }],
+		"stats":    {}
+	},
+	"void_precision": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK, "method": "on_enemy_attack_void_precision_pre",  "priority": 0 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK, "method": "on_enemy_attack_void_precision_post", "priority": 99 },
+		],
+		"stats":    { "_vp_pre_crit_stacks": 0 }
+	},
+	"spirit_conscription": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START,      "method": "on_enemy_turn_reset_spirit_conscription", "priority": 0 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_spirit_conscription",     "priority": 6 },
+		],
+		"stats":    { "_spirit_conscription_fired": false }
+	},
+	"captain_orders": {
+		"triggers": [],
+		"stats":    { "crit_multiplier": 2.5 }
+	},
+	"dark_channeling": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "method": "on_enemy_spell_dark_channeling", "priority": 0 }],
+		"stats":    { "_dark_channeling_active": false, "_dark_channeling_multiplier": 1.0 }
+	},
+	"champion_duel": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_champion_duel_refresh",  "priority": 10 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK,     "method": "on_enemy_attack_champion_duel_refresh", "priority": 98 },
+		],
+		"stats":    {}
+	},
 }
 
 func setup(

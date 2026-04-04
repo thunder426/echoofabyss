@@ -49,11 +49,17 @@ const _ACT_GATE_COLOR: Dictionary = {
 
 # Keyword display names
 const _KEYWORD_NAME: Dictionary = {
-	Enums.Keyword.TAUNT:          "Taunt",
-	Enums.Keyword.RUSH:           "Rush",
+	Enums.Keyword.GUARD:          "Guard",
+	Enums.Keyword.SWIFT:          "Swift",
 	Enums.Keyword.LIFEDRAIN:      "Lifedrain",
 	Enums.Keyword.SHIELD_REGEN_1: "Barrier I",
 	Enums.Keyword.SHIELD_REGEN_2: "Barrier II",
+	Enums.Keyword.CHAMPION:       "Champion",
+	Enums.Keyword.DEATHLESS:      "Deathless",
+	Enums.Keyword.RUNE:           "Rune",
+	Enums.Keyword.CORRUPTION:     "Corruption",
+	Enums.Keyword.VOID_MARK:      "Void Mark",
+	Enums.Keyword.RITUAL:         "Ritual",
 }
 
 # ---------------------------------------------------------------------------

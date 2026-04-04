@@ -179,6 +179,21 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 					BuffSystem.apply(target, Enums.BuffType.GRANT_DEATHLESS, 1, step.source_tag)
 					scene._refresh_slot_for(target)
 
+		EffectStep.EffectType.GRANT_CRITICAL_STRIKE:
+			var stacks := maxi(1, amount)
+			for _i in stacks:
+				BuffSystem.apply(target, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike")
+			scene._refresh_slot_for(target)
+
+		EffectStep.EffectType.GRANT_ON_DEATH_SUMMON:
+			if target is MinionInstance:
+				target.granted_on_death_effects.append({
+					"description": "ON DEATH: Summon a %s." % step.card_id,
+					"source": "sovereigns_edict",
+					"summon_id": step.card_id,
+				})
+				scene._refresh_slot_for(target)
+
 		EffectStep.EffectType.PURGE:
 			if step.purge_filter.is_empty():
 				BuffSystem.purge_all(target)

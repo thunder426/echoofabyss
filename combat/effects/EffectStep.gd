@@ -27,6 +27,8 @@ enum EffectType {
 	GRANT_KEYWORD,     # Grant keyword (keyword field) to target(s)
 	DESTROY,           # Destroy a trap, rune, or environment (non-minion targets)
 	VOID_BOLT,         # Deal amount Void Bolt damage to enemy hero (scales with Void Marks, triggers bolt passives)
+	GRANT_CRITICAL_STRIKE,  # Grant amount stacks of Critical Strike to target(s)
+	GRANT_ON_DEATH_SUMMON,  # Grant target(s) a runtime "ON DEATH: summon card_id" effect
 	HARDCODED,         # Fall through to CombatScene._resolve_hardcoded(hardcoded_id, ctx)
 	CONVERT_RESOURCE,  # Convert all of convert_from resource into convert_to, capped at target's max
 	PURGE,             # Dispel all buffs from enemy target or cleanse all debuffs from friendly target; purge_filter narrows to a specific BuffType

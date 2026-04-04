@@ -57,56 +57,6 @@ func _rift_stalker_growth(state: Object, turn: int) -> void:
 		state.enemy_essence_max += 1
 
 # ---------------------------------------------------------------------------
-# Spark helpers
-# ---------------------------------------------------------------------------
-
-func _count_sparks() -> int:
-	var count := 0
-	for m: MinionInstance in agent.friendly_board:
-		if m.card_data.id == "void_spark":
-			count += 1
-	return count
-
-func _effective_spark_cost(card: CardData) -> int:
-	var base: int = card.void_spark_cost
-	if base <= 0:
-		return 0
-	var passives = agent.scene.get("_active_enemy_passives")
-	if passives != null and "void_mastery" in passives:
-		return maxi(ceili(float(base) / 2.0), 1)
-	return base
-
-func _consume_sparks(count: int) -> void:
-	var consumed := 0
-	for m: MinionInstance in agent.friendly_board.duplicate():
-		if consumed >= count:
-			break
-		if m.card_data.id == "void_spark":
-			agent.scene.combat_manager.kill_minion(m)
-			consumed += 1
-	# Fire void_detonation_passive if active
-	var passives = agent.scene.get("_active_enemy_passives")
-	if passives != null and "void_detonation_passive" in passives:
-		var handlers: Object = agent.scene.get("_handlers")
-		if handlers != null and handlers.has_method("apply_void_detonation"):
-			handlers.apply_void_detonation(consumed)
-
-func _can_afford_spark_card(card: CardData) -> bool:
-	var spark_cost: int = _effective_spark_cost(card)
-	if spark_cost <= 0:
-		return false
-	if spark_cost > _count_sparks():
-		return false
-	if card is SpellCardData:
-		var spell := card as SpellCardData
-		return agent.effective_spell_cost(spell) <= agent.mana
-	elif card is MinionCardData:
-		var mc := card as MinionCardData
-		var mana_cost: int = agent.effective_minion_mana_cost(mc)
-		return mc.essence_cost <= agent.essence and mana_cost <= agent.mana
-	return false
-
-# ---------------------------------------------------------------------------
 # Play phases
 # ---------------------------------------------------------------------------
 
@@ -126,7 +76,7 @@ func _play_spark_spells() -> void:
 				continue
 			# Conservative: skip if this would use our last spark
 			var sc: int = _effective_spark_cost(inst.card_data)
-			if _count_sparks() - sc < 1 and _count_sparks() > 1:
+			if _available_sparks() - sc < 1 and _available_sparks() > 1:
 				continue
 			var p: int = _spark_spell_priority(inst.card_data.id)
 			if p > best_priority:
@@ -135,7 +85,10 @@ func _play_spark_spells() -> void:
 		if best != null:
 			var spell := best.card_data as SpellCardData
 			var sc: int = _effective_spark_cost(spell)
-			_consume_sparks(sc)
+			var plan := _plan_spark_payment(sc)
+			if plan.is_empty(): return
+			await _pay_sparks_smart(plan, DeckType.TEMPO)
+			if not agent.is_alive(): return
 			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(best, pick_spell_target(spell)):
 				return
@@ -183,7 +136,10 @@ func _play_spark_minions() -> void:
 				return
 			var mc := inst.card_data as MinionCardData
 			var sc: int = _effective_spark_cost(mc)
-			_consume_sparks(sc)
+			var plan := _plan_spark_payment(sc)
+			if plan.is_empty(): return
+			await _pay_sparks_smart(plan, DeckType.TEMPO)
+			if not agent.is_alive(): return
 			agent.essence -= mc.essence_cost
 			agent.mana    -= agent.effective_minion_mana_cost(mc)
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

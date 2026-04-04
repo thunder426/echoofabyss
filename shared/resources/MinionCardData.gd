@@ -87,5 +87,9 @@ extends CardData
 ## For "board_tag_count": the minimum count needed to trigger auto-summon.
 @export var auto_summon_threshold: int = 0
 
+## Void Spark value when this minion is consumed to pay spark costs.
+## 0 = cannot be consumed as spark fuel. Void Spirit clan minions have values 1–4.
+@export var spark_value: int = 0
+
 func _init() -> void:
 	card_type = Enums.CardType.MINION

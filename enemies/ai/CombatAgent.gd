@@ -101,6 +101,11 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 func do_attack_hero(attacker: MinionInstance) -> bool:
 	return false
 
+## Remove a friendly minion from the board without triggering ON DEATH effects.
+## Used for spark consumption (Void Spirits sacrificed as fuel).
+func consume_minion(_minion: MinionInstance) -> void:
+	pass
+
 # ---------------------------------------------------------------------------
 # Utilities — default implementations shared by all agents
 # ---------------------------------------------------------------------------

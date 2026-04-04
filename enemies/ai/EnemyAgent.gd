@@ -67,6 +67,9 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 func do_attack_hero(attacker: MinionInstance) -> bool:
 	return await _ai.do_attack_hero(attacker)
 
+func consume_minion(minion: MinionInstance) -> void:
+	_ai.consume_minion(minion)
+
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------

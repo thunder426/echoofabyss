@@ -200,6 +200,7 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 
 	# Wire up combat manager
 	combat_manager = CombatManager.new()
+	combat_manager.scene = self
 	combat_manager.minion_vanished.connect(_on_minion_vanished)
 	combat_manager.hero_damaged.connect(_on_hero_damaged)
 	combat_manager.hero_healed.connect(_on_hero_healed)

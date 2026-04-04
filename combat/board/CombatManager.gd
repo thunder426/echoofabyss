@@ -25,13 +25,17 @@ signal hero_healed(target: String, amount: int)
 # Main attack resolution
 # ---------------------------------------------------------------------------
 
+## Scene reference — set by CombatScene/SimState so we can read crit_multiplier.
+var scene: Object = null
+
 ## Resolve a full attack between two minions (simultaneous damage).
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
-	_deal_damage(defender, attacker.effective_atk(), Enums.DamageType.PHYSICAL)
+	var atk_damage := _apply_crit(attacker)
+	_deal_damage(defender, atk_damage, Enums.DamageType.PHYSICAL)
 	_deal_damage(attacker, defender.effective_atk(), Enums.DamageType.PHYSICAL)
 
-	if attacker.has_lifedrain() and attacker.effective_atk() > 0:
-		hero_healed.emit(attacker.owner, attacker.effective_atk())
+	if attacker.has_lifedrain() and atk_damage > 0:
+		hero_healed.emit(attacker.owner, atk_damage)
 
 	attacker.attack_count += 1
 	attacker.state = Enums.MinionState.EXHAUSTED
@@ -39,7 +43,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 
 ## Resolve a minion attacking the enemy hero directly.
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
-	var damage := attacker.effective_atk()
+	var damage := _apply_crit(attacker)
 	if damage > 0:
 		hero_damaged.emit(target_owner, damage, Enums.DamageType.PHYSICAL)
 		if attacker.has_lifedrain():
@@ -77,8 +81,10 @@ func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = 
 			minion.current_health = 0
 			minion_vanished.emit(minion)
 
-## Apply spell damage to a minion.
+## Apply spell damage to a minion. Respects SPELL_IMMUNE.
 func apply_spell_damage(minion: MinionInstance, damage: int) -> void:
+	if minion.has_spell_immune():
+		return
 	_deal_damage(minion, damage, Enums.DamageType.SPELL)
 
 ## Instantly kill a minion, bypassing shield and health checks.
@@ -86,6 +92,30 @@ func apply_spell_damage(minion: MinionInstance, damage: int) -> void:
 func kill_minion(minion: MinionInstance) -> void:
 	minion.current_health = 0
 	minion_vanished.emit(minion)
+
+# ---------------------------------------------------------------------------
+# Critical Strike
+# ---------------------------------------------------------------------------
+
+## If the attacker has CRITICAL_STRIKE stacks, consume one and return
+## effective_atk multiplied by the scene's crit_multiplier (default 2.0).
+## Otherwise return effective_atk unchanged.
+func _apply_crit(attacker: MinionInstance) -> int:
+	var base_dmg := attacker.effective_atk()
+	if not BuffSystem.has_type(attacker, Enums.BuffType.CRITICAL_STRIKE):
+		return base_dmg
+	BuffSystem.remove_one_source(attacker, "critical_strike")
+	var multiplier: float = 2.0
+	if scene != null and scene.get("crit_multiplier") != null:
+		multiplier = scene.get("crit_multiplier")
+	return int(base_dmg * multiplier)
+
+## Apply spell damage scaled by dark_channeling crit (1.5x).
+## Called by the dark_channeling passive handler — NOT the normal spell path.
+func apply_crit_spell_damage(minion: MinionInstance, damage: int, multiplier: float) -> void:
+	if minion.has_spell_immune():
+		return
+	_deal_damage(minion, int(damage * multiplier), Enums.DamageType.SPELL)
 
 # ---------------------------------------------------------------------------
 # Board helpers

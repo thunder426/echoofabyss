@@ -135,6 +135,9 @@ enum BuffType {
 	GRANT_GUARD,     # Grants Guard at runtime (e.g. Imp Overseer aura). Dispellable.
 	GRANT_LIFEDRAIN, # Grants Lifedrain at runtime (e.g. Abyssal Fury). Dispellable.
 	GRANT_DEATHLESS, # Grants Deathless at runtime. Consumed (removed) when it activates.
+	# ---- Combat grants ----
+	CRITICAL_STRIKE, # Stacking. Consumed 1 per attack; doubles effective_atk for that attack.
+	GRANT_SPELL_IMMUNE, # Grants Spell Immune at runtime. Dispellable.
 	# ---- Debuffs ----
 	CORRUPTION,      # Stacking ATK penalty. amount = penalty per stack (100 base, 200 w/ talent).
 }

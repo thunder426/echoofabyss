@@ -223,6 +223,12 @@ func on_minion_died_death_effect(ctx: EventContext) -> void:
 		var eff_ctx    := EffectContext.make(_scene, minion.owner)
 		eff_ctx.source = minion
 		EffectResolver.run(card.on_death_effect_steps, eff_ctx)
+	# Runtime-granted on-death summon effects (e.g. Sovereign's Edict)
+	for eff: Dictionary in minion.granted_on_death_effects:
+		var summon_id: String = eff.get("summon_id", "")
+		if not summon_id.is_empty():
+			_scene._summon_token(summon_id, minion.owner, 0, 0)
+			_log("  %s dies — summons a %s." % [minion.card_data.card_name, summon_id], _LOG_ENEMY if minion.owner == "enemy" else _LOG_PLAYER)
 
 func on_player_minion_died_board_passives(ctx: EventContext) -> void:
 	var dead := ctx.minion
@@ -543,6 +549,115 @@ func apply_void_detonation(spark_count: int) -> void:
 			_scene.combat_manager.apply_spell_damage(m, 100)
 		_scene.combat_manager.apply_hero_damage("player", 100, Enums.DamageType.SPELL)
 		_log("  Void Detonation: Void Spark consumed — 100 damage to all player minions and hero!", _LOG_ENEMY)
+
+# ---------------------------------------------------------------------------
+# Act 4 — Void Castle passive handlers
+# ---------------------------------------------------------------------------
+
+## void_might (shared Act 4): at enemy turn start, grant 1 random friendly
+## minion +1 stack of CRITICAL_STRIKE.
+func on_enemy_turn_void_might(_ctx: EventContext) -> void:
+	if _scene.enemy_board.is_empty():
+		return
+	var target: MinionInstance = _scene.enemy_board.pick_random()
+	BuffSystem.apply(target, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike")
+	_scene._refresh_slot_for(target)
+	_log("  Void Might: %s gains Critical Strike." % target.card_data.card_name, _LOG_ENEMY)
+
+## abyss_awakened (Abyss Sovereign Phase 2): at enemy turn start, grant ALL
+## friendly minions +1 stack of CRITICAL_STRIKE.
+func on_enemy_turn_abyss_awakened(_ctx: EventContext) -> void:
+	for m: MinionInstance in _scene.enemy_board:
+		BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike")
+		_scene._refresh_slot_for(m)
+	if not _scene.enemy_board.is_empty():
+		_log("  Abyss Awakened: all enemy minions gain Critical Strike.", _LOG_ENEMY)
+
+## void_precision (Fight 10 — Void Scout): after an enemy minion deals crit
+## damage (attack resolves), grant it +200 ATK permanently.
+## Listens to ON_ENEMY_ATTACK — we check after the attack if a crit was consumed.
+## Implementation: tracks pre-attack crit count via scene field, compares after.
+func on_enemy_attack_void_precision_pre(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.minion
+	if attacker == null or attacker.owner != "enemy":
+		return
+	_scene.set("_vp_pre_crit_stacks", attacker.critical_strike_stacks())
+
+func on_enemy_attack_void_precision_post(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.minion
+	if attacker == null or attacker.owner != "enemy":
+		return
+	if attacker.current_health <= 0:
+		return
+	var raw = _scene.get("_vp_pre_crit_stacks")
+	var pre_stacks: int = raw if raw != null else 0
+	if pre_stacks > attacker.critical_strike_stacks():
+		BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 200, "void_precision", false)
+		_scene._refresh_slot_for(attacker)
+		_log("  Void Precision: %s gains +200 ATK from critical strike." % attacker.card_data.card_name, _LOG_ENEMY)
+
+## spirit_conscription (Fight 11 — Void Warband): once per turn, when enemy
+## plays a Void Spirit clan minion, summon a 100/100 Void Spark.
+func on_enemy_turn_reset_spirit_conscription(_ctx: EventContext) -> void:
+	_scene.set("_spirit_conscription_fired", false)
+
+func on_enemy_summon_spirit_conscription(ctx: EventContext) -> void:
+	var minion: MinionInstance = ctx.minion
+	if minion == null or minion.owner != "enemy":
+		return
+	if not _has_tag(minion, "void_spirit"):
+		return
+	if _scene.get("_spirit_conscription_fired") == true:
+		return
+	_scene.set("_spirit_conscription_fired", true)
+	_scene._summon_token("void_spark", "enemy", 100, 100)
+	_log("  Spirit Conscription: a Void Spark joins the enemy ranks.", _LOG_ENEMY)
+
+## captain_orders (Fight 12 — Void Captain): crit damage is 2.5x instead of 2x.
+## Implemented as a stat override: scene.crit_multiplier = 2.5
+## No trigger handler needed — just the stat in the registry.
+
+## dark_channeling (Fight 13 — Void Ritualist Prime): when enemy casts a
+## damage-dealing spell, consume 1 crit stack from a random friendly minion.
+## If consumed, spell deals 1.5x damage. Listens to ON_ENEMY_SPELL_CAST.
+func on_enemy_spell_dark_channeling(ctx: EventContext) -> void:
+	if _scene.enemy_board.is_empty():
+		return
+	# Find a minion with crit stacks
+	var candidates: Array[MinionInstance] = []
+	for m: MinionInstance in _scene.enemy_board:
+		if m.has_critical_strike():
+			candidates.append(m)
+	if candidates.is_empty():
+		return
+	var donor: MinionInstance = candidates.pick_random()
+	BuffSystem.remove_one_source(donor, "critical_strike")
+	_scene._refresh_slot_for(donor)
+	_scene.set("_dark_channeling_active", true)
+	_scene.set("_dark_channeling_multiplier", 1.5)
+	_log("  Dark Channeling: %s channels crit energy into the spell (1.5x)." % donor.card_data.card_name, _LOG_ENEMY)
+
+## champion_duel (Fight 14 — Void Champion): enemy minions with Critical Strike
+## have SPELL_IMMUNE. We check on crit grant and crit consumption.
+## Implemented via ON_ENEMY_TURN_START (refresh after void_might grants) and
+## ON_ENEMY_ATTACK (refresh after crit consumed by attack).
+func on_enemy_turn_champion_duel_refresh(_ctx: EventContext) -> void:
+	_refresh_champion_duel_immunity()
+
+func on_enemy_attack_champion_duel_refresh(_ctx: EventContext) -> void:
+	# Small delay not needed — just refresh all after attack resolves
+	_refresh_champion_duel_immunity()
+
+func _refresh_champion_duel_immunity() -> void:
+	for m: MinionInstance in _scene.enemy_board:
+		var has_crit := m.has_critical_strike()
+		var has_immune := m.has_spell_immune()
+		if has_crit and not has_immune:
+			BuffSystem.apply(m, Enums.BuffType.GRANT_SPELL_IMMUNE, 1, "champion_duel")
+			_scene._refresh_slot_for(m)
+		elif not has_crit and has_immune:
+			BuffSystem.remove_source(m, "champion_duel")
+			_scene._refresh_slot_for(m)
 
 # ---------------------------------------------------------------------------
 # Shared helpers

@@ -566,6 +566,181 @@ func _pick_default_trap_env_target():
 		return s.active_traps[randi() % s.active_traps.size()]
 	return null
 
+# ---------------------------------------------------------------------------
+# Shared spark-cost helpers (Act 3 + Act 4)
+# ---------------------------------------------------------------------------
+
+## Deck archetype for fuel attack priority.
+enum DeckType { AGGRO, TEMPO }
+
+## Effective spark cost after void_mastery passive (halves costs, minimum 1).
+func _effective_spark_cost(card: CardData) -> int:
+	var base: int = card.void_spark_cost
+	if base <= 0:
+		return 0
+	var passives = agent.scene.get("_active_enemy_passives")
+	if passives != null and "void_mastery" in passives:
+		return maxi(ceili(float(base) / 2.0), 1)
+	return base
+
+## True if a spark-cost card can be played (resource + spark check).
+func _can_afford_spark_card(card: CardData) -> bool:
+	var spark_cost: int = _effective_spark_cost(card)
+	if spark_cost <= 0:
+		return false
+	if not _can_afford_sparks(spark_cost):
+		return false
+	if card is SpellCardData:
+		var spell := card as SpellCardData
+		return agent.effective_spell_cost(spell) <= agent.mana
+	elif card is MinionCardData:
+		var mc := card as MinionCardData
+		var mana_cost: int = agent.effective_minion_mana_cost(mc)
+		return mc.essence_cost <= agent.essence and mana_cost <= agent.mana
+	return false
+
+## Total spark value available on the friendly board.
+## All minions with spark_value > 0 contribute (Void Sparks = 1, Void Spirits = 1-4).
+func _available_sparks() -> int:
+	var total := 0
+	for m: MinionInstance in agent.friendly_board:
+		total += (m.card_data as MinionCardData).spark_value
+	return total
+
+## True if the board has enough spark fuel to pay the given cost.
+func _can_afford_sparks(cost: int) -> bool:
+	return cost <= 0 or _available_sparks() >= cost
+
+## Plan which minions to consume for a spark cost. Returns an array of
+## MinionInstances to consume, or empty if payment is not possible.
+## Rules:
+##   - Only minions with spark_value > 0 are eligible
+##   - Block minions with spark_value > cost (don't waste big bodies on small cards)
+##   - spark_value == cost is allowed (exact match)
+##   - Prefer fewest bodies: sort eligible by spark_value descending, greedily pick
+func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
+	if cost <= 0:
+		return []
+
+	# Gather all eligible fuel (spark_value > 0 and not bigger than cost)
+	var eligible: Array[MinionInstance] = []
+	for m: MinionInstance in agent.friendly_board:
+		var sv: int = (m.card_data as MinionCardData).spark_value
+		if sv > 0 and sv <= cost:
+			eligible.append(m)
+
+	# Sort by spark_value descending (pick biggest first = fewest bodies consumed)
+	eligible.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
+		return (a.card_data as MinionCardData).spark_value > (b.card_data as MinionCardData).spark_value)
+
+	var plan: Array[MinionInstance] = []
+	var remaining := cost
+
+	for m: MinionInstance in eligible:
+		if remaining <= 0:
+			break
+		plan.append(m)
+		remaining -= (m.card_data as MinionCardData).spark_value
+
+	if remaining > 0:
+		return []  # Can't afford
+	return plan
+
+## Execute a planned spark payment. Lets fuel attack before consuming them.
+## Void Sparks always go face (they die to any trade). Spirits use deck_type rules.
+## All consumption is silent — NO death triggers fire.
+func _pay_sparks_smart(plan: Array[MinionInstance], deck_type: DeckType) -> void:
+	# Let each fuel minion attack first if it can
+	for m: MinionInstance in plan:
+		if not m.can_attack():
+			continue
+		if not agent.is_alive():
+			return
+		if (m.card_data as MinionCardData).spark_value == 1:
+			# 1-value fuel (Void Sparks, Void Wisps) — hit face, they die to any trade
+			await _fuel_attack(DeckType.AGGRO, m)
+		else:
+			await _fuel_attack(deck_type, m)
+
+	# Now consume all planned fuel
+	for m: MinionInstance in plan:
+		if agent.friendly_board.has(m):
+			agent.consume_minion(m)
+
+## Simple pay without pre-attack (backwards compat for Act 3 profiles).
+func _pay_sparks(cost: int) -> bool:
+	var plan := _plan_spark_payment(cost)
+	if plan.is_empty() and cost > 0:
+		return false
+	for m: MinionInstance in plan:
+		if agent.friendly_board.has(m):
+			agent.consume_minion(m)
+	return true
+
+# ---------------------------------------------------------------------------
+# Fuel attack — let a spirit get value before being consumed
+# ---------------------------------------------------------------------------
+
+## Let a spirit about to be consumed attack first.
+## Tempo: kill minion > trade minion > face > don't attack
+## Aggro: face > kill minion > trade minion > don't attack
+## Constraint: spirit must survive the trade (we need the body to consume).
+func _fuel_attack(deck_type: DeckType, spirit: MinionInstance) -> void:
+	if not spirit.can_attack():
+		return
+
+	var guards: Array[MinionInstance] = CombatManager.get_taunt_minions(agent.opponent_board)
+	var pool: Array[MinionInstance] = guards if not guards.is_empty() else agent.opponent_board.duplicate()
+
+	# Find killable targets (spirit survives)
+	var killable: Array[MinionInstance] = []
+	for t: MinionInstance in pool:
+		var total_hp: int = t.current_health + t.current_shield
+		if spirit.effective_atk() >= total_hp and t.effective_atk() < spirit.current_health:
+			killable.append(t)
+
+	# Find survivable targets (spirit survives but doesn't kill)
+	var survivable: Array[MinionInstance] = []
+	for t: MinionInstance in pool:
+		if t.effective_atk() < spirit.current_health and t not in killable:
+			survivable.append(t)
+
+	var can_face: bool = guards.is_empty() and spirit.can_attack_hero()
+
+	if deck_type == DeckType.AGGRO:
+		# Aggro: face > kill > trade > skip
+		if can_face:
+			await agent.do_attack_hero(spirit)
+		elif not killable.is_empty():
+			await agent.do_attack_minion(spirit, _pick_highest_value(killable))
+		elif not survivable.is_empty():
+			await agent.do_attack_minion(spirit, _pick_highest_value(survivable))
+		# else: don't attack — all trades would kill us
+	else:
+		# Tempo: kill > trade > face > skip
+		if not killable.is_empty():
+			await agent.do_attack_minion(spirit, _pick_highest_value(killable))
+		elif not survivable.is_empty():
+			await agent.do_attack_minion(spirit, _pick_highest_value(survivable))
+		elif can_face:
+			await agent.do_attack_hero(spirit)
+		# else: don't attack
+
+## Pick the highest-value target from a pool (HP + Shield + ATK sum).
+func _pick_highest_value(pool: Array[MinionInstance]) -> MinionInstance:
+	var best: MinionInstance = pool[0]
+	var best_value: int = 0
+	for m: MinionInstance in pool:
+		var value: int = m.current_health + m.current_shield + m.effective_atk()
+		if value > best_value:
+			best = m
+			best_value = value
+	return best
+
+# ---------------------------------------------------------------------------
+# Shared spell helpers
+# ---------------------------------------------------------------------------
+
 ## Returns true if this spell's damage step can kill the target (used for targeting priority).
 func _spell_can_kill(spell: SpellCardData, target: MinionInstance) -> bool:
 	for raw in spell.effect_steps:

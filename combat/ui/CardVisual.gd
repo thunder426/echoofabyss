@@ -497,7 +497,9 @@ func setup(data: CardData) -> void:
 		desc_label.add_theme_color_override("default_color", _dcfg.get("text_color", Color(1, 1, 1, 1)))
 		var kw_str := ""
 		if data is MinionCardData:
-			kw_str = _keywords_string((data as MinionCardData).keywords, (data as MinionCardData).clan)
+			kw_str = _keywords_string((data as MinionCardData).keywords, (data as MinionCardData).clan, data)
+		elif data.void_spark_cost > 0:
+			kw_str = _keywords_string([], "", data)
 		desc_label.text = _build_desc_bbcode(kw_str, data.description)
 		# Shrink font after layout so content fits without scrolling
 		call_deferred("_fit_desc_font_size")
@@ -895,7 +897,7 @@ func _build_desc_bbcode(kw_str: String, description: String) -> String:
 		return desc
 	return "[center][color=#" + _kw_color_hex + "][b]" + kw_str + "[/b][/color][/center]\n" + desc
 
-func _keywords_string(keywords: Array, clan: String = "") -> String:
+func _keywords_string(keywords: Array, clan: String = "", data: CardData = null) -> String:
 	var parts: Array[String] = []
 	for kw in keywords:
 		match kw:
@@ -909,6 +911,10 @@ func _keywords_string(keywords: Array, clan: String = "") -> String:
 			Enums.Keyword.CORRUPTION:     parts.append("Corruption")
 			Enums.Keyword.DEATHLESS:      parts.append("Deathless")
 			Enums.Keyword.VOID_MARK:      pass  # display-only; not shown in keyword line
+	if data is MinionCardData and (data as MinionCardData).spark_value > 0:
+		parts.append("Spirit Fuel: %d" % (data as MinionCardData).spark_value)
+	if data != null and data.void_spark_cost > 0:
+		parts.append("Spark Cost: %d" % data.void_spark_cost)
 	if clan != "":
 		parts.append("Clan: " + clan)
 	return ", ".join(parts)
@@ -1019,19 +1025,22 @@ func enable_tooltip() -> void:
 	if has_rituals and not Enums.Keyword.RITUAL in keywords:
 		keywords.append(Enums.Keyword.RITUAL)
 	var clan: String = ""
+	var spark_value: int = 0
+	var spark_cost: int = card_data.void_spark_cost
 	if card_data is MinionCardData:
 		clan = (card_data as MinionCardData).clan
-	if keywords.is_empty() and not has_rituals and clan.is_empty():
+		spark_value = (card_data as MinionCardData).spark_value
+	if keywords.is_empty() and not has_rituals and clan.is_empty() and spark_value <= 0 and spark_cost <= 0:
 		_remove_tooltip()
 		return
-	_build_tooltip(keywords, has_rituals, clan)
+	_build_tooltip(keywords, has_rituals, clan, spark_value, spark_cost)
 
 func _remove_tooltip() -> void:
 	if _tooltip != null and is_instance_valid(_tooltip):
 		_tooltip.queue_free()
 	_tooltip = null
 
-func _build_tooltip(keywords: Array, has_rituals: bool, clan: String = "") -> void:
+func _build_tooltip(keywords: Array, has_rituals: bool, clan: String = "", spark_value: int = 0, spark_cost: int = 0) -> void:
 	_remove_tooltip()
 	clip_contents = false  # allow the tooltip to render outside the card rect
 
@@ -1084,8 +1093,8 @@ func _build_tooltip(keywords: Array, has_rituals: bool, clan: String = "") -> vo
 	body_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tooltip.add_child(body_box)
 
-	# --- Keywords + Clan + Rituals section (single "Keywords" title) ---
-	if keywords.size() > 0 or clan != "" or has_rituals:
+	# --- Keywords + Clan + Rituals + Spirit section (single "Keywords" title) ---
+	if keywords.size() > 0 or clan != "" or has_rituals or spark_value > 0 or spark_cost > 0:
 		_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
 
 	for kw in keywords:
@@ -1099,6 +1108,14 @@ func _build_tooltip(keywords: Array, has_rituals: bool, clan: String = "") -> vo
 	if clan != "":
 		_tooltip_icon_title(body_box, "Clan: " + clan, t_size, bold_font, kw_color, "res://assets/art/icons/icon_clan.png")
 		_tooltip_body(body_box, "This minion belongs to the " + clan + " clan. Card effects that reference " + clan + "s affect it.", b_size, body_box.size.x, bold_font)
+
+	if spark_value > 0:
+		_tooltip_icon_title(body_box, "Spirit Fuel: %d" % spark_value, t_size, bold_font, kw_color, "res://assets/art/icons/icon_spirit_fuel.png")
+		_tooltip_body(body_box, "This minion can be consumed to pay %d Spark cost. Consuming does not trigger On Death effects." % spark_value, b_size, body_box.size.x, bold_font)
+
+	if spark_cost > 0:
+		_tooltip_icon_title(body_box, "Spark Cost: %d" % spark_cost, t_size, bold_font, kw_color, "res://assets/art/icons/icon_spirit_fuel.png")
+		_tooltip_body(body_box, "Requires %d Spark worth of Spirit Fuel on the board to play. Consumes minions with Spirit Fuel to pay." % spark_cost, b_size, body_box.size.x, bold_font)
 
 	if has_rituals:
 		for ritual in (card_data as EnvironmentCardData).rituals:

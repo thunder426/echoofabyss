@@ -435,6 +435,7 @@ func _connect_board_slots() -> void:
 		enemy_slots[i].mouse_exited.connect(_hide_large_preview)
 
 func _connect_combat_manager() -> void:
+	combat_manager.scene = self
 	combat_manager.attack_resolved.connect(_on_attack_resolved)
 	combat_manager.minion_vanished.connect(_on_minion_vanished)
 	combat_manager.hero_damaged.connect(_on_hero_damaged)
@@ -720,6 +721,9 @@ func _begin_spell_select(spell: SpellCardData) -> void:
 	if not turn_manager.can_afford(0, _effective_spell_cost(spell)):
 		_cancel_card_select()
 		return
+	if not _player_can_afford_sparks(spell.void_spark_cost):
+		_cancel_card_select()
+		return
 	if spell.requires_target:
 		_start_pip_blink_for_card(spell)   # ensure blink runs even if card wasn't hovered
 		_highlight_spell_targets(spell)
@@ -732,6 +736,9 @@ func _begin_minion_select(mc: MinionCardData) -> void:
 	# Check affordability (Void Crystal relic bypasses cost for the first card)
 	var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
 	if not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
+		_cancel_card_select()
+		return
+	if not _player_can_afford_sparks(mc.void_spark_cost):
 		_cancel_card_select()
 		return
 	# Check board space before highlighting
@@ -761,6 +768,12 @@ func _on_hand_card_deselected() -> void:
 # ---------------------------------------------------------------------------
 
 func _try_play_spell(spell: SpellCardData) -> void:
+	if not _player_can_afford_sparks(spell.void_spark_cost):
+		if hand_display:
+			hand_display.deselect_current()
+		return
+	if spell.void_spark_cost > 0:
+		_player_pay_sparks(spell.void_spark_cost)
 	if not _pay_card_cost(0, _effective_spell_cost(spell)):
 		if hand_display:
 			hand_display.deselect_current()
@@ -1011,6 +1024,10 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 	if not slot.is_empty():
 		return
 	var card := inst.card_data as MinionCardData
+	if not _player_can_afford_sparks(card.void_spark_cost):
+		return
+	if card.void_spark_cost > 0:
+		_player_pay_sparks(card.void_spark_cost)
 	# Talent: piercing_void — base Void Imp costs +1 Mana
 	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
 	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
@@ -1049,6 +1066,10 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 	if not slot.is_empty():
 		return
 	var card := inst.card_data as MinionCardData
+	if not _player_can_afford_sparks(card.void_spark_cost):
+		return
+	if card.void_spark_cost > 0:
+		_player_pay_sparks(card.void_spark_cost)
 	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
 	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
 		return
@@ -2084,6 +2105,46 @@ func _find_void_rune_slot_position() -> Vector2:
 
 ## Tries to spend a card's costs, applying Dark Mirror relic discount if active.
 ## Returns true if the card can be played (and costs are deducted).
+## Total spark value available on the player's board.
+func _player_available_sparks() -> int:
+	var total := 0
+	for m: MinionInstance in player_board:
+		total += (m.card_data as MinionCardData).spark_value
+	return total
+
+## True if the player can pay the given spark cost.
+func _player_can_afford_sparks(cost: int) -> bool:
+	return cost <= 0 or _player_available_sparks() >= cost
+
+## Consume player board minions to pay spark cost. Same rules as enemy:
+## eligible fuel must have spark_value <= cost, pick fewest bodies (biggest first).
+## Void Spark tokens are killed (fire death triggers), spirits are consumed silently.
+func _player_pay_sparks(cost: int) -> bool:
+	if cost <= 0:
+		return true
+	var eligible: Array[MinionInstance] = []
+	for m: MinionInstance in player_board:
+		var sv: int = (m.card_data as MinionCardData).spark_value
+		if sv > 0 and sv <= cost:
+			eligible.append(m)
+	eligible.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
+		return (a.card_data as MinionCardData).spark_value > (b.card_data as MinionCardData).spark_value)
+	var remaining := cost
+	for m: MinionInstance in eligible:
+		if remaining <= 0:
+			break
+		var sv: int = (m.card_data as MinionCardData).spark_value
+		# Void Spark tokens: kill (fire death triggers for Blood Rune etc.)
+		# Spirits: consume silently (no death triggers)
+		if m.card_data.id == "void_spark":
+			combat_manager.kill_minion(m)
+		else:
+			player_board.erase(m)
+			_clear_slot_for(m, player_slots)
+			_log("  %s consumed as spark fuel." % m.card_data.card_name)
+		remaining -= sv
+	return remaining <= 0
+
 func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 	_stop_pip_blink()
 	# Dark Mirror: reduce both essence and mana costs independently (minimum 0)

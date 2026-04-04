@@ -23,6 +23,7 @@ const _PROFILES: Dictionary = {
 	"rift_stalker":      preload("res://enemies/ai/profiles/RiftStalkerProfile.gd"),
 	"void_aberration":   preload("res://enemies/ai/profiles/VoidAberrationProfile.gd"),
 	"void_herald":       preload("res://enemies/ai/profiles/VoidHeraldProfile.gd"),
+	"void_scout":        preload("res://enemies/ai/profiles/VoidScoutProfile.gd"),
 }
 
 var _active_profile: CombatProfile = null
@@ -239,6 +240,16 @@ func _draw_cards(count: int) -> void:
 # ---------------------------------------------------------------------------
 # Public helpers — utilities for profiles
 # ---------------------------------------------------------------------------
+
+## Remove an enemy minion from the board silently (no death triggers, no animation).
+## Used for Void Spirit consumption to pay spark costs.
+func consume_minion(minion: MinionInstance) -> void:
+	enemy_board.erase(minion)
+	for slot in enemy_slots:
+		if slot.minion == minion:
+			slot.remove_minion()
+			break
+	scene._log("  %s consumed as spark fuel." % minion.card_data.card_name, 1)
 
 ## Returns the first empty enemy board slot, or null if board is full.
 ## Skips slots that are claimed by an in-progress summon reveal.

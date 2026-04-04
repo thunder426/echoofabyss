@@ -427,6 +427,19 @@ func _show_occupied_state() -> void:
 	if minion.has_deathless():
 		_status_bar_add_interactive_icon("icon_deathless.png", "DEATHLESS",
 			"The first time this minion would die, it survives with 1 HP.")
+	if minion.has_spell_immune():
+		_status_bar_add_interactive_icon("icon_guard.png", "SPELL IMMUNE",
+			"Immune to all spell effects.")
+	if minion.has_critical_strike():
+		var crit_stacks: int = minion.critical_strike_stacks()
+		_status_bar_add_interactive_icon("icon_critical_strike.png", "CRITICAL STRIKE",
+			"x%d — Next attack deals double damage. Consumes 1 stack." % crit_stacks)
+		_status_bar_add_count("x%d" % crit_stacks, Color(1.00, 0.60, 0.20, 1))
+	var mc := minion.card_data as MinionCardData
+	if mc.spark_value > 0:
+		_status_bar_add_interactive_icon("icon_spirit_fuel.png", "SPIRIT FUEL",
+			"Can be consumed to pay %d Spark cost." % mc.spark_value)
+		_status_bar_add_count("x%d" % mc.spark_value, Color(0.75, 0.50, 1.00, 1))
 	if corruption_total > 0:
 		var stacks := corruption_total / 100
 		_status_bar_add_interactive_icon("icon_corruption.png", "CORRUPTION",

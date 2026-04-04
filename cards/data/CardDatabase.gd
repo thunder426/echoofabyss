@@ -16,7 +16,7 @@ var _cards: Dictionary = {}
 #         shield (optional, default 0), tags (optional), art (optional)
 # ---------------------------------------------------------------------------
 const _TOKEN_DEFS: Array[Dictionary] = [
-	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.",        "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
+	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
 	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning.", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
 ]
 
@@ -34,6 +34,7 @@ func _make_token(d: Dictionary) -> MinionCardData:
 	var tags: Array[String] = []
 	tags.assign(d.get("tags", []))
 	c.minion_tags  = tags
+	c.spark_value  = d.get("spark_value", 0)
 	c.art_path            = d.get("art", "")
 	c.battlefield_art_path = d.get("battlefield_art", "")
 	return c
@@ -1531,6 +1532,132 @@ func _register_wanderer_cards() -> void:
 	void_rift_lord.faction         = "abyss_order"
 	all.append(void_rift_lord)
 
+	# ---------------------------------------------------------------------------
+	# --- Act 4 — Void Castle enemy cards ---
+	# ---------------------------------------------------------------------------
+
+	# --- Void Spirit clan (textless, consumable as spark fuel) ---
+
+	var void_wisp := MinionCardData.new()
+	void_wisp.id            = "void_wisp"
+	void_wisp.card_name     = "Void Wisp"
+	void_wisp.essence_cost  = 1
+	void_wisp.atk           = 150
+	void_wisp.health        = 100
+	void_wisp.minion_type   = Enums.MinionType.SPIRIT
+	void_wisp.minion_tags   = ["void_spirit"]
+	void_wisp.clan          = "Void Spirit"
+	void_wisp.spark_value   = 1
+	void_wisp.faction       = "abyss_order"
+	all.append(void_wisp)
+
+	var void_shade := MinionCardData.new()
+	void_shade.id            = "void_shade"
+	void_shade.card_name     = "Void Shade"
+	void_shade.essence_cost  = 2
+	void_shade.atk           = 250
+	void_shade.health        = 200
+	void_shade.minion_type   = Enums.MinionType.SPIRIT
+	void_shade.minion_tags   = ["void_spirit"]
+	void_shade.clan          = "Void Spirit"
+	void_shade.spark_value   = 2
+	void_shade.faction       = "abyss_order"
+	all.append(void_shade)
+
+	var void_wraith := MinionCardData.new()
+	void_wraith.id            = "void_wraith"
+	void_wraith.card_name     = "Void Wraith"
+	void_wraith.essence_cost  = 3
+	void_wraith.atk           = 300
+	void_wraith.health        = 400
+	void_wraith.minion_type   = Enums.MinionType.SPIRIT
+	void_wraith.minion_tags   = ["void_spirit"]
+	void_wraith.clan          = "Void Spirit"
+	void_wraith.spark_value   = 3
+	void_wraith.faction       = "abyss_order"
+	all.append(void_wraith)
+
+	var void_revenant := MinionCardData.new()
+	void_revenant.id            = "void_revenant"
+	void_revenant.card_name     = "Void Revenant"
+	void_revenant.essence_cost  = 5
+	void_revenant.atk           = 500
+	void_revenant.health        = 500
+	void_revenant.minion_type   = Enums.MinionType.SPIRIT
+	void_revenant.minion_tags   = ["void_spirit"]
+	void_revenant.clan          = "Void Spirit"
+	void_revenant.spark_value   = 4
+	void_revenant.faction       = "abyss_order"
+	all.append(void_revenant)
+
+	# --- Spark consumer spells ---
+
+	var sovereigns_decree := SpellCardData.new()
+	sovereigns_decree.id               = "sovereigns_decree"
+	sovereigns_decree.card_name        = "Sovereign's Decree"
+	sovereigns_decree.cost             = 2
+	sovereigns_decree.void_spark_cost  = 2
+	sovereigns_decree.description      = "Deal 300 damage to the enemy hero. Apply 2 Corruption to all enemy minions."
+	sovereigns_decree.effect_steps     = [
+		{"type": "DAMAGE_HERO", "amount": 300},
+		{"type": "CORRUPTION", "scope": "ALL_ENEMY", "amount": 2},
+	]
+	sovereigns_decree.faction          = "abyss_order"
+	all.append(sovereigns_decree)
+
+	var thrones_command := SpellCardData.new()
+	thrones_command.id               = "thrones_command"
+	thrones_command.card_name        = "Throne's Command"
+	thrones_command.cost             = 1
+	thrones_command.void_spark_cost  = 3
+	thrones_command.description      = "Grant all friendly minions +1 Critical Strike."
+	thrones_command.effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "ALL_FRIENDLY", "amount": 1}]
+	thrones_command.faction          = "abyss_order"
+	all.append(thrones_command)
+
+	# --- Spark consumer minion ---
+
+	var bastion_colossus := MinionCardData.new()
+	bastion_colossus.id                   = "bastion_colossus"
+	bastion_colossus.card_name            = "Bastion Colossus"
+	bastion_colossus.essence_cost         = 4
+	bastion_colossus.void_spark_cost      = 4
+	bastion_colossus.description          = "ON PLAY: Gain 2 stacks of Critical Strike."
+	bastion_colossus.atk                  = 600
+	bastion_colossus.health               = 800
+	bastion_colossus.minion_type          = Enums.MinionType.SPIRIT
+	bastion_colossus.keywords             = [Enums.Keyword.GUARD]
+	bastion_colossus.on_play_effect_steps = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SELF", "amount": 2}]
+	bastion_colossus.faction              = "abyss_order"
+	all.append(bastion_colossus)
+
+	# --- Non-spark spells ---
+
+	var sovereigns_edict := SpellCardData.new()
+	sovereigns_edict.id          = "sovereigns_edict"
+	sovereigns_edict.card_name   = "Sovereign's Edict"
+	sovereigns_edict.cost        = 3
+	sovereigns_edict.description = "Grant all current friendly minions 'ON DEATH: Summon a Void Spark.'"
+	sovereigns_edict.effect_steps = [{"type": "GRANT_ON_DEATH_SUMMON", "scope": "ALL_FRIENDLY", "card_id": "void_spark"}]
+	sovereigns_edict.faction     = "abyss_order"
+	all.append(sovereigns_edict)
+
+	# --- Non-spark minion ---
+
+	var sovereigns_herald := MinionCardData.new()
+	sovereigns_herald.id                       = "sovereigns_herald"
+	sovereigns_herald.card_name                = "Sovereign's Herald"
+	sovereigns_herald.essence_cost             = 2
+	sovereigns_herald.description              = "ON PLAY: Grant a target friendly minion +1 Critical Strike."
+	sovereigns_herald.atk                      = 200
+	sovereigns_herald.health                   = 200
+	sovereigns_herald.minion_type              = Enums.MinionType.DEMON
+	sovereigns_herald.on_play_requires_target  = true
+	sovereigns_herald.on_play_target_type      = "friendly_minion"
+	sovereigns_herald.on_play_effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 1}]
+	sovereigns_herald.faction                  = "abyss_order"
+	all.append(sovereigns_herald)
+
 	# --- Pool assignments (controls deck builder visibility and collection) ---
 	# "" = token/internal; cards with no entry stay ""
 	var _card_pools := {
@@ -1594,6 +1721,12 @@ func _register_wanderer_cards() -> void:
 		"void_pulse": "void_rift",              "phase_stalker": "void_rift",
 		"rift_collapse": "void_rift",           "void_behemoth": "void_rift",
 		"dimensional_breach": "void_rift",      "void_rift_lord": "void_rift",
+		# Void Castle — Act 4 enemy-only pool (not visible to players)
+		"void_wisp": "void_castle",            "void_shade": "void_castle",
+		"void_wraith": "void_castle",          "void_revenant": "void_castle",
+		"sovereigns_decree": "void_castle",    "thrones_command": "void_castle",
+		"bastion_colossus": "void_castle",     "sovereigns_edict": "void_castle",
+		"sovereigns_herald": "void_castle",
 	}
 	# --- Act gate assignments (earliest act card appears in rewards/shop) ---
 	var _card_act_gates := {

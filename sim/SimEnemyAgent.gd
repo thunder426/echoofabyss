@@ -130,6 +130,9 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 	sim.combat_manager.resolve_minion_attack_hero(attacker, "player")
 	return sim.winner.is_empty()
 
+func consume_minion(minion: MinionInstance) -> void:
+	sim.enemy_board.erase(minion)
+
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
