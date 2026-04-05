@@ -85,6 +85,28 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_corrupted_death", "priority": 6 }],
 		"stats":    {}
 	},
+	# ── Enemy champion passives (Act 1) ──────────────────────────────────────
+	"champion_rogue_imp_pack": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK,          "method": "on_enemy_attack_champion_rip",       "priority": 50 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_champion_rip_aura",   "priority": 80 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_champion_rip",          "priority": 80 },
+		],
+		"stats": { "_champion_rip_summoned": false }
+	},
+	"champion_corrupted_broodlings": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_champion_cb", "priority": 81 },
+		],
+		"stats": { "_champion_cb_death_count": 0, "_champion_cb_summoned": false }
+	},
+	"champion_imp_matriarch": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,  "method": "on_enemy_spell_champion_im",        "priority": 50 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_champion_im",          "priority": 82 },
+		],
+		"stats": { "_champion_im_frenzy_count": 0, "_champion_im_summoned": false }
+	},
 	# ── Act 2 enemy passives ──────────────────────────────────────────────────
 	"feral_reinforcement": {
 		"triggers": [
@@ -207,6 +229,11 @@ func setup(
 			var ai = scene.get("enemy_ai")
 			if ai != null:
 				(ai.spell_cost_discounts as Dictionary)["pack_frenzy"] = 1
+		# corrupted_death: void_touched_imp costs 1 less essence
+		if id == "corrupted_death":
+			var ai = scene.get("enemy_ai")
+			if ai != null:
+				(ai.essence_cost_discounts as Dictionary)["void_touched_imp"] = 1
 
 	# ── Grand rituals from talents (data-driven via TalentDatabase) ───────────
 	for talent_id in talents:

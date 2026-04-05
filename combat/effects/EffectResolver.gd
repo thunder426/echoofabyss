@@ -20,6 +20,9 @@ static func run(steps: Array, ctx: EffectContext) -> void:
 			step = raw
 		if step:
 			_execute(step, ctx)
+	# Consume dark_channeling flag after all steps of a spell resolve
+	if ctx.scene.get("_dark_channeling_active") == true:
+		ctx.scene.set("_dark_channeling_active", false)
 
 # ---------------------------------------------------------------------------
 # Step dispatcher
@@ -30,7 +33,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 	match step.effect_type:
 		EffectStep.EffectType.DAMAGE_HERO:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var dmg      := _amount(step, ctx)
+				var dmg      := _dark_channeling_dmg(_amount(step, ctx), ctx)
 				var opponent := "enemy" if ctx.owner == "player" else "player"
 				ctx.scene.combat_manager.apply_hero_damage(opponent, dmg, Enums.DamageType.SPELL)
 			return
@@ -148,7 +151,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 	var scene = ctx.scene
 	match step.effect_type:
 		EffectStep.EffectType.DAMAGE_MINION:
-			scene._spell_dmg(target, amount)
+			scene._spell_dmg(target, _dark_channeling_dmg(amount, ctx))
 
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
@@ -252,3 +255,14 @@ static func _race_from_string(name: String) -> int:
 		"spirit": return Enums.MinionType.SPIRIT
 		"beast":  return Enums.MinionType.BEAST
 	return -1
+
+## Apply dark_channeling spell damage multiplier (enemy-only, flag set by handler).
+static func _dark_channeling_dmg(base: int, ctx: EffectContext) -> int:
+	if ctx.owner != "enemy":
+		return base
+	if ctx.scene.get("_dark_channeling_active") != true:
+		return base
+	var mult: float = ctx.scene.get("_dark_channeling_multiplier")
+	if mult == null:
+		mult = 1.5
+	return int(base * mult)

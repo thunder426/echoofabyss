@@ -39,6 +39,7 @@ var mana: int:
 var scene: Object:
 	get: return _get_scene()
 
+
 ## Friendly hero HP — used for lethal-threat checks.
 var friendly_hp: int:
 	get: return _get_friendly_hp()
@@ -145,6 +146,14 @@ func sort_by_total_cost(a: CardInstance, b: CardInstance) -> bool:
 ## Base: no modifications.  Override in subclasses that track cost modifiers.
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return spell.cost
+
+## Effective essence cost of a minion. Accounts for essence_cost_discounts on subclasses.
+func effective_minion_essence_cost(mc: MinionCardData) -> int:
+	var discounts = get("essence_cost_discounts")
+	if discounts is Dictionary and not discounts.is_empty():
+		var discount: int = (discounts.get(mc.id, 0) as int)
+		return maxi(0, mc.essence_cost - discount)
+	return mc.essence_cost
 
 ## Effective mana cost of a minion. Accounts for piercing_void (+1 Mana on base Void Imp).
 ## Override in subclasses for additional modifiers.

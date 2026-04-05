@@ -28,6 +28,14 @@ const _ENEMY_PROFILES: Dictionary = {
 	"rift_stalker":         preload("res://enemies/ai/profiles/RiftStalkerProfile.gd"),
 	"void_aberration":      preload("res://enemies/ai/profiles/VoidAberrationProfile.gd"),
 	"void_herald":          preload("res://enemies/ai/profiles/VoidHeraldProfile.gd"),
+	# Act 4 — Void Castle
+	"void_scout":           preload("res://enemies/ai/profiles/VoidScoutProfile.gd"),
+	"void_warband":         preload("res://enemies/ai/profiles/VoidWarbandProfile.gd"),
+	"void_captain":         preload("res://enemies/ai/profiles/VoidCaptainProfile.gd"),
+	"void_ritualist_prime": preload("res://enemies/ai/profiles/VoidRitualistPrimeProfile.gd"),
+	"void_champion":        preload("res://enemies/ai/profiles/VoidChampionProfile.gd"),
+	"abyss_sovereign":      preload("res://enemies/ai/profiles/AbyssSovereignProfile.gd"),
+	# Scored variants
 	"scored":               preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
 	"scored_feral_pack":    preload("res://enemies/ai/profiles/ScoredFeralPackProfile.gd"),
 	"scored_corrupted_brood": preload("res://enemies/ai/profiles/ScoredCorruptedBroodProfile.gd"),
@@ -36,9 +44,9 @@ const _ENEMY_PROFILES: Dictionary = {
 
 ## Passive IDs active for each enemy profile — mirrors EnemyData.passives in the live game.
 const _ENEMY_PASSIVES: Dictionary = {
-	"feral_pack":           ["feral_instinct", "pack_instinct"],
-	"corrupted_brood":      ["feral_instinct", "corrupted_death"],
-	"matriarch":            ["feral_instinct", "ancient_frenzy"],
+	"feral_pack":           ["feral_instinct", "pack_instinct", "champion_rogue_imp_pack"],
+	"corrupted_brood":      ["feral_instinct", "corrupted_death", "champion_corrupted_broodlings"],
+	"matriarch":            ["feral_instinct", "ancient_frenzy", "champion_imp_matriarch"],
 	"default":              [],
 	"cultist_patrol":       ["feral_reinforcement", "corrupt_authority"],
 	"void_ritualist":       ["feral_reinforcement", "ritual_sacrifice"],
@@ -46,10 +54,18 @@ const _ENEMY_PASSIVES: Dictionary = {
 	"rift_stalker":         ["void_rift", "void_empowerment"],
 	"void_aberration":      ["void_rift", "void_detonation_passive"],
 	"void_herald":          ["void_rift", "void_mastery"],
+	# Act 4 — Void Castle
+	"void_scout":           ["void_might", "void_precision"],
+	"void_warband":         ["void_might", "spirit_conscription"],
+	"void_captain":         ["void_might", "captain_orders"],
+	"void_ritualist_prime": ["void_might", "dark_channeling"],
+	"void_champion":        ["void_might", "champion_duel"],
+	"abyss_sovereign":      ["void_might", "void_precision", "dark_channeling"],
+	# Scored variants
 	"scored":               [],
-	"scored_feral_pack":    ["feral_instinct", "pack_instinct"],
-	"scored_corrupted_brood": ["feral_instinct", "corrupted_death"],
-	"scored_matriarch":     ["feral_instinct", "ancient_frenzy"],
+	"scored_feral_pack":    ["feral_instinct", "pack_instinct", "champion_rogue_imp_pack"],
+	"scored_corrupted_brood": ["feral_instinct", "corrupted_death", "champion_corrupted_broodlings"],
+	"scored_matriarch":     ["feral_instinct", "ancient_frenzy", "champion_imp_matriarch"],
 }
 
 const _PLAYER_PROFILES: Dictionary = {
@@ -87,6 +103,7 @@ func run(
 
 	var state := SimState.new()
 	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
+	state.enemy_hp_max = enemy_hp
 	state.talents = player_talents
 	state.hero_passives = player_hero_passives
 	state.enemy_passives.assign(_ENEMY_PASSIVES.get(enemy_profile_id, []))
@@ -186,6 +203,7 @@ func run(
 		"player_ritual_count": state._player_ritual_count,
 		"spark_spawned_count": state._spark_spawned_count,
 		"spark_transfer_count": state._spark_transfer_count,
+		"champion_summon_count": state._champion_summon_count,
 		"relic_activations": relic_rt.total_activations if relic_rt else 0,
 	}
 
@@ -220,6 +238,7 @@ func run_many(
 	var total_spark_spawned := 0
 	var total_spark_transfer := 0
 	var total_relic_activations := 0
+	var total_champion_summons := 0
 
 	for _i in count:
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
@@ -238,6 +257,7 @@ func run_many(
 		total_spark_spawned += r.get("spark_spawned_count", 0)
 		total_spark_transfer += r.get("spark_transfer_count", 0)
 		total_relic_activations += r.get("relic_activations", 0)
+		total_champion_summons += r.get("champion_summon_count", 0)
 
 	return {
 		"count":          count,
@@ -254,6 +274,7 @@ func run_many(
 		"avg_spark_spawned": float(total_spark_spawned) / count,
 		"avg_spark_transfer": float(total_spark_transfer) / count,
 		"avg_relic_activations": float(total_relic_activations) / count,
+		"avg_champion_summons": float(total_champion_summons) / count,
 	}
 
 # ---------------------------------------------------------------------------

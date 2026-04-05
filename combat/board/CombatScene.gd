@@ -64,6 +64,12 @@ var _enemy_status_marks_row:   HBoxContainer = null
 var _enemy_status_marks_label: Label = null
 var _enemy_hero_attack_hint: Label = null
 var enemy_hp_max: int = 0
+# Champion progress UI
+var _champion_progress_row: HBoxContainer = null
+var _champion_progress_label: Label = null
+var _champion_progress_current: int = 0
+var _champion_progress_max: int = 0
+var _champion_progress_tween: Tween = null
 
 # Player hero status panel (built programmatically)
 var _player_status_panel: Panel = null
@@ -228,6 +234,22 @@ var _active_enemy_passives: Array[String] = []
 
 ## True after Feral Instinct has been granted this enemy turn (resets at ON_ENEMY_TURN_START).
 var feral_instinct_granted_this_turn: bool = false
+
+## Act 4 passive stats — set dynamically by CombatSetup via scene.set().
+var _vp_pre_crit_stacks: int = 0
+var _spirit_conscription_fired: bool = false
+var crit_multiplier: float = 2.0
+var _dark_channeling_active: bool = false
+var _dark_channeling_multiplier: float = 1.0
+
+## Enemy champion state — set dynamically by CombatSetup via scene.set().
+var _champion_summon_count: int = 0
+var _champion_rip_attack_ids: Array = []
+var _champion_rip_summoned: bool = false
+var _champion_cb_death_count: int = 0
+var _champion_cb_summoned: bool = false
+var _champion_im_frenzy_count: int = 0
+var _champion_im_summoned: bool = false
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -1968,6 +1990,50 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 			return
 
 # ---------------------------------------------------------------------------
+# Enemy champion progress UI
+# ---------------------------------------------------------------------------
+
+## Called by CombatHandlers when champion progress increments.
+func _update_champion_progress(current: int, total: int) -> void:
+	_champion_progress_current = current
+	_champion_progress_max = total
+	if not _champion_progress_row:
+		return
+	_champion_progress_row.visible = true
+	_champion_progress_label.text = "Champion %d / %d" % [current, total]
+	# Color by urgency
+	var ratio: float = float(current) / float(total) if total > 0 else 0.0
+	var color: Color
+	if ratio >= 1.0:
+		color = Color(1.0, 0.30, 0.20, 1)  # red — summoning
+	elif ratio >= 0.75:
+		color = Color(1.0, 0.55, 0.15, 1)  # orange — urgent
+	elif ratio >= 0.5:
+		color = Color(1.0, 0.85, 0.20, 1)  # yellow — warning
+	else:
+		color = Color(0.75, 0.75, 0.85, 1)  # grey — early
+	_champion_progress_label.add_theme_color_override("font_color", color)
+	# Pulse animation on increment
+	if _champion_progress_tween:
+		_champion_progress_tween.kill()
+	_champion_progress_tween = create_tween()
+	_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color(1.5, 1.5, 0.5, 1), 0.15)
+	_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color.WHITE, 0.4)
+
+## Called by CombatHandlers when the enemy champion is killed — hide progress, show reward feedback.
+func _on_champion_killed() -> void:
+	if _champion_progress_row:
+		_champion_progress_label.text = "Champion slain!"
+		_champion_progress_label.add_theme_color_override("font_color", Color(0.35, 0.90, 0.55, 1))
+		if _champion_progress_tween:
+			_champion_progress_tween.kill()
+		_champion_progress_tween = create_tween()
+		_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color(0.5, 1.5, 0.5, 1), 0.2)
+		_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color.WHITE, 0.5)
+		_champion_progress_tween.tween_interval(2.0)
+		_champion_progress_tween.tween_property(_champion_progress_row, "modulate", Color(1, 1, 1, 0), 0.5)
+
+# ---------------------------------------------------------------------------
 # Talent helpers
 # ---------------------------------------------------------------------------
 
@@ -3295,6 +3361,26 @@ func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
 	_enemy_status_marks_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.15, 1))
 	_enemy_status_marks_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_enemy_status_marks_row.add_child(_enemy_status_marks_label)
+
+	# Champion progress row
+	_champion_progress_row = HBoxContainer.new()
+	_champion_progress_row.add_theme_constant_override("separation", 4)
+	_champion_progress_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_champion_progress_row.visible = false
+	right_col.add_child(_champion_progress_row)
+
+	var champ_icon := Label.new()
+	champ_icon.text = "★"
+	champ_icon.add_theme_font_size_override("font_size", 13)
+	champ_icon.add_theme_color_override("font_color", Color(1.0, 0.78, 0.10, 1))
+	champ_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_champion_progress_row.add_child(champ_icon)
+
+	_champion_progress_label = Label.new()
+	_champion_progress_label.add_theme_font_size_override("font_size", 12)
+	_champion_progress_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.10, 1))
+	_champion_progress_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_champion_progress_row.add_child(_champion_progress_label)
 
 func _update_enemy_status_panel() -> void:
 	if not _enemy_status_panel:

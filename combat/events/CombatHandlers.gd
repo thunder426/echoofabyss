@@ -660,6 +660,133 @@ func _refresh_champion_duel_immunity() -> void:
 			_scene._refresh_slot_for(m)
 
 # ---------------------------------------------------------------------------
+# Enemy champion passives (Act 1)
+# ---------------------------------------------------------------------------
+
+## ── Champion: Rogue Imp Pack ────────────────────────────────────────────────
+## Summon condition: 4 different rabid imps have attacked.
+## Aura: all friendly feral imps gain +100 ATK.
+## On death: deal 20% of enemy hero max HP to enemy hero.
+
+func on_enemy_attack_champion_rip(ctx: EventContext) -> void:
+	if _scene.get("_champion_rip_summoned"):
+		return
+	var minion := ctx.minion
+	if minion == null or minion.card_data.id != "rabid_imp":
+		return
+	var uid: int = minion.get_instance_id()
+	if uid in _scene._champion_rip_attack_ids:
+		return
+	_scene._champion_rip_attack_ids.append(uid)
+	var count: int = _scene._champion_rip_attack_ids.size()
+	_scene._update_champion_progress(count, 4)
+	_log("  Champion progress: %d / 4 rabid imp attacks." % count, _LOG_ENEMY)
+	if count >= 4:
+		_summon_enemy_champion("champion_rogue_imp_pack")
+
+func on_enemy_summon_champion_rip_aura(ctx: EventContext) -> void:
+	if not _scene.get("_champion_rip_summoned"):
+		return
+	_refresh_champion_rip_aura()
+
+func on_enemy_died_champion_rip(ctx: EventContext) -> void:
+	if not _scene.get("_champion_rip_summoned"):
+		return
+	var minion := ctx.minion
+	if minion == null:
+		return
+	# Refresh aura when any imp dies
+	if _has_tag(minion, "feral_imp") and minion.card_data.id != "champion_rogue_imp_pack":
+		_refresh_champion_rip_aura()
+		return
+	# Champion died — deal 20% max HP to enemy hero
+	if minion.card_data.id == "champion_rogue_imp_pack":
+		_on_enemy_champion_killed()
+
+func _refresh_champion_rip_aura() -> void:
+	for m in _scene.enemy_board:
+		BuffSystem.remove_source(m, "champion_rip_aura")
+		if _has_tag(m, "feral_imp") and m.card_data.id != "champion_rogue_imp_pack":
+			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "champion_rip_aura")
+		_scene._refresh_slot_for(m)
+
+## ── Champion: Corrupted Broodlings ──────────────────────────────────────────
+## Summon condition: 3 friendly minions have died.
+## On death: summon a Void-Touched Imp + deal 20% max HP to enemy hero.
+
+func on_enemy_died_champion_cb(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	# Champion died — summon void_touched_imp + deal 20% max HP
+	if minion.card_data.id == "champion_corrupted_broodlings":
+		_scene._summon_token("void_touched_imp", "enemy", 200, 300)
+		_log("  Corrupted Broodlings champion falls — a Void-Touched Imp rises!", _LOG_ENEMY)
+		_on_enemy_champion_killed()
+		return
+	# Count non-champion deaths toward summon threshold
+	if _scene.get("_champion_cb_summoned"):
+		return
+	var count: int = _scene.get("_champion_cb_death_count") + 1
+	_scene.set("_champion_cb_death_count", count)
+	_scene._update_champion_progress(count, 3)
+	_log("  Champion progress: %d / 3 minion deaths." % count, _LOG_ENEMY)
+	if count >= 3:
+		_summon_enemy_champion("champion_corrupted_broodlings")
+
+## ── Champion: Imp Matriarch ─────────────────────────────────────────────────
+## Summon condition: 1st Pack Frenzy cast.
+## Aura: Pack Frenzy also grants +200 HP to all feral imps.
+## On death: deal 20% max HP to enemy hero.
+
+func on_enemy_spell_champion_im(ctx: EventContext) -> void:
+	if ctx.card == null or ctx.card.id != "pack_frenzy":
+		return
+	# If champion is alive, apply +200 HP to all feral imps
+	if _scene.get("_champion_im_summoned"):
+		for m in _scene.enemy_board:
+			if _has_tag(m, "feral_imp"):
+				m.current_health += 200
+				_scene._refresh_slot_for(m)
+		_log("  Imp Matriarch champion aura: Pack Frenzy grants +200 HP to all feral imps!", _LOG_ENEMY)
+		return
+	# First Pack Frenzy cast summons the champion
+	_scene._update_champion_progress(1, 1)
+	_log("  Champion progress: 1 / 1 Pack Frenzy cast.", _LOG_ENEMY)
+	_summon_enemy_champion("champion_imp_matriarch")
+
+func on_enemy_died_champion_im(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_imp_matriarch":
+		_on_enemy_champion_killed()
+
+## ── Shared champion helpers ─────────────────────────────────────────────────
+
+func _summon_enemy_champion(card_id: String) -> void:
+	match card_id:
+		"champion_rogue_imp_pack":
+			_scene.set("_champion_rip_summoned", true)
+		"champion_corrupted_broodlings":
+			_scene.set("_champion_cb_summoned", true)
+		"champion_imp_matriarch":
+			_scene.set("_champion_im_summoned", true)
+	var count: int = _scene.get("_champion_summon_count")
+	_scene.set("_champion_summon_count", count + 1)
+	_scene._summon_token(card_id, "enemy")
+	_log("  ★ %s champion has arrived!" % CardDatabase.get_card(card_id).card_name, _LOG_ENEMY)
+	# Apply aura immediately for Rogue Imp Pack
+	if card_id == "champion_rogue_imp_pack":
+		_refresh_champion_rip_aura()
+
+func _on_enemy_champion_killed() -> void:
+	var damage: int = int(_scene.enemy_hp_max * 0.2)
+	_scene.combat_manager.apply_hero_damage("enemy", damage, Enums.DamageType.SPELL)
+	_log("  ★ Champion slain! Enemy hero takes %d damage (20%% of max HP)!" % damage, _LOG_ENEMY)
+	_scene._on_champion_killed()
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 

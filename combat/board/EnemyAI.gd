@@ -23,7 +23,12 @@ const _PROFILES: Dictionary = {
 	"rift_stalker":      preload("res://enemies/ai/profiles/RiftStalkerProfile.gd"),
 	"void_aberration":   preload("res://enemies/ai/profiles/VoidAberrationProfile.gd"),
 	"void_herald":       preload("res://enemies/ai/profiles/VoidHeraldProfile.gd"),
-	"void_scout":        preload("res://enemies/ai/profiles/VoidScoutProfile.gd"),
+	"void_scout":          preload("res://enemies/ai/profiles/VoidScoutProfile.gd"),
+	"void_warband":        preload("res://enemies/ai/profiles/VoidWarbandProfile.gd"),
+	"void_captain":        preload("res://enemies/ai/profiles/VoidCaptainProfile.gd"),
+	"void_ritualist_prime": preload("res://enemies/ai/profiles/VoidRitualistPrimeProfile.gd"),
+	"void_champion":       preload("res://enemies/ai/profiles/VoidChampionProfile.gd"),
+	"abyss_sovereign":     preload("res://enemies/ai/profiles/AbyssSovereignProfile.gd"),
 }
 
 var _active_profile: CombatProfile = null
@@ -92,6 +97,9 @@ var spell_cost_penalty: int = 0
 
 ## Per-card mana cost discounts keyed by card ID (e.g. {"pack_frenzy": 1}).
 var spell_cost_discounts: Dictionary = {}
+
+## Per-card essence cost discounts keyed by card ID (e.g. {"void_touched_imp": 1}).
+var essence_cost_discounts: Dictionary = {}
 
 ## Set to true by Smoke Veil trap to cancel the current attack.
 var attack_cancelled: bool = false

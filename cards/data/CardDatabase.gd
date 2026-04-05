@@ -1383,6 +1383,53 @@ func _register_wanderer_cards() -> void:
 	rogue_imp_elder.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/rogue_imp_elder_small.png"
 	all.append(rogue_imp_elder)
 
+	# --- Enemy Champions (Act 1) — auto-summoned by passive handlers, not from deck ---
+
+	var champion_rogue_imp_pack := MinionCardData.new()
+	champion_rogue_imp_pack.id           = "champion_rogue_imp_pack"
+	champion_rogue_imp_pack.card_name    = "Rogue Imp Pack"
+	champion_rogue_imp_pack.essence_cost = 0
+	champion_rogue_imp_pack.description  = "CHAMPION. SWIFT.\nSummoned after 4 Rabid Imp attacks.\nAura: All friendly FERAL IMP minions gain +100 ATK.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_rogue_imp_pack.atk          = 300
+	champion_rogue_imp_pack.health       = 400
+	champion_rogue_imp_pack.minion_type  = Enums.MinionType.DEMON
+	champion_rogue_imp_pack.keywords     = [Enums.Keyword.CHAMPION, Enums.Keyword.SWIFT]
+	champion_rogue_imp_pack.is_champion  = true
+	champion_rogue_imp_pack.minion_tags  = ["feral_imp", "enemy_champion"]
+	champion_rogue_imp_pack.faction      = "abyss_order"
+	champion_rogue_imp_pack.clan         = "Feral Imp"
+	all.append(champion_rogue_imp_pack)
+
+	var champion_corrupted_broodlings := MinionCardData.new()
+	champion_corrupted_broodlings.id           = "champion_corrupted_broodlings"
+	champion_corrupted_broodlings.card_name    = "Corrupted Broodlings"
+	champion_corrupted_broodlings.essence_cost = 0
+	champion_corrupted_broodlings.description  = "CHAMPION.\nOn death: Summon a Void-Touched Imp and deal 20% of enemy hero max HP to enemy hero."
+	champion_corrupted_broodlings.atk          = 200
+	champion_corrupted_broodlings.health       = 400
+	champion_corrupted_broodlings.minion_type  = Enums.MinionType.DEMON
+	champion_corrupted_broodlings.keywords     = [Enums.Keyword.CHAMPION]
+	champion_corrupted_broodlings.is_champion  = true
+	champion_corrupted_broodlings.minion_tags  = ["feral_imp", "enemy_champion"]
+	champion_corrupted_broodlings.faction      = "abyss_order"
+	champion_corrupted_broodlings.clan         = "Feral Imp"
+	all.append(champion_corrupted_broodlings)
+
+	var champion_imp_matriarch := MinionCardData.new()
+	champion_imp_matriarch.id           = "champion_imp_matriarch"
+	champion_imp_matriarch.card_name    = "Imp Matriarch"
+	champion_imp_matriarch.essence_cost = 0
+	champion_imp_matriarch.description  = "CHAMPION. GUARD.\nAura: Pack Frenzy also grants +200 HP to all FERAL IMP minions.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_imp_matriarch.atk          = 300
+	champion_imp_matriarch.health       = 500
+	champion_imp_matriarch.minion_type  = Enums.MinionType.DEMON
+	champion_imp_matriarch.keywords     = [Enums.Keyword.CHAMPION, Enums.Keyword.GUARD]
+	champion_imp_matriarch.is_champion  = true
+	champion_imp_matriarch.minion_tags  = ["feral_imp", "enemy_champion"]
+	champion_imp_matriarch.faction      = "abyss_order"
+	champion_imp_matriarch.clan         = "Feral Imp"
+	all.append(champion_imp_matriarch)
+
 	# Feral Imp Clan Spells
 
 	var feral_surge := SpellCardData.new()
@@ -1467,6 +1514,7 @@ func _register_wanderer_cards() -> void:
 	void_pulse.description     = "Consume 1 Void Spark. Draw 3 cards."
 	void_pulse.effect_steps    = [{"type": "DRAW", "amount": 3}]
 	void_pulse.faction         = "abyss_order"
+	void_pulse.art_path        = "res://assets/art/spells/abyss_order/void_pulse.png"
 	all.append(void_pulse)
 
 	var phase_stalker := MinionCardData.new()
@@ -1480,6 +1528,8 @@ func _register_wanderer_cards() -> void:
 	phase_stalker.minion_type     = Enums.MinionType.SPIRIT
 	phase_stalker.keywords.append(Enums.Keyword.SWIFT)
 	phase_stalker.faction         = "abyss_order"
+	phase_stalker.art_path             = "res://assets/art/minions/abyss_order/phase_stalker.png"
+	phase_stalker.battlefield_art_path = "res://assets/art/minions/abyss_order/phase_stalker_small.png"
 	all.append(phase_stalker)
 
 	var rift_collapse := SpellCardData.new()
@@ -1490,6 +1540,7 @@ func _register_wanderer_cards() -> void:
 	rift_collapse.description     = "Consume 1 Void Spark. Deal 200 damage to all enemy minions."
 	rift_collapse.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 200}]
 	rift_collapse.faction         = "abyss_order"
+	rift_collapse.art_path        = "res://assets/art/spells/abyss_order/rift_collapse.png"
 	all.append(rift_collapse)
 
 	var void_behemoth := MinionCardData.new()
@@ -1503,6 +1554,8 @@ func _register_wanderer_cards() -> void:
 	void_behemoth.minion_type     = Enums.MinionType.SPIRIT
 	void_behemoth.keywords.append(Enums.Keyword.GUARD)
 	void_behemoth.faction         = "abyss_order"
+	void_behemoth.art_path             = "res://assets/art/minions/abyss_order/void_behemoth.png"
+	void_behemoth.battlefield_art_path = "res://assets/art/minions/abyss_order/void_behemoth_small.png"
 	all.append(void_behemoth)
 
 	var dimensional_breach := SpellCardData.new()
@@ -1517,6 +1570,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "SUMMON", "card_id": "void_spark"},
 	]
 	dimensional_breach.faction         = "abyss_order"
+	dimensional_breach.art_path        = "res://assets/art/spells/abyss_order/dimensional_breach.png"
 	all.append(dimensional_breach)
 
 	var void_rift_lord := MinionCardData.new()
@@ -1530,6 +1584,8 @@ func _register_wanderer_cards() -> void:
 	void_rift_lord.minion_type     = Enums.MinionType.SPIRIT
 	void_rift_lord.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_rift_lord_mana_drain"}]
 	void_rift_lord.faction         = "abyss_order"
+	void_rift_lord.art_path             = "res://assets/art/minions/abyss_order/void_rift_lord.png"
+	void_rift_lord.battlefield_art_path = "res://assets/art/minions/abyss_order/void_rift_lord_small.png"
 	all.append(void_rift_lord)
 
 	# ---------------------------------------------------------------------------
@@ -1549,6 +1605,8 @@ func _register_wanderer_cards() -> void:
 	void_wisp.clan          = "Void Spirit"
 	void_wisp.spark_value   = 1
 	void_wisp.faction       = "abyss_order"
+	void_wisp.art_path             = "res://assets/art/minions/abyss_order/void_wisp.png"
+	void_wisp.battlefield_art_path = "res://assets/art/minions/abyss_order/void_wisp_small.png"
 	all.append(void_wisp)
 
 	var void_shade := MinionCardData.new()
@@ -1562,6 +1620,8 @@ func _register_wanderer_cards() -> void:
 	void_shade.clan          = "Void Spirit"
 	void_shade.spark_value   = 2
 	void_shade.faction       = "abyss_order"
+	void_shade.art_path             = "res://assets/art/minions/abyss_order/void_shade.png"
+	void_shade.battlefield_art_path = "res://assets/art/minions/abyss_order/void_shade_small.png"
 	all.append(void_shade)
 
 	var void_wraith := MinionCardData.new()
@@ -1575,6 +1635,8 @@ func _register_wanderer_cards() -> void:
 	void_wraith.clan          = "Void Spirit"
 	void_wraith.spark_value   = 3
 	void_wraith.faction       = "abyss_order"
+	void_wraith.art_path             = "res://assets/art/minions/abyss_order/void_wraith.png"
+	void_wraith.battlefield_art_path = "res://assets/art/minions/abyss_order/void_wraith_small.png"
 	all.append(void_wraith)
 
 	var void_revenant := MinionCardData.new()
@@ -1588,6 +1650,8 @@ func _register_wanderer_cards() -> void:
 	void_revenant.clan          = "Void Spirit"
 	void_revenant.spark_value   = 4
 	void_revenant.faction       = "abyss_order"
+	void_revenant.art_path             = "res://assets/art/minions/abyss_order/void_revenant.png"
+	void_revenant.battlefield_art_path = "res://assets/art/minions/abyss_order/void_revenant_small.png"
 	all.append(void_revenant)
 
 	# --- Spark consumer spells ---
@@ -1603,6 +1667,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "CORRUPTION", "scope": "ALL_ENEMY", "amount": 2},
 	]
 	sovereigns_decree.faction          = "abyss_order"
+	sovereigns_decree.art_path         = "res://assets/art/spells/abyss_order/sovereigns_decree.png"
 	all.append(sovereigns_decree)
 
 	var thrones_command := SpellCardData.new()
@@ -1613,6 +1678,7 @@ func _register_wanderer_cards() -> void:
 	thrones_command.description      = "Grant all friendly minions +1 Critical Strike."
 	thrones_command.effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "ALL_FRIENDLY", "amount": 1}]
 	thrones_command.faction          = "abyss_order"
+	thrones_command.art_path         = "res://assets/art/spells/abyss_order/thrones_command.png"
 	all.append(thrones_command)
 
 	# --- Spark consumer minion ---
@@ -1629,6 +1695,8 @@ func _register_wanderer_cards() -> void:
 	bastion_colossus.keywords             = [Enums.Keyword.GUARD]
 	bastion_colossus.on_play_effect_steps = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SELF", "amount": 2}]
 	bastion_colossus.faction              = "abyss_order"
+	bastion_colossus.art_path             = "res://assets/art/minions/abyss_order/bastion_colossus.png"
+	bastion_colossus.battlefield_art_path = "res://assets/art/minions/abyss_order/bastion_colossus_small.png"
 	all.append(bastion_colossus)
 
 	# --- Non-spark spells ---
@@ -1640,6 +1708,7 @@ func _register_wanderer_cards() -> void:
 	sovereigns_edict.description = "Grant all current friendly minions 'ON DEATH: Summon a Void Spark.'"
 	sovereigns_edict.effect_steps = [{"type": "GRANT_ON_DEATH_SUMMON", "scope": "ALL_FRIENDLY", "card_id": "void_spark"}]
 	sovereigns_edict.faction     = "abyss_order"
+	sovereigns_edict.art_path    = "res://assets/art/spells/abyss_order/sovereigns_edict.png"
 	all.append(sovereigns_edict)
 
 	# --- Non-spark minion ---
@@ -1656,6 +1725,8 @@ func _register_wanderer_cards() -> void:
 	sovereigns_herald.on_play_target_type      = "friendly_minion"
 	sovereigns_herald.on_play_effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 1}]
 	sovereigns_herald.faction                  = "abyss_order"
+	sovereigns_herald.art_path                 = "res://assets/art/minions/abyss_order/sovereigns_herald.png"
+	sovereigns_herald.battlefield_art_path     = "res://assets/art/minions/abyss_order/sovereigns_herald_small.png"
 	all.append(sovereigns_herald)
 
 	# --- Pool assignments (controls deck builder visibility and collection) ---

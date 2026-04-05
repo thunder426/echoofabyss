@@ -85,6 +85,7 @@ var _env_ritual_handlers: Array = []
 
 var enemy_spell_cost_penalty:   int        = 0
 var enemy_spell_cost_discounts: Dictionary = {}
+var enemy_essence_cost_discounts: Dictionary = {}
 
 ## Pending spell tax applied at next turn start (set by Spell Taxer effect).
 var _spell_tax_for_enemy_turn:  int = 0
@@ -106,6 +107,7 @@ var _player_ritual_count: int = 0      ## Player ritual fires (e.g. Demon Ascend
 
 var _spark_spawned_count: int = 0     ## Void Sparks spawned on enemy board (human died)
 var _spark_transfer_count: int = 0    ## Void Spark transfers to player board
+var _champion_summon_count: int = 0   ## Enemy champion summons
 
 ## Once-per-turn gate for feral_reinforcement passive.
 var _imp_caller_fired: bool = false
@@ -139,6 +141,22 @@ var imp_evolution_used_this_turn: bool = false
 
 ## Feral Instinct once-per-turn gate — reset at ON_ENEMY_TURN_START.
 var feral_instinct_granted_this_turn: bool = false
+
+## Act 4 passive stats — set dynamically by CombatSetup via scene.set().
+var _vp_pre_crit_stacks: int = 0
+var _spirit_conscription_fired: bool = false
+var crit_multiplier: float = 2.0
+var _dark_channeling_active: bool = false
+var _dark_channeling_multiplier: float = 1.0
+
+## Enemy champion state — set dynamically by CombatSetup via scene.set().
+var enemy_hp_max: int = 0
+var _champion_rip_attack_ids: Array = []
+var _champion_rip_summoned: bool = false
+var _champion_cb_death_count: int = 0
+var _champion_cb_summoned: bool = false
+var _champion_im_frenzy_count: int = 0
+var _champion_im_summoned: bool = false
 
 # ---------------------------------------------------------------------------
 # Sim result
@@ -327,6 +345,12 @@ func _log(_msg: Variant, _type: int = 0) -> void:
 
 func _refresh_slot_for(_target) -> void:
 	pass  # no UI
+
+func _update_champion_progress(_current: int, _total: int) -> void:
+	pass  # no UI in headless sim
+
+func _on_champion_killed() -> void:
+	pass  # no UI in headless sim
 
 func _opponent_of(owner: String) -> String:
 	return "enemy" if owner == "player" else "player"

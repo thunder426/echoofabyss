@@ -238,47 +238,48 @@ func _build_encounter(index: int) -> EnemyData:
 		# -- Act 1: Imp Lair --
 		1:
 			return _make_encounter("Rogue Imp Pack", 1800,
-				["rabid_imp", "rabid_imp", "rabid_imp", "rabid_imp",
-				"brood_imp", "brood_imp", "brood_imp",
-				"imp_brawler", "imp_brawler", "imp_brawler",
-				"feral_surge", "feral_surge",
-				"void_screech", "void_screech"],
+				[
+					"rabid_imp", "rabid_imp", "rabid_imp", "rabid_imp", "rabid_imp",
+					"imp_brawler", "imp_brawler", "imp_brawler",
+					"rogue_imp_elder",
+					"feral_surge", "feral_surge", "feral_surge",
+					"void_screech", "void_screech",
+				],
 				"ENCOUNTER I",
 				"The outer tunnels of the Imp Lair crawl with feral Void Imps freshly escaped from their cages. They are wild, disorganised — but their numbers are not to be underestimated.",
 				"res://assets/art/progression/backgrounds/a1_fight1_background.png",
-				["feral_instinct", "pack_instinct"], "feral_pack")
+				["feral_instinct", "pack_instinct", "champion_rogue_imp_pack"], "feral_pack")
 		2:
 			return _make_encounter("Corrupted Broodlings", 2400,
-				["brood_imp", "brood_imp",
-				"void_touched_imp", "void_touched_imp", "void_touched_imp", "void_touched_imp",
-				"rabid_imp", "rabid_imp", "rabid_imp", "rabid_imp",
-				"void_screech",
-				"pack_frenzy", "pack_frenzy"],
+				[
+					"void_touched_imp", "void_touched_imp", "void_touched_imp", "void_touched_imp", "void_touched_imp",
+					"brood_imp", "brood_imp", "brood_imp",
+					"frenzied_imp", "frenzied_imp",
+					"void_screech", "void_screech",
+					"flux_siphon", "flux_siphon",
+				],
 				"ENCOUNTER II",
 				"Deeper in, the air turns thick with void energy. The broodlings here have been touched by something ancient — their eyes glow with a hunger that wasn't there before.",
 				"res://assets/art/progression/backgrounds/a1_fight2_background.png",
-				["feral_instinct", "corrupted_death"], "corrupted_brood")
+				["feral_instinct", "corrupted_death", "champion_corrupted_broodlings"], "corrupted_brood")
 		3:
 			return _make_encounter("Imp Matriarch", 3000,
-				# Combo boss: flood board with cheap imps, then swing with Pack Frenzy.
-				# Ancient Frenzy drops Pack Frenzy to 2M; Rogue Imp Elder makes the
-				# +250 ATK buff land at +350 effective ATK. Turn 5 is the danger window.
+				# Combo boss: brood_call floods early board, Pack Frenzy is the burst finisher.
+				# Champion aura makes Pack Frenzy also grant +200 HP.
 				[
-					"rabid_imp",      "rabid_imp",      "rabid_imp",
 					"brood_imp",      "brood_imp",
 					"imp_brawler",    "imp_brawler",
-					"void_touched_imp",
-					"rogue_imp_elder",
+					"frenzied_imp",
 					"matriarchs_broodling",
 					"pack_frenzy",    "pack_frenzy",
+					"brood_call",     "brood_call",     "brood_call",     "brood_call",
 					"feral_surge",
-					"void_screech",
-					"brood_call",
+					"flux_siphon",
 				],
 				"IMP MATRIARCH",
 				"At the heart of the lair, a monstrous Imp Matriarch holds court. She is the source of the corruption — ancient, cunning, and furious at the intrusion into her domain.",
 				"res://assets/art/progression/backgrounds/a1_fight3_background.png",
-				["feral_instinct", "ancient_frenzy"], "matriarch")
+				["feral_instinct", "ancient_frenzy", "champion_imp_matriarch"], "matriarch")
 		# -- Act 2: Abyss Dungeon --
 		4:
 			return _make_encounter("Abyss Cultist Patrol", 2800,
@@ -409,7 +410,7 @@ func _build_encounter(index: int) -> EnemyData:
 				"ENCOUNTER II",
 				"A full Void Warband stands between you and the castle's keep. These are the Sovereign's chosen soldiers — hardened by centuries of conquest across dying worlds.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "spirit_conscription"])
+				["void_might", "spirit_conscription"], "void_warband")
 		12:
 			return _make_encounter("Void Captain", 6200,
 				[
@@ -426,7 +427,7 @@ func _build_encounter(index: int) -> EnemyData:
 				"VOID CAPTAIN",
 				"The Void Captain commands the castle's garrison. A veteran of a hundred conquests, she has never known defeat. She regards you with curiosity — a new species of prey.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "captain_orders"])
+				["void_might", "captain_orders"], "void_captain")
 		13:
 			return _make_encounter("Void Ritualist Prime", 7000,
 				[
@@ -443,7 +444,7 @@ func _build_encounter(index: int) -> EnemyData:
 				"VOID RITUALIST PRIME",
 				"The Ritualist Prime is the Sovereign's high priest. He has spent his eternal life weaving void energy into a prison for the soul. He will try to do the same to you.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "dark_channeling"])
+				["void_might", "dark_channeling"], "void_ritualist_prime")
 		14:
 			return _make_encounter("Void Champion", 7800,
 				[
@@ -461,7 +462,7 @@ func _build_encounter(index: int) -> EnemyData:
 				"VOID CHAMPION",
 				"The last guardian before the throne. The Void Champion was forged from pure abyss energy — no flesh, no weakness, no mercy. Beyond him, the Sovereign waits.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "champion_duel"])
+				["void_might", "champion_duel"], "void_champion")
 		15:
 			return _make_encounter("Abyss Sovereign", 10000,
 				[
@@ -479,7 +480,7 @@ func _build_encounter(index: int) -> EnemyData:
 				"ABYSS SOVEREIGN",
 				"At last. The Abyss Sovereign — the source of all corruption, the end of all things. It has devoured worlds without count. Today, it faces something it has never encountered: defiance.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "void_precision", "dark_channeling"])
+				["void_might", "void_precision", "dark_channeling"], "abyss_sovereign")
 	return null
 
 func _make_encounter(ename: String, ehp: int, pool: Array[String],

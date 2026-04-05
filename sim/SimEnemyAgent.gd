@@ -57,6 +57,10 @@ var active_environment:
 var spell_cost_discounts: Dictionary:
 	get: return sim.enemy_spell_cost_discounts
 
+## Duck-type essence_cost_discounts so CombatSetup can write minion essence discounts.
+var essence_cost_discounts: Dictionary:
+	get: return sim.enemy_essence_cost_discounts
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -101,6 +105,11 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 	var spell := inst.card_data as SpellCardData
 	sim.enemy_hand.erase(inst)
 	sim.enemy_discard.append(inst)
+	# Fire ON_ENEMY_SPELL_CAST before resolving (matches CombatScene behavior)
+	if sim.trigger_manager:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
+		ctx.card = spell
+		sim.trigger_manager.fire(ctx)
 	_resolve_spell(spell, chosen_target)
 	return sim.winner.is_empty()
 
@@ -121,12 +130,22 @@ func commit_play_environment(inst: CardInstance) -> bool:
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	if not sim.enemy_board.has(attacker):
 		return false
+	# Fire ON_ENEMY_ATTACK before resolving (matches CombatScene behavior)
+	if sim.trigger_manager:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
+		ctx.minion = attacker
+		sim.trigger_manager.fire(ctx)
 	sim.combat_manager.resolve_minion_attack(attacker, target)
 	return sim.winner.is_empty()
 
 func do_attack_hero(attacker: MinionInstance) -> bool:
 	if not sim.enemy_board.has(attacker):
 		return false
+	# Fire ON_ENEMY_ATTACK before resolving (matches CombatScene behavior)
+	if sim.trigger_manager:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
+		ctx.minion = attacker
+		sim.trigger_manager.fire(ctx)
 	sim.combat_manager.resolve_minion_attack_hero(attacker, "player")
 	return sim.winner.is_empty()
 

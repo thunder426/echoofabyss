@@ -82,6 +82,11 @@ func attack_phase() -> void:
 			var target := agent.pick_swift_target(minion)
 			if not await agent.do_attack_minion(minion, target):
 				if not agent.is_alive(): return
+		elif _is_tempo() and not agent.opponent_board.is_empty():
+			# Tempo: prioritise board control — trade into opponent minions
+			var target := agent.pick_swift_target(minion)
+			if not await agent.do_attack_minion(minion, target):
+				if not agent.is_alive(): return
 		elif minion.can_attack_hero():
 			if not await agent.do_attack_hero(minion):
 				if not agent.is_alive(): return
@@ -99,6 +104,12 @@ func _get_spell_rules() -> Dictionary:
 ## Return true if this profile represents an aggro/swarm deck.
 ## Aggro profiles apply threat-reduction trading logic when under lethal threat.
 func _is_aggro() -> bool:
+	return false
+
+## Return true if this profile represents a tempo/board-control deck.
+## Tempo profiles prioritise trading into opponent minions over going face,
+## unless lethal is available.
+func _is_tempo() -> bool:
 	return false
 
 ## Called by CombatSim after profile setup so the profile can install a custom
@@ -220,13 +231,14 @@ func _play_minions_pass() -> void:
 			minion_hand.sort_custom(agent.sort_by_total_cost)
 		for inst in minion_hand:
 			var mc := inst.card_data as MinionCardData
+			var ess_cost: int = agent.effective_minion_essence_cost(mc)
 			var mana_cost: int = agent.effective_minion_mana_cost(mc)
-			if mc.essence_cost > agent.essence or mana_cost > agent.mana:
+			if ess_cost > agent.essence or mana_cost > agent.mana:
 				continue
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return  # board full
-			agent.essence -= mc.essence_cost
+			agent.essence -= ess_cost
 			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
@@ -596,7 +608,7 @@ func _can_afford_spark_card(card: CardData) -> bool:
 	elif card is MinionCardData:
 		var mc := card as MinionCardData
 		var mana_cost: int = agent.effective_minion_mana_cost(mc)
-		return mc.essence_cost <= agent.essence and mana_cost <= agent.mana
+		return agent.effective_minion_essence_cost(mc) <= agent.essence and mana_cost <= agent.mana
 	return false
 
 ## Total spark value available on the friendly board.
