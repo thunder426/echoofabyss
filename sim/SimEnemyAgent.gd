@@ -61,6 +61,9 @@ var spell_cost_discounts: Dictionary:
 var essence_cost_discounts: Dictionary:
 	get: return sim.enemy_essence_cost_discounts
 
+## Duck-type attack_cancelled so Smoke Veil can cancel attacks.
+var attack_cancelled: bool = false
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -135,6 +138,10 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
 		ctx.minion = attacker
 		sim.trigger_manager.fire(ctx)
+	# Check if a trap (e.g. Smoke Veil) cancelled this attack
+	if attack_cancelled:
+		attack_cancelled = false
+		return sim.winner.is_empty()
 	sim.combat_manager.resolve_minion_attack(attacker, target)
 	return sim.winner.is_empty()
 
@@ -146,6 +153,10 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
 		ctx.minion = attacker
 		sim.trigger_manager.fire(ctx)
+	# Check if a trap (e.g. Smoke Veil) cancelled this attack
+	if attack_cancelled:
+		attack_cancelled = false
+		return sim.winner.is_empty()
 	sim.combat_manager.resolve_minion_attack_hero(attacker, "player")
 	return sim.winner.is_empty()
 

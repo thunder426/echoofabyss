@@ -244,12 +244,26 @@ var _dark_channeling_multiplier: float = 1.0
 
 ## Enemy champion state — set dynamically by CombatSetup via scene.set().
 var _champion_summon_count: int = 0
+var _corruption_detonation_times: int = 0
+var _ritual_invoke_times: int = 0
+var _handler_spark_buff_times: int = 0
+var _smoke_veil_fires: int = 0
+var _smoke_veil_damage_prevented: int = 0
+var _abyssal_plague_fires: int = 0
+var _abyssal_plague_kills: int = 0
 var _champion_rip_attack_ids: Array = []
 var _champion_rip_summoned: bool = false
 var _champion_cb_death_count: int = 0
 var _champion_cb_summoned: bool = false
 var _champion_im_frenzy_count: int = 0
 var _champion_im_summoned: bool = false
+# Act 2 champion state
+var _champion_acp_stacks_consumed: int = 0
+var _champion_acp_summoned: bool = false
+var _champion_vr_summoned: bool = false
+var _champion_ch_spark_count: int = 0
+var _champion_ch_summoned: bool = false
+var _champion_ch_aura_dmg: int = 0
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -1264,6 +1278,35 @@ func _opponent_board(owner: String) -> Array[MinionInstance]:
 ## Return the string identifier of the opponent ("player" → "enemy" and vice-versa).
 func _opponent_of(owner: String) -> String:
 	return "enemy" if owner == "player" else "player"
+
+## Return the deck belonging to the given owner.
+func _friendly_deck(owner: String) -> Array:
+	if owner == "player":
+		return turn_manager.player_deck
+	else:
+		return enemy_ai.deck if enemy_ai else []
+
+## Add a CardInstance to the given owner's hand.
+func _add_to_owner_hand(owner: String, inst: CardInstance) -> void:
+	if owner == "player":
+		turn_manager.add_instance_to_hand(inst)
+	else:
+		enemy_ai.add_instance_to_hand(inst)
+
+## Return the board slots belonging to the given owner.
+func _friendly_slots(owner: String) -> Array:
+	return player_slots if owner == "player" else enemy_slots
+
+## Return the active traps belonging to the given owner.
+func _friendly_traps(owner: String) -> Array:
+	if owner == "player":
+		return active_traps
+	else:
+		return enemy_ai.active_traps if enemy_ai else []
+
+## Return the active traps belonging to the opponent of the given owner.
+func _opponent_traps(owner: String) -> Array:
+	return _friendly_traps(_opponent_of(owner))
 
 ## Return a random minion from the given board array, or null if empty.
 func _find_random_minion(board: Array[MinionInstance]) -> MinionInstance:
@@ -4180,14 +4223,24 @@ func _on_defeat() -> void:
 	if _combat_ended:
 		return
 	_combat_ended = true
-	GameManager.end_run(false)
 	_disable_combat_buttons()
-	if game_over_label:
-		game_over_label.text = "DEFEAT"
-	if restart_button:
-		restart_button.text = "Return to Menu"
+	if GameManager.has_revive:
+		# Offer revive option — restart the same fight
+		if game_over_label:
+			game_over_label.text = "DEFEATED\nSoul Anchor activates!"
+		if restart_button:
+			restart_button.text = "Revive & Retry"
+		_pending_revive = true
+	else:
+		GameManager.end_run(false)
+		if game_over_label:
+			game_over_label.text = "DEFEAT"
+		if restart_button:
+			restart_button.text = "Return to Menu"
 	if game_over_panel:
 		game_over_panel.visible = true
+
+var _pending_revive: bool = false
 
 func _disable_combat_buttons() -> void:
 	if end_turn_essence_button:
@@ -4199,7 +4252,13 @@ func _disable_combat_buttons() -> void:
 	_show_hero_button(false)
 
 func _on_restart_pressed() -> void:
-	GameManager.go_to_scene("res://ui/MainMenu.tscn")
+	if _pending_revive:
+		# Consume revive and restart the same fight with full HP
+		GameManager.has_revive = false
+		GameManager.player_hp = GameManager.player_hp_max
+		GameManager.go_to_scene("res://combat/board/CombatScene.tscn")
+	else:
+		GameManager.go_to_scene("res://ui/MainMenu.tscn")
 
 # ---------------------------------------------------------------------------
 # Visual helpers

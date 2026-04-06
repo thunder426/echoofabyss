@@ -44,13 +44,13 @@ const _ENEMY_PROFILES: Dictionary = {
 
 ## Passive IDs active for each enemy profile — mirrors EnemyData.passives in the live game.
 const _ENEMY_PASSIVES: Dictionary = {
-	"feral_pack":           ["feral_instinct", "pack_instinct", "champion_rogue_imp_pack"],
-	"corrupted_brood":      ["feral_instinct", "corrupted_death", "champion_corrupted_broodlings"],
-	"matriarch":            ["feral_instinct", "ancient_frenzy", "champion_imp_matriarch"],
+	"feral_pack":           ["pack_instinct", "champion_rogue_imp_pack"],
+	"corrupted_brood":      ["corrupted_death", "champion_corrupted_broodlings"],
+	"matriarch":            ["ancient_frenzy", "champion_imp_matriarch"],
 	"default":              [],
-	"cultist_patrol":       ["feral_reinforcement", "corrupt_authority"],
-	"void_ritualist":       ["feral_reinforcement", "ritual_sacrifice"],
-	"corrupted_handler":    ["feral_reinforcement", "void_unraveling"],
+	"cultist_patrol":       ["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"],
+	"void_ritualist":       ["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"],
+	"corrupted_handler":    ["feral_reinforcement", "void_unraveling", "champion_corrupted_handler"],
 	"rift_stalker":         ["void_rift", "void_empowerment"],
 	"void_aberration":      ["void_rift", "void_detonation_passive"],
 	"void_herald":          ["void_rift", "void_mastery"],
@@ -63,13 +63,14 @@ const _ENEMY_PASSIVES: Dictionary = {
 	"abyss_sovereign":      ["void_might", "void_precision", "dark_channeling"],
 	# Scored variants
 	"scored":               [],
-	"scored_feral_pack":    ["feral_instinct", "pack_instinct", "champion_rogue_imp_pack"],
-	"scored_corrupted_brood": ["feral_instinct", "corrupted_death", "champion_corrupted_broodlings"],
-	"scored_matriarch":     ["feral_instinct", "ancient_frenzy", "champion_imp_matriarch"],
+	"scored_feral_pack":    ["pack_instinct", "champion_rogue_imp_pack"],
+	"scored_corrupted_brood": ["corrupted_death", "champion_corrupted_broodlings"],
+	"scored_matriarch":     ["ancient_frenzy", "champion_imp_matriarch"],
 }
 
 const _PLAYER_PROFILES: Dictionary = {
 	"default":    preload("res://enemies/ai/profiles/DefaultPlayerProfile.gd"),
+	"swarm":      preload("res://enemies/ai/profiles/SwarmPlayerProfile.gd"),
 	"spell_burn": preload("res://enemies/ai/profiles/SpellBurnPlayerProfile.gd"),
 	"rune_tempo": preload("res://enemies/ai/profiles/RuneTempoPlayerProfile.gd"),
 	"scored":     preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
@@ -204,6 +205,15 @@ func run(
 		"spark_spawned_count": state._spark_spawned_count,
 		"spark_transfer_count": state._spark_transfer_count,
 		"champion_summon_count": state._champion_summon_count,
+		"corruption_detonation_times": state._corruption_detonation_times,
+		"ritual_invoke_times": state._ritual_invoke_times,
+		"handler_spark_buff_times": state._handler_spark_buff_times,
+		"champion_ch_aura_dmg": state._champion_ch_aura_dmg,
+		"player_clogged_slots": _count_clogged_slots(state),
+		"smoke_veil_fires": state._smoke_veil_fires,
+		"smoke_veil_damage_prevented": state._smoke_veil_damage_prevented,
+		"abyssal_plague_fires": state._abyssal_plague_fires,
+		"abyssal_plague_kills": state._abyssal_plague_kills,
 		"relic_activations": relic_rt.total_activations if relic_rt else 0,
 	}
 
@@ -239,6 +249,15 @@ func run_many(
 	var total_spark_transfer := 0
 	var total_relic_activations := 0
 	var total_champion_summons := 0
+	var total_corruption_det := 0
+	var total_ritual_invoke := 0
+	var total_spark_buff := 0
+	var total_ch_aura_dmg := 0
+	var total_clogged := 0
+	var total_smoke_veil_fires := 0
+	var total_smoke_veil_dmg := 0
+	var total_plague_fires := 0
+	var total_plague_kills := 0
 
 	for _i in count:
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
@@ -258,6 +277,15 @@ func run_many(
 		total_spark_transfer += r.get("spark_transfer_count", 0)
 		total_relic_activations += r.get("relic_activations", 0)
 		total_champion_summons += r.get("champion_summon_count", 0)
+		total_corruption_det += r.get("corruption_detonation_times", 0)
+		total_ritual_invoke += r.get("ritual_invoke_times", 0)
+		total_spark_buff += r.get("handler_spark_buff_times", 0)
+		total_ch_aura_dmg += r.get("champion_ch_aura_dmg", 0)
+		total_clogged += r.get("player_clogged_slots", 0)
+		total_smoke_veil_fires += r.get("smoke_veil_fires", 0)
+		total_smoke_veil_dmg += r.get("smoke_veil_damage_prevented", 0)
+		total_plague_fires += r.get("abyssal_plague_fires", 0)
+		total_plague_kills += r.get("abyssal_plague_kills", 0)
 
 	return {
 		"count":          count,
@@ -275,6 +303,15 @@ func run_many(
 		"avg_spark_transfer": float(total_spark_transfer) / count,
 		"avg_relic_activations": float(total_relic_activations) / count,
 		"avg_champion_summons": float(total_champion_summons) / count,
+		"avg_corruption_det": float(total_corruption_det) / count,
+		"avg_ritual_invoke": float(total_ritual_invoke) / count,
+		"avg_spark_buff": float(total_spark_buff) / count,
+		"avg_ch_aura_dmg": float(total_ch_aura_dmg) / count,
+		"avg_clogged_slots": float(total_clogged) / count,
+		"avg_smoke_veil_fires": float(total_smoke_veil_fires) / count,
+		"avg_smoke_veil_dmg": float(total_smoke_veil_dmg) / count,
+		"avg_plague_fires": float(total_plague_fires) / count,
+		"avg_plague_kills": float(total_plague_kills) / count,
 	}
 
 # ---------------------------------------------------------------------------
@@ -337,3 +374,11 @@ func _try_relic_bone_shield(rt: RelicRuntime, fx: RelicEffects, state: SimState)
 		var effect_id: String = rt.activate(idx)
 		if effect_id != "":
 			fx.resolve(effect_id)
+
+## Count 0-ATK minions on the player board (corrupted sparks clogging slots).
+static func _count_clogged_slots(state: SimState) -> int:
+	var count := 0
+	for m in state.player_board:
+		if m.effective_atk() <= 0:
+			count += 1
+	return count

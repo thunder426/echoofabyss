@@ -355,15 +355,29 @@ func on_board_changed_pack_instinct(_ctx: EventContext) -> void:
 			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, others * 50, "pack_instinct")
 		_scene._refresh_slot_for(m)
 
-func on_enemy_died_corrupted_death(ctx: EventContext) -> void:
-	var minion := ctx.minion
-	if minion == null or minion.card_data.id != "void_touched_imp":
+func on_enemy_died_corrupted_death(_ctx: EventContext) -> void:
+	pass  # Death effect removed — corrupted_death now only provides cost discounts
+
+## Corrupted Death — when PLAYER casts a spell, reduce a random enemy minion's
+## essence cost in hand by 1.
+func on_player_spell_corrupted_death(_ctx: EventContext) -> void:
+	var ai = _scene.get("enemy_ai")
+	if ai == null:
 		return
-	if _scene.player_board.is_empty():
+	# Find all minion CardInstances in enemy hand
+	var minion_insts: Array = []
+	for inst in ai.hand:
+		if inst.card_data is MinionCardData:
+			minion_insts.append(inst)
+	if minion_insts.is_empty():
 		return
-	for m in _scene.player_board:
-		_scene._corrupt_minion(m)
-	_log("  Corrupted Death: Void-Touched Imp death spreads Corruption to all player minions.", _LOG_ENEMY)
+	# Pick a random minion and discount its essence cost by 1
+	var chosen: CardInstance = minion_insts[randi() % minion_insts.size()] as CardInstance
+	var mc: MinionCardData = chosen.card_data as MinionCardData
+	var discounts: Dictionary = ai.essence_cost_discounts
+	var current: int = (discounts.get(mc.id, 0) as int)
+	discounts[mc.id] = current + 1
+	_log("  Corrupted Death: player spell → %s cost reduced (-%d Essence)." % [mc.card_name, current + 1], _LOG_ENEMY)
 
 ## Human Imp Caller — shared Act 2 passive
 ## When a human is summoned: add a random feral imp to the enemy's hand.
@@ -409,6 +423,7 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 		return
 	var _prev_det = _scene.get("_detonation_count")
 	_scene.set("_detonation_count", (_prev_det if _prev_det != null else 0) + 1)
+	_scene._corruption_detonation_times += 1
 	for m: MinionInstance in _scene.player_board.duplicate():
 		var stacks := 0
 		for b in m.buffs:
@@ -420,6 +435,8 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 		_scene._refresh_slot_for(m)
 		_scene.combat_manager.apply_spell_damage(m, 100 * stacks)
 		_log("  Corrupt Authority: %s had %d stack(s) → consumed, dealt %d damage." % [m.card_data.card_name, stacks, 100 * stacks], _LOG_ENEMY)
+		# Track consumed stacks toward Abyss Cultist Patrol champion
+		on_champion_acp_track_stacks(stacks)
 
 ## Ritual Sacrifice — encounter 4 (Void Ritualist)
 ## When a feral imp is summoned and enemy has Blood Rune + Dominion Rune active:
@@ -451,6 +468,7 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	_scene.combat_manager.kill_minion(minion)
 	var _prev_count = _scene.get("_ritual_sacrifice_count")
 	_scene.set("_ritual_sacrifice_count", (_prev_count if _prev_count != null else 0) + 1)
+	_scene._ritual_invoke_times += 1
 	_log("  Ritual Sacrifice: runes consumed + %s sacrificed — Demon Ascendant!" % minion.card_data.card_name, _LOG_ENEMY)
 	# Deal 200 damage to 2 random player targets (minion or hero if board is empty)
 	for _i in 2:
@@ -461,39 +479,56 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 			_scene.combat_manager.apply_spell_damage(t, 200)
 	# Special Summon a 500/500 Demon
 	_scene._summon_token("void_demon", "enemy", 500, 500)
+	# Trigger Void Ritualist champion on first ritual
+	on_ritual_sacrifice_champion_vr()
 
-## Void Unraveling — encounter 5 (Corrupted Handler)
-## When a friendly human dies: summon a 100/100 Void Spark on the enemy board.
-func on_enemy_died_void_unraveling(ctx: EventContext) -> void:
+## Void Unraveling — encounter 6 (Corrupted Handler)
+## When a human is summoned: summon a 100/100 Void Spark on the enemy board.
+func on_enemy_summon_void_unraveling_human(ctx: EventContext) -> void:
 	var minion := ctx.minion
-	if minion == null or (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+	if minion == null or not (minion.card_data is MinionCardData):
+		return
+	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
 		return
 	var _prev = _scene.get("_spark_spawned_count")
 	_scene.set("_spark_spawned_count", (_prev if _prev != null else 0) + 1)
 	_scene._summon_token("void_spark", "enemy", 100, 100)
-	_log("  Void Unraveling: %s died → a Void Spark arises on the enemy board." % minion.card_data.card_name, _LOG_ENEMY)
+	_log("  Void Unraveling: %s summoned → a Void Spark arises!" % minion.card_data.card_name, _LOG_ENEMY)
 
-## When a feral imp is summoned: apply 1 Corruption to all friendly Void Sparks and
-## transfer each to the player board. Destroy those that can't fit.
-func on_enemy_summon_void_unraveling(ctx: EventContext) -> void:
+## When a feral imp is summoned: consume 1 friendly Void Spark, grant +100/+100 to the imp.
+func on_enemy_summon_void_unraveling_imp(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not _has_tag(minion, "feral_imp"):
 		return
+	# Find a friendly void spark to consume
+	for m: MinionInstance in _scene.enemy_board.duplicate():
+		if m.card_data.id == "void_spark":
+			_scene.combat_manager.kill_minion(m)
+			minion.current_atk += 100
+			minion.current_health += 100
+			_scene._refresh_slot_for(minion)
+			_log("  Void Unraveling: feral imp consumed a Void Spark → +100/+100!" , _LOG_ENEMY)
+			return
+
+## At end of enemy turn: corrupt 1 random friendly spark and transfer it to player board.
+func on_enemy_turn_end_void_unraveling(_ctx: EventContext) -> void:
 	var sparks: Array[MinionInstance] = []
 	for m: MinionInstance in _scene.enemy_board:
 		if m.card_data.id == "void_spark":
 			sparks.append(m)
 	if sparks.is_empty():
 		return
-	var _prev = _scene.get("_spark_transfer_count")
-	_scene.set("_spark_transfer_count", (_prev if _prev != null else 0) + sparks.size())
-	for spark: MinionInstance in sparks:
+	# Pick one random spark, corrupt it, transfer it
+	var spark: MinionInstance = sparks[randi() % sparks.size()]
+	if not BuffSystem.has_type(spark, Enums.BuffType.CORRUPTION):
 		_scene._corrupt_minion(spark)
-		if not _transfer_to_player_board(spark):
-			_scene.combat_manager.kill_minion(spark)
-			_log("  Void Unraveling: player board full — Void Spark destroyed.", _LOG_ENEMY)
-		else:
-			_log("  Void Unraveling: Void Spark (Corrupted) transferred to player board!", _LOG_ENEMY)
+	var _prev = _scene.get("_spark_transfer_count")
+	_scene.set("_spark_transfer_count", (_prev if _prev != null else 0) + 1)
+	if not _transfer_to_player_board(spark):
+		_scene.combat_manager.kill_minion(spark)
+		_log("  Void Unraveling: player board full — Void Spark destroyed.", _LOG_ENEMY)
+	else:
+		_log("  Void Unraveling: corrupted Void Spark transferred to player board!", _LOG_ENEMY)
 
 ## Move a minion from the enemy board to an empty player board slot without firing death/summon events.
 ## Returns false if the player board has no empty slot.
@@ -735,7 +770,7 @@ func on_enemy_died_champion_cb(ctx: EventContext) -> void:
 		_summon_enemy_champion("champion_corrupted_broodlings")
 
 ## ── Champion: Imp Matriarch ─────────────────────────────────────────────────
-## Summon condition: 1st Pack Frenzy cast.
+## Summon condition: 2nd Pack Frenzy cast.
 ## Aura: Pack Frenzy also grants +200 HP to all feral imps.
 ## On death: deal 20% max HP to enemy hero.
 
@@ -750,16 +785,126 @@ func on_enemy_spell_champion_im(ctx: EventContext) -> void:
 				_scene._refresh_slot_for(m)
 		_log("  Imp Matriarch champion aura: Pack Frenzy grants +200 HP to all feral imps!", _LOG_ENEMY)
 		return
-	# First Pack Frenzy cast summons the champion
-	_scene._update_champion_progress(1, 1)
-	_log("  Champion progress: 1 / 1 Pack Frenzy cast.", _LOG_ENEMY)
-	_summon_enemy_champion("champion_imp_matriarch")
+	# Track Pack Frenzy casts toward summon threshold
+	var count: int = _scene.get("_champion_im_frenzy_count") + 1
+	_scene.set("_champion_im_frenzy_count", count)
+	_scene._update_champion_progress(count, 2)
+	_log("  Champion progress: %d / 2 Pack Frenzy casts." % count, _LOG_ENEMY)
+	if count >= 2:
+		_summon_enemy_champion("champion_imp_matriarch")
 
 func on_enemy_died_champion_im(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null:
 		return
 	if minion.card_data.id == "champion_imp_matriarch":
+		_on_enemy_champion_killed()
+
+## ── Shared champion helpers ─────────────────────────────────────────────────
+
+## ── Champion: Abyss Cultist Patrol (Act 2) ──────────────────────────────────
+## Summon condition: 4 corruption stacks consumed (detonated).
+## Aura: corruption applied to player minions instantly detonates (100 dmg per stack).
+## On death: deal 20% max HP to enemy hero.
+
+## Called by corrupt_authority_imp handler — tracks stacks consumed toward champion threshold.
+func on_champion_acp_track_stacks(stacks: int) -> void:
+	if _scene.get("_champion_acp_summoned"):
+		return
+	var total: int = _scene._champion_acp_stacks_consumed + stacks
+	_scene._champion_acp_stacks_consumed = total
+	_scene._update_champion_progress(mini(total, 5), 5)
+	_log("  Champion progress: %d / 5 corruption stacks consumed." % mini(total, 5), _LOG_ENEMY)
+	if total >= 5:
+		_summon_enemy_champion("champion_abyss_cultist_patrol")
+
+## Aura: while champion alive, corruption application instantly detonates.
+## Hooks into ON_ENEMY_MINION_SUMMONED at high priority to run after corrupt_authority_human
+## applies corruption. Checks for any corruption on player minions and detonates immediately.
+func on_enemy_summon_champion_acp_corrupt(_ctx: EventContext) -> void:
+	if not _scene.get("_champion_acp_summoned"):
+		return
+	# Instantly detonate all corruption stacks on player minions
+	for m: MinionInstance in _scene.player_board.duplicate():
+		var stacks := 0
+		for b in m.buffs:
+			if (b as BuffEntry).type == Enums.BuffType.CORRUPTION:
+				stacks += 1
+		if stacks == 0:
+			continue
+		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
+		_scene._refresh_slot_for(m)
+		_scene.combat_manager.apply_spell_damage(m, 100 * stacks)
+		_log("  Cultist Patrol aura: instant detonation — %s takes %d damage!" % [m.card_data.card_name, 100 * stacks], _LOG_ENEMY)
+
+func on_enemy_died_champion_acp(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_abyss_cultist_patrol":
+		_on_enemy_champion_killed()
+
+## ── Champion: Void Ritualist (Act 2) ────────────────────────────────────────
+## Summon condition: first ritual_sacrifice triggers.
+## Aura: rune placement costs 1 less mana.
+## On death: deal 20% max HP to enemy hero.
+
+## Called by ritual_sacrifice handler when the ritual fires.
+func on_enemy_summon_champion_vr(_ctx: EventContext) -> void:
+	# Ritual sacrifice handler calls this — champion spawns on first ritual
+	pass  # Summon handled directly in ritual_sacrifice via on_ritual_sacrifice_champion_vr()
+
+func on_ritual_sacrifice_champion_vr() -> void:
+	if _scene.get("_champion_vr_summoned"):
+		return
+	_scene._update_champion_progress(1, 1)
+	_log("  Champion progress: 1 / 1 ritual sacrifice triggered.", _LOG_ENEMY)
+	_summon_enemy_champion("champion_void_ritualist")
+
+func on_enemy_died_champion_vr(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_ritualist":
+		_on_enemy_champion_killed()
+
+## ── Champion: Corrupted Handler (Act 2 Boss) ───────────────────────────────
+## Summon condition: 4 void sparks summoned.
+## Passive (always active): feral imp summon corrupts all sparks on both boards.
+## Aura (champion alive): whenever a Void Spark is summoned, deal 200 damage to player hero.
+## On death: deal 20% max HP to enemy hero.
+
+## Track spark creation toward champion threshold. Champion aura: spark summon → 200 hero damage.
+func on_enemy_summon_champion_ch_spark_buff(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	# Track void spark creation toward champion threshold
+	if minion.card_data.id == "void_spark":
+		if not _scene.get("_champion_ch_summoned"):
+			_scene._champion_ch_spark_count += 1
+			var count: int = _scene._champion_ch_spark_count
+			_scene._update_champion_progress(mini(count, 3), 3)
+			_log("  Champion progress: %d / 3 void sparks created." % mini(count, 3), _LOG_ENEMY)
+			if count >= 3:
+				_summon_enemy_champion("champion_corrupted_handler")
+		# Champion aura: each spark summoned deals 200 damage to player hero + heals enemy hero 200
+		if _scene.get("_champion_ch_summoned"):
+			_scene.combat_manager.apply_hero_damage("player", 200, Enums.DamageType.SPELL)
+			var current_hp: int = _scene.enemy_hp
+			var max_hp: int = _scene.enemy_hp_max
+			if current_hp < max_hp:
+				var heal: int = mini(200, max_hp - current_hp)
+				_scene.enemy_hp += heal
+			var prev_dmg: int = _scene.get("_champion_ch_aura_dmg") if _scene.get("_champion_ch_aura_dmg") != null else 0
+			_scene.set("_champion_ch_aura_dmg", prev_dmg + 200)
+			_log("  Corrupted Handler aura: Void Spark summoned → 200 damage to player + 200 heal to enemy!", _LOG_ENEMY)
+
+func on_enemy_died_champion_ch(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_corrupted_handler":
 		_on_enemy_champion_killed()
 
 ## ── Shared champion helpers ─────────────────────────────────────────────────
@@ -772,6 +917,12 @@ func _summon_enemy_champion(card_id: String) -> void:
 			_scene.set("_champion_cb_summoned", true)
 		"champion_imp_matriarch":
 			_scene.set("_champion_im_summoned", true)
+		"champion_abyss_cultist_patrol":
+			_scene.set("_champion_acp_summoned", true)
+		"champion_void_ritualist":
+			_scene.set("_champion_vr_summoned", true)
+		"champion_corrupted_handler":
+			_scene.set("_champion_ch_summoned", true)
 	var count: int = _scene.get("_champion_summon_count")
 	_scene.set("_champion_summon_count", count + 1)
 	_scene._summon_token(card_id, "enemy")

@@ -86,6 +86,11 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 	var spell := inst.card_data as SpellCardData
 	sim.player_hand.erase(inst)
 	sim.player_discard.append(inst)
+	# Fire ON_PLAYER_SPELL_CAST before resolving (matches CombatScene behavior)
+	if sim.trigger_manager:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+		ctx.card = spell
+		sim.trigger_manager.fire(ctx)
 	_resolve_spell(spell, chosen_target)
 	return sim.winner.is_empty()
 

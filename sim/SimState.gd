@@ -108,6 +108,13 @@ var _player_ritual_count: int = 0      ## Player ritual fires (e.g. Demon Ascend
 var _spark_spawned_count: int = 0     ## Void Sparks spawned on enemy board (human died)
 var _spark_transfer_count: int = 0    ## Void Spark transfers to player board
 var _champion_summon_count: int = 0   ## Enemy champion summons
+var _corruption_detonation_times: int = 0  ## Fight 4: corruption detonation events
+var _ritual_invoke_times: int = 0          ## Fight 5: ritual sacrifice triggers
+var _handler_spark_buff_times: int = 0     ## Fight 6: feral imp → spark ATK buff events
+var _smoke_veil_fires: int = 0        ## Smoke Veil trap activations
+var _smoke_veil_damage_prevented: int = 0  ## Total ATK blocked by Smoke Veil
+var _abyssal_plague_fires: int = 0    ## Abyssal Plague casts
+var _abyssal_plague_kills: int = 0    ## Enemy minions killed by Abyssal Plague
 
 ## Once-per-turn gate for feral_reinforcement passive.
 var _imp_caller_fired: bool = false
@@ -157,6 +164,13 @@ var _champion_cb_death_count: int = 0
 var _champion_cb_summoned: bool = false
 var _champion_im_frenzy_count: int = 0
 var _champion_im_summoned: bool = false
+# Act 2 champion state
+var _champion_acp_stacks_consumed: int = 0
+var _champion_acp_summoned: bool = false
+var _champion_vr_summoned: bool = false
+var _champion_ch_spark_count: int = 0
+var _champion_ch_summoned: bool = false
+var _champion_ch_aura_dmg: int = 0
 
 # ---------------------------------------------------------------------------
 # Sim result
@@ -354,6 +368,28 @@ func _on_champion_killed() -> void:
 
 func _opponent_of(owner: String) -> String:
 	return "enemy" if owner == "player" else "player"
+
+func _friendly_deck(owner: String) -> Array:
+	return player_deck if owner == "player" else enemy_deck
+
+func _add_to_owner_hand(owner: String, inst: CardInstance) -> void:
+	if owner == "player":
+		turn_manager.add_instance_to_hand(inst)
+	else:
+		if enemy_hand.size() < 10:
+			enemy_hand.append(inst)
+
+func _friendly_slots(owner: String) -> Array:
+	return player_slots if owner == "player" else enemy_slots
+
+func _friendly_traps(owner: String) -> Array:
+	return active_traps if owner == "player" else enemy_active_traps
+
+func _opponent_traps(owner: String) -> Array:
+	return _friendly_traps(_opponent_of(owner))
+
+func _update_trap_display_for(_owner: String) -> void:
+	pass  # no UI in headless sim
 
 func _find_random_enemy_minion() -> MinionInstance:
 	return _find_random_minion(enemy_board)
@@ -622,6 +658,10 @@ func begin_enemy_turn(turn_number: int) -> void:
 	_unexhaust_board(enemy_board)
 
 func end_enemy_turn() -> void:
+	# Fire ON_ENEMY_TURN_END before cleanup (void_unraveling spark transfer)
+	if trigger_manager:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_END, "enemy")
+		trigger_manager.fire(ctx)
 	enemy_spell_cost_penalty = 0
 	_player_traps_blocked = false
 

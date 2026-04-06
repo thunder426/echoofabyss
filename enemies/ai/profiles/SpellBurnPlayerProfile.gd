@@ -47,17 +47,13 @@ func _grow_spell_burn(state: Object, turn: int) -> void:
 	var m_max: int = state.player_mana_max
 	if e_max + m_max >= 11:
 		return
-	# Once Mana reaches 3, bring Essence up to 3 before growing Mana further
-	if m_max >= 3 and e_max < 3:
+	# Mana to 3 first (void_bolt online early)
+	if m_max < 3:
+		state.player_mana_max += 1
+	# Essence to 2 (traveling_merchant playable)
+	elif e_max < 2:
 		state.player_essence_max += 1
-		return
-	# Count essence-costing minions in hand — if 2+, grow Essence
-	var e_minion_count: int = 0
-	for inst in state.player_hand:
-		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).essence_cost >= 2:
-			e_minion_count += 1
-	if e_minion_count >= 2:
-		state.player_essence_max += 1
+	# Then pure mana for spell scaling
 	else:
 		state.player_mana_max += 1
 
@@ -66,31 +62,150 @@ func _grow_spell_burn(state: Object, turn: int) -> void:
 # ---------------------------------------------------------------------------
 
 func play_phase() -> void:
-	# 1. Void Imps — flood early, fodder for Abyssal Sacrifice
+	# 1. Survival — if enemy burst threatens heavy damage, prioritise defense before spending mana
+	if _enemy_threatens_heavy_damage() and not agent.opponent_board.is_empty():
+		# AoE clear first — if plague kills enough minions to prevent lethal, saves smoke_veil
+		if _plague_prevents_lethal():
+			await _play_spells_by_id(_BOARD_CLEAR_IDS)
+			if not agent.is_alive(): return
+		# Smoke Veil — if still threatened after plague (or no plague available)
+		if _should_place_smoke_veil():
+			await _play_traps_by_id(["smoke_veil"])
+			if not agent.is_alive(): return
+		# Fallback AoE — cast plague anyway to reduce board even if it doesn't fully prevent lethal
+		await _play_spells_by_id(_BOARD_CLEAR_IDS)
+		if not agent.is_alive(): return
+	# 2. AoE clear — if abyssal_plague would kill 3+ enemies, cast before spending mana
+	elif _should_prioritise_board_clear():
+		await _play_spells_by_id(_BOARD_CLEAR_IDS)
+		if not agent.is_alive(): return
+	# 3. Void Imps — board presence / sacrifice fodder
 	await _play_minions_by_id(["void_imp"])
 	if not agent.is_alive(): return
-	# 2. Draw minions — refuel hand before committing Mana to spells
+	# 4. Draw minions — refuel hand before committing Mana to spells
 	await _play_minions_by_id(_DRAW_MINION_IDS)
 	if not agent.is_alive(): return
-	# 3. Board-clear spells — only when enemies are present
+	# 5. Board-clear spells — mop up remaining enemies if not already cast
 	if not agent.opponent_board.is_empty():
 		await _play_spells_by_id(_BOARD_CLEAR_IDS)
 		if not agent.is_alive(): return
-	# 4. Void Rune — passive chip every turn
+	# 6. Smoke Veil — place if enemy still threatens lethal after spending mana
+	if _should_place_smoke_veil():
+		await _play_traps_by_id(["smoke_veil"])
+		if not agent.is_alive(): return
+	# 7. Void Rune — passive chip every turn
 	await _play_traps_by_id(["void_rune"])
 	if not agent.is_alive(): return
-	# 5. Void Bolt — burn face
+	# 8. Void Bolt — burn face
 	await _play_spells_by_id(_BURN_IDS)
 	if not agent.is_alive(): return
-	# 6. Void Execution — removal (cast_if handled in can_cast_spell)
-	await _play_spells_by_id(["void_execution"])
-	if not agent.is_alive(): return
-	# 7. Fallback — Abyssal Sacrifice (draw) + anything else
+	# 9. Fallback — Abyssal Sacrifice (draw) + anything else
 	await _play_spells_pass()
 	if not agent.is_alive(): return
 	await _play_minions_pass()
 	if not agent.is_alive(): return
 	await _play_traps_pass()
+
+## Returns true when AoE clear should be cast before spending mana on minions.
+## Conditions: abyssal_plague in hand, affordable, and would kill 3+ enemies
+## OR opponent threatens lethal next turn.
+func _should_prioritise_board_clear() -> bool:
+	if agent.opponent_board.size() < 2:
+		return false
+	var has_plague := false
+	for inst in agent.hand:
+		if inst.card_data is SpellCardData and inst.card_data.id == "abyssal_plague":
+			if agent.effective_spell_cost(inst.card_data as SpellCardData) <= agent.mana:
+				has_plague = true
+				break
+	if not has_plague:
+		return false
+	# Count enemies that would die to 200 AoE
+	var killable := 0
+	for m in agent.opponent_board:
+		if m.current_health <= 200:
+			killable += 1
+	if killable >= 3:
+		return true
+	# Also prioritise if opponent burst (including frenzy) threatens lethal
+	if _estimate_enemy_burst() >= agent.friendly_hp:
+		return true
+	return false
+
+## Returns true if casting abyssal_plague would kill enough minions to drop
+## enemy burst below player HP — making smoke_veil unnecessary.
+func _plague_prevents_lethal() -> bool:
+	# Check if plague is in hand and affordable
+	var has_plague := false
+	for inst in agent.hand:
+		if inst.card_data is SpellCardData and inst.card_data.id == "abyssal_plague":
+			if agent.effective_spell_cost(inst.card_data as SpellCardData) <= agent.mana:
+				has_plague = true
+				break
+	if not has_plague:
+		return false
+	# Simulate board after 100 AoE damage — estimate surviving burst
+	var surviving_atk := 0
+	var surviving_feral := 0
+	for m in agent.opponent_board:
+		if m.current_health > 100:  # survives plague
+			surviving_atk += m.effective_atk()
+			if m.card_data is MinionCardData and "feral_imp" in (m.card_data as MinionCardData).minion_tags:
+				surviving_feral += 1
+	# Add frenzy potential for survivors
+	if surviving_feral > 0 and agent.scene:
+		var ai = agent.scene.get("enemy_ai")
+		if ai and ai.mana >= 2:
+			surviving_atk += surviving_feral * 250
+	return surviving_atk < agent.friendly_hp
+
+## Estimate enemy board burst damage, including Pack Frenzy potential.
+## If enemy has feral imps and enough mana for Pack Frenzy (+250 ATK all imps + SWIFT),
+## add the buffed ATK to the estimate. EXHAUSTED imps gain SWIFT so they also attack.
+func _estimate_enemy_burst() -> int:
+	var total_atk := 0
+	var feral_count := 0
+	for m in agent.opponent_board:
+		total_atk += m.effective_atk()
+		if m.card_data is MinionCardData and "feral_imp" in (m.card_data as MinionCardData).minion_tags:
+			feral_count += 1
+			# EXHAUSTED feral imps can't currently attack but Pack Frenzy grants SWIFT
+			if m.state == Enums.MinionState.EXHAUSTED and m.attack_count == 0:
+				total_atk += m.effective_atk()  # count them as attackers too
+	# If enemy could cast Pack Frenzy (2M with ancient_frenzy, 3M without), add +250 per feral imp
+	if feral_count > 0 and agent.scene:
+		var enemy_mana: int = 0
+		var ai = agent.scene.get("enemy_ai")
+		if ai:
+			enemy_mana = ai.mana if "mana" in ai else 0
+		# Pack Frenzy costs 3M (2M with ancient_frenzy discount)
+		if enemy_mana >= 2:
+			total_atk += feral_count * 250
+	return total_atk
+
+## Returns true when enemy burst damage is >= 50% of player's current HP.
+func _enemy_threatens_heavy_damage() -> bool:
+	return _estimate_enemy_burst() * 2 >= agent.friendly_hp
+
+## Place Smoke Veil when enemy burst could kill the player next turn.
+func _should_place_smoke_veil() -> bool:
+	if agent.opponent_board.is_empty():
+		return false
+	if _estimate_enemy_burst() < agent.friendly_hp:
+		return false
+	# Check if we have smoke_veil in hand and can afford it
+	for inst in agent.hand:
+		if inst.card_data is TrapCardData and inst.card_data.id == "smoke_veil":
+			if inst.effective_cost() <= agent.mana:
+				# Don't place if a non-rune trap is already active
+				if agent.scene:
+					var traps = agent.scene.get("active_traps")
+					if traps is Array:
+						for t in traps:
+							if t is TrapCardData and not (t as TrapCardData).is_rune:
+								return false
+				return true
+	return false
 
 # ---------------------------------------------------------------------------
 # Spell cast conditions
@@ -232,6 +347,7 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			break
 
 ## Cast all affordable spells whose ID is in ids, checking can_cast_spell each time.
+## Tracks abyssal_plague fires and kills for sim analytics.
 func _play_spells_by_id(ids: Array[String]) -> void:
 	var cast: bool = true
 	while cast:
@@ -248,8 +364,16 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 			if not can_cast_spell(spell):
 				continue
 			agent.mana -= cost
+			# Track abyssal_plague: count board before/after to measure kills
+			var pre_board := agent.opponent_board.size() if spell.id == "abyssal_plague" else 0
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
+			if spell.id == "abyssal_plague" and agent.scene:
+				var kills: int = pre_board - agent.opponent_board.size()
+				var fires: int = (agent.scene.get("_abyssal_plague_fires") as int) if agent.scene.get("_abyssal_plague_fires") != null else 0
+				agent.scene.set("_abyssal_plague_fires", fires + 1)
+				var total_kills: int = (agent.scene.get("_abyssal_plague_kills") as int) if agent.scene.get("_abyssal_plague_kills") != null else 0
+				agent.scene.set("_abyssal_plague_kills", total_kills + kills)
 			cast = true
 			break
 

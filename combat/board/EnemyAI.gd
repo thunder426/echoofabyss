@@ -131,6 +131,9 @@ var active_environment: EnvironmentCardData = null
 # ---------------------------------------------------------------------------
 
 var _deck: Array[CardInstance] = []
+## Public read access to the enemy deck (for symmetric card effects like rune_seeker).
+var deck: Array[CardInstance]:
+	get: return _deck
 var _discard: Array[CardInstance] = []
 var hand: Array[CardInstance] = []
 const HAND_MAX := 10
@@ -173,6 +176,11 @@ func setup_deck(card_ids: Array[String]) -> void:
 func add_to_hand(card: CardData) -> void:
 	if hand.size() < HAND_MAX:
 		hand.append(CardInstance.create(card))
+
+## Add an existing CardInstance directly to the enemy hand (used by symmetric effects).
+func add_instance_to_hand(inst: CardInstance) -> void:
+	if hand.size() < HAND_MAX:
+		hand.append(inst)
 
 ## Public wrapper — draw count cards from the enemy deck (used by passives).
 func draw_cards(count: int) -> void:

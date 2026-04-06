@@ -1504,6 +1504,50 @@ func _register_wanderer_cards() -> void:
 	dark_command.faction     = "abyss_order"
 	all.append(dark_command)
 
+	# --- Enemy Champions (Act 2) — auto-summoned by passive handlers, not from deck ---
+
+	var champion_abyss_cultist_patrol := MinionCardData.new()
+	champion_abyss_cultist_patrol.id           = "champion_abyss_cultist_patrol"
+	champion_abyss_cultist_patrol.card_name    = "Abyss Cultist Patrol"
+	champion_abyss_cultist_patrol.essence_cost = 0
+	champion_abyss_cultist_patrol.description  = "CHAMPION.\nSummoned after 4 corruption stacks consumed.\nAura: Corruption applied to player minions instantly detonates.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_abyss_cultist_patrol.atk          = 300
+	champion_abyss_cultist_patrol.health       = 300
+	champion_abyss_cultist_patrol.minion_type  = Enums.MinionType.HUMAN
+	champion_abyss_cultist_patrol.keywords     = [Enums.Keyword.CHAMPION]
+	champion_abyss_cultist_patrol.is_champion  = true
+	champion_abyss_cultist_patrol.minion_tags  = ["enemy_champion"]
+	champion_abyss_cultist_patrol.faction      = "abyss_order"
+	all.append(champion_abyss_cultist_patrol)
+
+	var champion_void_ritualist := MinionCardData.new()
+	champion_void_ritualist.id           = "champion_void_ritualist"
+	champion_void_ritualist.card_name    = "Void Ritualist"
+	champion_void_ritualist.essence_cost = 0
+	champion_void_ritualist.description  = "CHAMPION.\nSummoned when ritual sacrifice triggers.\nAura: Rune placement costs 1 less Mana.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_void_ritualist.atk          = 200
+	champion_void_ritualist.health       = 300
+	champion_void_ritualist.minion_type  = Enums.MinionType.HUMAN
+	champion_void_ritualist.keywords     = [Enums.Keyword.CHAMPION]
+	champion_void_ritualist.is_champion  = true
+	champion_void_ritualist.minion_tags  = ["enemy_champion"]
+	champion_void_ritualist.faction      = "abyss_order"
+	all.append(champion_void_ritualist)
+
+	var champion_corrupted_handler := MinionCardData.new()
+	champion_corrupted_handler.id           = "champion_corrupted_handler"
+	champion_corrupted_handler.card_name    = "Corrupted Handler"
+	champion_corrupted_handler.essence_cost = 0
+	champion_corrupted_handler.description  = "CHAMPION.\nSummoned after 4 void sparks created.\nAura: Whenever a Void Spark is summoned, deal 200 damage to player hero.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_corrupted_handler.atk          = 300
+	champion_corrupted_handler.health       = 300
+	champion_corrupted_handler.minion_type  = Enums.MinionType.HUMAN
+	champion_corrupted_handler.keywords     = [Enums.Keyword.CHAMPION]
+	champion_corrupted_handler.is_champion  = true
+	champion_corrupted_handler.minion_tags  = ["enemy_champion"]
+	champion_corrupted_handler.faction      = "abyss_order"
+	all.append(champion_corrupted_handler)
+
 	# --- Void Rift World — Act 3 enemy-only cards (dual cost: mana/essence + Void Sparks) ---
 
 	var void_pulse := SpellCardData.new()

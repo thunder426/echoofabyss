@@ -11,12 +11,12 @@
 ##   4. Feral imps LAST (cheapest first — triggers ritual_sacrifice if runes ready)
 ##
 ## Resource growth:
-##   If abyss_cultist in hand → mana to 2 first (enables rune placement turn 2)
-##   Then essence to 5, then mana to 4, then essence to 7.
+##   Mana to 2 first (enables rune placement turn 2), then essence to 4,
+##   then mana to 4, then essence to 6.
 class_name VoidRitualistProfile
 extends CombatProfile
 
-const _MAX_HUMANS_PER_TURN := 2
+const _MAX_HUMANS_PER_TURN := 3
 
 func play_phase() -> void:
 	# Phase 1: Place runes first (ritual components)
@@ -41,9 +41,7 @@ func play_phase() -> void:
 	await _play_minions_pass()
 
 func _get_spell_rules() -> Dictionary:
-	return {
-		"void_screech": {"cast_if": "board_full_or_no_minions_in_hand"},
-	}
+	return {}
 
 # ---------------------------------------------------------------------------
 # Resource growth
@@ -51,35 +49,27 @@ func _get_spell_rules() -> Dictionary:
 
 func setup_resource_growth(sim_state: Object) -> void:
 	sim_state.enemy_growth_override = func(turn: int) -> void:
-		_ritualist_growth(sim_state, turn)
-
-func _ritualist_growth(state: Object, turn: int) -> void:
-	if turn <= 1:
-		return
-	var e: int = state.enemy_essence_max
-	var m: int = state.enemy_mana_max
-	if e + m >= 11:
-		return
-	# If abyss_cultist in hand and mana < 2 → grow mana first (enables rune turn 2)
-	if m < 2:
-		var has_cultist := false
-		for inst in state.enemy_hand:
-			if inst.card_data.id == "abyss_cultist":
-				has_cultist = true
-				break
-		if has_cultist:
-			state.enemy_mana_max += 1
+		if turn <= 1:
 			return
-	# Essence to 5
-	if e < 5:
-		state.enemy_essence_max += 1
-		return
-	# Mana to 4
-	if m < 4:
-		state.enemy_mana_max += 1
-		return
-	# Essence to 7
-	state.enemy_essence_max += 1
+		var e: int = sim_state.enemy_essence_max
+		var m: int = sim_state.enemy_mana_max
+		if e + m >= 11:
+			return
+		# Essence to 2 first (cult_fanatic turn 1)
+		if e < 2:
+			sim_state.enemy_essence_max += 1
+		# Mana to 2 (enables rune placement)
+		elif m < 2:
+			sim_state.enemy_mana_max += 1
+		# Essence to 4 (rune_seeker at 3E, double cult_fanatic)
+		elif e < 4:
+			sim_state.enemy_essence_max += 1
+		# Mana to 4 (double rune or rune + dark_command)
+		elif m < 4:
+			sim_state.enemy_mana_max += 1
+		# Essence to 7
+		else:
+			sim_state.enemy_essence_max += 1
 
 # ---------------------------------------------------------------------------
 # Play helpers
@@ -98,12 +88,13 @@ func _play_one_human() -> bool:
 	candidates.sort_custom(agent.sort_by_total_cost)
 	for inst in candidates:
 		var mc := inst.card_data as MinionCardData
-		if mc.essence_cost > agent.essence or mc.mana_cost > agent.mana:
+		var ess_cost: int = agent.effective_minion_essence_cost(mc)
+		if ess_cost > agent.essence or mc.mana_cost > agent.mana:
 			continue
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= mc.essence_cost
+		agent.essence -= ess_cost
 		agent.mana    -= mc.mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
@@ -121,12 +112,13 @@ func _play_one_feral_imp() -> bool:
 	candidates.sort_custom(agent.sort_by_total_cost)
 	for inst in candidates:
 		var mc := inst.card_data as MinionCardData
-		if mc.essence_cost > agent.essence or mc.mana_cost > agent.mana:
+		var ess_cost: int = agent.effective_minion_essence_cost(mc)
+		if ess_cost > agent.essence or mc.mana_cost > agent.mana:
 			continue
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= mc.essence_cost
+		agent.essence -= ess_cost
 		agent.mana    -= mc.mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false

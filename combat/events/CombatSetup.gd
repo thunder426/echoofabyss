@@ -82,7 +82,9 @@ const _REGISTRY: Dictionary = {
 		"stats": {}
 	},
 	"corrupted_death": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_corrupted_death", "priority": 6 }],
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,  "method": "on_enemy_died_corrupted_death",    "priority": 6 },
+		],
 		"stats":    {}
 	},
 	# ── Enemy champion passives (Act 1) ──────────────────────────────────────
@@ -128,8 +130,9 @@ const _REGISTRY: Dictionary = {
 	},
 	"void_unraveling": {
 		"triggers": [
-			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_void_unraveling",   "priority": 2 },
-			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_void_unraveling", "priority": 2 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_void_unraveling_human", "priority": 1 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_void_unraveling_imp",   "priority": 2 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_END,        "method": "on_enemy_turn_end_void_unraveling",     "priority": 5 },
 		],
 		"stats": {}
 	},
@@ -137,6 +140,28 @@ const _REGISTRY: Dictionary = {
 	"ancient_frenzy": {
 		"triggers": [],
 		"stats":    {}
+	},
+	# ── Enemy champion passives (Act 2) ──────────────────────────────────────
+	"champion_abyss_cultist_patrol": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_champion_acp_corrupt", "priority": 81 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_champion_acp",           "priority": 83 },
+		],
+		"stats": { "_champion_acp_stacks_consumed": 0, "_champion_acp_summoned": false }
+	},
+	"champion_void_ritualist": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_champion_vr", "priority": 82 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_champion_vr",  "priority": 84 },
+		],
+		"stats": { "_champion_vr_summoned": false }
+	},
+	"champion_corrupted_handler": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_champion_ch_spark_buff", "priority": 83 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_champion_ch",              "priority": 85 },
+		],
+		"stats": { "_champion_ch_spark_count": 0, "_champion_ch_summoned": false }
 	},
 	# ── Act 3 enemy passives ──────────────────────────────────────────────────
 	"void_rift": {

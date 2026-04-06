@@ -29,11 +29,11 @@ const CORE_POOL_NAMES: Array[String] = ["abyss_core", "neutral_core"]
 
 ## All possible services: id, display name, description, shard cost, available in first shop.
 const ALL_SERVICES: Array = [
-	{id="hp_restore",        name="HP Restoration",       desc="Restore 500 HP.",                                       cost=1, first_shop=true },
+	{id="revive",            name="Soul Anchor",           desc="If defeated, revive and restart the same fight.",        cost=4, first_shop=true },
 	{id="refresh_shop",      name="Refresh Shop",          desc="Reroll all card and service slots.",                    cost=1, first_shop=true },
 	{id="random_card",       name="Random Card",           desc="Add a random card from any available pool to deck.",    cost=1, first_shop=true },
 	{id="card_removal",      name="Card Removal",          desc="Remove one card from your deck permanently.",           cost=3, first_shop=false},
-	{id="max_hp",            name="Max HP Increase",       desc="Permanently increase max HP by 300.",                   cost=4, first_shop=false},
+	{id="max_hp",            name="Max HP Increase",       desc="Permanently increase max HP by 300.",                   cost=2, first_shop=false},
 	{id="expand_core_unit",  name="Expand Core Unit",      desc="Increase max Void Imp copies by 1 and add one to deck.",cost=3, first_shop=false},
 	{id="core_unit_variant", name="Core Unit Variant",     desc="Add the branch-appropriate Void Imp variant to deck.",  cost=4, first_shop=false},
 ]
@@ -299,9 +299,9 @@ func _add_service_slot(svc: Dictionary) -> void:
 
 func _on_buy_service(svc: Dictionary, btn: Button) -> void:
 	match svc.id:
-		"hp_restore":
+		"revive":
 			if not GameManager.spend_shards(svc.cost): return
-			GameManager.player_hp = mini(GameManager.player_hp + 500, GameManager.player_hp_max)
+			GameManager.has_revive = true
 			btn.disabled = true
 		"refresh_shop":
 			if not GameManager.spend_shards(svc.cost): return

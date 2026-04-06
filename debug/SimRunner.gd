@@ -57,8 +57,9 @@ func _run() -> void:
 			args.player_hp,
 			args.enemy_hp,
 			args.talents,
-			"default",
-			args.hero_passives
+			args.player_profile,
+			args.hero_passives,
+			args.relics
 		)
 		_print_result(profile, s)
 
@@ -72,20 +73,37 @@ func _print_result(profile: String, s: Dictionary) -> void:
 	var avg_hp:   float = s.avg_player_hp
 	var avg_champ: float = s.get("avg_champion_summons", 0.0)
 
-	print("  %-18s  Win %5.1f%%  Loss %5.1f%%  Draw %4.1f%%  AvgTurns %4.1f  AvgHP %+.0f  ChampSummons %.2f" % [
+	print("  %-18s  Win %5.1f%%  Loss %5.1f%%  Draw %4.1f%%  AvgTurns %4.1f  AvgHP %+.0f  Champ %.2f" % [
 		profile, win_pct, loss_pct, draw_pct, s.avg_turns, avg_hp, avg_champ])
+	# Print extra stats if non-zero
+	var sv_fires: float = s.get("avg_smoke_veil_fires", 0.0)
+	var sv_dmg:   float = s.get("avg_smoke_veil_dmg", 0.0)
+	var pl_fires: float = s.get("avg_plague_fires", 0.0)
+	var pl_kills: float = s.get("avg_plague_kills", 0.0)
+	if sv_fires > 0 or pl_fires > 0:
+		print("    SmokeVeil: %.2f fires, %.0f dmg prevented  |  Plague: %.2f fires, %.2f kills" % [
+			sv_fires, sv_dmg, pl_fires, pl_kills])
+	var corr_det: float = s.get("avg_corruption_det", 0.0)
+	var ritual:   float = s.get("avg_ritual_invoke", 0.0)
+	var spark_b:  float = s.get("avg_spark_buff", 0.0)
+	var aura_dmg: float = s.get("avg_ch_aura_dmg", 0.0)
+	var clogged: float = s.get("avg_clogged_slots", 0.0)
+	if corr_det > 0 or ritual > 0 or spark_b > 0 or aura_dmg > 0 or clogged > 0:
+		print("    Detonations: %.2f  |  Rituals: %.2f  |  SparkBuffs: %.2f  |  AuraDmg: %.0f  |  Clogged: %.1f" % [corr_det, ritual, spark_b, aura_dmg, clogged])
 
 func _parse_args() -> Dictionary:
 	var result := {
-		"deck":           _split(_DEFAULT_DECK),
-		"enemy_deck":     [] as Array[String],
-		"profile":        "default",
-		"runs":           100,
-		"player_hp":      3000,
-		"enemy_hp":       2000,
-		"talents":        [] as Array[String],
-		"hero_passives":  [] as Array[String],
-		"all_profiles":   false,
+		"deck":             _split(_DEFAULT_DECK),
+		"enemy_deck":       [] as Array[String],
+		"profile":          "default",
+		"player_profile":   "default",
+		"runs":             100,
+		"player_hp":        3000,
+		"enemy_hp":         2000,
+		"talents":          [] as Array[String],
+		"hero_passives":    [] as Array[String],
+		"relics":           [] as Array[String],
+		"all_profiles":     false,
 	}
 
 	var args := OS.get_cmdline_user_args()
@@ -117,6 +135,12 @@ func _parse_args() -> Dictionary:
 			"--hero-passives":
 				if i + 1 < args.size():
 					result.hero_passives = _split(args[i + 1]); i += 1
+			"--relics":
+				if i + 1 < args.size():
+					result.relics = _split(args[i + 1]); i += 1
+			"--player-profile":
+				if i + 1 < args.size():
+					result.player_profile = args[i + 1]; i += 1
 			"--all-profiles":
 				result.all_profiles = true
 		i += 1

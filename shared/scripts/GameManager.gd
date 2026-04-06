@@ -26,6 +26,8 @@ var player_hp: int = 3000         # current HP; persists between fights
 ## Max copies of the core unit allowed in deck; starts at 4 for Lord Vael.
 ## Increased by special reward #4 (up to 6).
 var core_unit_limit: int = 4
+## If true, player can restart the same fight after defeat (consumed on use).
+var has_revive: bool = false
 ## Set by HeroSelectScene before start_new_run() — not reset by start_new_run()
 var current_hero: String = "lord_vael"
 ## Faction chosen on HeroSelectScene; used by DeckBuilderScene to pre-filter cards
@@ -77,6 +79,7 @@ func start_new_run() -> void:
 	player_hp_max = 3000
 	player_hp = player_hp_max
 	core_unit_limit = 4
+	has_revive = false
 	current_enemy = get_encounter(1)
 	talent_points = 1       # initial point — spend before first fight
 	unlocked_talents = []
@@ -248,85 +251,77 @@ func _build_encounter(index: int) -> EnemyData:
 				"ENCOUNTER I",
 				"The outer tunnels of the Imp Lair crawl with feral Void Imps freshly escaped from their cages. They are wild, disorganised — but their numbers are not to be underestimated.",
 				"res://assets/art/progression/backgrounds/a1_fight1_background.png",
-				["feral_instinct", "pack_instinct", "champion_rogue_imp_pack"], "feral_pack")
+				["pack_instinct", "champion_rogue_imp_pack"], "feral_pack")
 		2:
 			return _make_encounter("Corrupted Broodlings", 2400,
 				[
 					"void_touched_imp", "void_touched_imp", "void_touched_imp", "void_touched_imp", "void_touched_imp",
 					"brood_imp", "brood_imp", "brood_imp",
 					"frenzied_imp", "frenzied_imp",
+					"matriarchs_broodling",
 					"void_screech", "void_screech",
-					"flux_siphon", "flux_siphon",
+					"feral_surge",
 				],
 				"ENCOUNTER II",
 				"Deeper in, the air turns thick with void energy. The broodlings here have been touched by something ancient — their eyes glow with a hunger that wasn't there before.",
 				"res://assets/art/progression/backgrounds/a1_fight2_background.png",
-				["feral_instinct", "corrupted_death", "champion_corrupted_broodlings"], "corrupted_brood")
+				["corrupted_death", "champion_corrupted_broodlings"], "corrupted_brood")
 		3:
-			return _make_encounter("Imp Matriarch", 3000,
-				# Combo boss: brood_call floods early board, Pack Frenzy is the burst finisher.
-				# Champion aura makes Pack Frenzy also grant +200 HP.
+			return _make_encounter("Imp Matriarch", 2600,
+				# Summoner boss: pure mana growth, brood_call spam + Pack Frenzy burst.
+				# No minions in deck — all board presence comes from brood_call summons.
 				[
-					"brood_imp",      "brood_imp",
-					"imp_brawler",    "imp_brawler",
-					"frenzied_imp",
-					"matriarchs_broodling",
+					"brood_call",     "brood_call",     "brood_call",
+					"brood_call",     "brood_call",     "brood_call",
 					"pack_frenzy",    "pack_frenzy",
-					"brood_call",     "brood_call",     "brood_call",     "brood_call",
-					"feral_surge",
-					"flux_siphon",
+					"feral_surge",    "feral_surge",
+					"void_screech",   "void_screech",
 				],
 				"IMP MATRIARCH",
 				"At the heart of the lair, a monstrous Imp Matriarch holds court. She is the source of the corruption — ancient, cunning, and furious at the intrusion into her domain.",
 				"res://assets/art/progression/backgrounds/a1_fight3_background.png",
-				["feral_instinct", "ancient_frenzy", "champion_imp_matriarch"], "matriarch")
+				["ancient_frenzy", "champion_imp_matriarch"], "matriarch")
 		# -- Act 2: Abyss Dungeon --
 		4:
 			return _make_encounter("Abyss Cultist Patrol", 2800,
 				[
-					"abyss_cultist", "abyss_cultist", "abyss_cultist", "abyss_cultist",
-					"void_netter",
-					"void_stalker",
-					"corruption_weaver", "corruption_weaver",
-					"cult_fanatic", "cult_fanatic",
-					"void_stalker",
+					"abyss_cultist", "abyss_cultist", "abyss_cultist", "abyss_cultist", "abyss_cultist",
+					"corruption_weaver", "corruption_weaver", "corruption_weaver",
 					"spell_taxer", "spell_taxer",
+					"void_screech", "void_screech",
 					"dark_command", "dark_command",
 				],
 				"ENCOUNTER I",
 				"The Abyss Dungeon. Cultists who willingly surrendered themselves to the void patrol these stone corridors. They have given up their names, their faces — only devotion remains.",
 				"res://assets/art/progression/backgrounds/fight4_loading.png",
-				["feral_reinforcement", "corrupt_authority"], "cultist_patrol")
+				["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"], "cultist_patrol")
 		5:
 			return _make_encounter("Void Ritualist", 3400,
 				[
-					"abyss_cultist", "abyss_cultist", "abyss_cultist",
-					"cult_fanatic", "cult_fanatic", "cult_fanatic",
-					"corruption_weaver", "corruption_weaver",
-					"void_stalker",
+					"cult_fanatic", "cult_fanatic", "cult_fanatic", "cult_fanatic", "cult_fanatic",
 					"dominion_rune", "dominion_rune",
 					"blood_rune", "blood_rune",
 					"dark_command", "dark_command",
+					"rune_seeker",
 				],
 				"ENCOUNTER II",
 				"A Void Ritualist performs an unending ceremony in the dungeon's depths. Runes of blood and shadow cover every wall. Whatever he is summoning, it must not be allowed to complete.",
 				"res://assets/art/progression/backgrounds/fight5_loading.png",
-				["feral_reinforcement", "ritual_sacrifice"], "void_ritualist")
+				["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"], "void_ritualist")
 		6:
 			return _make_encounter("Corrupted Handler", 4000,
 				[
 					"abyss_cultist", "abyss_cultist", "abyss_cultist",
-					"cult_fanatic", "cult_fanatic", "cult_fanatic",
-					"corruption_weaver", "corruption_weaver",
-					"soul_collector",
+					"cult_fanatic", "cult_fanatic",
+					"brood_imp", "brood_imp", "brood_imp",
 					"void_stalker", "void_stalker",
-					"spell_taxer",
+					"void_spawner", "void_spawner",
 					"dark_command", "dark_command",
 				],
 				"CORRUPTED HANDLER",
 				"The Handler was once a warden of this dungeon. Now something else wears his shape. His eyes are empty voids. His commands come in a language that shouldn't exist.",
 				"res://assets/art/progression/backgrounds/fight6_loading.png",
-				["feral_reinforcement", "void_unraveling"], "corrupted_handler")
+				["feral_reinforcement", "void_unraveling", "champion_corrupted_handler"], "corrupted_handler")
 		# -- Act 3: Void Rift World --
 		7:
 			return _make_encounter("Rift Stalker", 3800,

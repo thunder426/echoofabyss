@@ -14,7 +14,7 @@ const _FIGHTS: Array = [
 	# Act 1
 	{"label": "Fight 1  —  Rogue Imp Pack",      "hp": 1800, "profile": "feral_pack",       "encounter": 1, "talent_points": 1, "act": 1},
 	{"label": "Fight 2  —  Corrupted Broodlings", "hp": 2400, "profile": "corrupted_brood",  "encounter": 2, "talent_points": 1, "act": 1},
-	{"label": "Fight 3  —  Imp Matriarch",         "hp": 3000, "profile": "matriarch",        "encounter": 3, "talent_points": 1, "act": 1},
+	{"label": "Fight 3  —  Imp Matriarch",         "hp": 2600, "profile": "matriarch",        "encounter": 3, "talent_points": 1, "act": 1},
 	# Act 2
 	{"label": "Fight 4  —  Abyss Cultist Patrol",  "hp": 2800, "profile": "cultist_patrol",   "encounter": 4, "talent_points": 2, "act": 2},
 	{"label": "Fight 5  —  Void Ritualist",         "hp": 3400, "profile": "void_ritualist",   "encounter": 5, "talent_points": 2, "act": 2},

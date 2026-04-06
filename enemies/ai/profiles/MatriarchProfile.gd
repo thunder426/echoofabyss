@@ -33,23 +33,8 @@ func setup_resource_growth(sim_state: Object) -> void:
 		var m: int = sim_state.enemy_mana_max
 		if e + m >= 11:
 			return
-		# Mana to 2 first (enables brood_call turn 2, pack_frenzy turn 3 with ancient_frenzy)
-		if m < 2:
-			sim_state.enemy_mana_max += 1
-		# Essence to 4 (board presence with imp_brawler, frenzied_imp)
-		elif e < 4:
-			sim_state.enemy_essence_max += 1
-		# Mana to 4 (comfortable pack_frenzy casting, double brood_call)
-		elif m < 4:
-			sim_state.enemy_mana_max += 1
-		# Essence to 5
-		elif e < 5:
-			sim_state.enemy_essence_max += 1
-		# Mana to 6
-		elif m < 6:
-			sim_state.enemy_mana_max += 1
-		else:
-			sim_state.enemy_essence_max += 1
+		# Pure mana growth — no minions in deck, all spells
+		sim_state.enemy_mana_max += 1
 
 func _should_cast_pack_frenzy() -> bool:
 	var pf := _find_pack_frenzy()
