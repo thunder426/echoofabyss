@@ -62,8 +62,9 @@ func _register_lord_vael() -> void:
 	h.hero_name     = "Lord Vael"
 	h.title         = "Void Caller"
 	h.faction       = "Abyss Order"
-	h.portrait_path = "res://assets/art/hero_selection/hero_portrait/lord_vael_portrait.png"
-	h.frame_path    = "res://assets/art/hero_selection/abyss_order_hero_frame.png"
+	h.portrait_path        = "res://assets/art/hero_selection/hero_portrait/lord_vael_portrait.png"
+	h.combat_portrait_path = "res://assets/art/heroes/combat_portraits/lord_vael_portrait_bf.png"
+	h.frame_path           = "res://assets/art/hero_selection/abyss_order_hero_frame.png"
 
 	h.passives = [
 		_make_passive("void_imp_boost",

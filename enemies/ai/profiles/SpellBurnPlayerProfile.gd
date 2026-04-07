@@ -13,8 +13,9 @@
 ##   3. Board-clear spells (Abyssal Plague) — only when enemies are present
 ##   4. Void Rune        — passive chip damage every turn
 ##   5. Void Bolt        — direct burn
-##   6. Void Execution   — removal (only when it kills; see below)
-##   7. Abyssal Sacrifice + remaining — fallback via base helpers
+##   6. Arcane Strike     — targeted removal (only when it kills a minion with HP ≤ 300)
+##   7. Void Execution   — removal (only when it kills; see below)
+##   8. Abyssal Sacrifice + remaining — fallback via base helpers
 ##
 ## Attack behaviour
 ##   Trade into enemies we can kill outright (highest-HP killable = biggest threat removed).
@@ -89,14 +90,17 @@ func play_phase() -> void:
 	if not agent.opponent_board.is_empty():
 		await _play_spells_by_id(_BOARD_CLEAR_IDS)
 		if not agent.is_alive(): return
-	# 6. Smoke Veil — place if enemy still threatens lethal after spending mana
+	# 6. Arcane Strike — targeted removal (only cast when it kills)
+	await _play_spells_by_id(["arcane_strike"])
+	if not agent.is_alive(): return
+	# 7. Smoke Veil — place if enemy still threatens lethal after spending mana
 	if _should_place_smoke_veil():
 		await _play_traps_by_id(["smoke_veil"])
 		if not agent.is_alive(): return
-	# 7. Void Rune — passive chip every turn
+	# 8. Void Rune — passive chip every turn
 	await _play_traps_by_id(["void_rune"])
 	if not agent.is_alive(): return
-	# 8. Void Bolt — burn face
+	# 9. Void Bolt — burn face
 	await _play_spells_by_id(_BURN_IDS)
 	if not agent.is_alive(): return
 	# 9. Fallback — Abyssal Sacrifice (draw) + anything else
@@ -219,6 +223,12 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 				if inst.card_data is SpellCardData and (inst.card_data as SpellCardData).id == "void_bolt":
 					return false
 			return true
+		"arcane_strike":
+			# Only cast when it kills at least one enemy minion (HP ≤ 300)
+			for m in agent.opponent_board:
+				if m.current_health <= 300:
+					return true
+			return false
 		"void_execution":
 			# Only cast when it kills at least one enemy minion outright
 			var dmg: int = _void_execution_damage()
@@ -241,9 +251,41 @@ func _void_execution_damage() -> int:
 # ---------------------------------------------------------------------------
 
 func pick_spell_target(spell: SpellCardData):
+	if spell.id == "arcane_strike":
+		return _pick_arcane_strike_target()
 	if spell.id == "void_execution":
 		return _pick_void_execution_target()
 	return super.pick_spell_target(spell)
+
+## Pick best arcane_strike target (300 damage).
+## Priority: champion we can finish off (with trades), then highest ATK+HP killable.
+func _pick_arcane_strike_target() -> MinionInstance:
+	# Check if a champion can be killed by arcane_strike + friendly minion trades
+	var champion: MinionInstance = null
+	for m in agent.opponent_board:
+		if m.card_data is MinionCardData and Enums.Keyword.CHAMPION in (m.card_data as MinionCardData).keywords:
+			champion = m
+			break
+	if champion != null and champion.current_health <= 300 + _available_trade_damage(champion):
+		return champion
+	# Fallback: highest ATK+HP enemy we can kill outright with 300 damage
+	var best: MinionInstance = null
+	var best_score: int = -1
+	for m in agent.opponent_board:
+		if m.current_health <= 300:
+			var score: int = m.effective_atk() + m.current_health
+			if score > best_score:
+				best = m
+				best_score = score
+	return best
+
+## Estimate how much damage friendly minions can deal to a target via trades.
+func _available_trade_damage(target: MinionInstance) -> int:
+	var total := 0
+	for m in agent.friendly_board:
+		if m.can_attack():
+			total += m.effective_atk()
+	return total
 
 ## Highest-HP enemy we can kill — removes the biggest threat per cast.
 func _pick_void_execution_target() -> MinionInstance:
@@ -343,6 +385,10 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
+			# Track Void Imp on-play damage (100 per imp, fired via DAMAGE_HERO effect step)
+			if mc.id == "void_imp" and agent.scene:
+				var prev: int = (agent.scene.get("_void_imp_dmg") as int) if agent.scene.get("_void_imp_dmg") != null else 0
+				agent.scene.set("_void_imp_dmg", prev + 100)
 			placed = true
 			break
 
@@ -366,9 +412,14 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 			agent.mana -= cost
 			# Track abyssal_plague: count board before/after to measure kills
 			var pre_board := agent.opponent_board.size() if spell.id == "abyssal_plague" else 0
+			# Set dmg source label BEFORE resolving so _on_hero_damaged picks it up
+			if agent.scene and spell.id == "void_bolt":
+				var casts: int = (agent.scene.get("_void_bolt_spell_casts") as int) if agent.scene.get("_void_bolt_spell_casts") != null else 0
+				agent.scene.set("_void_bolt_spell_casts", casts + 1)
+				agent.scene.set("_pending_dmg_source", "void_bolt_spell")
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
-			if spell.id == "abyssal_plague" and agent.scene:
+			if agent.scene and spell.id == "abyssal_plague":
 				var kills: int = pre_board - agent.opponent_board.size()
 				var fires: int = (agent.scene.get("_abyssal_plague_fires") as int) if agent.scene.get("_abyssal_plague_fires") != null else 0
 				agent.scene.set("_abyssal_plague_fires", fires + 1)

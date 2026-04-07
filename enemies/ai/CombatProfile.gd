@@ -119,6 +119,13 @@ func _is_tempo() -> bool:
 func setup_resource_growth(_state: Object) -> void:
 	pass
 
+## Called by EnemyAI._choose_resource_growth() each turn (after turn 1).
+## Mutate enemy_ai.essence_max / enemy_ai.mana_max directly.
+## Return true if handled (skips the default growth logic), false to fall through.
+## Default: not handled — EnemyAI uses its own heuristic.
+func grow_resources(_enemy_ai: Object) -> bool:
+	return false
+
 ## Override to provide scoring weights (ScoredCombatProfile and subclasses).
 ## Returning null means this profile does not use the scoring system.
 func get_weights() -> ScoringWeights:
@@ -137,6 +144,14 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 			for m in agent.friendly_board:
 				if m.card_data is MinionCardData and \
 						tag in (m.card_data as MinionCardData).minion_tags:
+					return true
+			return false
+		"has_friendly_type":
+			var type_name: String = rule.get("type", "")
+			var type_val: int = Enums.MinionType.get(type_name, -1)
+			for m in agent.friendly_board:
+				if m.card_data is MinionCardData and \
+						(m.card_data as MinionCardData).minion_type == type_val:
 					return true
 			return false
 		"board_not_full":
@@ -181,6 +196,14 @@ func pick_spell_target(spell: SpellCardData):
 			return best
 		"friendly_minion":
 			return _pick_cheapest_friendly()
+		"friendly_feral_imp":
+			return _pick_best_friendly_with_tag("feral_imp")
+		"friendly_void_imp":
+			return _pick_best_friendly_with_tag("void_imp")
+		"friendly_human":
+			return _pick_best_friendly_with_type(Enums.MinionType.HUMAN)
+		"friendly_demon":
+			return _pick_best_friendly_with_type(Enums.MinionType.DEMON)
 		"trap_or_env":
 			return _pick_default_trap_env_target()
 	return null
@@ -536,6 +559,24 @@ func _pick_threat_reduction_target(attacker: MinionInstance) -> MinionInstance:
 # ---------------------------------------------------------------------------
 
 ## Cheapest friendly minion to sacrifice (lowest total cost; ties broken by lowest HP).
+## Pick the highest-ATK friendly minion that has the given tag.
+func _pick_best_friendly_with_tag(tag: String) -> MinionInstance:
+	var best: MinionInstance = null
+	for m: MinionInstance in agent.friendly_board:
+		if agent.scene != null and agent.scene._minion_has_tag(m, tag):
+			if best == null or m.effective_atk() > best.effective_atk():
+				best = m
+	return best
+
+## Pick the highest-ATK friendly minion of the given MinionType.
+func _pick_best_friendly_with_type(mtype: Enums.MinionType) -> MinionInstance:
+	var best: MinionInstance = null
+	for m: MinionInstance in agent.friendly_board:
+		if m.card_data.minion_type == mtype:
+			if best == null or m.effective_atk() > best.effective_atk():
+				best = m
+	return best
+
 func _pick_cheapest_friendly() -> MinionInstance:
 	var pool: Array[MinionInstance] = agent.friendly_board
 	if pool.is_empty():

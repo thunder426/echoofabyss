@@ -41,7 +41,9 @@ func play_phase() -> void:
 	await _play_minions_pass()
 
 func _get_spell_rules() -> Dictionary:
-	return {}
+	return {
+		"dark_command": {"cast_if": "has_friendly_type", "type": "HUMAN"},
+	}
 
 # ---------------------------------------------------------------------------
 # Resource growth

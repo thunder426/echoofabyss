@@ -115,6 +115,16 @@ var _smoke_veil_fires: int = 0        ## Smoke Veil trap activations
 var _smoke_veil_damage_prevented: int = 0  ## Total ATK blocked by Smoke Veil
 var _abyssal_plague_fires: int = 0    ## Abyssal Plague casts
 var _abyssal_plague_kills: int = 0    ## Enemy minions killed by Abyssal Plague
+var _void_bolt_spell_casts: int = 0   ## Void Bolt spell casts (not rune procs)
+var _void_bolt_total_dmg: int = 0     ## Total void bolt damage (spells + runes)
+var _void_imp_dmg: int = 0            ## Total damage from Void Imp on-play
+
+## Verbose damage log — populated when dmg_log_enabled = true.
+## Each entry: { turn: int, amount: int, source: String }
+var dmg_log_enabled: bool = false
+var dmg_log: Array = []
+var _current_turn: int = 0
+var _pending_dmg_source: String = ""
 
 ## Once-per-turn gate for feral_reinforcement passive.
 var _imp_caller_fired: bool = false
@@ -140,7 +150,7 @@ var hero_passives: Array[String] = []
 var enemy_passives: Array[String] = []
 
 ## Passive-configurable stats — set by CombatSetup from the registry at combat start.
-var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 50
+var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
 var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
 
 ## Imp Evolution once-per-turn gate — reset at the start of each player turn.
@@ -273,7 +283,7 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		ctx.minion = minion
 		trigger_manager.fire(ctx)
 
-func _on_hero_damaged(target: String, amount: int, _type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
+func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if target == "player":
 		if _relic_hero_immune:
 			return  # Bone Shield: immune this turn
@@ -282,6 +292,14 @@ func _on_hero_damaged(target: String, amount: int, _type: Enums.DamageType = Enu
 			winner = "enemy"
 	else:
 		enemy_hp -= amount
+		if dmg_log_enabled:
+			if _pending_dmg_source == "__logged__":
+				pass  # already split-logged in _deal_void_bolt_damage
+			else:
+				var source: String = _pending_dmg_source if not _pending_dmg_source.is_empty() \
+					else ("minion_atk" if type == Enums.DamageType.PHYSICAL else "spell_onplay")
+				dmg_log.append({turn = _current_turn, amount = amount, source = source})
+			_pending_dmg_source = ""
 		if enemy_hp <= 0 and winner.is_empty():
 			winner = "player"
 
@@ -348,8 +366,21 @@ func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
 
 func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, _from_rune: bool = false) -> void:
-	var bonus := enemy_void_marks * void_mark_damage_per_stack
-	combat_manager.apply_hero_damage("enemy", base_damage + bonus, Enums.DamageType.VOID_BOLT)
+	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
+	var total: int = base_damage + bonus
+	# Determine base source label
+	var base_source: String = _pending_dmg_source
+	if base_source.is_empty():
+		base_source = "void_rune" if _from_rune else "void_bolt_spell"
+	_pending_dmg_source = base_source  # pass to _on_hero_damaged for total hit
+	# Split log: base damage + mark bonus separately
+	if dmg_log_enabled:
+		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
+		if bonus > 0:
+			dmg_log.append({turn = _current_turn, amount = bonus, source = "void_mark"})
+		_pending_dmg_source = "__logged__"  # signal _on_hero_damaged to skip logging
+	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
+	_void_bolt_total_dmg += total
 
 func _void_mark_damage_per_stack() -> int:
 	return void_mark_damage_per_stack
@@ -465,6 +496,7 @@ func _apply_rune_aura(rune: TrapCardData) -> void:
 		var h := func(event_ctx: EventContext):
 			var ctx := EffectContext.make(self, "player")
 			ctx.trigger_minion = event_ctx.minion
+			ctx.from_rune = true
 			EffectResolver.run(rune.aura_effect_steps, ctx)
 		trigger_manager.register(rune.aura_trigger, h, 20)
 		entries.append({event = rune.aura_trigger, handler = h})
@@ -620,6 +652,7 @@ var player_growth_override: Callable = Callable()
 var enemy_growth_override: Callable = Callable()
 
 func begin_player_turn(turn_number: int) -> void:
+	_current_turn = turn_number
 	if player_growth_override.is_valid():
 		player_growth_override.call(turn_number)
 	else:

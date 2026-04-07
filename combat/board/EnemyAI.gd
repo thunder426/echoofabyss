@@ -228,7 +228,10 @@ func _setup_profile() -> void:
 func _choose_resource_growth() -> void:
 	if essence_max + mana_max >= COMBINED_RESOURCE_CAP:
 		return
-	# Grow mana when it lags more than 2 behind essence; otherwise grow essence.
+	# Let the active profile override growth (e.g. Matriarch: pure mana).
+	if _active_profile != null and _active_profile.grow_resources(self):
+		return
+	# Default: grow mana when it lags more than 2 behind essence; otherwise grow essence.
 	if mana_max < essence_max - 2:
 		mana_max += 1
 	else:

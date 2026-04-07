@@ -36,6 +36,13 @@ func setup_resource_growth(sim_state: Object) -> void:
 		# Pure mana growth — no minions in deck, all spells
 		sim_state.enemy_mana_max += 1
 
+## Real-game resource growth: pure mana only (mirrors setup_resource_growth).
+func grow_resources(enemy_ai: Object) -> bool:
+	if enemy_ai.essence_max + enemy_ai.mana_max >= 11:
+		return true
+	enemy_ai.mana_max += 1
+	return true
+
 func _should_cast_pack_frenzy() -> bool:
 	var pf := _find_pack_frenzy()
 	if pf == null or agent.effective_spell_cost(pf.card_data as SpellCardData) > agent.mana:

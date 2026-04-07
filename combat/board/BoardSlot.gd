@@ -530,7 +530,15 @@ func _build_on_death_tooltip_body(m: MinionInstance) -> String:
 			if line.strip_edges().to_upper().begins_with("ON DEATH"):
 				parts.append(line.strip_edges())
 		# Fallback: card has effect data but no matching description line
-		if parts.is_empty() and (mc.on_death_effect != "" or not mc.on_death_effect_steps.is_empty()):
+		# Skip purely internal HARDCODED steps (e.g. aura cleanup) — not player-visible effects
+		var has_visible_death_effect := mc.on_death_effect != ""
+		if not has_visible_death_effect:
+			for raw in mc.on_death_effect_steps:
+				var step_type: String = raw.get("type", "") if raw is Dictionary else ""
+				if step_type != "HARDCODED":
+					has_visible_death_effect = true
+					break
+		if parts.is_empty() and has_visible_death_effect:
 			parts.append("Triggers an effect on death.")
 	for eff in m.granted_on_death_effects:
 		var desc: String = eff.get("description", "")

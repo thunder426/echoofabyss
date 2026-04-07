@@ -471,8 +471,10 @@ func _rebuild_saved_dropdown() -> void:
 	var all := EnemySavedDecks.load_all()
 
 	# Encounter decks always shown first, marked ★ when customised
+	# Keys use 1-based fight numbers to match GameManager.get_encounter()
 	for i in _ENCOUNTER_NAMES.size():
-		var key := "encounter_%d" % i
+		var fight_num := i + 1
+		var key := "encounter_%d" % fight_num
 		var display: String = _ENCOUNTER_NAMES[i]
 		if all.has(key):
 			display += "  ★"

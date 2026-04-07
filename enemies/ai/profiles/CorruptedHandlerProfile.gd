@@ -46,7 +46,9 @@ func play_phase() -> void:
 		if not agent.is_alive(): return
 
 func _get_spell_rules() -> Dictionary:
-	return {}
+	return {
+		"dark_command": {"cast_if": "has_friendly_type", "type": "HUMAN"},
+	}
 
 # ---------------------------------------------------------------------------
 # Attack phase: attack first to kill humans/brood_imps, then play feral imps
@@ -81,7 +83,7 @@ func attack_phase() -> void:
 			if not await agent.do_attack_minion(minion, target):
 				if not agent.is_alive(): return
 
-	# Pass 2: Non-spark minions — board clear or go face
+	# Pass 2: Non-spark minions — void_stalker goes face; others clear board
 	for minion in agent.friendly_board.duplicate():
 		if not agent.friendly_board.has(minion) or not minion.can_attack():
 			continue
@@ -100,6 +102,10 @@ func attack_phase() -> void:
 		elif not guards.is_empty():
 			var target := _pick_best_guard(minion, guards)
 			if not await agent.do_attack_minion(minion, target):
+				if not agent.is_alive(): return
+		elif _is_face_aggressor(minion) and minion.can_attack_hero():
+			# Void Stalker: always go face when no guards blocking — constant hero pressure
+			if not await agent.do_attack_hero(minion):
 				if not agent.is_alive(): return
 		elif only_zero_atk or agent.opponent_board.is_empty():
 			# Only corrupted sparks left — go face
@@ -260,3 +266,7 @@ func _opponent_only_zero_atk() -> bool:
 
 func _is_feral_imp(mc: MinionCardData) -> bool:
 	return "feral_imp" in mc.minion_tags
+
+## Void Stalker is a face aggressor — high ATK + Lifedrain, should pressure hero directly.
+func _is_face_aggressor(minion: MinionInstance) -> bool:
+	return minion.card_data.id == "void_stalker"

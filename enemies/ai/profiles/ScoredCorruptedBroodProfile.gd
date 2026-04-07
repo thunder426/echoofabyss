@@ -13,6 +13,7 @@ func play_phase() -> void:
 func _get_spell_rules() -> Dictionary:
 	return {
 		"pack_frenzy":  {"cast_if": "before_attacks"},
+		"feral_surge":  {"cast_if": "has_friendly_tag", "tag": "feral_imp"},
 		"brood_call":   {"cast_if": "board_not_full"},
 		"void_screech": {"cast_if": "board_full_or_no_minions_in_hand"},
 		"cyclone":      {"cast_if": "opponent_has_rune_or_env"},

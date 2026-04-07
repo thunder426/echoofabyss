@@ -51,29 +51,38 @@ var _enemy_summon_reveal_active: bool = false
 signal enemy_summon_reveal_done()
 
 # Enemy hero status panel (built programmatically)
-var _enemy_status_panel: Panel = null
+var _enemy_status_panel: Control = null
+var _enemy_panel_bg: Panel = null
 var _hero_spell_tween: Tween = null
 var _hero_spell_pulse: float = 0.0
 var _hero_attack_tween: Tween = null
 var _hero_attack_pulse: float = 0.0
 var _enemy_status_hp_label: Label = null
+var _enemy_hp_bar_fill: TextureRect = null
+var _enemy_hp_bar_drain: ColorRect = null
+var _enemy_hp_bar_bg: Control = null
+var _enemy_hp_bar_tween: Tween = null
 var _enemy_status_essence_label: Label = null
 var _enemy_status_mana_label: Label = null
 var _enemy_status_hand_label: Label = null
 var _enemy_status_marks_row:   HBoxContainer = null
 var _enemy_status_marks_label: Label = null
-var _enemy_hero_attack_hint: Label = null
 var enemy_hp_max: int = 0
 # Champion progress UI
 var _champion_progress_row: HBoxContainer = null
 var _champion_progress_label: Label = null
+var _champion_progress_pips: Array[Label] = []
 var _champion_progress_current: int = 0
 var _champion_progress_max: int = 0
 var _champion_progress_tween: Tween = null
 
 # Player hero status panel (built programmatically)
-var _player_status_panel: Panel = null
+var _player_status_panel: Control = null
 var _player_status_hp_label: Label = null
+var _player_hp_bar_fill: TextureRect = null
+var _player_hp_bar_drain: ColorRect = null
+var _player_hp_bar_bg: Control = null
+var _player_hp_bar_tween: Tween = null
 
 # Pip bar columns (essence left, mana right) — 10 pips each, built in _setup_pip_bars()
 var _pip_essence_panels: Array[Panel]       = []
@@ -183,7 +192,7 @@ var _rune_aura_handlers: Array = []  # Array[{rune_id: String, entries: Array}]
 var enemy_void_marks: int = 0
 
 ## Passive-configurable stats — set by CombatSetup from the registry at combat start.
-var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 50
+var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
 var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
 
 ## True until the first hit lands on the player (Shadow Veil: ignore first damage)
@@ -528,6 +537,9 @@ func _on_turn_started(is_player_turn: bool) -> void:
 	if deck_count_label:
 		deck_count_label.text = "%d cards" % turn_manager.player_deck.size()
 	_update_enemy_status_panel()
+	# Safety sweep: remove any dead minions still visually on the board.
+	# This catches edge cases where minion_vanished fired but the slot wasn't properly cleared.
+	_sweep_dead_minions()
 	# Refresh all slot visuals — clears Exhausted badges and any stale occupied states
 	for slot in player_slots + enemy_slots:
 		slot._refresh_visuals()
@@ -1234,6 +1246,154 @@ func _spawn_slot_ripple(slot: BoardSlot, total_cost: int = 0, is_champion: bool 
 	slot.z_index = prev_z
 	slot.z_as_relative = prev_relative
 
+## Dramatic entrance sequence for champion token summons.
+## Shows card reveal → banner → screen shake → gold flash → place minion → fire trigger.
+func _champion_summon_sequence(card: MinionCardData, instance: MinionInstance, slot: BoardSlot) -> void:
+	var owner: String = instance.owner
+
+	# 1. Card reveal with golden tint and longer hold
+	await _show_champion_reveal(card)
+	if not is_inside_tree(): slot.place_minion(instance); return
+
+	# 2. "CHAMPION" banner across the screen
+	await _show_champion_banner(card.card_name)
+	if not is_inside_tree(): slot.place_minion(instance); return
+
+	# 3. Place the minion on the slot
+	slot.place_minion(instance)
+	_log("  %s summoned!" % card.card_name, _LogType.PLAYER)
+
+	# 4. Fire summon trigger
+	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	var ctx := EventContext.make(event, owner)
+	ctx.minion = instance
+	ctx.card   = card
+	trigger_manager.fire(ctx)
+
+	# 5. Screen shake
+	await _champion_screen_shake()
+
+	# 6. Gold flash on the slot + expanded ripple
+	_champion_slot_flash(slot)
+	_spawn_slot_ripple(slot, 8, true)
+
+## Card reveal with golden tint for champions — longer hold than normal.
+func _show_champion_reveal(card: CardData) -> void:
+	var visual: CardVisual = CARD_VISUAL_SCENE.instantiate()
+	visual.apply_size_mode("combat_preview")
+	visual.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	visual.z_index       = 20
+	visual.z_as_relative = false
+	visual.modulate      = Color(0, 0, 0, 0)
+	$UI.add_child(visual)
+	visual.setup(card)
+	var vp := get_viewport().get_visible_rect().size
+	visual.position = vp / 2.0 - visual.size / 2.0
+
+	# Fade in with golden tint
+	var t1 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t1.tween_property(visual, "modulate", Color(1.2, 1.05, 0.75, 1.0), 0.25)
+	await t1.finished
+	if not is_inside_tree(): visual.queue_free(); return
+
+	# Hold longer than normal summons
+	await get_tree().create_timer(1.5).timeout
+	if not is_inside_tree(): visual.queue_free(); return
+
+	# Fade out
+	var t2 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t2.tween_property(visual, "modulate:a", 0.0, 0.25)
+	await t2.finished
+	visual.queue_free()
+
+## Show a "CHAMPION" banner with the unit name across the screen.
+func _show_champion_banner(champion_name: String) -> void:
+	var vp := get_viewport().get_visible_rect().size
+
+	# Dark overlay strip
+	var bg := ColorRect.new()
+	bg.color = Color(0.0, 0.0, 0.0, 0.0)
+	bg.set_size(Vector2(vp.x, 80))
+	bg.position = Vector2(0, vp.y / 2.0 - 40)
+	bg.z_index = 25
+	bg.z_as_relative = false
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$UI.add_child(bg)
+
+	# "CHAMPION" title
+	var title := Label.new()
+	title.text = "★  C H A M P I O N  ★"
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(1.0, 0.82, 0.25, 0.0))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title.position = Vector2(-200, 8)
+	title.set_size(Vector2(400, 30))
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.add_child(title)
+
+	# Champion name subtitle
+	var name_lbl := Label.new()
+	name_lbl.text = champion_name
+	name_lbl.add_theme_font_size_override("font_size", 16)
+	name_lbl.add_theme_color_override("font_color", Color(0.90, 0.75, 0.50, 0.0))
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	name_lbl.position = Vector2(-200, 42)
+	name_lbl.set_size(Vector2(400, 25))
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.add_child(name_lbl)
+
+	# Fade in
+	var t1 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t1.tween_property(bg, "color:a", 0.75, 0.2)
+	t1.tween_property(title, "theme_override_colors/font_color:a", 1.0, 0.25)
+	t1.tween_property(name_lbl, "theme_override_colors/font_color:a", 1.0, 0.3)
+	await t1.finished
+	if not is_inside_tree(): bg.queue_free(); return
+
+	# Hold
+	await get_tree().create_timer(1.0).timeout
+	if not is_inside_tree(): bg.queue_free(); return
+
+	# Fade out
+	var t2 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t2.tween_property(bg, "modulate:a", 0.0, 0.3)
+	await t2.finished
+	bg.queue_free()
+
+## Screen shake for champion entrance.
+func _champion_screen_shake() -> void:
+	var ui_node: Node = $UI
+	if ui_node == null:
+		return
+	var original_pos: Vector2 = ui_node.get("position") if ui_node.get("position") != null else Vector2.ZERO
+	for i in 6:
+		if not is_inside_tree():
+			ui_node.set("position", original_pos)
+			return
+		var offset := Vector2(
+			randf_range(-4.0, 4.0),
+			randf_range(-4.0, 4.0)
+		)
+		ui_node.set("position", original_pos + offset)
+		await get_tree().create_timer(0.03).timeout
+	ui_node.set("position", original_pos)
+
+## Gold flash overlay on a slot when a champion lands.
+func _champion_slot_flash(slot: BoardSlot) -> void:
+	var flash := ColorRect.new()
+	flash.color = Color(1.0, 0.82, 0.25, 0.6)
+	flash.set_size(slot.size)
+	flash.global_position = slot.global_position
+	flash.z_index = 3
+	flash.z_as_relative = false
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$UI.add_child(flash)
+	var tw := create_tween().set_trans(Tween.TRANS_SINE)
+	tw.tween_property(flash, "color:a", 0.0, 0.5)
+	tw.tween_callback(flash.queue_free)
+
 ## Placeholder for data-driven on-death effects (not yet implemented).
 ## Called by CombatHandlers.on_minion_died_death_effect via has_method check.
 func _resolve_on_death_effect(_minion: MinionInstance) -> void:
@@ -1370,13 +1530,17 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 				instance.current_shield = token_shield
 				BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token")
 			board.append(instance)
-			slot.place_minion(instance)
-			_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
-			var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-			var ctx   := EventContext.make(event, owner)
-			ctx.minion = instance
-			ctx.card   = data
-			trigger_manager.fire(ctx)
+			# Champion tokens get a dramatic entrance (fire-and-forget — places minion on slot after animation)
+			if data.is_champion:
+				_champion_summon_sequence(data, instance, slot)
+			else:
+				slot.place_minion(instance)
+				_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
+				var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+				var ctx   := EventContext.make(event, owner)
+				ctx.minion = instance
+				ctx.card   = data
+				trigger_manager.fire(ctx)
 			return
 
 ## Count minions of a given type on the specified owner's board.
@@ -2038,43 +2202,295 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 
 ## Called by CombatHandlers when champion progress increments.
 func _update_champion_progress(current: int, total: int) -> void:
+	var prev: int = _champion_progress_current
 	_champion_progress_current = current
 	_champion_progress_max = total
 	if not _champion_progress_row:
 		return
 	_champion_progress_row.visible = true
-	_champion_progress_label.text = "Champion %d / %d" % [current, total]
-	# Color by urgency
+
+	# Build pips on first call or when total changes
+	if _champion_progress_pips.size() != total:
+		for p in _champion_progress_pips:
+			p.queue_free()
+		_champion_progress_pips.clear()
+		for i in total:
+			var pip := Label.new()
+			pip.text = "◇"
+			pip.add_theme_font_size_override("font_size", 14)
+			pip.add_theme_color_override("font_color", Color(0.40, 0.35, 0.50, 0.6))
+			pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_champion_progress_row.add_child(pip)
+			_champion_progress_pips.append(pip)
+
+	# Update pip states
 	var ratio: float = float(current) / float(total) if total > 0 else 0.0
-	var color: Color
+	for i in total:
+		var pip: Label = _champion_progress_pips[i]
+		if i < current:
+			pip.text = "◆"
+			# Color by urgency
+			if ratio >= 1.0:
+				pip.add_theme_color_override("font_color", Color(1.0, 0.25, 0.15, 1))
+			elif ratio >= 0.75:
+				pip.add_theme_color_override("font_color", Color(1.0, 0.50, 0.12, 1))
+			elif ratio >= 0.5:
+				pip.add_theme_color_override("font_color", Color(1.0, 0.82, 0.20, 1))
+			else:
+				pip.add_theme_color_override("font_color", Color(0.85, 0.70, 0.40, 1))
+		else:
+			pip.text = "◇"
+			pip.add_theme_color_override("font_color", Color(0.40, 0.35, 0.50, 0.6))
+
+	# Animate the newly filled pip(s)
+	for i in range(prev, current):
+		if i >= 0 and i < _champion_progress_pips.size():
+			_animate_pip_fill(_champion_progress_pips[i])
+
+	# Update label text
 	if ratio >= 1.0:
-		color = Color(1.0, 0.30, 0.20, 1)  # red — summoning
-	elif ratio >= 0.75:
-		color = Color(1.0, 0.55, 0.15, 1)  # orange — urgent
-	elif ratio >= 0.5:
-		color = Color(1.0, 0.85, 0.20, 1)  # yellow — warning
+		_champion_progress_label.text = "SUMMONING..."
+		_champion_progress_label.add_theme_color_override("font_color", Color(1.0, 0.25, 0.15, 1))
+		# Shake the whole row when threshold reached
+		_champion_progress_shake()
 	else:
-		color = Color(0.75, 0.75, 0.85, 1)  # grey — early
-	_champion_progress_label.add_theme_color_override("font_color", color)
-	# Pulse animation on increment
+		_champion_progress_label.text = ""
+		_champion_progress_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.10, 1))
+
+	# Pulse the row on every increment
 	if _champion_progress_tween:
 		_champion_progress_tween.kill()
+	_champion_progress_row.pivot_offset = _champion_progress_row.size / 2.0
 	_champion_progress_tween = create_tween()
-	_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color(1.5, 1.5, 0.5, 1), 0.15)
-	_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color.WHITE, 0.4)
+	_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2(1.15, 1.15), 0.1).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+## Animate a pip being filled — scale pop + glow flash.
+func _animate_pip_fill(pip: Label) -> void:
+	pip.pivot_offset = pip.size / 2.0
+	var tw := create_tween().set_parallel(true)
+	# Scale pop
+	tw.tween_property(pip, "scale", Vector2(1.8, 1.8), 0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# Bright flash
+	tw.tween_property(pip, "modulate", Color(2.0, 1.8, 0.5, 1), 0.08)
+	tw.chain().set_parallel(true)
+	tw.tween_property(pip, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	tw.tween_property(pip, "modulate", Color.WHITE, 0.4)
+
+## Rapid shake on the progress row when champion is about to summon.
+func _champion_progress_shake() -> void:
+	var row := _champion_progress_row
+	if row == null:
+		return
+	var original_pos: Vector2 = row.position
+	var shake_tw := create_tween()
+	for i in 8:
+		var offset := Vector2(randf_range(-3.0, 3.0), randf_range(-1.5, 1.5))
+		shake_tw.tween_property(row, "position", original_pos + offset, 0.03)
+	shake_tw.tween_property(row, "position", original_pos, 0.03)
+
+## Build and attach a hover tooltip to the champion progress row showing the summon condition.
+func _setup_champion_progress_tooltip(_parent: Node) -> void:
+	var ui_root := get_node_or_null("UI")
+	if ui_root == null:
+		return
+
+	# Find the active champion passive
+	var champ_id: String = ""
+	for pid in _active_enemy_passives:
+		if pid.begins_with("champion_"):
+			champ_id = pid
+			break
+	if champ_id == "":
+		return
+
+	# Champion info — same data as PASSIVE_INFO in _add_enemy_passive_hover_icon
+	const CHAMPION_INFO: Dictionary = {
+		"champion_rogue_imp_pack": {
+			"name": "Rogue Imp Pack",
+			"condition": "4 different Rabid Imps have attacked",
+			"stats": "200 ATK / 400 HP — SWIFT",
+			"aura": "All friendly Feral Imps gain +100 ATK.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_corrupted_broodlings": {
+			"name": "Corrupted Broodlings",
+			"condition": "3 friendly minions have died",
+			"stats": "200 ATK / 400 HP",
+			"aura": "",
+			"on_death": "Summon a Void-Touched Imp. Deal 20% of max HP to enemy hero.",
+		},
+		"champion_imp_matriarch": {
+			"name": "Imp Matriarch",
+			"condition": "2nd Pack Frenzy cast",
+			"stats": "300 ATK / 500 HP — GUARD",
+			"aura": "Pack Frenzy also grants +200 HP to all Feral Imps.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_abyss_cultist_patrol": {
+			"name": "Abyss Cultist Patrol",
+			"condition": "5 corruption stacks consumed",
+			"stats": "300 ATK / 300 HP",
+			"aura": "Corruption applied to player minions instantly detonates.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_void_ritualist": {
+			"name": "Void Ritualist",
+			"condition": "Ritual Sacrifice triggers",
+			"stats": "200 ATK / 300 HP",
+			"aura": "Rune placement costs 1 less Mana.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_corrupted_handler": {
+			"name": "Corrupted Handler",
+			"condition": "3 Void Sparks created",
+			"stats": "300 ATK / 300 HP",
+			"aura": "Whenever a Void Spark is summoned, deal 200 damage to player hero.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_duel": {
+			"name": "Void Duel",
+			"condition": "Always active",
+			"stats": "",
+			"aura": "Enemy minions with Critical Strike have Spell Immune.",
+			"on_death": "",
+		},
+	}
+
+	var info: Dictionary = CHAMPION_INFO.get(champ_id, {})
+	if info.is_empty():
+		return
+
+	var scaffold := _build_hover_tooltip_scaffold(ui_root, 280, Color(0.08, 0.04, 0.02, 0.97), Color(1.0, 0.70, 0.15, 0.85))
+	var tip: PanelContainer = scaffold.tip
+	var tip_vbox: VBoxContainer = scaffold.tip_vbox
+
+	# Header
+	var hdr := Label.new()
+	hdr.text = "★ CHAMPION"
+	hdr.add_theme_font_size_override("font_size", 13)
+	hdr.add_theme_color_override("font_color", Color(1.0, 0.78, 0.15, 1.0))
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip_vbox.add_child(hdr)
+
+	# Name
+	var name_lbl := Label.new()
+	name_lbl.text = info.get("name", champ_id) as String
+	name_lbl.add_theme_font_size_override("font_size", 15)
+	name_lbl.add_theme_color_override("font_color", Color(1.0, 0.90, 0.65, 1.0))
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip_vbox.add_child(name_lbl)
+
+	# Stats
+	var stats_str: String = info.get("stats", "") as String
+	if stats_str != "":
+		var stats_lbl := Label.new()
+		stats_lbl.text = stats_str
+		stats_lbl.add_theme_font_size_override("font_size", 12)
+		stats_lbl.add_theme_color_override("font_color", Color(0.80, 0.75, 0.65, 1.0))
+		stats_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		stats_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip_vbox.add_child(stats_lbl)
+
+	# Summon condition
+	var cond_row := VBoxContainer.new()
+	cond_row.add_theme_constant_override("separation", 2)
+	cond_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip_vbox.add_child(cond_row)
+
+	var cond_hdr := Label.new()
+	cond_hdr.text = "SUMMON CONDITION"
+	cond_hdr.add_theme_font_size_override("font_size", 11)
+	cond_hdr.add_theme_color_override("font_color", Color(0.65, 0.55, 0.45, 1.0))
+	cond_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cond_row.add_child(cond_hdr)
+
+	var cond_lbl := Label.new()
+	cond_lbl.text = info.get("condition", "") as String
+	cond_lbl.add_theme_font_size_override("font_size", 13)
+	cond_lbl.add_theme_color_override("font_color", Color(1.0, 0.55, 0.20, 1.0))
+	cond_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cond_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cond_row.add_child(cond_lbl)
+
+	# Aura
+	var aura_str: String = info.get("aura", "") as String
+	if aura_str != "":
+		var aura_row := VBoxContainer.new()
+		aura_row.add_theme_constant_override("separation", 2)
+		aura_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip_vbox.add_child(aura_row)
+
+		var aura_hdr := Label.new()
+		aura_hdr.text = "AURA"
+		aura_hdr.add_theme_font_size_override("font_size", 11)
+		aura_hdr.add_theme_color_override("font_color", Color(0.65, 0.55, 0.45, 1.0))
+		aura_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		aura_row.add_child(aura_hdr)
+
+		var aura_lbl := Label.new()
+		aura_lbl.text = aura_str
+		aura_lbl.add_theme_font_size_override("font_size", 12)
+		aura_lbl.add_theme_color_override("font_color", Color(0.90, 0.80, 0.60, 1.0))
+		aura_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		aura_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		aura_row.add_child(aura_lbl)
+
+	# On death
+	var death_str: String = info.get("on_death", "") as String
+	if death_str != "":
+		var death_row := VBoxContainer.new()
+		death_row.add_theme_constant_override("separation", 2)
+		death_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip_vbox.add_child(death_row)
+
+		var death_hdr := Label.new()
+		death_hdr.text = "ON DEATH"
+		death_hdr.add_theme_font_size_override("font_size", 11)
+		death_hdr.add_theme_color_override("font_color", Color(0.65, 0.55, 0.45, 1.0))
+		death_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		death_row.add_child(death_hdr)
+
+		var death_lbl := Label.new()
+		death_lbl.text = death_str
+		death_lbl.add_theme_font_size_override("font_size", 12)
+		death_lbl.add_theme_color_override("font_color", Color(0.85, 0.45, 0.35, 1.0))
+		death_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		death_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		death_row.add_child(death_lbl)
+
+	# Connect hover events
+	_champion_progress_row.mouse_entered.connect(func() -> void:
+		tip.size = tip.get_minimum_size()
+		tip.position.y = get_viewport().get_visible_rect().size.y - tip.size.y - 16.0
+		tip.visible = true
+	)
+	_champion_progress_row.mouse_exited.connect(func() -> void:
+		tip.visible = false
+	)
 
 ## Called by CombatHandlers when the enemy champion is killed — hide progress, show reward feedback.
 func _on_champion_killed() -> void:
 	if _champion_progress_row:
+		# Turn all pips green
+		for pip in _champion_progress_pips:
+			pip.text = "✦"
+			pip.add_theme_color_override("font_color", Color(0.35, 0.90, 0.55, 1))
 		_champion_progress_label.text = "Champion slain!"
 		_champion_progress_label.add_theme_color_override("font_color", Color(0.35, 0.90, 0.55, 1))
 		if _champion_progress_tween:
 			_champion_progress_tween.kill()
+		_champion_progress_row.pivot_offset = _champion_progress_row.size / 2.0
 		_champion_progress_tween = create_tween()
-		_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color(0.5, 1.5, 0.5, 1), 0.2)
-		_champion_progress_tween.tween_property(_champion_progress_label, "modulate", Color.WHITE, 0.5)
-		_champion_progress_tween.tween_interval(2.0)
-		_champion_progress_tween.tween_property(_champion_progress_row, "modulate", Color(1, 1, 1, 0), 0.5)
+		# Scale pop
+		_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2(1.25, 1.25), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		_champion_progress_tween.parallel().tween_property(_champion_progress_row, "modulate", Color(0.5, 2.0, 0.5, 1), 0.12)
+		_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_SINE)
+		_champion_progress_tween.parallel().tween_property(_champion_progress_row, "modulate", Color.WHITE, 0.4)
+		_champion_progress_tween.tween_interval(2.5)
+		_champion_progress_tween.tween_property(_champion_progress_row, "modulate", Color(1, 1, 1, 0), 0.6)
 
 # ---------------------------------------------------------------------------
 # Talent helpers
@@ -2118,7 +2534,7 @@ func _spell_mana_discount() -> int:
 		discount += m.card_data.mana_cost_discount
 	return discount
 
-## Void Bolt damage per Void Mark stack. Set by CombatSetup (deepened_curse → 50).
+## Void Bolt damage per Void Mark stack. Set by CombatSetup (deepened_curse → 40).
 func _void_mark_damage_per_stack() -> int:
 	return void_mark_damage_per_stack
 
@@ -3035,23 +3451,39 @@ func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 
 ## Consume the required runes and cast the ritual effect.
 ## Exact rune type matches are consumed first; wildcard runes fill remaining gaps.
+## Each rune instance is consumed at most once — tracked by index to avoid duplicates.
 func _fire_ritual(ritual: RitualData) -> void:
+	var consumed_indices: Array[int] = []
 	for req in ritual.required_runes:
-		var consumed := false
+		var found := false
 		# Try exact match first
 		for i in active_traps.size():
-			if active_traps[i].is_rune and not (active_traps[i] as TrapCardData).is_wildcard_rune and active_traps[i].rune_type == req:
-				_remove_rune_aura(active_traps[i])
-				active_traps.remove_at(i)
-				consumed = true
+			if i in consumed_indices:
+				continue
+			var trap := active_traps[i] as TrapCardData
+			if trap.is_rune and not trap.is_wildcard_rune and trap.rune_type == req:
+				consumed_indices.append(i)
+				found = true
 				break
 		# Fall back to wildcard rune
-		if not consumed:
+		if not found:
 			for i in active_traps.size():
-				if active_traps[i].is_rune and (active_traps[i] as TrapCardData).is_wildcard_rune:
-					_remove_rune_aura(active_traps[i])
-					active_traps.remove_at(i)
+				if i in consumed_indices:
+					continue
+				var trap := active_traps[i] as TrapCardData
+				if trap.is_rune and trap.is_wildcard_rune:
+					consumed_indices.append(i)
 					break
+	# Remove consumed runes in reverse index order so earlier indices stay valid
+	consumed_indices.sort()
+	consumed_indices.reverse()
+	for i in consumed_indices:
+		var trap := active_traps[i] as TrapCardData
+		_remove_rune_aura(trap)
+		active_traps.remove_at(i)
+	# Stop all glow tweens before refreshing — prevents stale glow on repurposed slots
+	for i in trap_slot_panels.size():
+		_stop_rune_glow(i)
 	_update_trap_display()
 	_log("★ RITUAL — %s!" % ritual.ritual_name, _LogType.PLAYER)
 	var ritual_ctx := EffectContext.make(self, "player")
@@ -3128,10 +3560,13 @@ func _show_hero_button(attackable: bool) -> void:
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	else:
 		_stop_hero_attack_pulse()
-		_enemy_status_panel.add_theme_stylebox_override("panel", _create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1.0), 6))
+		if _enemy_panel_bg:
+			var clear_style := StyleBoxFlat.new()
+			clear_style.bg_color = Color(0, 0, 0, 0)
+			clear_style.set_border_width_all(0)
+			clear_style.set_corner_radius_all(6)
+			_enemy_panel_bg.add_theme_stylebox_override("panel", clear_style)
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if _enemy_hero_attack_hint:
-		_enemy_hero_attack_hint.visible = attackable
 
 ## Apply green border style (static, no shadow) — used when hero is a valid attack target.
 func _apply_hero_attack_style() -> void:
@@ -3139,12 +3574,13 @@ func _apply_hero_attack_style() -> void:
 		return
 	var s := StyleBoxFlat.new()
 	s.set_corner_radius_all(6)
-	s.bg_color     = Color(0.04, 0.12, 0.05, 0.95)
+	s.bg_color     = Color(0, 0, 0, 0)
 	s.border_color = Color(0.25, 0.92, 0.40, 1.0)
 	s.set_border_width_all(3)
 	s.shadow_color = Color(0.25, 0.92, 0.40, 0.45 + _hero_attack_pulse * 0.35)
 	s.shadow_size  = int(8.0 + _hero_attack_pulse * 10.0)
-	_enemy_status_panel.add_theme_stylebox_override("panel", s)
+	if _enemy_panel_bg:
+		_enemy_panel_bg.add_theme_stylebox_override("panel", s)
 
 ## Show static green border and wire hover signals for glow-on-hover.
 func _start_hero_attack_pulse() -> void:
@@ -3199,12 +3635,13 @@ func _apply_hero_spell_style() -> void:
 	var shadow_a: float  = 0.55 + _hero_spell_pulse * 0.30
 	var s := StyleBoxFlat.new()
 	s.set_corner_radius_all(6)
-	s.bg_color     = Color(0.08, 0.04, 0.13, 0.93)
+	s.bg_color     = Color(0, 0, 0, 0)
 	s.border_color = Color(0.20, 0.85, 0.30, 1.0)
 	s.set_border_width_all(border_w)
 	s.shadow_color = Color(0.20, 0.85, 0.30, shadow_a)
 	s.shadow_size  = shadow_sz
-	_enemy_status_panel.add_theme_stylebox_override("panel", s)
+	if _enemy_panel_bg:
+		_enemy_panel_bg.add_theme_stylebox_override("panel", s)
 
 func _start_hero_spell_pulse() -> void:
 	# Apply static border immediately; pulse begins only on hover.
@@ -3250,7 +3687,7 @@ func _setup_enemy_status_panel() -> void:
 	if not ui_root:
 		return
 
-	var panel := Panel.new()
+	var panel := Control.new()
 	panel.custom_minimum_size = Vector2(300, 155)
 	panel.anchor_left    = 0.5
 	panel.anchor_right   = 0.5
@@ -3262,8 +3699,40 @@ func _setup_enemy_status_panel() -> void:
 	panel.offset_top     = 5.0
 	panel.offset_bottom  = 160.0
 	panel.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_stylebox_override("panel", _create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1), 6))
 
+	# Layer 1: dark background
+	var bg_fill := Panel.new()
+	bg_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg_fill.add_theme_stylebox_override("panel", _create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1), 6))
+	bg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(bg_fill)
+
+	# Layer 2: enemy portrait (if available) — clipped to panel bounds
+	var enemy_portrait_path: String = GameManager.current_enemy.portrait_path if GameManager.current_enemy else ""
+	if enemy_portrait_path != "":
+		var portrait_clip := Control.new()
+		portrait_clip.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		portrait_clip.clip_contents = true
+		portrait_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(portrait_clip)
+
+		var bg_tex := TextureRect.new()
+		bg_tex.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bg_tex.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+		bg_tex.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		bg_tex.texture       = load(enemy_portrait_path)
+		bg_tex.modulate      = Color(1, 1, 1, 0.45)
+		bg_tex.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+		portrait_clip.add_child(bg_tex)
+
+		# Layer 2b: dark overlay so text stays readable over the portrait
+		var overlay := ColorRect.new()
+		overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		overlay.color = Color(0.0, 0.0, 0.0, 0.45)
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		portrait_clip.add_child(overlay)
+
+	# Layer 3: content
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left",   8)
@@ -3279,6 +3748,10 @@ func _setup_enemy_status_panel() -> void:
 	margin.add_child(vbox)
 
 	_build_enemy_portrait_row(vbox, ui_root)
+	var enemy_bar: Dictionary = _build_hp_bar(vbox, Color(0.85, 0.25, 0.30, 1.0))
+	_enemy_hp_bar_fill  = enemy_bar["fill"] as TextureRect
+	_enemy_hp_bar_drain = enemy_bar["drain"] as ColorRect
+	_enemy_hp_bar_bg    = enemy_bar["bg"] as Control
 
 	var sep := HSeparator.new()
 	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -3286,58 +3759,155 @@ func _setup_enemy_status_panel() -> void:
 
 	_build_enemy_stats_cols(vbox)
 
-	_enemy_hero_attack_hint = Label.new()
-	_enemy_hero_attack_hint.text = "▶  Click to Attack"
-	_enemy_hero_attack_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_enemy_hero_attack_hint.add_theme_font_size_override("font_size", 12)
-	_enemy_hero_attack_hint.add_theme_color_override("font_color", Color(1.0, 0.85, 0.20, 1.0))
-	_enemy_hero_attack_hint.visible = false
-	_enemy_hero_attack_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_enemy_hero_attack_hint)
-
 	_enemy_status_panel = panel
 	panel.gui_input.connect(_on_enemy_hero_frame_input)
 	ui_root.add_child(panel)
+
+	# Highlight border — sibling in ui_root, same position as panel, drawn on top
+	var highlight := Panel.new()
+	highlight.anchor_left    = panel.anchor_left
+	highlight.anchor_right   = panel.anchor_right
+	highlight.anchor_top     = panel.anchor_top
+	highlight.anchor_bottom  = panel.anchor_bottom
+	highlight.grow_horizontal = panel.grow_horizontal
+	highlight.offset_left    = panel.offset_left
+	highlight.offset_right   = panel.offset_right
+	highlight.offset_top     = panel.offset_top
+	highlight.offset_bottom  = panel.offset_bottom
+	var blank_style := StyleBoxFlat.new()
+	blank_style.bg_color = Color(0, 0, 0, 0)
+	blank_style.set_border_width_all(0)
+	blank_style.set_corner_radius_all(6)
+	highlight.add_theme_stylebox_override("panel", blank_style)
+	highlight.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_root.add_child(highlight)
+	_enemy_panel_bg = highlight
 	_update_enemy_status_panel()
 
-## Build the portrait + name label + passive icon row for the enemy status panel.
+## Build the name header + passive icon row for the enemy status panel.
 func _build_enemy_portrait_row(vbox: VBoxContainer, ui_root: Node) -> void:
-	var portrait_row := HBoxContainer.new()
-	portrait_row.add_theme_constant_override("separation", 8)
-	portrait_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(portrait_row)
-
-	var portrait := ColorRect.new()
-	portrait.custom_minimum_size = Vector2(36, 36)
-	portrait.color = Color(0.25, 0.08, 0.45, 1)
-	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	portrait_row.add_child(portrait)
-
-	var initial_label := Label.new()
-	initial_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	initial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	initial_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	initial_label.add_theme_font_size_override("font_size", 20)
-	initial_label.add_theme_color_override("font_color", Color(0.85, 0.60, 1.0, 1))
-	initial_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if GameManager.current_enemy:
-		initial_label.text = GameManager.current_enemy.enemy_name.left(1)
-	portrait.add_child(initial_label)
+	var header_row := HBoxContainer.new()
+	header_row.add_theme_constant_override("separation", 6)
+	header_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(header_row)
 
 	var name_lbl := Label.new()
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_lbl.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
-	name_lbl.add_theme_font_size_override("font_size", 13)
-	name_lbl.add_theme_color_override("font_color", Color(0.90, 0.65, 1.0, 1))
+	name_lbl.add_theme_font_size_override("font_size", 16)
+	name_lbl.add_theme_color_override("font_color", Color(0.95, 0.70, 1.0, 1))
 	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_lbl.mouse_filter  = Control.MOUSE_FILTER_IGNORE
 	if GameManager.current_enemy:
 		var prefix: String = "⚔ BOSS  " if GameManager.is_boss_fight() else ""
-		name_lbl.text = prefix + GameManager.current_enemy.enemy_name
-	portrait_row.add_child(name_lbl)
+		name_lbl.text = prefix + GameManager.current_enemy.enemy_name.to_upper()
+	header_row.add_child(name_lbl)
 
 	if not _active_enemy_passives.is_empty():
-		_add_enemy_passive_hover_icon(portrait_row, ui_root)
+		_add_enemy_passive_hover_icon(header_row, ui_root)
+
+## Build an HP bar with gradient fill, glow edge, and damage-drain layer.
+## Returns { fill, drain, bg }.
+func _build_hp_bar(parent: VBoxContainer, fill_color: Color) -> Dictionary:
+	# Outer container with rounded dark background
+	var bar_container := PanelContainer.new()
+	bar_container.custom_minimum_size = Vector2(0, 12)
+	bar_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg_style := StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.05, 0.03, 0.08, 0.8)
+	bg_style.border_color = Color(0.25, 0.15, 0.35, 0.6)
+	bg_style.set_border_width_all(1)
+	bg_style.set_corner_radius_all(3)
+	bar_container.add_theme_stylebox_override("panel", bg_style)
+	parent.add_child(bar_container)
+
+	# Inner clip region
+	var bar_clip := Control.new()
+	bar_clip.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bar_clip.clip_contents = true
+	bar_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar_container.add_child(bar_clip)
+
+	# Drain layer — shows old HP in orange/red gradient, tweens down after damage
+	var drain := ColorRect.new()
+	drain.anchor_top    = 0.0
+	drain.anchor_bottom = 1.0
+	drain.anchor_left   = 0.0
+	drain.anchor_right  = 1.0
+	drain.color = Color(0.95, 0.45, 0.10, 0.85)
+	drain.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar_clip.add_child(drain)
+
+	# Fill layer — gradient from bright top to deeper bottom
+	var fill_top: Color = fill_color.lightened(0.35)
+	var fill_bot: Color = fill_color.darkened(0.25)
+	var fill_grad := Gradient.new()
+	fill_grad.set_color(0, fill_top)
+	fill_grad.set_color(1, fill_bot)
+	var fill_tex := GradientTexture2D.new()
+	fill_tex.gradient  = fill_grad
+	fill_tex.fill      = GradientTexture2D.FILL_LINEAR
+	fill_tex.fill_from = Vector2(0.5, 0.0)
+	fill_tex.fill_to   = Vector2(0.5, 1.0)
+	fill_tex.width     = 4
+	fill_tex.height    = 12
+
+	var fill := TextureRect.new()
+	fill.anchor_top    = 0.0
+	fill.anchor_bottom = 1.0
+	fill.anchor_left   = 0.0
+	fill.anchor_right  = 1.0
+	fill.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+	fill.stretch_mode  = TextureRect.STRETCH_SCALE
+	fill.texture       = fill_tex
+	fill.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	bar_clip.add_child(fill)
+
+	# Glow highlight along top edge
+	var glow := ColorRect.new()
+	glow.anchor_left   = 0.0
+	glow.anchor_right  = 1.0
+	glow.anchor_top    = 0.0
+	glow.anchor_bottom = 0.0
+	glow.offset_bottom = 3
+	glow.color = Color(1, 1, 1, 0.2)
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fill.add_child(glow)
+
+	return { "fill": fill, "drain": drain, "bg": bar_clip }
+
+## Animate HP loss: flash the bar white, hold the drain at old position, then tween it down.
+func _animate_hp_drain(drain: ColorRect, bg: Control, old_ratio: float, new_ratio: float, tween_prop: String) -> void:
+	# Kill any running drain tween for this bar
+	var existing: Tween = get(tween_prop) as Tween
+	if existing and existing.is_valid():
+		existing.kill()
+
+	# Flash the bar background white briefly
+	var flash := ColorRect.new()
+	flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	flash.color = Color(1, 1, 1, 0.7)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.add_child(flash)
+	var flash_tw := create_tween()
+	flash_tw.tween_property(flash, "color:a", 0.0, 0.25)
+	flash_tw.tween_callback(flash.queue_free)
+
+	# Drain bar: hold at old position, then tween down to new position
+	drain.anchor_right = old_ratio
+	var tw := create_tween()
+	tw.tween_interval(0.35)
+	tw.tween_property(drain, "anchor_right", new_ratio, 0.45).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	set(tween_prop, tw)
+
+## Update the HP bar gradient colors based on current HP ratio (green→red).
+func _update_hp_bar_gradient(bar_fill: TextureRect, ratio: float) -> void:
+	var base_color: Color = Color(0.85, 0.25, 0.30, 1.0).lerp(Color(0.30, 0.75, 0.35, 1.0), ratio)
+	var grad_tex: GradientTexture2D = bar_fill.texture as GradientTexture2D
+	if grad_tex and grad_tex.gradient:
+		grad_tex.gradient.set_color(0, base_color.lightened(0.35))
+		grad_tex.gradient.set_color(1, base_color.darkened(0.25))
 
 ## Build the two-column stats area (HP/Essence/Mana/Hand + Void Mark row).
 func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
@@ -3408,7 +3978,7 @@ func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
 	# Champion progress row
 	_champion_progress_row = HBoxContainer.new()
 	_champion_progress_row.add_theme_constant_override("separation", 4)
-	_champion_progress_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_champion_progress_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	_champion_progress_row.visible = false
 	right_col.add_child(_champion_progress_row)
 
@@ -3425,11 +3995,23 @@ func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
 	_champion_progress_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_champion_progress_row.add_child(_champion_progress_label)
 
+	_champion_progress_pips.clear()
+
+	# Champion progress hover tooltip
+	_setup_champion_progress_tooltip(right_col)
+
 func _update_enemy_status_panel() -> void:
 	if not _enemy_status_panel:
 		return
 	if _enemy_status_hp_label:
 		_enemy_status_hp_label.text = "❤ HP: %d / %d" % [enemy_hp, enemy_hp_max]
+	if _enemy_hp_bar_fill and enemy_hp_max > 0:
+		var new_ratio: float = clampf(float(enemy_hp) / float(enemy_hp_max), 0.0, 1.0)
+		var old_ratio: float = _enemy_hp_bar_fill.anchor_right
+		_enemy_hp_bar_fill.anchor_right = new_ratio
+		_update_hp_bar_gradient(_enemy_hp_bar_fill, new_ratio)
+		if new_ratio < old_ratio - 0.001:
+			_animate_hp_drain(_enemy_hp_bar_drain, _enemy_hp_bar_bg, old_ratio, new_ratio, "_enemy_hp_bar_tween")
 	if _enemy_status_essence_label:
 		var ess_max := enemy_ai.essence_max if enemy_ai else 0
 		var ess_cur := enemy_ai.essence if enemy_ai else 0
@@ -3458,68 +4040,85 @@ func _setup_player_status_panel() -> void:
 	if not ui_root:
 		return
 
-	var panel := Panel.new()
-	panel.custom_minimum_size = Vector2(240, 140)
+	var panel := Control.new()
+	panel.custom_minimum_size = Vector2(300, 155)
 	panel.anchor_left   = 1.0
 	panel.anchor_right  = 1.0
 	panel.anchor_top    = 1.0
 	panel.anchor_bottom = 1.0
 	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	panel.grow_vertical   = Control.GROW_DIRECTION_BEGIN
-	panel.offset_left   = -250.0
+	panel.offset_left   = -310.0
 	panel.offset_right  = -10.0
-	panel.offset_top    = -150.0
+	panel.offset_top    = -165.0
 	panel.offset_bottom = -10.0
 	panel.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	panel.clip_contents = true
 
-	panel.add_theme_stylebox_override("panel", _create_stylebox(Color(0.06, 0.06, 0.14, 0.93), Color(0.35, 0.55, 0.90, 1.0), 6))
+	# Layer 1: dark background with border
+	var player_bg_fill := Panel.new()
+	player_bg_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	player_bg_fill.add_theme_stylebox_override("panel", _create_stylebox(Color(0.06, 0.06, 0.14, 0.93), Color(0.35, 0.55, 0.90, 1.0), 6))
+	player_bg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(player_bg_fill)
+
+	# Layer 2: hero combat portrait (if available)
+	var hero_data: HeroData = HeroDatabase.get_hero(GameManager.current_hero)
+	var combat_portrait: String = hero_data.combat_portrait_path if hero_data else ""
+	if combat_portrait != "":
+		var bg_tex := TextureRect.new()
+		bg_tex.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bg_tex.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+		bg_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		bg_tex.texture      = load(combat_portrait)
+		bg_tex.modulate     = Color(1, 1, 1, 0.45)
+		bg_tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(bg_tex)
+
+		var overlay := ColorRect.new()
+		overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		overlay.color = Color(0.0, 0.0, 0.0, 0.45)
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(overlay)
+
+	# Layer 3: content (matches enemy panel layout)
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left",   8)
+	margin.add_theme_constant_override("margin_right",  8)
+	margin.add_theme_constant_override("margin_top",    6)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(margin)
 
 	var vbox := VBoxContainer.new()
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 4)
 	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_theme_constant_override("separation", 5)
-	vbox.add_theme_constant_override("margin_left", 6)
-	vbox.add_theme_constant_override("margin_right", 6)
-	vbox.add_theme_constant_override("margin_top", 5)
-	vbox.add_theme_constant_override("margin_bottom", 5)
-	panel.add_child(vbox)
+	margin.add_child(vbox)
 
-	# Portrait row
-	var portrait_row := HBoxContainer.new()
-	portrait_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	portrait_row.add_theme_constant_override("separation", 8)
-	vbox.add_child(portrait_row)
-
-	var portrait := ColorRect.new()
-	portrait.custom_minimum_size = Vector2(40, 40)
-	portrait.color = Color(0.08, 0.15, 0.38, 1)
-	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	portrait_row.add_child(portrait)
-
-	var initial_label := Label.new()
-	initial_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	initial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	initial_label.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	initial_label.add_theme_font_size_override("font_size", 20)
-	initial_label.add_theme_color_override("font_color", Color(0.60, 0.80, 1.0, 1))
-	initial_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Name header row
 	var hero := HeroDatabase.get_hero(GameManager.current_hero)
-	if hero:
-		initial_label.text = hero.hero_name.left(1)
-	portrait.add_child(initial_label)
+	var header_row := HBoxContainer.new()
+	header_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(header_row)
 
 	var name_lbl := Label.new()
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.add_theme_font_size_override("font_size", 14)
-	name_lbl.add_theme_color_override("font_color", Color(0.65, 0.85, 1.0, 1))
-	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 16)
+	name_lbl.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0, 1))
 	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if hero:
-		name_lbl.text = hero.hero_name
-	portrait_row.add_child(name_lbl)
+		name_lbl.text = hero.hero_name.to_upper()
+	header_row.add_child(name_lbl)
 
 	# Talent hover icon — shows unlocked talent list on hover
-	_add_talent_hover_icon(portrait_row, panel)
+	_add_talent_hover_icon(header_row, panel)
+	var player_bar: Dictionary = _build_hp_bar(vbox, Color(0.30, 0.75, 0.35, 1.0))
+	_player_hp_bar_fill  = player_bar["fill"] as TextureRect
+	_player_hp_bar_drain = player_bar["drain"] as ColorRect
+	_player_hp_bar_bg    = player_bar["bg"] as Control
 
 	var sep := HSeparator.new()
 	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -3540,6 +4139,13 @@ func _update_player_status_panel() -> void:
 	if not _player_status_hp_label:
 		return
 	_player_status_hp_label.text = "❤ HP: %d / %d" % [player_hp, GameManager.player_hp_max]
+	if _player_hp_bar_fill and GameManager.player_hp_max > 0:
+		var new_ratio: float = clampf(float(player_hp) / float(GameManager.player_hp_max), 0.0, 1.0)
+		var old_ratio: float = _player_hp_bar_fill.anchor_right
+		_player_hp_bar_fill.anchor_right = new_ratio
+		_update_hp_bar_gradient(_player_hp_bar_fill, new_ratio)
+		if new_ratio < old_ratio - 0.001:
+			_animate_hp_drain(_player_hp_bar_drain, _player_hp_bar_bg, old_ratio, new_ratio, "_player_hp_bar_tween")
 
 ## Build two vertical pip columns (essence left, mana right) above the player status panel.
 ## Each column holds MAX_PIPS pip panels; colors are updated by _update_pip_bars().
@@ -3553,8 +4159,8 @@ func _setup_pip_bars(ui_root: Node) -> void:
 	const COL_BORDER    := 3    # inner padding inside the outer border panel
 	const COL_W         := PIP_W + COL_BORDER * 2   # = 26px
 	const COL_H         := MAX_PIPS * PIP_H + (MAX_PIPS - 1) * PIP_GAP  # = 256px
-	# MARGIN_BOTTOM = player_panel_top(150) + label_h + gap leaves room below the pips
-	const MARGIN_BOTTOM := 196
+	# MARGIN_BOTTOM = player_panel_top(165) + label_h + gap leaves room below the pips
+	const MARGIN_BOTTOM := 211
 	const RIGHT_MARGIN  := 15
 	const LBL_W         := 44   # fits "10/10" at font 13 with some breathing room
 	const LBL_H         := 22
@@ -4035,11 +4641,39 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 		},
 		"pack_instinct": {
 			"name": "Pack Instinct",
-			"desc": "Each Feral Imp gains +1 ATK for every other Feral Imp on the board."
+			"desc": "Each Feral Imp gains +50 ATK for every other Feral Imp on the board."
+		},
+		"champion_rogue_imp_pack": {
+			"name": "Champion: Rogue Imp Pack",
+			"desc": "Summoned after 4 Rabid Imps have attacked. SWIFT. Aura: All friendly Feral Imps gain +100 ATK. On death: Deal 20% of your max HP to you."
+		},
+		"champion_corrupted_broodlings": {
+			"name": "Champion: Corrupted Broodlings",
+			"desc": "Summoned after 3 friendly minions have died. On death: Summon a Void-Touched Imp and deal 20% of max HP to enemy hero."
+		},
+		"champion_imp_matriarch": {
+			"name": "Champion: Imp Matriarch",
+			"desc": "Summoned after 2nd Pack Frenzy cast. GUARD. Aura: Pack Frenzy also grants +200 HP to all Feral Imps. On death: Deal 20% of max HP to enemy hero."
+		},
+		"champion_abyss_cultist_patrol": {
+			"name": "Champion: Abyss Cultist Patrol",
+			"desc": "Summoned after 5 corruption stacks consumed. Aura: Corruption applied to player minions instantly detonates for 100 damage per stack."
+		},
+		"champion_void_ritualist": {
+			"name": "Champion: Void Ritualist",
+			"desc": "Summoned when Ritual Sacrifice triggers. Aura: Rune placement costs 1 less Mana."
+		},
+		"champion_corrupted_handler": {
+			"name": "Champion: Corrupted Handler",
+			"desc": "Summoned after 3 Void Sparks created. Aura: Whenever a Void Spark is summoned, deal 200 damage to player hero."
+		},
+		"champion_duel": {
+			"name": "Champion: Void Duel",
+			"desc": "Enemy minions with Critical Strike have Spell Immune."
 		},
 		"corrupted_death": {
 			"name": "Corrupted Death",
-			"desc": "When a Void-Touched Imp dies, apply 1 Corruption to all player minions."
+			"desc": "Void-Touched Imp costs 1 less Essence."
 		},
 		"ancient_frenzy": {
 			"name": "Ancient Frenzy",
@@ -4277,6 +4911,19 @@ func _clear_slot_for(minion: MinionInstance, slots: Array[BoardSlot]) -> void:
 			slot.remove_minion()
 			return
 
+## Safety sweep: find any minion on a slot whose HP ≤ 0 and that is no longer in the
+## board array, then clear the slot.  Guards against edge-case desync between board
+## data and slot visuals (e.g. death during async animation callbacks).
+func _sweep_dead_minions() -> void:
+	for slot in player_slots:
+		if slot.minion != null:
+			if slot.minion.current_health <= 0 or not player_board.has(slot.minion):
+				slot.remove_minion()
+	for slot in enemy_slots:
+		if slot.minion != null:
+			if slot.minion.current_health <= 0 or not enemy_board.has(slot.minion):
+				slot.remove_minion()
+
 ## Flash + dissolve upward death animation.
 ## Spawns a ghost overlay in $UI so the HBoxContainer layout is never disturbed.
 ## pos must be passed explicitly — do NOT read slot.global_position here, as the slot
@@ -4318,11 +4965,11 @@ func _clear_all_highlights() -> void:
 	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_enemy_hero_spell_input):
 		_enemy_status_panel.gui_input.disconnect(_on_enemy_hero_spell_input)
 		_stop_hero_spell_pulse()
-		_show_hero_button(_enemy_hero_attackable)
 	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_relic_target_hero_input):
 		_enemy_status_panel.gui_input.disconnect(_on_relic_target_hero_input)
 		_stop_hero_spell_pulse()
-		_show_hero_button(_enemy_hero_attackable)
+	# Always stop the hero attack pulse when clearing highlights
+	_show_hero_button(false)
 	_pending_relic_target = ""
 
 func _find_slot_for(minion: MinionInstance) -> BoardSlot:
@@ -4396,7 +5043,7 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		if defender: _refresh_slot_for(defender)
 	)
 
-func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Panel) -> void:
+func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control) -> void:
 	var atk_rect   := atk_slot.get_global_rect()
 	var hero_rect  := hero_panel.get_global_rect()
 	var direction  := (hero_rect.get_center() - atk_rect.get_center()).normalized()

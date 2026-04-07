@@ -20,6 +20,7 @@ func _is_tempo() -> bool:
 
 func _get_spell_rules() -> Dictionary:
 	return {
+		"feral_surge":  {"cast_if": "has_friendly_tag", "tag": "feral_imp"},
 		"void_screech": {"cast_if": "board_full_or_no_minions_in_hand"},
 		"cyclone":      {"cast_if": "opponent_has_rune_or_env"},
 	}

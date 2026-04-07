@@ -146,6 +146,7 @@ func on_played_rune_caller(ctx: EventContext) -> void:
 func on_summon_piercing_void(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp"):
 		return
+	_scene.set("_pending_dmg_source", "imp_piercing")
 	_scene._deal_void_bolt_damage(200, ctx.minion)
 	_scene._apply_void_mark(1)
 
@@ -264,6 +265,7 @@ func on_player_minion_died_death_bolt(ctx: EventContext) -> void:
 	if not _is_void_imp(ctx.minion):
 		return
 	_log("  Death Bolt: %s death fires Void Bolt." % ctx.minion.card_data.card_name, _LOG_PLAYER)
+	_scene.set("_pending_dmg_source", "death_bolt")
 	_scene._deal_void_bolt_damage(100)
 
 # ---------------------------------------------------------------------------
@@ -888,17 +890,12 @@ func on_enemy_summon_champion_ch_spark_buff(ctx: EventContext) -> void:
 			_log("  Champion progress: %d / 3 void sparks created." % mini(count, 3), _LOG_ENEMY)
 			if count >= 3:
 				_summon_enemy_champion("champion_corrupted_handler")
-		# Champion aura: each spark summoned deals 200 damage to player hero + heals enemy hero 200
-		if _scene.get("_champion_ch_summoned"):
+		# Champion aura: each spark summoned deals 200 damage to player hero (only while champion is alive)
+		if _scene.get("_champion_ch_summoned") and self._champion_ch_is_alive():
 			_scene.combat_manager.apply_hero_damage("player", 200, Enums.DamageType.SPELL)
-			var current_hp: int = _scene.enemy_hp
-			var max_hp: int = _scene.enemy_hp_max
-			if current_hp < max_hp:
-				var heal: int = mini(200, max_hp - current_hp)
-				_scene.enemy_hp += heal
 			var prev_dmg: int = _scene.get("_champion_ch_aura_dmg") if _scene.get("_champion_ch_aura_dmg") != null else 0
 			_scene.set("_champion_ch_aura_dmg", prev_dmg + 200)
-			_log("  Corrupted Handler aura: Void Spark summoned → 200 damage to player + 200 heal to enemy!", _LOG_ENEMY)
+			_log("  Corrupted Handler aura: Void Spark summoned → 200 damage to player!", _LOG_ENEMY)
 
 func on_enemy_died_champion_ch(ctx: EventContext) -> void:
 	var minion := ctx.minion
@@ -932,14 +929,18 @@ func _summon_enemy_champion(card_id: String) -> void:
 		_refresh_champion_rip_aura()
 
 func _on_enemy_champion_killed() -> void:
-	var damage: int = int(_scene.enemy_hp_max * 0.2)
-	_scene.combat_manager.apply_hero_damage("enemy", damage, Enums.DamageType.SPELL)
-	_log("  ★ Champion slain! Enemy hero takes %d damage (20%% of max HP)!" % damage, _LOG_ENEMY)
+	_log("  ★ Champion slain!", _LOG_ENEMY)
 	_scene._on_champion_killed()
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+func _champion_ch_is_alive() -> bool:
+	for m in _scene.enemy_board:
+		if (m as MinionInstance).card_data.id == "champion_corrupted_handler":
+			return true
+	return false
 
 func _log(msg: String, side: int = _LOG_PLAYER) -> void:
 	if _scene.has_method("_log"):

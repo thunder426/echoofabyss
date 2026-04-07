@@ -251,7 +251,8 @@ func _build_encounter(index: int) -> EnemyData:
 				"ENCOUNTER I",
 				"The outer tunnels of the Imp Lair crawl with feral Void Imps freshly escaped from their cages. They are wild, disorganised — but their numbers are not to be underestimated.",
 				"res://assets/art/progression/backgrounds/a1_fight1_background.png",
-				["pack_instinct", "champion_rogue_imp_pack"], "feral_pack")
+				["pack_instinct", "champion_rogue_imp_pack"], "feral_pack",
+				"res://assets/art/enemies/portraits/rogue_imp_pack_portrait.png")
 		2:
 			return _make_encounter("Corrupted Broodlings", 2400,
 				[
@@ -265,7 +266,8 @@ func _build_encounter(index: int) -> EnemyData:
 				"ENCOUNTER II",
 				"Deeper in, the air turns thick with void energy. The broodlings here have been touched by something ancient — their eyes glow with a hunger that wasn't there before.",
 				"res://assets/art/progression/backgrounds/a1_fight2_background.png",
-				["corrupted_death", "champion_corrupted_broodlings"], "corrupted_brood")
+				["corrupted_death", "champion_corrupted_broodlings"], "corrupted_brood",
+				"res://assets/art/enemies/portraits/corrupted_broodlings_portrait.png")
 		3:
 			return _make_encounter("Imp Matriarch", 2600,
 				# Summoner boss: pure mana growth, brood_call spam + Pack Frenzy burst.
@@ -280,21 +282,24 @@ func _build_encounter(index: int) -> EnemyData:
 				"IMP MATRIARCH",
 				"At the heart of the lair, a monstrous Imp Matriarch holds court. She is the source of the corruption — ancient, cunning, and furious at the intrusion into her domain.",
 				"res://assets/art/progression/backgrounds/a1_fight3_background.png",
-				["ancient_frenzy", "champion_imp_matriarch"], "matriarch")
+				["ancient_frenzy", "champion_imp_matriarch"], "matriarch",
+				"res://assets/art/enemies/portraits/imp_matriarch_portrait.png")
 		# -- Act 2: Abyss Dungeon --
 		4:
 			return _make_encounter("Abyss Cultist Patrol", 2800,
 				[
 					"abyss_cultist", "abyss_cultist", "abyss_cultist", "abyss_cultist", "abyss_cultist",
-					"corruption_weaver", "corruption_weaver", "corruption_weaver",
+					"corruption_weaver", "corruption_weaver",
 					"spell_taxer", "spell_taxer",
-					"void_screech", "void_screech",
+					"roadside_drifter", "roadside_drifter",
+					"void_screech", "void_screech", "void_screech", "void_screech",
 					"dark_command", "dark_command",
 				],
 				"ENCOUNTER I",
 				"The Abyss Dungeon. Cultists who willingly surrendered themselves to the void patrol these stone corridors. They have given up their names, their faces — only devotion remains.",
 				"res://assets/art/progression/backgrounds/fight4_loading.png",
-				["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"], "cultist_patrol")
+				["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"], "cultist_patrol",
+				"res://assets/art/enemies/portraits/abyss_cultist_patrol_portrait.png")
 		5:
 			return _make_encounter("Void Ritualist", 3400,
 				[
@@ -307,21 +312,24 @@ func _build_encounter(index: int) -> EnemyData:
 				"ENCOUNTER II",
 				"A Void Ritualist performs an unending ceremony in the dungeon's depths. Runes of blood and shadow cover every wall. Whatever he is summoning, it must not be allowed to complete.",
 				"res://assets/art/progression/backgrounds/fight5_loading.png",
-				["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"], "void_ritualist")
+				["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"], "void_ritualist",
+				"res://assets/art/enemies/portraits/void_ritualist_portrait.png")
 		6:
 			return _make_encounter("Corrupted Handler", 4000,
 				[
-					"abyss_cultist", "abyss_cultist", "abyss_cultist",
+					"abyss_cultist",
 					"cult_fanatic", "cult_fanatic",
-					"brood_imp", "brood_imp", "brood_imp",
+					"brood_imp",
 					"void_stalker", "void_stalker",
 					"void_spawner", "void_spawner",
-					"dark_command", "dark_command",
+					"dark_command",
+					"void_screech", "void_screech",
 				],
 				"CORRUPTED HANDLER",
 				"The Handler was once a warden of this dungeon. Now something else wears his shape. His eyes are empty voids. His commands come in a language that shouldn't exist.",
 				"res://assets/art/progression/backgrounds/fight6_loading.png",
-				["feral_reinforcement", "void_unraveling", "champion_corrupted_handler"], "corrupted_handler")
+				["feral_reinforcement", "void_unraveling", "champion_corrupted_handler"], "corrupted_handler",
+				"res://assets/art/enemies/portraits/corrupted_handler_portrait.png")
 		# -- Act 3: Void Rift World --
 		7:
 			return _make_encounter("Rift Stalker", 3800,
@@ -480,7 +488,8 @@ func _build_encounter(index: int) -> EnemyData:
 
 func _make_encounter(ename: String, ehp: int, pool: Array[String],
 		etitle: String = "", estory: String = "", ebg: String = "",
-		epassives: Array[String] = [], eai_profile: String = "default") -> EnemyData:
+		epassives: Array[String] = [], eai_profile: String = "default",
+		eportrait: String = "") -> EnemyData:
 	var e := EnemyData.new()
 	e.enemy_name = ename
 	e.hp = ehp
@@ -491,5 +500,7 @@ func _make_encounter(ename: String, ehp: int, pool: Array[String],
 	e.ai_profile = eai_profile
 	if ebg != "":
 		e.background_path = ebg
+	if eportrait != "":
+		e.portrait_path = eportrait
 	return e
 

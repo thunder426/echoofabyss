@@ -144,6 +144,7 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 func do_attack_hero(attacker: MinionInstance) -> bool:
 	if not sim.player_board.has(attacker):
 		return false
+	sim._pending_dmg_source = "%s_atk" % attacker.card_data.id
 	sim.combat_manager.resolve_minion_attack_hero(attacker, "enemy")
 	return sim.winner.is_empty()
 

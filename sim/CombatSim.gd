@@ -100,9 +100,11 @@ func run(
 		player_profile_id: String = "default",
 		player_hero_passives: Array[String] = [],
 		player_relic_ids: Array[String] = [],
-		relic_bonus_charges: Dictionary = {}) -> Dictionary:
+		relic_bonus_charges: Dictionary = {},
+		dmg_log: bool = false) -> Dictionary:
 
 	var state := SimState.new()
+	state.dmg_log_enabled = dmg_log
 	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
 	state.enemy_hp_max = enemy_hp
 	state.talents = player_talents
@@ -214,6 +216,10 @@ func run(
 		"smoke_veil_damage_prevented": state._smoke_veil_damage_prevented,
 		"abyssal_plague_fires": state._abyssal_plague_fires,
 		"abyssal_plague_kills": state._abyssal_plague_kills,
+		"void_bolt_spell_casts": state._void_bolt_spell_casts,
+		"void_bolt_total_dmg": state._void_bolt_total_dmg,
+		"void_imp_dmg": state._void_imp_dmg,
+		"dmg_log": state.dmg_log,
 		"relic_activations": relic_rt.total_activations if relic_rt else 0,
 	}
 
@@ -258,6 +264,9 @@ func run_many(
 	var total_smoke_veil_dmg := 0
 	var total_plague_fires := 0
 	var total_plague_kills := 0
+	var total_void_bolt_casts := 0
+	var total_void_bolt_dmg := 0
+	var total_void_imp_dmg := 0
 
 	for _i in count:
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
@@ -286,6 +295,9 @@ func run_many(
 		total_smoke_veil_dmg += r.get("smoke_veil_damage_prevented", 0)
 		total_plague_fires += r.get("abyssal_plague_fires", 0)
 		total_plague_kills += r.get("abyssal_plague_kills", 0)
+		total_void_bolt_casts += r.get("void_bolt_spell_casts", 0)
+		total_void_bolt_dmg += r.get("void_bolt_total_dmg", 0)
+		total_void_imp_dmg += r.get("void_imp_dmg", 0)
 
 	return {
 		"count":          count,
@@ -312,6 +324,9 @@ func run_many(
 		"avg_smoke_veil_dmg": float(total_smoke_veil_dmg) / count,
 		"avg_plague_fires": float(total_plague_fires) / count,
 		"avg_plague_kills": float(total_plague_kills) / count,
+		"avg_void_bolt_casts": float(total_void_bolt_casts) / count,
+		"avg_void_bolt_dmg": float(total_void_bolt_dmg) / count,
+		"avg_void_imp_dmg": float(total_void_imp_dmg) / count,
 	}
 
 # ---------------------------------------------------------------------------

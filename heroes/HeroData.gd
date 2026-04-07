@@ -19,6 +19,9 @@ var faction: String = ""
 ## Path to the portrait image used on the hero select screen
 var portrait_path: String = ""
 
+## Path to the combat portrait shown as the player status panel background
+var combat_portrait_path: String = ""
+
 ## Path to the decorative frame PNG used on the hero select card
 var frame_path: String = ""
 

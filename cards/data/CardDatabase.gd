@@ -1052,7 +1052,7 @@ func _register_wanderer_cards() -> void:
 
 	var blood_dominion_ritual := RitualData.new()
 	blood_dominion_ritual.ritual_name    = "Demon Ascendant"
-	blood_dominion_ritual.description    = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Special Summon a 500/500 Demon."
+	blood_dominion_ritual.description    = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Special Summon a 600/600 Demon."
 	blood_dominion_ritual.required_runes = [Enums.RuneType.BLOOD_RUNE, Enums.RuneType.DOMINION_RUNE]
 	blood_dominion_ritual.effect_steps   = [{"type": "HARDCODED", "hardcoded_id": "demon_ascendant"}]
 
@@ -1389,28 +1389,32 @@ func _register_wanderer_cards() -> void:
 	champion_rogue_imp_pack.id           = "champion_rogue_imp_pack"
 	champion_rogue_imp_pack.card_name    = "Rogue Imp Pack"
 	champion_rogue_imp_pack.essence_cost = 0
-	champion_rogue_imp_pack.description  = "CHAMPION. SWIFT.\nSummoned after 4 Rabid Imp attacks.\nAura: All friendly FERAL IMP minions gain +100 ATK.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_rogue_imp_pack.description  = "CHAMPION. SWIFT.\nSummoned after 4 Rabid Imp attacks.\nAura: All friendly FERAL IMP minions gain +100 ATK."
 	champion_rogue_imp_pack.atk          = 300
 	champion_rogue_imp_pack.health       = 400
 	champion_rogue_imp_pack.minion_type  = Enums.MinionType.DEMON
 	champion_rogue_imp_pack.keywords     = [Enums.Keyword.CHAMPION, Enums.Keyword.SWIFT]
 	champion_rogue_imp_pack.is_champion  = true
 	champion_rogue_imp_pack.minion_tags  = ["feral_imp", "enemy_champion"]
-	champion_rogue_imp_pack.faction      = "abyss_order"
-	champion_rogue_imp_pack.clan         = "Feral Imp"
+	champion_rogue_imp_pack.faction              = "abyss_order"
+	champion_rogue_imp_pack.clan                 = "Feral Imp"
+	champion_rogue_imp_pack.art_path             = "res://assets/art/minions/feral_imp_clan/rogue_imp_pack.png"
+	champion_rogue_imp_pack.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/rogue_imp_pack_small.png"
 	all.append(champion_rogue_imp_pack)
 
 	var champion_corrupted_broodlings := MinionCardData.new()
 	champion_corrupted_broodlings.id           = "champion_corrupted_broodlings"
 	champion_corrupted_broodlings.card_name    = "Corrupted Broodlings"
 	champion_corrupted_broodlings.essence_cost = 0
-	champion_corrupted_broodlings.description  = "CHAMPION.\nOn death: Summon a Void-Touched Imp and deal 20% of enemy hero max HP to enemy hero."
+	champion_corrupted_broodlings.description  = "CHAMPION.\nOn death: Summon a Void-Touched Imp."
 	champion_corrupted_broodlings.atk          = 200
 	champion_corrupted_broodlings.health       = 400
 	champion_corrupted_broodlings.minion_type  = Enums.MinionType.DEMON
 	champion_corrupted_broodlings.keywords     = [Enums.Keyword.CHAMPION]
 	champion_corrupted_broodlings.is_champion  = true
 	champion_corrupted_broodlings.minion_tags  = ["feral_imp", "enemy_champion"]
+	champion_corrupted_broodlings.art_path             = "res://assets/art/minions/feral_imp_clan/champion_corrupted_broodlings.png"
+	champion_corrupted_broodlings.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/champion_corrupted_broodlings_small.png"
 	champion_corrupted_broodlings.faction      = "abyss_order"
 	champion_corrupted_broodlings.clan         = "Feral Imp"
 	all.append(champion_corrupted_broodlings)
@@ -1419,13 +1423,15 @@ func _register_wanderer_cards() -> void:
 	champion_imp_matriarch.id           = "champion_imp_matriarch"
 	champion_imp_matriarch.card_name    = "Imp Matriarch"
 	champion_imp_matriarch.essence_cost = 0
-	champion_imp_matriarch.description  = "CHAMPION. GUARD.\nAura: Pack Frenzy also grants +200 HP to all FERAL IMP minions.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_imp_matriarch.description  = "CHAMPION. GUARD.\nAura: Pack Frenzy also grants +200 HP to all FERAL IMP minions."
 	champion_imp_matriarch.atk          = 300
 	champion_imp_matriarch.health       = 500
 	champion_imp_matriarch.minion_type  = Enums.MinionType.DEMON
 	champion_imp_matriarch.keywords     = [Enums.Keyword.CHAMPION, Enums.Keyword.GUARD]
 	champion_imp_matriarch.is_champion  = true
 	champion_imp_matriarch.minion_tags  = ["feral_imp", "enemy_champion"]
+	champion_imp_matriarch.art_path             = "res://assets/art/minions/feral_imp_clan/champion_imp_matriarch.png"
+	champion_imp_matriarch.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/champion_imp_matriarch_small.png"
 	champion_imp_matriarch.faction      = "abyss_order"
 	champion_imp_matriarch.clan         = "Feral Imp"
 	all.append(champion_imp_matriarch)
@@ -1436,11 +1442,11 @@ func _register_wanderer_cards() -> void:
 	feral_surge.id             = "feral_surge"
 	feral_surge.card_name      = "Feral Surge"
 	feral_surge.cost           = 1
-	feral_surge.description    = "Give a friendly FERAL IMP minion +300 ATK this turn."
+	feral_surge.description    = "Give a friendly FERAL IMP minion +300 ATK."
 	feral_surge.requires_target = true
 	feral_surge.target_type    = "friendly_feral_imp"
 	feral_surge.effect_steps   = [
-		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "FERAL_IMP", "amount": 300, "permanent": false},
+		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "FERAL_IMP", "amount": 300, "permanent": true},
 	]
 	feral_surge.faction   = "abyss_order"
 	feral_surge.art_path  = "res://assets/art/spells/feral_imp_clan/feral_surge.png"
@@ -1510,13 +1516,15 @@ func _register_wanderer_cards() -> void:
 	champion_abyss_cultist_patrol.id           = "champion_abyss_cultist_patrol"
 	champion_abyss_cultist_patrol.card_name    = "Abyss Cultist Patrol"
 	champion_abyss_cultist_patrol.essence_cost = 0
-	champion_abyss_cultist_patrol.description  = "CHAMPION.\nSummoned after 4 corruption stacks consumed.\nAura: Corruption applied to player minions instantly detonates.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_abyss_cultist_patrol.description  = "CHAMPION.\nSummoned after 4 corruption stacks consumed.\nAura: Corruption applied to player minions instantly detonates."
 	champion_abyss_cultist_patrol.atk          = 300
 	champion_abyss_cultist_patrol.health       = 300
 	champion_abyss_cultist_patrol.minion_type  = Enums.MinionType.HUMAN
 	champion_abyss_cultist_patrol.keywords     = [Enums.Keyword.CHAMPION]
 	champion_abyss_cultist_patrol.is_champion  = true
 	champion_abyss_cultist_patrol.minion_tags  = ["enemy_champion"]
+	champion_abyss_cultist_patrol.art_path             = "res://assets/art/minions/abyss_order/champion_abyss_cultist_patrol.png"
+	champion_abyss_cultist_patrol.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_abyss_cultist_patrol_small.png"
 	champion_abyss_cultist_patrol.faction      = "abyss_order"
 	all.append(champion_abyss_cultist_patrol)
 
@@ -1524,13 +1532,15 @@ func _register_wanderer_cards() -> void:
 	champion_void_ritualist.id           = "champion_void_ritualist"
 	champion_void_ritualist.card_name    = "Void Ritualist"
 	champion_void_ritualist.essence_cost = 0
-	champion_void_ritualist.description  = "CHAMPION.\nSummoned when ritual sacrifice triggers.\nAura: Rune placement costs 1 less Mana.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_void_ritualist.description  = "CHAMPION.\nSummoned when ritual sacrifice triggers.\nAura: Rune placement costs 1 less Mana."
 	champion_void_ritualist.atk          = 200
 	champion_void_ritualist.health       = 300
 	champion_void_ritualist.minion_type  = Enums.MinionType.HUMAN
 	champion_void_ritualist.keywords     = [Enums.Keyword.CHAMPION]
 	champion_void_ritualist.is_champion  = true
 	champion_void_ritualist.minion_tags  = ["enemy_champion"]
+	champion_void_ritualist.art_path             = "res://assets/art/minions/abyss_order/champion_void_ritualist.png"
+	champion_void_ritualist.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_ritualist_small.png"
 	champion_void_ritualist.faction      = "abyss_order"
 	all.append(champion_void_ritualist)
 
@@ -1538,13 +1548,15 @@ func _register_wanderer_cards() -> void:
 	champion_corrupted_handler.id           = "champion_corrupted_handler"
 	champion_corrupted_handler.card_name    = "Corrupted Handler"
 	champion_corrupted_handler.essence_cost = 0
-	champion_corrupted_handler.description  = "CHAMPION.\nSummoned after 4 void sparks created.\nAura: Whenever a Void Spark is summoned, deal 200 damage to player hero.\nOn death: Deal 20% of enemy hero max HP to enemy hero."
+	champion_corrupted_handler.description  = "CHAMPION.\nSummoned after 3 void sparks created.\nAura: Whenever a Void Spark is summoned, deal 200 damage to player hero."
 	champion_corrupted_handler.atk          = 300
 	champion_corrupted_handler.health       = 300
 	champion_corrupted_handler.minion_type  = Enums.MinionType.HUMAN
 	champion_corrupted_handler.keywords     = [Enums.Keyword.CHAMPION]
 	champion_corrupted_handler.is_champion  = true
 	champion_corrupted_handler.minion_tags  = ["enemy_champion"]
+	champion_corrupted_handler.art_path             = "res://assets/art/minions/abyss_order/champion_corrupted_handler.png"
+	champion_corrupted_handler.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_corrupted_handler_small.png"
 	champion_corrupted_handler.faction      = "abyss_order"
 	all.append(champion_corrupted_handler)
 

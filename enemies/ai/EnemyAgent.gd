@@ -74,6 +74,10 @@ func consume_minion(minion: MinionInstance) -> void:
 # Utilities
 # ---------------------------------------------------------------------------
 
+## Duck-type essence_cost_discounts so CombatAgent.effective_minion_essence_cost() sees the discount.
+var essence_cost_discounts: Dictionary:
+	get: return _ai.essence_cost_discounts
+
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return _ai.effective_spell_cost(spell)
 

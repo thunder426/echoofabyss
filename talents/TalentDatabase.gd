@@ -176,7 +176,7 @@ func _register_lord_vael_talents() -> void:
 
 	_register(_make(
 		"deepened_curse", "lord_vael", "Deepened Curse",
-		"Void Mark bonus increases from +25 to +50 damage per stack.",
+		"Void Mark bonus increases from +25 to +40 damage per stack.",
 		"void_bolt", 1, "piercing_void"))
 
 	_register(_make(

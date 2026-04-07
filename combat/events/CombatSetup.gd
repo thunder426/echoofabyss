@@ -52,7 +52,7 @@ const _REGISTRY: Dictionary = {
 	},
 	"deepened_curse": {
 		"triggers": [],
-		"stats":    { "void_mark_damage_per_stack": 50 }
+		"stats":    { "void_mark_damage_per_stack": 40 }
 	},
 	"runic_attunement": {
 		"triggers": [],

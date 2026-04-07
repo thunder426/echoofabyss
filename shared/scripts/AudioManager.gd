@@ -46,6 +46,8 @@ func _ready() -> void:
 	get_tree().node_added.connect(_on_node_added)
 
 func _on_tree_changed() -> void:
+	if not is_inside_tree():
+		return
 	var scene: Node = get_tree().current_scene
 	if scene == null:
 		return
