@@ -11,6 +11,7 @@
 ##   --fight 6         Run only a specific fight number (overrides --act)
 ##   --runs 200        Simulations per combination (default: 200)
 ##   --preset swarm    Run only one preset (default: all)
+##   --variant 0       Run only a specific variant index (default: all)
 extends Node
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,7 @@ func _run() -> void:
 	var acts: Array = args.acts
 	var preset_filter: String = args.preset
 	var fight_filter: int = args.fight
+	var variant_filter: int = args.variant  # -1 = all
 
 	print("")
 	print("=== Echo of Abyss — Batch Balance Simulator ===")
@@ -152,29 +154,51 @@ func _run() -> void:
 					relic_combos.append(r as String)
 
 			for fight_idx in fights:
-				var enc: EnemyData = GameManager.get_encounter(fight_idx as int)
+				var enc: EnemyData = GameManager._build_encounter(fight_idx as int)
 				if enc == null:
 					continue
 
-				var enemy_deck: Array[String] = []
-				for id in enc.deck:
-					enemy_deck.append(id as String)
 				var enemy_hp: int = enc.hp
-				var enemy_profile: String = enc.ai_profile
+				var default_profile: String = enc.ai_profile
 
-				for relic in relic_combos:
-					var relic_ids: Array[String] = []
-					if not (relic as String).is_empty():
-						relic_ids.append(relic as String)
+				# Get all deck IDs in the encounter's pool
+				var pool := EncounterDecks.get_pool(fight_idx as int)
+				if pool.is_empty():
+					push_warning("No decks in pool for fight %d" % fight_idx)
+					continue
 
-					var relic_display: String = _RELIC_NAMES.get(relic, "none") if not (relic as String).is_empty() else "none"
+				# Filter to specific variant if requested
+				var variants_to_run: Array[int] = []
+				if variant_filter >= 0:
+					if variant_filter < pool.size():
+						variants_to_run.append(variant_filter)
+					else:
+						push_warning("Variant %d out of range for fight %d (pool size %d)" % [variant_filter, fight_idx, pool.size()])
+						continue
+				else:
+					for vi in pool.size():
+						variants_to_run.append(vi)
 
-					var s: Dictionary = await sim.run_many(
-						runs, deck, enemy_profile, enemy_deck,
-						3000, enemy_hp, talents, profile_id,
-						hero_passives, relic_ids)
+				for vi in variants_to_run:
+					var deck_id: String = pool[vi]
+					var enemy_deck := EncounterDecks.get_deck(deck_id)
+					# Per-deck AI profile override
+					var deck_profile := EncounterDecks.get_deck_profile(deck_id)
+					var enemy_profile: String = deck_profile if not deck_profile.is_empty() else default_profile
 
-					_print_row(preset_name, relic_display, enc.enemy_name, fight_idx as int, s)
+					for relic in relic_combos:
+						var relic_ids: Array[String] = []
+						if not (relic as String).is_empty():
+							relic_ids.append(relic as String)
+
+						var relic_display: String = _RELIC_NAMES.get(relic, "none") if not (relic as String).is_empty() else "none"
+
+						var s: Dictionary = await sim.run_many(
+							runs, deck, enemy_profile, enemy_deck,
+							3000, enemy_hp, talents, profile_id,
+							hero_passives, relic_ids)
+
+						_print_row(preset_name, relic_display, enc.enemy_name, fight_idx as int, s, deck_id)
 
 	print("")
 	print("Done.")
@@ -183,15 +207,16 @@ func _run() -> void:
 # Output
 # ---------------------------------------------------------------------------
 
-func _print_row(preset: String, relic: String, fight_name: String, fight_idx: int, s: Dictionary) -> void:
+func _print_row(preset: String, relic: String, fight_name: String, fight_idx: int, s: Dictionary, deck_id: String = "") -> void:
 	var win_pct: float = s.win_rate * 100.0
 	var loss_pct: float = float(s.losses) / s.count * 100.0
 	var avg_hp: float = s.avg_player_hp
 	var avg_turns: float = s.avg_turns
 	var champ: float = s.get("avg_champion_summons", 0.0)
 
-	var line := "%-10s | %-4s | F%d %-22s | Win %5.1f%% | Loss %5.1f%% | T %4.1f | HP %+5.0f | Champ %.2f" % [
-		preset, relic, fight_idx, fight_name, win_pct, loss_pct, avg_turns, avg_hp, champ]
+	var deck_label := " [%s]" % deck_id if not deck_id.is_empty() else ""
+	var line := "%-10s | %-4s | F%d %-22s | Win %5.1f%% | Loss %5.1f%% | T %4.1f | HP %+5.0f | Champ %.2f%s" % [
+		preset, relic, fight_idx, fight_name, win_pct, loss_pct, avg_turns, avg_hp, champ, deck_label]
 	print(line)
 
 	# Extra stats line if any non-zero
@@ -232,6 +257,7 @@ func _parse_args() -> Dictionary:
 		"runs": 200,
 		"preset": "",
 		"fight": 0,
+		"variant": -1,
 	}
 
 	var args := OS.get_cmdline_user_args()
@@ -253,6 +279,10 @@ func _parse_args() -> Dictionary:
 			"--preset":
 				if i + 1 < args.size():
 					result.preset = args[i + 1]
+					i += 1
+			"--variant":
+				if i + 1 < args.size():
+					result.variant = int(args[i + 1])
 					i += 1
 		i += 1
 

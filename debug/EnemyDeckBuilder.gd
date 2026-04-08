@@ -1,6 +1,6 @@
 ## EnemyDeckBuilder.gd
-## Debug tool for building and saving enemy decks.
-## Has access to all card pools including feral_imp_clan.
+## Debug tool for building and managing enemy encounter deck variants.
+## Each encounter has a pool of deck IDs; one is randomly picked at combat start.
 ## Navigate here from BalanceSim; Back returns to BalanceSim.
 extends Control
 
@@ -35,6 +35,9 @@ const PREVIEW_OFFSET := Vector2(16, -PREVIEW_SIZE.y / 2.0)
 const _POOL_FILTERS: Array = [
 	{"label": "All",         "pools": []},
 	{"label": "Feral Imp",   "pools": ["feral_imp_clan"]},
+	{"label": "Abyss Cult",  "pools": ["abyss_cultist_clan"]},
+	{"label": "Void Rift",   "pools": ["void_rift"]},
+	{"label": "Void Castle", "pools": ["void_castle"]},
 	{"label": "Abyss Order", "pools": ["abyss_core"]},
 	{"label": "Neutral",     "pools": ["neutral_core"]},
 	{"label": "Vael",        "pools": ["vael_piercing_void", "vael_common", "vael_endless_tide", "vael_rune_master"]},
@@ -60,22 +63,24 @@ const _C_GOLD    := Color(0.95, 0.82, 0.45)
 # UI refs
 # ---------------------------------------------------------------------------
 
-var _filter_buttons:  Array[Button] = []
-var _card_list_vbox:  VBoxContainer
-var _deck_list_vbox:  VBoxContainer
-var _deck_name_input: LineEdit
-var _count_label:     Label
-var _saved_dropdown:  OptionButton
-var _del_btn:         Button
-var _status_label:    Label
+var _filter_buttons:    Array[Button] = []
+var _card_list_vbox:    VBoxContainer
+var _deck_list_vbox:    VBoxContainer
+var _deck_name_input:   LineEdit
+var _count_label:       Label
+var _encounter_dropdown: OptionButton
+var _pool_list_vbox:    VBoxContainer
+var _status_label:      Label
+var _preview:           CardVisual    = null
 
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 
-var _current_filter: int           = 0
-var _current_deck:   Array[String] = []  # card IDs, with duplicates
-var _preview:        CardVisual    = null
+var _current_filter:   int           = 0
+var _current_deck:     Array[String] = []  # card IDs, with duplicates
+var _current_deck_id:  String        = ""  # deck ID being edited
+var _current_encounter: int          = 1   # 1-based encounter index
 
 # ---------------------------------------------------------------------------
 # Build
@@ -85,6 +90,7 @@ func _ready() -> void:
 	_build_ui()
 	_setup_preview()
 	_apply_filter(0)
+	_on_encounter_selected(0)
 
 func _process(_delta: float) -> void:
 	if _preview and _preview.visible:
@@ -123,7 +129,7 @@ func _reposition_preview() -> void:
 	_preview.position = pos
 
 # ---------------------------------------------------------------------------
-# Build
+# Build UI
 # ---------------------------------------------------------------------------
 
 func _build_ui() -> void:
@@ -193,10 +199,10 @@ func _build_card_browser(parent: Control) -> void:
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	left.add_child(scroll)
 
-	var bg := ColorRect.new()
-	bg.color = _C_PANEL
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scroll.add_child(bg)
+	var bg2 := ColorRect.new()
+	bg2.color = _C_PANEL
+	bg2.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.add_child(bg2)
 
 	_card_list_vbox = VBoxContainer.new()
 	_card_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -204,7 +210,7 @@ func _build_card_browser(parent: Control) -> void:
 	scroll.add_child(_card_list_vbox)
 
 # ---------------------------------------------------------------------------
-# Right panel — deck editor
+# Right panel — deck editor + encounter pool manager
 # ---------------------------------------------------------------------------
 
 func _build_deck_editor(parent: Control) -> void:
@@ -214,8 +220,38 @@ func _build_deck_editor(parent: Control) -> void:
 	right.add_theme_constant_override("separation", 0)
 	parent.add_child(right)
 
-	# ── Deck name ──────────────────────────────────────────────────────────
-	right.add_child(_section_header("DECK"))
+	# ── Encounter selector ─────────────────────────────────────────────────
+	right.add_child(_section_header("ENCOUNTER"))
+	var enc_body := _section_body(right)
+
+	_encounter_dropdown = OptionButton.new()
+	_encounter_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for i in _ENCOUNTER_NAMES.size():
+		_encounter_dropdown.add_item(_ENCOUNTER_NAMES[i] as String)
+	_encounter_dropdown.item_selected.connect(_on_encounter_selected)
+	enc_body.add_child(_encounter_dropdown)
+
+	# ── Encounter pool ─────────────────────────────────────────────────────
+	right.add_child(_section_header("DECK POOL  (click to edit)"))
+
+	var pool_scroll := ScrollContainer.new()
+	pool_scroll.custom_minimum_size.y = 100
+	pool_scroll.size_flags_vertical = Control.SIZE_FILL
+	pool_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(pool_scroll)
+
+	var pool_bg := ColorRect.new()
+	pool_bg.color = _C_PANEL
+	pool_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pool_scroll.add_child(pool_bg)
+
+	_pool_list_vbox = VBoxContainer.new()
+	_pool_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_pool_list_vbox.add_theme_constant_override("separation", 1)
+	pool_scroll.add_child(_pool_list_vbox)
+
+	# ── Deck name + card count ─────────────────────────────────────────────
+	right.add_child(_section_header("EDITING DECK"))
 	var name_body := _section_body(right)
 
 	var name_row := HBoxContainer.new()
@@ -223,14 +259,14 @@ func _build_deck_editor(parent: Control) -> void:
 	name_body.add_child(name_row)
 
 	_deck_name_input = LineEdit.new()
-	_deck_name_input.placeholder_text = "Deck name..."
+	_deck_name_input.placeholder_text = "Deck ID..."
 	_deck_name_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_row.add_child(_deck_name_input)
 
 	_count_label = _label("0 cards", _C_GOLD)
 	name_row.add_child(_count_label)
 
-	# ── Current deck list ──────────────────────────────────────────────────
+	# ── Current deck card list ─────────────────────────────────────────────
 	right.add_child(_section_header("CARDS  (click to remove one)"))
 
 	var deck_scroll := ScrollContainer.new()
@@ -252,52 +288,56 @@ func _build_deck_editor(parent: Control) -> void:
 	right.add_child(_section_header("ACTIONS"))
 	var action_body := _section_body(right)
 
-	var save_row := HBoxContainer.new()
-	save_row.add_theme_constant_override("separation", 8)
-	action_body.add_child(save_row)
+	var row1 := HBoxContainer.new()
+	row1.add_theme_constant_override("separation", 8)
+	action_body.add_child(row1)
 
 	var save_btn := Button.new()
 	save_btn.text = "Save Deck"
 	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_style_button(save_btn, false)
 	save_btn.pressed.connect(_on_save_pressed)
-	save_row.add_child(save_btn)
+	row1.add_child(save_btn)
+
+	var new_btn := Button.new()
+	new_btn.text = "New Deck"
+	new_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_button(new_btn, false)
+	new_btn.pressed.connect(_on_new_pressed)
+	row1.add_child(new_btn)
 
 	var clear_btn := Button.new()
 	clear_btn.text = "Clear"
 	_style_button(clear_btn, false)
 	clear_btn.pressed.connect(_on_clear_pressed)
-	save_row.add_child(clear_btn)
+	row1.add_child(clear_btn)
 
-	# ── Saved decks ────────────────────────────────────────────────────────
-	right.add_child(_section_header("ENEMY DECKS"))
-	var saved_body := _section_body(right)
+	var row2 := HBoxContainer.new()
+	row2.add_theme_constant_override("separation", 8)
+	action_body.add_child(row2)
 
-	var saved_row := HBoxContainer.new()
-	saved_row.add_theme_constant_override("separation", 8)
-	saved_body.add_child(saved_row)
+	var add_pool_btn := Button.new()
+	add_pool_btn.text = "Add to Pool"
+	add_pool_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_button(add_pool_btn, false)
+	add_pool_btn.pressed.connect(_on_add_to_pool)
+	row2.add_child(add_pool_btn)
 
-	_saved_dropdown = OptionButton.new()
-	_saved_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	saved_row.add_child(_saved_dropdown)
+	var rm_pool_btn := Button.new()
+	rm_pool_btn.text = "Remove from Pool"
+	rm_pool_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_button(rm_pool_btn, false)
+	rm_pool_btn.pressed.connect(_on_remove_from_pool)
+	row2.add_child(rm_pool_btn)
 
-	var load_btn := Button.new()
-	load_btn.text = "Load"
-	_style_button(load_btn, false)
-	load_btn.pressed.connect(_on_load_pressed)
-	saved_row.add_child(load_btn)
-
-	_del_btn = Button.new()
-	_del_btn.text = "Delete"
-	_style_button(_del_btn, false)
-	_del_btn.pressed.connect(_on_delete_pressed)
-	saved_row.add_child(_del_btn)
+	var del_btn := Button.new()
+	del_btn.text = "Delete Deck"
+	_style_button(del_btn, false)
+	del_btn.pressed.connect(_on_delete_pressed)
+	row2.add_child(del_btn)
 
 	_status_label = _label("", _C_DIM)
-	saved_body.add_child(_status_label)
-
-	_saved_dropdown.item_selected.connect(func(_i: int) -> void: _refresh_del_btn())
-	_rebuild_saved_dropdown()
+	action_body.add_child(_status_label)
 
 	# ── Back ───────────────────────────────────────────────────────────────
 	right.add_child(_section_header(""))
@@ -366,6 +406,36 @@ func _get_filtered_cards() -> Array[CardData]:
 	return result
 
 # ---------------------------------------------------------------------------
+# Encounter pool logic
+# ---------------------------------------------------------------------------
+
+func _on_encounter_selected(idx: int) -> void:
+	_current_encounter = idx + 1  # 1-based
+	_rebuild_pool_list()
+
+func _rebuild_pool_list() -> void:
+	for child in _pool_list_vbox.get_children():
+		child.queue_free()
+
+	var pool := EncounterDecks.get_pool(_current_encounter)
+	if pool.is_empty():
+		var lbl := _label("  (no decks in pool)", _C_DIM)
+		_pool_list_vbox.add_child(lbl)
+		return
+
+	for deck_id in pool:
+		var cards := EncounterDecks.get_deck(deck_id)
+		var is_selected: bool = deck_id == _current_deck_id
+		var btn := Button.new()
+		btn.text = "  %s  (%d cards)" % [deck_id, cards.size()]
+		btn.flat = false
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_style_button(btn, is_selected)
+		btn.pressed.connect(_load_deck.bind(deck_id))
+		_pool_list_vbox.add_child(btn)
+
+# ---------------------------------------------------------------------------
 # Deck editor logic
 # ---------------------------------------------------------------------------
 
@@ -396,11 +466,11 @@ func _rebuild_deck_display() -> void:
 
 	for id in seen:
 		var card: CardData = CardDatabase.get_card(id)
-		var name: String = card.card_name if card else id
+		var cname: String = card.card_name if card else id
 		var count: int = counts[id]
 
 		var btn := Button.new()
-		btn.text = "  %s  ×%d" % [name, count]
+		btn.text = "  %s  ×%d" % [cname, count]
 		btn.flat = false
 		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -414,93 +484,87 @@ func _rebuild_deck_display() -> void:
 	_count_label.text = "%d cards" % _current_deck.size()
 
 # ---------------------------------------------------------------------------
-# Save / load / delete
+# Load a specific deck into the editor
+# ---------------------------------------------------------------------------
+
+func _load_deck(deck_id: String) -> void:
+	_current_deck_id = deck_id
+	_current_deck = EncounterDecks.get_deck(deck_id)
+	_deck_name_input.text = deck_id
+	_rebuild_deck_display()
+	_rebuild_pool_list()
+	_status("Loaded  \"%s\"  (%d cards)." % [deck_id, _current_deck.size()], _C_GREEN)
+
+# ---------------------------------------------------------------------------
+# Actions
 # ---------------------------------------------------------------------------
 
 func _on_save_pressed() -> void:
-	var deck_name := _deck_name_input.text.strip_edges()
-	if deck_name.is_empty():
-		_status("Enter a deck name first.", _C_RED)
+	var deck_id := _deck_name_input.text.strip_edges()
+	if deck_id.is_empty():
+		_status("Enter a deck ID first.", _C_RED)
 		return
 	if _current_deck.is_empty():
 		_status("Deck is empty.", _C_RED)
 		return
-	EnemySavedDecks.save_deck(deck_name, _current_deck)
-	_rebuild_saved_dropdown()
-	for i in _saved_dropdown.item_count:
-		if (_saved_dropdown.get_item_metadata(i) as String) == deck_name:
-			_saved_dropdown.select(i)
-			break
-	_status("Saved  \"%s\"  (%d cards)." % [deck_name, _current_deck.size()], _C_GREEN)
+	EncounterDecks.save_deck(deck_id, _current_deck)
+	_current_deck_id = deck_id
+	_rebuild_pool_list()
+	_status("Saved  \"%s\"  (%d cards)." % [deck_id, _current_deck.size()], _C_GREEN)
+
+func _on_new_pressed() -> void:
+	_current_deck.clear()
+	_current_deck_id = ""
+	_deck_name_input.text = ""
+	_rebuild_deck_display()
+	_rebuild_pool_list()
+	_status("New deck — enter an ID and add cards.", _C_DIM)
 
 func _on_clear_pressed() -> void:
 	_current_deck.clear()
 	_rebuild_deck_display()
 	_status("", _C_DIM)
 
-func _on_load_pressed() -> void:
-	var idx := _saved_dropdown.selected
-	if idx < 0 or _saved_dropdown.item_count == 0:
+func _on_add_to_pool() -> void:
+	var deck_id := _deck_name_input.text.strip_edges()
+	if deck_id.is_empty():
+		_status("Enter a deck ID first.", _C_RED)
 		return
-	var key: String = _saved_dropdown.get_item_metadata(idx) as String
-	var all := EnemySavedDecks.load_all()
-	_current_deck.clear()
-	if all.has(key):
-		for id in (all[key] as Array):
-			_current_deck.append(id as String)
-	elif key.begins_with("encounter_"):
-		# Not customised yet — seed from hardcoded default
-		var enc_idx := int(key.trim_prefix("encounter_"))
-		for id in GameManager.get_default_encounter_deck(enc_idx):
-			_current_deck.append(id as String)
-	_deck_name_input.text = key
-	_rebuild_deck_display()
-	_status("Loaded  \"%s\"  (%d cards)." % [key, _current_deck.size()], _C_GREEN)
+	# Make sure the deck exists in the database
+	var existing := EncounterDecks.get_deck(deck_id)
+	if existing.is_empty() and _current_deck.is_empty():
+		_status("Deck \"%s\" doesn't exist. Save it first." % deck_id, _C_RED)
+		return
+	# Save current cards if editing
+	if not _current_deck.is_empty():
+		EncounterDecks.save_deck(deck_id, _current_deck)
+		_current_deck_id = deck_id
+	EncounterDecks.add_to_pool(_current_encounter, deck_id)
+	_rebuild_pool_list()
+	_status("Added  \"%s\"  to Fight %d pool." % [deck_id, _current_encounter], _C_GREEN)
+
+func _on_remove_from_pool() -> void:
+	var deck_id := _deck_name_input.text.strip_edges()
+	if deck_id.is_empty():
+		_status("Enter a deck ID first.", _C_RED)
+		return
+	EncounterDecks.remove_from_pool(_current_encounter, deck_id)
+	_rebuild_pool_list()
+	_status("Removed  \"%s\"  from Fight %d pool." % [deck_id, _current_encounter], _C_GREEN)
 
 func _on_delete_pressed() -> void:
-	var idx := _saved_dropdown.selected
-	if idx < 0 or _saved_dropdown.item_count == 0:
+	var deck_id := _deck_name_input.text.strip_edges()
+	if deck_id.is_empty():
+		_status("Enter a deck ID first.", _C_RED)
 		return
-	var key: String = _saved_dropdown.get_item_metadata(idx) as String
-	EnemySavedDecks.delete_deck(key)
-	_rebuild_saved_dropdown()
-	_status("Deleted  \"%s\"." % key, _C_DIM)
-
-func _rebuild_saved_dropdown() -> void:
-	_saved_dropdown.clear()
-	var all := EnemySavedDecks.load_all()
-
-	# Encounter decks always shown first, marked ★ when customised
-	# Keys use 1-based fight numbers to match GameManager.get_encounter()
-	for i in _ENCOUNTER_NAMES.size():
-		var fight_num := i + 1
-		var key := "encounter_%d" % fight_num
-		var display: String = _ENCOUNTER_NAMES[i]
-		if all.has(key):
-			display += "  ★"
-		_saved_dropdown.add_item(display)
-		_saved_dropdown.set_item_metadata(_saved_dropdown.item_count - 1, key)
-
-	# Custom named decks (any key not starting with "encounter_")
-	var custom_names: Array = []
-	for k in all.keys():
-		if not (k as String).begins_with("encounter_"):
-			custom_names.append(k)
-	custom_names.sort()
-	for name in custom_names:
-		_saved_dropdown.add_item(name as String)
-		_saved_dropdown.set_item_metadata(_saved_dropdown.item_count - 1, name as String)
-	_refresh_del_btn()
-
-func _refresh_del_btn() -> void:
-	if _del_btn == null or _saved_dropdown == null:
-		return
-	var idx := _saved_dropdown.selected
-	if idx < 0 or _saved_dropdown.item_count == 0:
-		_del_btn.disabled = true
-		return
-	var key: String = _saved_dropdown.get_item_metadata(idx) as String
-	_del_btn.disabled = key.begins_with("encounter_")
+	EncounterDecks.delete_deck(deck_id)
+	if _current_deck_id == deck_id:
+		_current_deck_id = ""
+		_current_deck.clear()
+		_deck_name_input.text = ""
+		_rebuild_deck_display()
+	_rebuild_pool_list()
+	_status("Deleted  \"%s\"  from all pools and database." % deck_id, _C_DIM)
 
 func _status(msg: String, color: Color) -> void:
 	_status_label.text = msg

@@ -264,12 +264,9 @@ func _rebuild_enemy_deck_dropdown() -> void:
 		return
 	_enemy_deck_dropdown.clear()
 	_enemy_deck_dropdown.add_item("Encounter Deck")
-	var saved := EnemySavedDecks.load_all()
-	var names: Array = saved.keys()
-	names.sort()
-	for name in names:
-		if not (name as String).begins_with("encounter_"):
-			_enemy_deck_dropdown.add_item(name as String)
+	var all_ids := EncounterDecks.get_all_deck_ids()
+	for deck_id in all_ids:
+		_enemy_deck_dropdown.add_item(deck_id)
 
 
 func _build_deck_section(parent: Control) -> void:
@@ -595,21 +592,15 @@ func _on_run_pressed() -> void:
 	if not relic_ids.is_empty():
 		_log.append_text("[color=#aaa]  Relic: %s[/color]\n" % relic_label)
 
-	# Enemy deck: custom saved deck if selected, otherwise use encounter deck (override or default)
+	# Enemy deck: custom deck if selected, otherwise pick random from encounter pool
 	var enemy_deck: Array[String] = []
 	var enemy_deck_sel := _enemy_deck_dropdown.selected
 	if enemy_deck_sel > 0:
-		var enemy_deck_name: String = _enemy_deck_dropdown.get_item_text(enemy_deck_sel)
-		var saved_enemy := EnemySavedDecks.load_all()
-		if enemy_deck_name in saved_enemy:
-			for id in (saved_enemy[enemy_deck_name] as Array):
-				enemy_deck.append(id as String)
+		var deck_id: String = _enemy_deck_dropdown.get_item_text(enemy_deck_sel)
+		enemy_deck = EncounterDecks.get_deck(deck_id)
 	if enemy_deck.is_empty():
 		var enc_idx: int = (fight as Dictionary).get("encounter", _fight_idx) as int
-		var enc: EnemyData = GameManager.get_encounter(enc_idx)
-		if enc != null:
-			for id in enc.deck:
-				enemy_deck.append(id as String)
+		enemy_deck = EncounterDecks.pick_random(enc_idx)
 
 	var sim   := CombatSim.new()
 	var stats: Dictionary = await sim.run_many(

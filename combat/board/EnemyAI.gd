@@ -15,8 +15,13 @@ extends Node
 const _PROFILES: Dictionary = {
 	"default":         preload("res://enemies/ai/profiles/DefaultProfile.gd"),
 	"feral_pack":      preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
+	"feral_pack_screech": preload("res://enemies/ai/profiles/FeralPackScreechProfile.gd"),
 	"matriarch":       preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
 	"corrupted_brood": preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
+	"corrupted_brood_aggro": preload("res://enemies/ai/profiles/CorruptedBroodAggroProfile.gd"),
+	"matriarch_aggro":      preload("res://enemies/ai/profiles/MatriarchAggroProfile.gd"),
+	"matriarch_sac":        preload("res://enemies/ai/profiles/MatriarchSacProfile.gd"),
+	"corrupted_brood_rune": preload("res://enemies/ai/profiles/CorruptedBroodRuneProfile.gd"),
 	"cultist_patrol":  preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
 	"void_ritualist":    preload("res://enemies/ai/profiles/VoidRitualistProfile.gd"),
 	"corrupted_handler": preload("res://enemies/ai/profiles/CorruptedHandlerProfile.gd"),

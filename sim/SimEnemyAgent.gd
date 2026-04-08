@@ -121,6 +121,14 @@ func commit_play_trap(inst: CardInstance) -> bool:
 	sim.enemy_hand.erase(inst)
 	sim.enemy_discard.append(inst)
 	sim.enemy_active_traps.append(trap)
+	# Fire ON_ENEMY_TRAP_PLACED
+	if sim.trigger_manager != null:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_TRAP_PLACED, "enemy")
+		ctx.card = trap
+		sim.trigger_manager.fire(ctx)
+	# Runes: register aura handlers with mirrored triggers
+	if trap.is_rune and sim.trigger_manager != null:
+		sim._apply_rune_aura(trap, "enemy")
 	return sim.winner.is_empty()
 
 func commit_play_environment(inst: CardInstance) -> bool:

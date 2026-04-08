@@ -3175,6 +3175,7 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 func _on_enemy_trap_placed(trap: TrapCardData) -> void:
 	if trap.is_rune:
 		_log("Enemy places rune: %s" % trap.card_name, _LogType.ENEMY)
+		_apply_rune_aura(trap, "enemy")
 	else:
 		_log("Enemy sets a trap.", _LogType.ENEMY)
 	_update_enemy_status_panel()
@@ -3345,31 +3346,33 @@ func _unregister_env_aura(env: EnvironmentCardData) -> void:
 ## _rune_aura_handlers stores Array[{event, handler}] per rune so _remove_rune_aura
 ## can unregister them without a match block.
 ## Each rune declares its trigger(s) and effect_steps in CardDatabase — no match needed here.
-func _apply_rune_aura(rune: TrapCardData) -> void:
+func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	var entries: Array = []
 
-	# Primary handler
+	# Primary handler — mirror trigger for enemy side
 	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
+		var trigger: int = rune.aura_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_trigger as Enums.TriggerEvent)
 		var h := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, "player")
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.from_rune = true
 			EffectResolver.run(rune.aura_effect_steps, ctx)
-		trigger_manager.register(rune.aura_trigger, h, 20)
-		entries.append({event = rune.aura_trigger, handler = h})
+		trigger_manager.register(trigger, h, 20)
+		entries.append({event = trigger, handler = h})
 
 	# Secondary handler (e.g. Soul Rune per-turn reset)
 	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
+		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
 		var h2 := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, "player")
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			EffectResolver.run(rune.aura_secondary_steps, ctx)
-		trigger_manager.register(rune.aura_secondary_trigger, h2, 20)
-		entries.append({event = rune.aura_secondary_trigger, handler = h2})
+		trigger_manager.register(sec_trigger, h2, 20)
+		entries.append({event = sec_trigger, handler = h2})
 
 	# On-place steps run immediately at placement (e.g. Dominion Rune existing-minion sweep)
 	if not rune.aura_on_place_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
+		var ctx := EffectContext.make(self, owner)
 		EffectResolver.run(rune.aura_on_place_steps, ctx)
 
 	if not entries.is_empty():

@@ -448,7 +448,7 @@ func _find_last_non_echo_rune() -> TrapCardData:
 func _resolve_void_devourer_sacrifice(_devourer: MinionInstance, _owner: String) -> void:
 	pass  # complex effect — not simulated
 
-func _remove_rune_aura(rune: TrapCardData) -> void:
+func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	for i in _rune_aura_handlers.size():
 		if _rune_aura_handlers[i].rune_id == rune.id:
 			for entry in _rune_aura_handlers[i].entries:
@@ -456,7 +456,7 @@ func _remove_rune_aura(rune: TrapCardData) -> void:
 			_rune_aura_handlers.remove_at(i)
 			break
 	if not rune.aura_on_remove_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
+		var ctx := EffectContext.make(self, owner)
 		EffectResolver.run(rune.aura_on_remove_steps, ctx)
 
 func _unregister_env_rituals() -> void:
@@ -490,25 +490,28 @@ func _resolve_hardcoded(hardcoded_id: String, ctx: EffectContext) -> void:
 # ---------------------------------------------------------------------------
 
 ## Register persistent aura handlers for a newly placed rune.
-func _apply_rune_aura(rune: TrapCardData) -> void:
+func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	var entries: Array = []
 	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
+		# Mirror trigger for enemy side (e.g. ON_PLAYER_MINION_SUMMONED → ON_ENEMY_MINION_SUMMONED)
+		var trigger: int = rune.aura_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_trigger as Enums.TriggerEvent)
 		var h := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, "player")
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.from_rune = true
 			EffectResolver.run(rune.aura_effect_steps, ctx)
-		trigger_manager.register(rune.aura_trigger, h, 20)
-		entries.append({event = rune.aura_trigger, handler = h})
+		trigger_manager.register(trigger, h, 20)
+		entries.append({event = trigger, handler = h})
 	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
+		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
 		var h2 := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, "player")
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			EffectResolver.run(rune.aura_secondary_steps, ctx)
-		trigger_manager.register(rune.aura_secondary_trigger, h2, 20)
-		entries.append({event = rune.aura_secondary_trigger, handler = h2})
+		trigger_manager.register(sec_trigger, h2, 20)
+		entries.append({event = sec_trigger, handler = h2})
 	if not rune.aura_on_place_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
+		var ctx := EffectContext.make(self, owner)
 		EffectResolver.run(rune.aura_on_place_steps, ctx)
 	if not entries.is_empty():
 		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
@@ -528,20 +531,32 @@ func _unregister_env_aura(env: EnvironmentCardData) -> void:
 		var ctx := EffectContext.make(self, "player")
 		EffectResolver.run(env.on_replace_effect_steps, ctx)
 
-## Fire matching non-rune traps for the given trigger event.
+## Fire matching non-rune traps for the given trigger event (both player and enemy).
 func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = null) -> void:
-	if _player_traps_blocked:
-		return
-	for trap in active_traps.duplicate():
+	# Player traps
+	if not _player_traps_blocked:
+		for trap in active_traps.duplicate():
+			if trap.is_rune:
+				continue
+			if trap.trigger != trigger:
+				continue
+			var ctx := EffectContext.make(self, "player")
+			ctx.trigger_minion = triggering_minion
+			EffectResolver.run(trap.effect_steps, ctx)
+			if not trap.reusable:
+				active_traps.erase(trap)
+	# Enemy traps (mirror trigger: player events → enemy equivalents)
+	var enemy_trigger: int = Enums.mirror_trigger(trigger as Enums.TriggerEvent)
+	for trap in enemy_active_traps.duplicate():
 		if trap.is_rune:
 			continue
-		if trap.trigger != trigger:
+		if trap.trigger != enemy_trigger:
 			continue
-		var ctx := EffectContext.make(self, "player")
+		var ctx := EffectContext.make(self, "enemy")
 		ctx.trigger_minion = triggering_minion
 		EffectResolver.run(trap.effect_steps, ctx)
 		if not trap.reusable:
-			active_traps.erase(trap)
+			enemy_active_traps.erase(trap)
 
 ## Returns true if the rune board satisfies the ritual's required rune types.
 func _runes_satisfy(runes: Array, required: Array[int]) -> bool:

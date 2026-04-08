@@ -20,8 +20,13 @@ extends RefCounted
 const _ENEMY_PROFILES: Dictionary = {
 	"default":              preload("res://enemies/ai/profiles/DefaultProfile.gd"),
 	"feral_pack":           preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
+	"feral_pack_screech":   preload("res://enemies/ai/profiles/FeralPackScreechProfile.gd"),
 	"corrupted_brood":      preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
+	"corrupted_brood_aggro": preload("res://enemies/ai/profiles/CorruptedBroodAggroProfile.gd"),
+	"corrupted_brood_rune": preload("res://enemies/ai/profiles/CorruptedBroodRuneProfile.gd"),
 	"matriarch":            preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
+	"matriarch_aggro":      preload("res://enemies/ai/profiles/MatriarchAggroProfile.gd"),
+	"matriarch_sac":        preload("res://enemies/ai/profiles/MatriarchSacProfile.gd"),
 	"cultist_patrol":       preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
 	"void_ritualist":       preload("res://enemies/ai/profiles/VoidRitualistProfile.gd"),
 	"corrupted_handler":    preload("res://enemies/ai/profiles/CorruptedHandlerProfile.gd"),
@@ -45,8 +50,13 @@ const _ENEMY_PROFILES: Dictionary = {
 ## Passive IDs active for each enemy profile — mirrors EnemyData.passives in the live game.
 const _ENEMY_PASSIVES: Dictionary = {
 	"feral_pack":           ["pack_instinct", "champion_rogue_imp_pack"],
+	"feral_pack_screech":   ["pack_instinct", "champion_rogue_imp_pack"],
 	"corrupted_brood":      ["corrupted_death", "champion_corrupted_broodlings"],
+	"corrupted_brood_aggro": ["corrupted_death", "champion_corrupted_broodlings"],
+	"corrupted_brood_rune": ["corrupted_death", "champion_corrupted_broodlings"],
 	"matriarch":            ["ancient_frenzy", "champion_imp_matriarch"],
+	"matriarch_aggro":      ["ancient_frenzy", "champion_imp_matriarch"],
+	"matriarch_sac":        ["ancient_frenzy", "champion_imp_matriarch"],
 	"default":              [],
 	"cultist_patrol":       ["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"],
 	"void_ritualist":       ["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"],

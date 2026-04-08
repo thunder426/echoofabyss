@@ -91,6 +91,26 @@ enum TriggerEvent {
 	ON_COMBAT_END,              # Combat ended (victory or defeat)
 }
 
+## Mirror a player-perspective trigger to its enemy equivalent (and vice versa).
+## Used so rune aura triggers work symmetrically for both sides.
+static func mirror_trigger(trigger: TriggerEvent) -> TriggerEvent:
+	match trigger:
+		TriggerEvent.ON_PLAYER_TURN_START:      return TriggerEvent.ON_ENEMY_TURN_START
+		TriggerEvent.ON_ENEMY_TURN_START:        return TriggerEvent.ON_PLAYER_TURN_START
+		TriggerEvent.ON_PLAYER_TURN_END:         return TriggerEvent.ON_ENEMY_TURN_END
+		TriggerEvent.ON_ENEMY_TURN_END:          return TriggerEvent.ON_PLAYER_TURN_END
+		TriggerEvent.ON_PLAYER_MINION_SUMMONED:  return TriggerEvent.ON_ENEMY_MINION_SUMMONED
+		TriggerEvent.ON_ENEMY_MINION_SUMMONED:   return TriggerEvent.ON_PLAYER_MINION_SUMMONED
+		TriggerEvent.ON_PLAYER_MINION_DIED:      return TriggerEvent.ON_ENEMY_MINION_DIED
+		TriggerEvent.ON_ENEMY_MINION_DIED:       return TriggerEvent.ON_PLAYER_MINION_DIED
+		TriggerEvent.ON_PLAYER_SPELL_CAST:       return TriggerEvent.ON_ENEMY_SPELL_CAST
+		TriggerEvent.ON_ENEMY_SPELL_CAST:        return TriggerEvent.ON_PLAYER_SPELL_CAST
+		TriggerEvent.ON_PLAYER_ATTACK:           return TriggerEvent.ON_ENEMY_ATTACK
+		TriggerEvent.ON_ENEMY_ATTACK:            return TriggerEvent.ON_PLAYER_ATTACK
+		TriggerEvent.ON_HERO_DAMAGED:            return TriggerEvent.ON_ENEMY_HERO_DAMAGED
+		TriggerEvent.ON_ENEMY_HERO_DAMAGED:      return TriggerEvent.ON_HERO_DAMAGED
+	return trigger
+
 ## Rune sub-types used as ritual components (Abyss Order signature mechanic)
 enum RuneType {
 	VOID_RUNE,      # Void / spell synergy — aura: deal 100 Void Bolt damage at turn start
