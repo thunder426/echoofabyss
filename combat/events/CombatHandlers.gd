@@ -398,7 +398,7 @@ func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
 	var feral_imps: Array[CardData] = []
 	for id in CardDatabase.get_all_card_ids():
 		var card: CardData = CardDatabase.get_card(id)
-		if _card_has_tag(card, "feral_imp"):
+		if _card_has_tag(card, "feral_imp") and not (card is MinionCardData and (card as MinionCardData).is_champion):
 			feral_imps.append(card)
 	if feral_imps.is_empty():
 		return
@@ -461,11 +461,15 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 			dominion_idx = i
 	if blood_idx == -1 or dominion_idx == -1:
 		return
-	# Remove runes — erase higher index first to preserve lower index position
+	# Remove runes — unregister auras then erase (higher index first to preserve positions)
 	var hi := maxi(blood_idx, dominion_idx)
 	var lo := mini(blood_idx, dominion_idx)
+	_scene._remove_rune_aura(enemy_traps[hi] as TrapCardData, "enemy")
+	_scene._remove_rune_aura(enemy_traps[lo] as TrapCardData, "enemy")
 	_scene.enemy_ai.active_traps.remove_at(hi)
 	_scene.enemy_ai.active_traps.remove_at(lo)
+	if _scene.has_method("_update_enemy_trap_display"):
+		_scene._update_enemy_trap_display()
 	# Consume the feral imp that triggered this
 	_scene.combat_manager.kill_minion(minion)
 	var _prev_count = _scene.get("_ritual_sacrifice_count")

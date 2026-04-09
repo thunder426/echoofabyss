@@ -51,11 +51,21 @@ const _PRESET_CONFIG: Dictionary = {
 const _ACT_FIGHTS: Dictionary = {
 	1: [1, 2, 3],
 	2: [4, 5, 6],
+	3: [7, 8, 9],
 }
 
 const _ACT_RELICS: Dictionary = {
 	1: [],  # no relics in Act 1
-	2: ["scouts_lantern", "imp_talisman", "mana_shard", "bone_shield"],
+	2: [["scouts_lantern"], ["imp_talisman"], ["mana_shard"], ["bone_shield"]],
+	# Act 3: 1 representative Act 1 relic + 1 representative Act 2 relic
+	# Swarm:       scouts_lantern + soul_anchor
+	# Voidbolt:    mana_shard    + blood_chalice
+	# DeathCircle: bone_shield   + void_lens
+	3: [
+		["scouts_lantern", "soul_anchor"],
+		["mana_shard",     "blood_chalice"],
+		["bone_shield",    "void_lens"],
+	],
 }
 
 # Short display names for presets
@@ -68,9 +78,13 @@ const _PRESET_NAMES: Dictionary = {
 # Short display names for relics
 const _RELIC_NAMES: Dictionary = {
 	"scouts_lantern": "SL",
-	"imp_talisman": "IT",
-	"mana_shard": "MS",
-	"bone_shield": "BS",
+	"imp_talisman":   "IT",
+	"mana_shard":     "MS",
+	"bone_shield":    "BS",
+	"void_lens":      "VL",
+	"soul_anchor":    "SA",
+	"dark_mirror":    "DM",
+	"blood_chalice":  "BC",
 }
 
 # ---------------------------------------------------------------------------
@@ -146,12 +160,14 @@ func _run() -> void:
 			var preset_name: String = _PRESET_NAMES.get(preset_id, preset_id)
 
 			# Determine relic combinations to run
+			# Each entry in relics is an Array[String] of relic ids (1 or 2 relics).
+			# Empty relics array → one combo with no relics.
 			var relic_combos: Array = []
 			if relics.is_empty():
-				relic_combos.append("")  # no relic
+				relic_combos.append([])
 			else:
 				for r in relics:
-					relic_combos.append(r as String)
+					relic_combos.append(r as Array)
 
 			for fight_idx in fights:
 				var enc: EnemyData = GameManager._build_encounter(fight_idx as int)
@@ -188,10 +204,12 @@ func _run() -> void:
 
 					for relic in relic_combos:
 						var relic_ids: Array[String] = []
-						if not (relic as String).is_empty():
-							relic_ids.append(relic as String)
+						relic_ids.assign(relic as Array)
 
-						var relic_display: String = _RELIC_NAMES.get(relic, "none") if not (relic as String).is_empty() else "none"
+						var parts: Array[String] = []
+						for rid in relic_ids:
+							parts.append(_RELIC_NAMES.get(rid as String, rid as String))
+						var relic_display: String = "+".join(parts) if not parts.is_empty() else "none"
 
 						var s: Dictionary = await sim.run_many(
 							runs, deck, enemy_profile, enemy_deck,

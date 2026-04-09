@@ -29,9 +29,14 @@ signal hero_healed(target: String, amount: int)
 var scene: Object = null
 
 ## Resolve a full attack between two minions (simultaneous damage).
+## The actual HP damage dealt to the defender in the last attack (before death triggers).
+var last_attack_damage: int = 0
+
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	var atk_damage := _apply_crit(attacker)
+	var pre_hp := defender.current_health
 	_deal_damage(defender, atk_damage, Enums.DamageType.PHYSICAL)
+	last_attack_damage = maxi(0, pre_hp - defender.current_health)
 	_deal_damage(attacker, defender.effective_atk(), Enums.DamageType.PHYSICAL)
 
 	if attacker.has_lifedrain() and atk_damage > 0:

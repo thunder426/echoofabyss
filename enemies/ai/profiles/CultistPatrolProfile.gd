@@ -59,6 +59,9 @@ func play_phase() -> void:
 	# Traps/environments
 	await _play_traps_pass()
 
+func _is_aggro() -> bool:
+	return true
+
 func _get_spell_rules() -> Dictionary:
 	return {
 		"void_screech": {"cast_if": "board_full_or_no_minions_in_hand"},

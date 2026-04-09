@@ -37,6 +37,7 @@ var enemy_trap_slot_panels: Array[Panel] = []
 var enemy_trap_slot_labels: Array[Label]  = []
 var _enemy_trap_slot_art_containers: Array[CenterContainer] = []
 var _enemy_trap_slot_arts: Array[TextureRect] = []
+var _enemy_trap_slot_glow_tweens: Array = []  # Tween or null per slot
 var turn_label: Label
 var deck_count_label: Label
 var game_over_panel: Panel
@@ -45,6 +46,11 @@ var restart_button: Button
 var _log_scroll: ScrollContainer = null
 var _log_container: VBoxContainer = null
 var _large_preview: CardVisual = null
+
+## Popup stagger — popups near the same position get offset vertically so they don't overlap.
+const _POPUP_STACK_THRESHOLD := 50.0  # pixels — popups within this distance stack
+const _POPUP_STACK_OFFSET := 30.0     # pixels — vertical offset per stacked popup
+var _recent_popups: Array = []        # Array[{center: Vector2, time: float}]
 
 ## True while an enemy summon card reveal is on screen — EnemyAI waits on this before its next action.
 var _enemy_summon_reveal_active: bool = false
@@ -422,6 +428,7 @@ func _find_nodes() -> void:
 			panel.move_child(art_center, 0)
 			_enemy_trap_slot_art_containers.append(art_center)
 			_enemy_trap_slot_arts.append(art)
+			_enemy_trap_slot_glow_tweens.append(null)
 	turn_label      = $UI/TurnLabel      if has_node("UI/TurnLabel")      else null
 	deck_count_label = $UI/DeckSlot/DeckCountLabel if has_node("UI/DeckSlot/DeckCountLabel") else null
 	game_over_panel   = $UI/GameOverPanel
@@ -507,6 +514,9 @@ func _connect_trap_and_env_hover() -> void:
 	for i in trap_slot_panels.size():
 		trap_slot_panels[i].mouse_entered.connect(_on_trap_slot_hover.bind(i))
 		trap_slot_panels[i].mouse_exited.connect(_hide_large_preview)
+	for i in enemy_trap_slot_panels.size():
+		enemy_trap_slot_panels[i].mouse_entered.connect(_on_enemy_trap_slot_hover.bind(i))
+		enemy_trap_slot_panels[i].mouse_exited.connect(_hide_large_preview)
 	if environment_slot:
 		environment_slot.mouse_entered.connect(func() -> void:
 			if active_environment:
@@ -516,6 +526,14 @@ func _connect_trap_and_env_hover() -> void:
 func _on_trap_slot_hover(idx: int) -> void:
 	if idx < active_traps.size():
 		_show_large_preview(active_traps[idx])
+
+func _on_enemy_trap_slot_hover(idx: int) -> void:
+	var traps: Array = enemy_ai.active_traps if enemy_ai else []
+	if idx < traps.size():
+		var trap: TrapCardData = traps[idx] as TrapCardData
+		# Only show preview for runes (face-up), not concealed traps
+		if trap.is_rune:
+			_show_large_preview(trap)
 
 # ---------------------------------------------------------------------------
 # Turn events
@@ -2694,7 +2712,7 @@ func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 # ---------------------------------------------------------------------------
 
 func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> void:
-	var damage: int = max(0, _anim_pre_hp - defender.current_health)
+	var damage: int = combat_manager.last_attack_damage
 	_anim_pre_hp = 0
 	var a := _anim_atk_slot
 	var d := _anim_def_slot
@@ -2778,8 +2796,13 @@ func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":
 		player_hp = mini(player_hp + amount, GameManager.player_hp_max)
 		_update_player_status_panel()
+		_flash_hero_heal("player", amount)
 		_log("  You heal %d HP  (HP: %d)" % [amount, player_hp], _LogType.HEAL)
-		## (Removed: Eternal Hunger passive relic — replaced by activated relic system)
+	elif target == "enemy":
+		enemy_hp = mini(enemy_hp + amount, enemy_hp_max)
+		_update_enemy_status_panel()
+		_flash_hero_heal("enemy", amount)
+		_log("  Enemy heals %d HP  (HP: %d)" % [amount, enemy_hp], _LogType.ENEMY)
 
 # ---------------------------------------------------------------------------
 # Targeted spell helpers
@@ -3233,16 +3256,15 @@ func _update_trap_display_for(owner: String) -> void:
 					var fallback_border: Color = _get_rune_glow_color(trap)
 					_apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), fallback_border)
 				panel.tooltip_text = ""
-				# Start pulse glow for player runes
-				if is_player:
-					_start_rune_glow(i, trap)
+				# Start pulse glow for runes (both player and enemy)
+				_start_rune_glow(i, trap, owner)
 			elif is_enemy:
 				_apply_slot_style(panel, Color(0.14, 0.04, 0.04, 1), Color(0.80, 0.18, 0.18, 1))
 				lbl.visible = true
 				lbl.text = "??"
 				panel.tooltip_text = ""
 				if art_container: art_container.visible = false
-				_stop_rune_glow(i)
+				_stop_rune_glow(i, owner)
 			else:
 				# Player trap (non-rune): sealed/hidden look
 				if is_player and art_container and ResourceLoader.exists(_TRAP_BATTLEFIELD_ART):
@@ -3263,37 +3285,40 @@ func _update_trap_display_for(owner: String) -> void:
 			_apply_empty_slot(panel, lbl)
 			panel.tooltip_text = ""
 			if art_container: art_container.visible = false
-			_stop_rune_glow(i)
+			_stop_rune_glow(i, owner)
 
 func _get_rune_glow_color(trap: TrapCardData) -> Color:
 	if trap.rune_glow_color.a > 0:
 		return trap.rune_glow_color
 	return _RUNE_GLOW_DEFAULT
 
-func _start_rune_glow(slot_idx: int, trap: TrapCardData) -> void:
-	if slot_idx >= _trap_slot_glow_tweens.size():
+func _start_rune_glow(slot_idx: int, trap: TrapCardData, owner: String = "player") -> void:
+	var tweens: Array = _trap_slot_glow_tweens if owner == "player" else _enemy_trap_slot_glow_tweens
+	var panels: Array = trap_slot_panels if owner == "player" else enemy_trap_slot_panels
+	if slot_idx >= tweens.size():
 		return
-	# Don't restart if already glowing
-	if _trap_slot_glow_tweens[slot_idx] != null:
+	if tweens[slot_idx] != null:
 		return
-	var panel: Panel = trap_slot_panels[slot_idx]
+	var panel: Panel = panels[slot_idx] as Panel
 	var glow_color: Color = _get_rune_glow_color(trap)
 	var bright := Color(glow_color.r * 1.4, glow_color.g * 1.4, glow_color.b * 1.4, 1.0)
 	var dim    := Color(glow_color.r * 0.7, glow_color.g * 0.7, glow_color.b * 0.7, 1.0)
 	var tween := create_tween().set_loops()
 	tween.tween_property(panel, "modulate", bright, 1.2).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(panel, "modulate", dim, 1.2).set_ease(Tween.EASE_IN_OUT)
-	_trap_slot_glow_tweens[slot_idx] = tween
+	tweens[slot_idx] = tween
 
-func _stop_rune_glow(slot_idx: int) -> void:
-	if slot_idx >= _trap_slot_glow_tweens.size():
+func _stop_rune_glow(slot_idx: int, owner: String = "player") -> void:
+	var tweens: Array = _trap_slot_glow_tweens if owner == "player" else _enemy_trap_slot_glow_tweens
+	var panels: Array = trap_slot_panels if owner == "player" else enemy_trap_slot_panels
+	if slot_idx >= tweens.size():
 		return
-	var tween = _trap_slot_glow_tweens[slot_idx]
+	var tween = tweens[slot_idx]
 	if tween != null and tween is Tween:
 		(tween as Tween).kill()
-	_trap_slot_glow_tweens[slot_idx] = null
-	if slot_idx < trap_slot_panels.size():
-		trap_slot_panels[slot_idx].modulate = Color(1, 1, 1, 1)
+	tweens[slot_idx] = null
+	if slot_idx < panels.size():
+		(panels[slot_idx] as Panel).modulate = Color(1, 1, 1, 1)
 
 ## Slow, subtle pulse for sealed traps — dim energy bleeding through.
 func _start_trap_sealed_pulse(slot_idx: int) -> void:
@@ -3381,7 +3406,7 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 ## Unregister aura handlers when a rune is removed (destroyed or consumed by ritual).
 ## Finds the FIRST placement entry matching rune.id and removes only that one,
 ## so two runes of the same type are handled independently.
-func _remove_rune_aura(rune: TrapCardData) -> void:
+func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	for i in _rune_aura_handlers.size():
 		if _rune_aura_handlers[i].rune_id == rune.id:
 			for entry in _rune_aura_handlers[i].entries:
@@ -3389,7 +3414,7 @@ func _remove_rune_aura(rune: TrapCardData) -> void:
 			_rune_aura_handlers.remove_at(i)
 			break
 	if not rune.aura_on_remove_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
+		var ctx := EffectContext.make(self, owner)
 		EffectResolver.run(rune.aura_on_remove_steps, ctx)
 
 ## Apply or remove one layer of the Dominion Rune's ATK aura on all friendly Demons.
@@ -3880,22 +3905,15 @@ func _build_hp_bar(parent: VBoxContainer, fill_color: Color) -> Dictionary:
 
 	return { "fill": fill, "drain": drain, "bg": bar_clip }
 
-## Animate HP loss: flash the bar white, hold the drain at old position, then tween it down.
+## Animate HP loss: flash only the lost portion, hold the drain at old position, then tween it down.
 func _animate_hp_drain(drain: ColorRect, bg: Control, old_ratio: float, new_ratio: float, tween_prop: String) -> void:
-	# Kill any running drain tween for this bar
+	# Kill existing drain tween (not flash — flashes are fire-and-forget)
 	var existing: Tween = get(tween_prop) as Tween
 	if existing and existing.is_valid():
 		existing.kill()
 
-	# Flash the bar background white briefly
-	var flash := ColorRect.new()
-	flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	flash.color = Color(1, 1, 1, 0.7)
-	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(flash)
-	var flash_tw := create_tween()
-	flash_tw.tween_property(flash, "color:a", 0.0, 0.25)
-	flash_tw.tween_callback(flash.queue_free)
+	# Flash only the lost portion (new_ratio → old_ratio)
+	_spawn_bar_flash(bg, new_ratio, old_ratio, Color(1, 0.3, 0.3, 0.7), 0.35)
 
 	# Drain bar: hold at old position, then tween down to new position
 	drain.anchor_right = old_ratio
@@ -3904,13 +3922,36 @@ func _animate_hp_drain(drain: ColorRect, bg: Control, old_ratio: float, new_rati
 	tw.tween_property(drain, "anchor_right", new_ratio, 0.45).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	set(tween_prop, tw)
 
+## Animate HP gain: flash only the gained portion green.
+func _animate_hp_heal(bg: Control, old_ratio: float, new_ratio: float, _tween_prop: String) -> void:
+	_spawn_bar_flash(bg, old_ratio, new_ratio, Color(0.3, 1.0, 0.4, 0.6), 0.5)
+
+## Spawn a self-cleaning flash overlay on a portion of an HP bar.
+## Multiple flashes can coexist (e.g. two blood runes healing simultaneously).
+func _spawn_bar_flash(bg: Control, left: float, right: float, color: Color, duration: float) -> void:
+	var flash := ColorRect.new()
+	flash.anchor_left   = left
+	flash.anchor_right  = right
+	flash.anchor_top    = 0.0
+	flash.anchor_bottom = 1.0
+	flash.offset_left   = 0
+	flash.offset_right  = 0
+	flash.offset_top    = 0
+	flash.offset_bottom = 0
+	flash.color = color
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.add_child(flash)
+	var tw := create_tween()
+	tw.tween_property(flash, "color:a", 0.0, duration)
+	tw.tween_callback(flash.queue_free)
+
 ## Update the HP bar gradient colors based on current HP ratio (green→red).
 func _update_hp_bar_gradient(bar_fill: TextureRect, ratio: float) -> void:
 	var base_color: Color = Color(0.85, 0.25, 0.30, 1.0).lerp(Color(0.30, 0.75, 0.35, 1.0), ratio)
 	var grad_tex: GradientTexture2D = bar_fill.texture as GradientTexture2D
 	if grad_tex and grad_tex.gradient:
-		grad_tex.gradient.set_color(0, base_color.lightened(0.35))
-		grad_tex.gradient.set_color(1, base_color.darkened(0.25))
+		grad_tex.gradient.set_color(0, base_color.lightened(0.15))
+		grad_tex.gradient.set_color(1, base_color.darkened(0.15))
 
 ## Build the two-column stats area (HP/Essence/Mana/Hand + Void Mark row).
 func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
@@ -4015,6 +4056,8 @@ func _update_enemy_status_panel() -> void:
 		_update_hp_bar_gradient(_enemy_hp_bar_fill, new_ratio)
 		if new_ratio < old_ratio - 0.001:
 			_animate_hp_drain(_enemy_hp_bar_drain, _enemy_hp_bar_bg, old_ratio, new_ratio, "_enemy_hp_bar_tween")
+		elif new_ratio > old_ratio + 0.001:
+			_animate_hp_heal(_enemy_hp_bar_bg, old_ratio, new_ratio, "_enemy_hp_bar_tween")
 	if _enemy_status_essence_label:
 		var ess_max := enemy_ai.essence_max if enemy_ai else 0
 		var ess_cur := enemy_ai.essence if enemy_ai else 0
@@ -4149,6 +4192,8 @@ func _update_player_status_panel() -> void:
 		_update_hp_bar_gradient(_player_hp_bar_fill, new_ratio)
 		if new_ratio < old_ratio - 0.001:
 			_animate_hp_drain(_player_hp_bar_drain, _player_hp_bar_bg, old_ratio, new_ratio, "_player_hp_bar_tween")
+		elif new_ratio > old_ratio + 0.001:
+			_animate_hp_heal(_player_hp_bar_bg, old_ratio, new_ratio, "_player_hp_bar_tween")
 
 ## Build two vertical pip columns (essence left, mana right) above the player status panel.
 ## Each column holds MAX_PIPS pip panels; colors are updated by _update_pip_bars().
@@ -5136,34 +5181,60 @@ func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), dm
 	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
 	if on_done.is_valid():
 		tw.tween_callback(on_done)
-	_spawn_damage_popup(panel.get_global_rect().get_center(), amount, dmg_type)
+	_spawn_popup(panel.get_global_rect().get_center(), "-%d" % amount, _dmg_color(dmg_type))
 
-func _spawn_damage_popup(screen_center: Vector2, damage: int, dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
-	var lbl := Label.new()
-	lbl.text = "-%d" % damage
-	lbl.add_theme_font_size_override("font_size", 28)
-	var font_color: Color
+func _flash_hero_heal(target: String, amount: int) -> void:
+	var panel := _player_status_panel if target == "player" else _enemy_status_panel
+	if panel == null:
+		return
+	var tw := create_tween()
+	tw.tween_property(panel, "modulate", Color(0.30, 1.6, 0.40, 1.0), 0.06)
+	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
+	_spawn_popup(panel.get_global_rect().get_center(), "+%d" % amount, Color(0.30, 0.90, 0.40, 1.0))
+
+func _dmg_color(dmg_type: Enums.DamageType) -> Color:
 	if dmg_type == Enums.DamageType.VOID_BOLT:
-		font_color = Color(0.75, 0.30, 1.0, 1.0)  # Purple for void bolt
-	else:
-		font_color = Color(1.0, 0.22, 0.22, 1.0)   # Red for normal
-	lbl.add_theme_color_override("font_color", font_color)
+		return Color(0.75, 0.30, 1.0, 1.0)
+	return Color(1.0, 0.22, 0.22, 1.0)
+
+## Spawn a popup immediately. If another popup is near the same position,
+## offset this one downward so they don't overlap.
+func _spawn_popup(center: Vector2, text: String, color: Color) -> void:
+	# Clean up expired entries
+	var now := Time.get_ticks_msec() / 1000.0
+	_recent_popups = _recent_popups.filter(func(e: Dictionary) -> bool:
+		return now - (e.time as float) < 1.0)
+	# Count how many recent popups are near this position
+	var stack_count := 0
+	for entry in _recent_popups:
+		if (entry.center as Vector2).distance_to(center) < _POPUP_STACK_THRESHOLD:
+			stack_count += 1
+	_recent_popups.append({"center": center, "time": now})
+	# Offset position downward for stacked popups
+	var offset_center := center + Vector2(0, stack_count * _POPUP_STACK_OFFSET)
+	_spawn_floating_popup(offset_center, text, color)
+
+func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color) -> void:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 28)
+	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_font_override("font", DAMAGE_FONT)
 	lbl.z_index = 200
 	$UI.add_child(lbl)
-	lbl.position = screen_center - Vector2(18, 18) + Vector2(randf_range(-20.0, 20.0), 0.0)
-
+	lbl.position = screen_center - Vector2(18, 18) + Vector2(randf_range(-12.0, 12.0), 0.0)
 	var tw := create_tween()
 	tw.set_parallel(true)
-	# Rise quickly at first, then ease to a stop over 1.6s total.
-	# Clamp the endpoint so the label never scrolls above a 16 px top margin.
 	var rise_end_y := maxf(lbl.position.y - 90.0, 16.0)
 	tw.tween_property(lbl, "position:y", rise_end_y, 1.6) \
 		.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
-	# Stay fully visible for 0.9s then fade out over 0.7s
 	tw.tween_property(lbl, "modulate:a", 1.0, 0.9)
 	tw.chain().tween_property(lbl, "modulate:a", 0.0, 0.7)
 	tw.chain().tween_callback(lbl.queue_free)
+
+## Minion damage popups.
+func _spawn_damage_popup(screen_center: Vector2, damage: int, _dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
+	_spawn_popup(screen_center, "-%d" % damage, Color(1.0, 0.22, 0.22, 1.0))
 
 # ---------------------------------------------------------------------------
 # Enemy attack visuals

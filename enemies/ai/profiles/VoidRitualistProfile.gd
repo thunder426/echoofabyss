@@ -104,6 +104,11 @@ func _play_one_human() -> bool:
 	return false
 
 ## Play one feral imp (cheapest first — cheapest is best for ritual trigger).
+## If both runes are active (ritual ready), ensure enough board slots for
+## the ritual summons: imp (1) + Demon Ascendant (1) + Champion (1, first time).
+## The imp dies during ritual, freeing 1 slot, so we need 2 free slots
+## before playing the imp (3 slots needed - 1 freed = 2).
+## If champion already summoned, only 1 extra slot needed (imp + Demon - imp death = 1).
 func _play_one_feral_imp() -> bool:
 	var candidates: Array[CardInstance] = []
 	for inst in agent.hand:
@@ -117,6 +122,14 @@ func _play_one_feral_imp() -> bool:
 		var ess_cost: int = agent.effective_minion_essence_cost(mc)
 		if ess_cost > agent.essence or mc.mana_cost > agent.mana:
 			continue
+		# Check if ritual will trigger (both runes active)
+		var slots_needed: int = 1  # just the imp itself
+		if _ritual_ready():
+			# Ritual: imp dies (frees 1), Demon Ascendant needs 1, Champion needs 1 (first time)
+			var champion_summoned: bool = agent.scene != null and agent.scene.get("_champion_vr_summoned") == true
+			slots_needed = 3 if not champion_summoned else 2  # imp + demon + champion, or imp + demon
+		if agent.empty_slot_count() < slots_needed:
+			return false
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
@@ -126,6 +139,25 @@ func _play_one_feral_imp() -> bool:
 			return false
 		return true
 	return false
+
+## Returns true if both blood_rune and dominion_rune are in enemy active traps.
+func _ritual_ready() -> bool:
+	if agent.scene == null:
+		return false
+	var traps: Variant = agent.scene.get("enemy_active_traps")
+	if traps == null:
+		traps = agent.scene.get("active_traps")
+	if traps == null or not (traps is Array):
+		return false
+	var has_blood := false
+	var has_dominion := false
+	for t in (traps as Array):
+		if t is TrapCardData:
+			if (t as TrapCardData).rune_type == Enums.RuneType.BLOOD_RUNE:
+				has_blood = true
+			elif (t as TrapCardData).rune_type == Enums.RuneType.DOMINION_RUNE:
+				has_dominion = true
+	return has_blood and has_dominion
 
 func _is_feral_imp(mc: MinionCardData) -> bool:
 	return "feral_imp" in mc.minion_tags

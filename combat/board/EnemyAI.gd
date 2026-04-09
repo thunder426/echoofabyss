@@ -23,6 +23,7 @@ const _PROFILES: Dictionary = {
 	"matriarch_sac":        preload("res://enemies/ai/profiles/MatriarchSacProfile.gd"),
 	"corrupted_brood_rune": preload("res://enemies/ai/profiles/CorruptedBroodRuneProfile.gd"),
 	"cultist_patrol":  preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
+	"cultist_patrol_tempo": preload("res://enemies/ai/profiles/CultistPatrolTempoProfile.gd"),
 	"void_ritualist":    preload("res://enemies/ai/profiles/VoidRitualistProfile.gd"),
 	"corrupted_handler": preload("res://enemies/ai/profiles/CorruptedHandlerProfile.gd"),
 	"rift_stalker":      preload("res://enemies/ai/profiles/RiftStalkerProfile.gd"),

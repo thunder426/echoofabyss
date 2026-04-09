@@ -134,6 +134,9 @@ func get_weights() -> ScoringWeights:
 ## Returns false to hold a spell this turn.
 ## Evaluates rules from _get_spell_rules(); override for logic not covered by rules.
 func can_cast_spell(spell: SpellCardData) -> bool:
+	# Block summon spells if not enough board slots (respecting reserved slots for champion)
+	if _spell_needs_board_slot(spell) and agent.empty_slot_count() <= _reserved_slots():
+		return false
 	var rules := _get_spell_rules()
 	if not rules.has(spell.id):
 		return true
@@ -167,8 +170,29 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 			return true
 		"before_attacks":
 			return false  # held during play phase; profile handles casting in attack_phase
+		"has_3_feral_imps":
+			var imp_count := 0
+			for m in agent.friendly_board:
+				if agent.scene and agent.scene._minion_has_tag(m, "feral_imp"):
+					imp_count += 1
+			return imp_count >= 3
+		"always":
+			return true
+		"never":
+			return false
 		_:
 			return true
+
+## Returns true if a spell's effect steps include a SUMMON that needs a board slot.
+func _spell_needs_board_slot(spell: SpellCardData) -> bool:
+	for step in spell.effect_steps:
+		if (step as Dictionary).get("type", "") == "SUMMON":
+			return true
+		if (step as Dictionary).get("type", "") == "HARDCODED":
+			var hid: String = (step as Dictionary).get("hardcoded_id", "")
+			if hid in ["brood_call", "void_summoning"]:
+				return true
+	return false
 
 ## Return the target for a targeted spell.
 ## Default minion priority: killable targets (our damage >= their HP) → highest ATK.
@@ -236,7 +260,26 @@ func play_phase_two_pass() -> void:
 	if not agent.is_alive(): return
 	await _play_traps_pass()
 
+## How many board slots to keep free for champion/ritual summons.
+## Override in profiles that need space for triggered summons.
+func _reserved_slots() -> int:
+	if agent.scene == null:
+		return 0
+	# Default: reserve 1 slot if champion hasn't been summoned yet
+	var champion_summoned: Variant = agent.scene.get("_champion_summon_count")
+	if champion_summoned != null and (champion_summoned as int) > 0:
+		return 0
+	# Check if this encounter even has a champion passive
+	var passives: Variant = agent.scene.get("_active_enemy_passives")
+	if passives == null:
+		return 0
+	for p in (passives as Array):
+		if (p as String).begins_with("champion_"):
+			return 1
+	return 0
+
 ## Place minions until board is full or no affordable minions remain.
+## Respects _reserved_slots() to keep room for champion/ritual summons.
 func _play_minions_pass() -> void:
 	var placed := true
 	while placed:
@@ -245,9 +288,9 @@ func _play_minions_pass() -> void:
 		for inst in agent.hand:
 			if inst.card_data is MinionCardData and inst.card_data.void_spark_cost <= 0:
 				minion_hand.append(inst)
-		# Last slot: prefer highest-value card to avoid wasting it on a cheap throwaway.
-		# Multiple slots: cheapest-first to flood the board.
-		if agent.empty_slot_count() <= 1:
+		var reserved: int = _reserved_slots()
+		# Last slot (accounting for reserved): prefer highest-value card.
+		if agent.empty_slot_count() <= 1 + reserved:
 			minion_hand.sort_custom(func(a: CardInstance, b: CardInstance) -> bool:
 				return agent.sort_by_total_cost(b, a))
 		else:
@@ -258,9 +301,11 @@ func _play_minions_pass() -> void:
 			var mana_cost: int = agent.effective_minion_mana_cost(mc)
 			if ess_cost > agent.essence or mana_cost > agent.mana:
 				continue
+			if agent.empty_slot_count() <= reserved:
+				return  # keep slots reserved
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
-				return  # board full
+				return
 			agent.essence -= ess_cost
 			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
