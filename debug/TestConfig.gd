@@ -30,6 +30,12 @@ var player_deck_cards: Array[String] = []
 ## Card IDs forming the enemy's deck. Empty = enemy passes every turn.
 var enemy_deck: Array[String] = []
 
+## Card IDs pre-placed as player traps at combat start.
+var player_traps: Array[String] = []
+
+## Card IDs pre-placed as enemy traps at combat start.
+var enemy_traps: Array[String] = []
+
 ## If true, player starts with max essence + mana every turn (cheat).
 var infinite_resources: bool = false
 
@@ -46,6 +52,8 @@ func reset() -> void:
 	hand_cards          = []
 	player_board_cards  = []
 	enemy_board_cards   = []
+	player_traps        = []
+	enemy_traps         = []
 	player_hp           = -1
 	enemy_hp            = -1
 	enemy_name          = "Training Dummy"

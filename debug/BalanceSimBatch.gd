@@ -26,6 +26,7 @@ const _PRESET_CONFIG: Dictionary = {
 			1: ["imp_evolution"],
 			2: ["imp_evolution", "swarm_discipline"],
 			3: ["imp_evolution", "swarm_discipline", "imp_warband"],
+			4: ["imp_evolution", "swarm_discipline", "imp_warband", "void_echo"],
 		},
 	},
 	"voidbolt_burst": {
@@ -35,6 +36,7 @@ const _PRESET_CONFIG: Dictionary = {
 			1: ["piercing_void"],
 			2: ["piercing_void", "deepened_curse"],
 			3: ["piercing_void", "deepened_curse", "death_bolt"],
+			4: ["piercing_void", "deepened_curse", "death_bolt", "void_manifestation"],
 		},
 	},
 	"death_circle": {
@@ -44,6 +46,7 @@ const _PRESET_CONFIG: Dictionary = {
 			1: ["rune_caller"],
 			2: ["rune_caller", "runic_attunement"],
 			3: ["rune_caller", "runic_attunement", "ritual_surge"],
+			4: ["rune_caller", "runic_attunement", "ritual_surge", "abyss_convergence"],
 		},
 	},
 }
@@ -52,6 +55,7 @@ const _ACT_FIGHTS: Dictionary = {
 	1: [1, 2, 3],
 	2: [4, 5, 6],
 	3: [7, 8, 9],
+	4: [10, 11, 12],
 }
 
 const _ACT_RELICS: Dictionary = {
@@ -66,6 +70,19 @@ const _ACT_RELICS: Dictionary = {
 		["mana_shard",     "blood_chalice"],
 		["bone_shield",    "void_lens"],
 	],
+	# Act 4: same 2 relics as Act 3 but with +1 bonus charge each
+	4: [
+		["scouts_lantern", "soul_anchor"],
+		["mana_shard",     "blood_chalice"],
+		["bone_shield",    "void_lens"],
+	],
+}
+
+# Act 4: +1 bonus charge to each relic
+const _ACT4_BONUS_CHARGES: Dictionary = {
+	"scouts_lantern": 1, "soul_anchor": 1,
+	"mana_shard": 1,     "blood_chalice": 1,
+	"bone_shield": 1,    "void_lens": 1,
 }
 
 # Short display names for presets
@@ -85,6 +102,10 @@ const _RELIC_NAMES: Dictionary = {
 	"soul_anchor":    "SA",
 	"dark_mirror":    "DM",
 	"blood_chalice":  "BC",
+	"void_hourglass": "VH",
+	"oblivion_seal":  "OS",
+	"nether_crown":   "NC",
+	"phantom_deck":   "PD",
 }
 
 # ---------------------------------------------------------------------------
@@ -156,6 +177,10 @@ func _run() -> void:
 			var talents: Array[String] = []
 			if talents_map.has(act_int):
 				talents.assign(talents_map[act_int])
+			# Capstone talent rewards: add cards to deck
+			if "abyss_convergence" in talents:
+				deck.append("echo_rune")
+				deck.append("echo_rune")
 
 			var preset_name: String = _PRESET_NAMES.get(preset_id, preset_id)
 
@@ -198,6 +223,7 @@ func _run() -> void:
 				for vi in variants_to_run:
 					var deck_id: String = pool[vi]
 					var enemy_deck := EncounterDecks.get_deck(deck_id)
+					var enemy_limited := EncounterDecks.get_deck_limited(deck_id)
 					# Per-deck AI profile override
 					var deck_profile := EncounterDecks.get_deck_profile(deck_id)
 					var enemy_profile: String = deck_profile if not deck_profile.is_empty() else default_profile
@@ -211,10 +237,12 @@ func _run() -> void:
 							parts.append(_RELIC_NAMES.get(rid as String, rid as String))
 						var relic_display: String = "+".join(parts) if not parts.is_empty() else "none"
 
+						var bonus_charges: Dictionary = _ACT4_BONUS_CHARGES if act_int >= 4 else {}
 						var s: Dictionary = await sim.run_many(
 							runs, deck, enemy_profile, enemy_deck,
 							3000, enemy_hp, talents, profile_id,
-							hero_passives, relic_ids)
+							hero_passives, relic_ids, bonus_charges,
+							enemy_limited)
 
 						_print_row(preset_name, relic_display, enc.enemy_name, fight_idx as int, s, deck_id)
 
@@ -240,6 +268,7 @@ func _print_row(preset: String, relic: String, fight_name: String, fight_idx: in
 	# Extra stats line if any non-zero
 	var det: float = s.get("avg_corruption_det", 0.0)
 	var rit: float = s.get("avg_ritual_invoke", 0.0)
+	var p_rit: float = s.get("avg_player_ritual", 0.0)
 	var sb: float = s.get("avg_spark_buff", 0.0)
 	var aura: float = s.get("avg_ch_aura_dmg", 0.0)
 	var clog: float = s.get("avg_clogged_slots", 0.0)
@@ -250,10 +279,19 @@ func _print_row(preset: String, relic: String, fight_name: String, fight_idx: in
 	var vb_c: float = s.get("avg_void_bolt_casts", 0.0)
 	var vb_d: float = s.get("avg_void_bolt_dmg", 0.0)
 	var vi_d: float = s.get("avg_void_imp_dmg", 0.0)
+	var spk_d: float = s.get("avg_spark_atk_dmg", 0.0)
+	var hsb: float = s.get("avg_sentinel_buffs", 0.0)
+	var imm: float = s.get("avg_immune_prevented", 0.0)
+	var rc_c: float = s.get("avg_collapse_casts", 0.0)
+	var rc_k: float = s.get("avg_collapse_kills", 0.0)
+	var rl_p: float = s.get("avg_rift_lord_plays", 0.0)
+	var rl_g: int = s.get("rift_lord_games", 0)
+	var rl_wr: float = s.get("rift_lord_win_rate", 0.0)
 
 	var extras: Array[String] = []
 	if det > 0: extras.append("Det:%.1f" % det)
 	if rit > 0: extras.append("Rit:%.1f" % rit)
+	if p_rit > 0: extras.append("PRit:%.1f" % p_rit)
 	if sb > 0: extras.append("SpkB:%.1f" % sb)
 	if aura > 0: extras.append("Aura:%.0f" % aura)
 	if clog > 0.1: extras.append("Clog:%.1f" % clog)
@@ -261,6 +299,13 @@ func _print_row(preset: String, relic: String, fight_name: String, fight_idx: in
 	if pl > 0: extras.append("Plg:%.1f/%.1f" % [pl, pl_k])
 	if vb_c > 0: extras.append("VB:%.1fx/%.0fdmg" % [vb_c, vb_d])
 	if vi_d > 0: extras.append("Imp:%.0f" % vi_d)
+	if spk_d > 0: extras.append("SpkDmg:%.0f" % spk_d)
+	if hsb > 0: extras.append("Snt:%.1f" % hsb)
+	if imm > 0: extras.append("Imm:%.0f" % imm)
+	if rc_c > 0: extras.append("RC:%.1fx/%.1fk" % [rc_c, rc_k])
+	var crt: float = s.get("avg_crits_consumed", 0.0)
+	if crt > 0: extras.append("Crt:%.1f" % crt)
+	if rl_p > 0: extras.append("RL:%.1fx(%d g,%.0f%%wr)" % [rl_p, rl_g, rl_wr * 100.0])
 
 	if not extras.is_empty():
 		print("             %s" % " | ".join(extras))

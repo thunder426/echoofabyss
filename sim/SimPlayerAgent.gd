@@ -86,6 +86,10 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 	var spell := inst.card_data as SpellCardData
 	sim.player_hand.erase(inst)
 	sim.player_discard.append(inst)
+	# Phase Disruptor counter: enemy counters player spell
+	if sim._player_spell_counter > 0:
+		sim._player_spell_counter -= 1
+		return sim.winner.is_empty()
 	# Fire ON_PLAYER_SPELL_CAST before resolving (matches CombatScene behavior)
 	if sim.trigger_manager:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
@@ -144,6 +148,13 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 func do_attack_hero(attacker: MinionInstance) -> bool:
 	if not sim.player_board.has(attacker):
 		return false
+	# Void Manifestation: Void Imp clan minions deal Void Bolt damage instead of physical
+	if "void_manifestation" in sim.talents and sim._minion_has_tag(attacker, "void_imp"):
+		sim._pending_dmg_source = "imp_manifestation"
+		sim._deal_void_bolt_damage(attacker.effective_atk(), attacker)
+		attacker.attack_count += 1
+		attacker.state = Enums.MinionState.EXHAUSTED
+		return sim.winner.is_empty()
 	sim._pending_dmg_source = "%s_atk" % attacker.card_data.id
 	sim.combat_manager.resolve_minion_attack_hero(attacker, "enemy")
 	return sim.winner.is_empty()

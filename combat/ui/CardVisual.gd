@@ -50,8 +50,8 @@ const _FACTION_FRAME: Dictionary = {
 ## Tooltip layout config per faction. Keyed by card_data.faction; falls back to "default".
 const _FACTION_TOOLTIP_CFG: Dictionary = {
 	"abyss_order": {
-		"anchor":              Vector2(0.85, 0.25),
-		"w_scale":             0.6,  "h_scale":    0.6,
+		"anchor":              Vector2(0.85, 0.15),
+		"w_scale":             0.7,  "h_scale":    0.8,
 		"title_font":          15,   "body_font":  11,
 		"title_rect":          [0.15, 0.18, 0.85, 0.30],
 		"body_rect":           [0.15, 0.30, 0.85, 0.96],
@@ -201,7 +201,7 @@ const _FRAME_CONFIG: Dictionary = {
 	"abyss_env": {
 		"path":    "res://assets/art/frames/abyss_order/abyss_environment.png",
 		"layout": {
-			"art":  [0.08, 0.10, 0.92, 0.72],
+			"art":  [0.08, 0.08, 0.92, 0.72],
 			"name": [0.20, 0.05, 0.97, 0.10],
 			"desc": [0.16, 0.71, 0.88, 0.90],
 			"mana": [0.03, 0.04, 0.25, 0.10],
@@ -910,6 +910,8 @@ func _keywords_string(keywords: Array, clan: String = "", data: CardData = null)
 			Enums.Keyword.RUNE:           parts.append("Rune")
 			Enums.Keyword.CORRUPTION:     parts.append("Corruption")
 			Enums.Keyword.DEATHLESS:      parts.append("Deathless")
+			Enums.Keyword.ETHEREAL:       parts.append("Ethereal")
+			Enums.Keyword.PIERCE:         parts.append("Pierce")
 			Enums.Keyword.VOID_MARK:      pass  # display-only; not shown in keyword line
 	if data is MinionCardData and (data as MinionCardData).spark_value > 0:
 		parts.append("Spirit Fuel: %d" % (data as MinionCardData).spark_value)
@@ -967,6 +969,8 @@ const _KEYWORD_TOOLTIP: Dictionary = {
 	Enums.Keyword.RUNE:           ["Rune",        "Placed face-up. Provides an ongoing aura effect until consumed by a Ritual."],
 	Enums.Keyword.CORRUPTION:     ["Corruption",  "Reduces the afflicted minion's ATK by 100 per stack."],
 	Enums.Keyword.DEATHLESS:      ["Deathless",   "Prevents the next fatal hit once. Sets HP to 50 instead of dying. Consumed after use."],
+	Enums.Keyword.ETHEREAL:       ["Ethereal",    "Takes 50% less damage from minion attacks, 50% more from spell effects."],
+	Enums.Keyword.PIERCE:         ["Pierce",      "Excess damage from killing a minion carries through to the enemy hero."],
 	Enums.Keyword.VOID_MARK:      ["Void Mark",   "A debuff stack placed on the enemy hero. Void Bolt deals bonus damage per stack."],
 	Enums.Keyword.RITUAL:         ["Ritual",      "A powerful effect triggered by consuming the required Runes on the field."],
 }
@@ -990,6 +994,8 @@ const _KEYWORD_ICON: Dictionary = {
 	Enums.Keyword.RUNE:           "res://assets/art/icons/icon_rune.png",
 	Enums.Keyword.CORRUPTION:     "res://assets/art/icons/icon_corruption.png",
 	Enums.Keyword.DEATHLESS:      "res://assets/art/icons/icon_deathless.png",
+	Enums.Keyword.ETHEREAL:       "res://assets/art/icons/icon_ethereal.png",
+	Enums.Keyword.PIERCE:         "res://assets/art/icons/icon_pierce.png",
 	Enums.Keyword.VOID_MARK:      "res://assets/art/icons/icon_voidmark.png",
 	Enums.Keyword.RITUAL:         "res://assets/art/icons/icon_ritual.png",
 }
@@ -1024,23 +1030,23 @@ func enable_tooltip() -> void:
 	# Environment cards with rituals get the Ritual keyword tooltip entry
 	if has_rituals and not Enums.Keyword.RITUAL in keywords:
 		keywords.append(Enums.Keyword.RITUAL)
-	var clan: String = ""
 	var spark_value: int = 0
 	var spark_cost: int = card_data.void_spark_cost
 	if card_data is MinionCardData:
-		clan = (card_data as MinionCardData).clan
 		spark_value = (card_data as MinionCardData).spark_value
-	if keywords.is_empty() and not has_rituals and clan.is_empty() and spark_value <= 0 and spark_cost <= 0:
+	# Filter out CHAMPION — it no longer has a tooltip entry
+	var displayable: Array = keywords.filter(func(kw: int) -> bool: return kw != Enums.Keyword.CHAMPION)
+	if displayable.is_empty() and not has_rituals and spark_value <= 0 and spark_cost <= 0:
 		_remove_tooltip()
 		return
-	_build_tooltip(keywords, has_rituals, clan, spark_value, spark_cost)
+	_build_tooltip(keywords, has_rituals, spark_value, spark_cost)
 
 func _remove_tooltip() -> void:
 	if _tooltip != null and is_instance_valid(_tooltip):
 		_tooltip.queue_free()
 	_tooltip = null
 
-func _build_tooltip(keywords: Array, has_rituals: bool, clan: String = "", spark_value: int = 0, spark_cost: int = 0) -> void:
+func _build_tooltip(keywords: Array, has_rituals: bool, spark_value: int = 0, spark_cost: int = 0) -> void:
 	_remove_tooltip()
 	clip_contents = false  # allow the tooltip to render outside the card rect
 
@@ -1094,20 +1100,18 @@ func _build_tooltip(keywords: Array, has_rituals: bool, clan: String = "", spark
 	_tooltip.add_child(body_box)
 
 	# --- Keywords + Clan + Rituals + Spirit section (single "Keywords" title) ---
-	if keywords.size() > 0 or clan != "" or has_rituals or spark_value > 0 or spark_cost > 0:
+	if keywords.size() > 0 or has_rituals or spark_value > 0 or spark_cost > 0:
 		_tooltip_title(title_box, "Keywords", t_size, bold_font, Color(1.0, 1.0, 1.0, 0.95))
 
 	for kw in keywords:
+		if kw == Enums.Keyword.CHAMPION:
+			continue
 		var info: Array = _KEYWORD_TOOLTIP.get(kw, [])
 		if info.is_empty():
 			continue
 		var icon_path: String = _KEYWORD_ICON.get(kw, "")
 		_tooltip_icon_title(body_box, info[0], t_size, bold_font, kw_color, icon_path)
 		_tooltip_body(body_box, info[1], b_size, body_box.size.x, bold_font)
-
-	if clan != "":
-		_tooltip_icon_title(body_box, "Clan: " + clan, t_size, bold_font, kw_color, "res://assets/art/icons/icon_clan.png")
-		_tooltip_body(body_box, "This minion belongs to the " + clan + " clan. Card effects that reference " + clan + "s affect it.", b_size, body_box.size.x, bold_font)
 
 	if spark_value > 0:
 		_tooltip_icon_title(body_box, "Spirit Fuel: %d" % spark_value, t_size, bold_font, kw_color, "res://assets/art/icons/icon_spirit_fuel.png")

@@ -34,16 +34,43 @@ var last_attack_damage: int = 0
 
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	var atk_damage := _apply_crit(attacker)
+
+	# ETHEREAL: defender takes 50% reduced physical damage from minion attacks
+	var ethereal_prevented := 0
+	if defender.has_ethereal():
+		ethereal_prevented = atk_damage / 2
+		atk_damage -= ethereal_prevented
+
 	var pre_hp := defender.current_health
+	var pre_shield := defender.current_shield
 	_deal_damage(defender, atk_damage, Enums.DamageType.PHYSICAL)
 	last_attack_damage = maxi(0, pre_hp - defender.current_health)
-	_deal_damage(attacker, defender.effective_atk(), Enums.DamageType.PHYSICAL)
+
+	# PIERCE: excess kill damage carries through to the enemy hero
+	if attacker.has_pierce() and defender.current_health <= 0:
+		var total_effective_hp := pre_hp + pre_shield
+		var excess := maxi(0, atk_damage - total_effective_hp)
+		if excess > 0:
+			var target_owner := "player" if defender.owner == "player" else "enemy"
+			hero_damaged.emit(target_owner, excess, Enums.DamageType.PHYSICAL)
+
+	# Rift Warden siphon: if any friendly minion has rift_warden_siphon passive,
+	# deal ETHEREAL prevented damage to the enemy hero
+	if ethereal_prevented > 0:
+		_rift_warden_siphon(defender, ethereal_prevented)
+
+	# Counter-attack: attacker takes defender's ATK
+	var counter_damage := defender.effective_atk()
+	if attacker.has_ethereal():
+		counter_damage -= counter_damage / 2
+	_deal_damage(attacker, counter_damage, Enums.DamageType.PHYSICAL)
 
 	if attacker.has_lifedrain() and atk_damage > 0:
 		hero_healed.emit(attacker.owner, atk_damage)
 
 	attacker.attack_count += 1
 	attacker.state = Enums.MinionState.EXHAUSTED
+	_check_post_crit(attacker)
 	attack_resolved.emit(attacker, defender)
 
 ## Resolve a minion attacking the enemy hero directly.
@@ -54,6 +81,7 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 		if attacker.has_lifedrain():
 			hero_healed.emit(attacker.owner, damage)
 	attacker.attack_count += 1
+	_check_post_crit(attacker)
 	attacker.state = Enums.MinionState.EXHAUSTED
 
 # ---------------------------------------------------------------------------
@@ -71,6 +99,10 @@ func apply_hero_damage(target: String, amount: int, type: Enums.DamageType) -> v
 func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if damage <= 0:
 		return
+	if minion.has_immune():
+		if scene != null and scene.get("_immune_dmg_prevented") != null:
+			scene._immune_dmg_prevented += damage
+		return
 	# Shield absorbs damage before HP
 	if minion.current_shield > 0:
 		var absorbed := mini(damage, minion.current_shield)
@@ -87,9 +119,12 @@ func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = 
 			minion_vanished.emit(minion)
 
 ## Apply spell damage to a minion. Respects SPELL_IMMUNE.
+## ETHEREAL: minion takes 50% increased spell damage.
 func apply_spell_damage(minion: MinionInstance, damage: int) -> void:
 	if minion.has_spell_immune():
 		return
+	if minion.has_ethereal():
+		damage += damage / 2
 	_deal_damage(minion, damage, Enums.DamageType.SPELL)
 
 ## Instantly kill a minion, bypassing shield and health checks.
@@ -110,9 +145,23 @@ func _apply_crit(attacker: MinionInstance) -> int:
 	if not BuffSystem.has_type(attacker, Enums.BuffType.CRITICAL_STRIKE):
 		return base_dmg
 	BuffSystem.remove_one_source(attacker, "critical_strike")
+	# Track crit consumption for passives (void_precision, champion_void_scout)
+	if scene != null:
+		var key: String = "_enemy_crits_consumed" if attacker.owner == "enemy" else "_player_crits_consumed"
+		var cur = scene.get(key)
+		if cur != null:
+			scene.set(key, (cur as int) + 1)
+		# Store attacker for post-crit processing
+		scene.set("_last_crit_attacker", attacker)
 	var multiplier: float = 2.0
-	if scene != null and scene.get("crit_multiplier") != null:
-		multiplier = scene.get("crit_multiplier")
+	if scene != null:
+		# Check per-side multiplier first, fall back to global
+		var side_key: String = "enemy_crit_multiplier" if attacker.owner == "enemy" else "player_crit_multiplier"
+		var side_mult = scene.get(side_key)
+		if side_mult != null and side_mult > 0.0:
+			multiplier = side_mult
+		elif scene.get("crit_multiplier") != null:
+			multiplier = scene.get("crit_multiplier")
 	return int(base_dmg * multiplier)
 
 ## Apply spell damage scaled by dark_channeling crit (1.5x).
@@ -125,6 +174,44 @@ func apply_crit_spell_damage(minion: MinionInstance, damage: int, multiplier: fl
 # ---------------------------------------------------------------------------
 # Board helpers
 # ---------------------------------------------------------------------------
+
+## Check if any friendly minion of the defender has rift_warden_siphon passive.
+## If so, deal the ETHEREAL-prevented damage to the enemy hero.
+func _rift_warden_siphon(defender: MinionInstance, prevented: int) -> void:
+	if scene == null:
+		return
+	var board: Array[MinionInstance]
+	if defender.owner == "player":
+		board = scene.get("player_board") as Array[MinionInstance]
+	else:
+		board = scene.get("enemy_board") as Array[MinionInstance]
+	if board == null:
+		return
+	for m: MinionInstance in board:
+		if (m.card_data as MinionCardData).passive_effect_id == "rift_warden_siphon":
+			var target_owner := "player" if defender.owner == "enemy" else "enemy"
+			hero_damaged.emit(target_owner, prevented, Enums.DamageType.SPELL)
+			return  # only one siphon per attack
+
+## Check if the last attack consumed a crit and run post-crit processing.
+func _check_post_crit(attacker: MinionInstance) -> void:
+	if scene == null:
+		return
+	if scene.get("_last_crit_attacker") != attacker:
+		return
+	scene.set("_last_crit_attacker", null)
+	if attacker.current_health > 0:
+		_post_crit(attacker)
+
+## Post-crit processing: void_precision (+200 ATK) and champion crit tracking.
+## Called after attack resolves when a crit was consumed.
+func _post_crit(attacker: MinionInstance) -> void:
+	# void_precision: grant +200 ATK permanently after crit
+	var passives = scene.get("_active_enemy_passives")
+	if passives != null and "void_precision" in passives and attacker.owner == "enemy":
+		BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 200, "void_precision", false)
+	# Champion void_scout tracking is handled via _enemy_crits_consumed counter
+	# (incremented in _apply_crit, checked by champion handler on turn events)
 
 ## Returns true if the board has any minion with Guard.
 static func board_has_taunt(board: Array[MinionInstance]) -> bool:

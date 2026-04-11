@@ -143,6 +143,11 @@ func on_played_rune_caller(ctx: EventContext) -> void:
 		return
 	_scene._draw_rune_from_deck()
 
+func on_ritual_fired_ritual_surge(_ctx: EventContext) -> void:
+	_scene._summon_token("void_imp", "player")
+	_scene._summon_token("void_imp", "player")
+	_log("  Ritual Surge: 2 Void Imps summoned!", _LOG_PLAYER)
+
 func on_summon_piercing_void(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp"):
 		return
@@ -163,10 +168,10 @@ func on_summon_imp_warband(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "senior_void_imp"):
 		return
 	for m in _scene.player_board:
-		if _is_void_imp(m):
+		if _is_void_imp(m) and m != ctx.minion:
 			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 50, "imp_warband")
 			_scene._refresh_slot_for(m)
-	_log("  Imp Warband: Senior Void Imp summoned — all Void Imps +50 ATK.", _LOG_PLAYER)
+	_log("  Imp Warband: Senior Void Imp summoned — all other Void Imps +50 ATK.", _LOG_PLAYER)
 
 func on_summon_board_synergies(ctx: EventContext) -> void:
 	var summoned := ctx.minion
@@ -304,6 +309,7 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 		else:
 			ectx.chosen_object = chosen
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
+		_scene._update_counter_warning()
 
 func on_enemy_summon_rogue_imp_elder(ctx: EventContext) -> void:
 	var summoned := ctx.minion
@@ -562,7 +568,10 @@ func _transfer_to_player_board(m: MinionInstance) -> bool:
 # ---------------------------------------------------------------------------
 
 ## Void Rift (shared Act 3): summon a 100/100 Void Spark on the enemy board at turn start.
+## Suppressed when Void Herald champion is alive (aura: no more spark generation).
 func on_enemy_turn_void_rift(_ctx: EventContext) -> void:
+	if _champion_vh_is_alive():
+		return  # Void Herald aura suppresses spark generation
 	_scene._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Void Rift: a Void Spark materialises on the enemy board.", _LOG_ENEMY)
 
@@ -582,14 +591,230 @@ func on_enemy_summon_void_empowerment(ctx: EventContext) -> void:
 	_scene._refresh_slot_for(minion)
 	_log("  Void Empowerment: Void Spark empowered to 200/200.", _LOG_ENEMY)
 
-## Void Detonation (Void Aberration): called directly by AI when sparks are consumed as card cost.
-## Deals 100 damage per spark consumed to all player minions AND the player hero.
-func apply_void_detonation(spark_count: int) -> void:
-	for i in spark_count:
-		for m: MinionInstance in _scene.player_board.duplicate():
-			_scene.combat_manager.apply_spell_damage(m, 100)
-		_scene.combat_manager.apply_hero_damage("player", 100, Enums.DamageType.SPELL)
-		_log("  Void Detonation: Void Spark consumed — 100 damage to all player minions and hero!", _LOG_ENEMY)
+## Void Detonation: fires on spark consumed.
+## Deals 100 damage (200 if Void Aberration champion alive) per spark_value consumed
+## to all opponent minions AND opponent hero.
+## Symmetric — works for both player and enemy spark consumption.
+func on_spark_consumed_void_detonation(ctx: EventContext) -> void:
+	var spark_val: int = ctx.damage if ctx.damage > 0 else 1
+	var opponent: String = _scene._opponent_of(ctx.owner)
+	var opponent_board: Array[MinionInstance] = _scene._opponent_board(ctx.owner)
+	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
+	var dmg_per_spark: int = 200 if _champion_va_is_alive() else 100
+	for i in spark_val:
+		for m: MinionInstance in opponent_board.duplicate():
+			_scene.combat_manager.apply_spell_damage(m, dmg_per_spark)
+		_scene.combat_manager.apply_hero_damage(opponent, dmg_per_spark, Enums.DamageType.SPELL)
+		_log("  Void Detonation: spark consumed — %d damage to all %s minions and hero!" % [dmg_per_spark, opponent], side)
+
+## Hollow Sentinel: at end of owner's turn, +100 ATK permanently to all friendly Void Sparks.
+## Works for both player and enemy boards (symmetric).
+func on_turn_end_hollow_sentinel(ctx: EventContext) -> void:
+	var owner: String = ctx.get("owner") if ctx.get("owner") != null else ""
+	# Determine which boards to scan based on trigger event
+	var boards: Array = []
+	if ctx.event_type == Enums.TriggerEvent.ON_ENEMY_TURN_END:
+		boards.append({"board": _scene.enemy_board, "owner": "enemy"})
+	elif ctx.event_type == Enums.TriggerEvent.ON_PLAYER_TURN_END:
+		boards.append({"board": _scene.player_board, "owner": "player"})
+	for entry in boards:
+		var board: Array[MinionInstance] = entry.board
+		var has_sentinel := false
+		for m: MinionInstance in board:
+			if (m.card_data as MinionCardData).passive_effect_id == "hollow_sentinel_spark_buff":
+				has_sentinel = true
+				break
+		if not has_sentinel:
+			continue
+		var buffed := 0
+		for m: MinionInstance in board:
+			if m.card_data.id == "void_spark":
+				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "hollow_sentinel")
+				_scene._refresh_slot_for(m)
+				buffed += 1
+		if buffed > 0:
+			if _scene.get("_hollow_sentinel_buffs") != null:
+				_scene._hollow_sentinel_buffs += 1
+			var side: int = _LOG_ENEMY if entry.owner == "enemy" else _LOG_PLAYER
+			_log("  Hollow Sentinel: %d Void Sparks gain +100 ATK." % buffed, side)
+
+## ── Champion: Rift Stalker ─────────────────────────────────────────────────
+## Summon condition: Void Sparks have dealt 1500 cumulative damage.
+## Aura: All friendly Void Sparks are immune.
+## On death: deal 20% of enemy hero max HP to enemy hero.
+
+const _RS_THRESHOLD := 1000
+const _RS_PIPS := 5  # 1000 / 5 = 200 per pip
+
+func on_enemy_attack_champion_rs(ctx: EventContext) -> void:
+	if _scene.get("_champion_rs_summoned"):
+		return
+	var minion := ctx.minion
+	if minion == null or minion.card_data.id != "void_spark":
+		return
+	var dmg: int = minion.effective_atk()
+	_scene._champion_rs_spark_dmg += dmg
+	var total: int = _scene._champion_rs_spark_dmg
+	var pips: int = mini(total / (_RS_THRESHOLD / _RS_PIPS), _RS_PIPS)
+	_scene._update_champion_progress(pips, _RS_PIPS)
+	_log("  Champion progress: %d / %d spark damage." % [mini(total, _RS_THRESHOLD), _RS_THRESHOLD], _LOG_ENEMY)
+	if total >= _RS_THRESHOLD:
+		_summon_enemy_champion("champion_rift_stalker")
+		_refresh_champion_rs_immune()
+
+func on_enemy_summon_champion_rs_immune(ctx: EventContext) -> void:
+	if not _scene.get("_champion_rs_summoned"):
+		return
+	var minion := ctx.minion
+	if minion == null or minion.card_data.id != "void_spark":
+		return
+	# Grant immune to newly summoned void sparks while champion is alive
+	if _champion_rs_is_alive():
+		BuffSystem.apply(minion, Enums.BuffType.GRANT_IMMUNE, 1, "champion_rs_immune")
+		_scene._refresh_slot_for(minion)
+
+func on_enemy_died_champion_rs(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_rift_stalker":
+		# Champion killed — remove immune from all sparks
+		for m: MinionInstance in _scene.enemy_board:
+			if m.card_data.id == "void_spark":
+				BuffSystem.remove_source(m, "champion_rs_immune")
+				_scene._refresh_slot_for(m)
+		_on_enemy_champion_killed()
+
+func _refresh_champion_rs_immune() -> void:
+	if not _champion_rs_is_alive():
+		return
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "void_spark" and not BuffSystem.has_type(m, Enums.BuffType.GRANT_IMMUNE):
+			BuffSystem.apply(m, Enums.BuffType.GRANT_IMMUNE, 1, "champion_rs_immune")
+			_scene._refresh_slot_for(m)
+
+func _champion_rs_is_alive() -> bool:
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "champion_rift_stalker":
+			return true
+	return false
+
+## ── Champion: Void Aberration ─────────────────────────────────────────────
+## Summon condition: 5 sparks consumed as costs (cumulative).
+## Aura: Void Detonation deals 200 damage instead of 100.
+## On death: deal 20% of enemy hero max HP to enemy hero.
+
+const _VA_THRESHOLD := 5
+const _VA_PIPS := 5
+
+func on_spark_consumed_champion_va(ctx: EventContext) -> void:
+	if _scene.get("_champion_va_summoned"):
+		return
+	var spark_val: int = ctx.damage if ctx.damage > 0 else 1
+	_scene._champion_va_sparks_consumed += spark_val
+	var total: int = _scene._champion_va_sparks_consumed
+	var pips: int = mini(total, _VA_PIPS)
+	_scene._update_champion_progress(pips, _VA_PIPS)
+	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
+	_log("  Champion progress: %d / %d sparks consumed." % [mini(total, _VA_THRESHOLD), _VA_THRESHOLD], side)
+	if total >= _VA_THRESHOLD:
+		_summon_enemy_champion("champion_void_aberration")
+
+func on_enemy_died_champion_va(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_aberration":
+		_on_enemy_champion_killed()
+
+func _champion_va_is_alive() -> bool:
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "champion_void_aberration":
+			return true
+	return false
+
+## ── Champion: Void Herald ─────────────────────────────────────────────────
+## Summon condition: 6 spark-cost cards played (cumulative).
+## Aura: All spark costs become 0. Void Rift stops generating sparks.
+## On death: deal 20% of enemy hero max HP to enemy hero.
+
+const _VH_THRESHOLD := 6
+const _VH_PIPS := 6
+
+func on_enemy_spark_card_champion_vh(ctx: EventContext) -> void:
+	if _scene.get("_champion_vh_summoned"):
+		return
+	# Check if the card that triggered this event had a spark cost
+	var card: CardData = ctx.card
+	if card == null or card.void_spark_cost <= 0:
+		return
+	_scene._champion_vh_spark_cards_played += 1
+	var total: int = _scene._champion_vh_spark_cards_played
+	var pips: int = mini(total, _VH_PIPS)
+	_scene._update_champion_progress(pips, _VH_PIPS)
+	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
+	_log("  Champion progress: %d / %d spark-cost cards played." % [mini(total, _VH_THRESHOLD), _VH_THRESHOLD], side)
+	if total >= _VH_THRESHOLD:
+		_summon_enemy_champion("champion_void_herald")
+
+func on_enemy_died_champion_vh(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_herald":
+		_on_enemy_champion_killed()
+
+func _champion_vh_is_alive() -> bool:
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "champion_void_herald":
+			return true
+	return false
+
+## ── Champion: Void Scout ──────────────────────────────────────────────────
+## Summon condition: 5 critical strikes consumed by enemy minions.
+## On summon: gains 1 Critical Strike.
+## Aura: enemy_crit_multiplier = 2.5 (instead of 2.0).
+## On death: deal 20% of enemy hero max HP to enemy hero.
+
+const _VS_THRESHOLD := 5
+const _VS_PIPS := 5
+
+## Track crit consumption at end of enemy turn (after all attacks resolve).
+## Uses _enemy_crits_consumed counter incremented by CombatManager._apply_crit.
+func on_enemy_turn_end_champion_vs(ctx: EventContext) -> void:
+	if _scene.get("_champion_vs_summoned"):
+		return
+	var total: int = _scene._enemy_crits_consumed if _scene.get("_enemy_crits_consumed") != null else 0
+	if total <= 0:
+		return
+	var pips: int = mini(total, _VS_PIPS)
+	_scene._update_champion_progress(pips, _VS_PIPS)
+	if total >= _VS_THRESHOLD and not _scene.get("_champion_vs_summoned"):
+		_log("  Champion progress: %d / %d crits consumed." % [_VS_THRESHOLD, _VS_THRESHOLD], _LOG_ENEMY)
+		_summon_enemy_champion("champion_void_scout")
+		# Grant 1 Critical Strike on summon
+		for m: MinionInstance in _scene.enemy_board:
+			if m.card_data.id == "champion_void_scout":
+				BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike")
+				_scene._refresh_slot_for(m)
+				break
+		# Set enemy crit multiplier to 2.5
+		_scene.set("enemy_crit_multiplier", 2.5)
+
+func on_enemy_died_champion_vs(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_scout":
+		# Revert crit multiplier
+		_scene.set("enemy_crit_multiplier", 0.0)
+		_on_enemy_champion_killed()
+
+func _champion_vs_is_alive() -> bool:
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "champion_void_scout":
+			return true
+	return false
 
 # ---------------------------------------------------------------------------
 # Act 4 — Void Castle passive handlers
@@ -924,6 +1149,14 @@ func _summon_enemy_champion(card_id: String) -> void:
 			_scene.set("_champion_vr_summoned", true)
 		"champion_corrupted_handler":
 			_scene.set("_champion_ch_summoned", true)
+		"champion_rift_stalker":
+			_scene.set("_champion_rs_summoned", true)
+		"champion_void_aberration":
+			_scene.set("_champion_va_summoned", true)
+		"champion_void_herald":
+			_scene.set("_champion_vh_summoned", true)
+		"champion_void_scout":
+			_scene.set("_champion_vs_summoned", true)
 	var count: int = _scene.get("_champion_summon_count")
 	_scene.set("_champion_summon_count", count + 1)
 	_scene._summon_token(card_id, "enemy")

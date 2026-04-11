@@ -12,6 +12,8 @@ var _hand_input:          LineEdit
 var _player_deck_input:   LineEdit
 var _player_board_input:  LineEdit
 var _enemy_board_input:   LineEdit
+var _player_traps_input:  LineEdit
+var _enemy_traps_input:   LineEdit
 var _enemy_deck_input:    LineEdit
 var _enemy_name_input:    LineEdit
 var _player_hp_input:    SpinBox
@@ -67,6 +69,8 @@ func _build_ui() -> void:
 								   "shadow_hound")
 	_enemy_board_input  = _add_row(vbox, "Enemy Board (card IDs, pre-summoned):",
 								   "abyssal_brute")
+	_player_traps_input = _add_row(vbox, "Player Traps (trap IDs, pre-placed):", "")
+	_enemy_traps_input  = _add_row(vbox, "Enemy Traps (trap IDs, pre-placed):", "")
 	_enemy_deck_input   = _add_row(vbox, "Enemy Deck (card IDs, leave blank for passive enemy):", "")
 	_enemy_name_input   = _add_row(vbox, "Enemy Name:", "Training Dummy")
 
@@ -84,20 +88,23 @@ func _build_ui() -> void:
 
 	vbox.add_child(_sep())
 
-	# Quick-fill presets
+	# Quick-fill presets (dropdown)
 	var preset_label := Label.new()
 	preset_label.text = "Quick Presets:"
 	preset_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 	vbox.add_child(preset_label)
 
-	var presets := HBoxContainer.new()
-	presets.add_theme_constant_override("separation", 8)
-	vbox.add_child(presets)
-
-	_preset_btn(presets, "Empty Board",   _preset_empty)
-	_preset_btn(presets, "Full Hand",     _preset_full_hand)
-	_preset_btn(presets, "Board Fight",   _preset_board_fight)
-	_preset_btn(presets, "Spirit Fuel",   _preset_spirit_fuel)
+	var preset_dropdown := OptionButton.new()
+	preset_dropdown.add_theme_font_size_override("font_size", 14)
+	preset_dropdown.custom_minimum_size = Vector2(0, 36)
+	preset_dropdown.add_item("Empty Board",   0)
+	preset_dropdown.add_item("Full Hand",     1)
+	preset_dropdown.add_item("Board Fight",   2)
+	preset_dropdown.add_item("Spirit Fuel",   3)
+	preset_dropdown.add_item("Act 3 Spirits", 4)
+	preset_dropdown.add_item("Act 3 Spells",  5)
+	preset_dropdown.item_selected.connect(_on_preset_selected)
+	vbox.add_child(preset_dropdown)
 
 	vbox.add_child(_sep())
 
@@ -132,6 +139,15 @@ func _build_ui() -> void:
 # Event handlers
 # ---------------------------------------------------------------------------
 
+func _on_preset_selected(index: int) -> void:
+	match index:
+		0: _preset_empty()
+		1: _preset_full_hand()
+		2: _preset_board_fight()
+		3: _preset_spirit_fuel()
+		4: _preset_act3_spirits()
+		5: _preset_act3_spells()
+
 func _on_launch_pressed() -> void:
 	_status_label.text = ""
 
@@ -140,6 +156,8 @@ func _on_launch_pressed() -> void:
 	TestConfig.player_deck_cards  = _parse_ids(_player_deck_input.text)
 	TestConfig.player_board_cards = _parse_ids(_player_board_input.text)
 	TestConfig.enemy_board_cards  = _parse_ids(_enemy_board_input.text)
+	TestConfig.player_traps       = _parse_ids(_player_traps_input.text)
+	TestConfig.enemy_traps        = _parse_ids(_enemy_traps_input.text)
 	TestConfig.enemy_deck         = _parse_ids(_enemy_deck_input.text)
 	TestConfig.enemy_name         = _enemy_name_input.text.strip_edges()
 	TestConfig.player_hp          = int(_player_hp_input.value)
@@ -147,7 +165,7 @@ func _on_launch_pressed() -> void:
 	TestConfig.infinite_resources = _inf_res_check.button_pressed
 
 	# Validate card IDs
-	var all_ids := TestConfig.hand_cards + TestConfig.player_deck_cards + TestConfig.player_board_cards + TestConfig.enemy_board_cards + TestConfig.enemy_deck
+	var all_ids := TestConfig.hand_cards + TestConfig.player_deck_cards + TestConfig.player_board_cards + TestConfig.enemy_board_cards + TestConfig.player_traps + TestConfig.enemy_traps + TestConfig.enemy_deck
 	var bad: Array[String] = []
 	for id in all_ids:
 		if id != "" and CardDatabase.get_card(id) == null:
@@ -167,6 +185,8 @@ func _preset_empty() -> void:
 	_player_deck_input.text   = ""
 	_player_board_input.text  = ""
 	_enemy_board_input.text   = ""
+	_player_traps_input.text  = ""
+	_enemy_traps_input.text   = ""
 	_enemy_name_input.text    = "Training Dummy"
 	_player_hp_input.value    = 3000
 	_enemy_hp_input.value     = 500
@@ -176,6 +196,8 @@ func _preset_full_hand() -> void:
 	_player_deck_input.text   = ""
 	_player_board_input.text  = ""
 	_enemy_board_input.text   = "shadow_hound, abyssal_brute"
+	_player_traps_input.text  = ""
+	_enemy_traps_input.text   = ""
 	_enemy_name_input.text    = "Training Dummy"
 	_player_hp_input.value    = 3000
 	_enemy_hp_input.value     = 2000
@@ -185,15 +207,45 @@ func _preset_board_fight() -> void:
 	_player_deck_input.text   = ""
 	_player_board_input.text  = "void_imp, shadow_hound, abyssal_brute"
 	_enemy_board_input.text   = "abyssal_brute, void_stalker"
+	_player_traps_input.text  = ""
+	_enemy_traps_input.text   = ""
 	_enemy_name_input.text    = "Sparring Partner"
 	_player_hp_input.value    = 3000
 	_enemy_hp_input.value     = 3000
+
+func _preset_act3_spells() -> void:
+	_hand_input.text          = "void_shatter, spirit_surge, void_wind, void_pulse, rift_collapse, dimensional_breach"
+	_player_deck_input.text   = "phase_stalker, void_behemoth, void_rift_lord, rift_warden, phase_stalker, void_behemoth"
+	_player_board_input.text  = ""
+	_enemy_board_input.text   = "void_echo, rift_tender, hollow_sentinel, void_resonance"
+	_player_traps_input.text  = ""
+	_enemy_traps_input.text   = "hidden_ambush, smoke_veil"
+	_enemy_deck_input.text    = "phase_disruptor, void_shatter, spirit_surge, void_wind, void_echo, rift_tender, hollow_sentinel, riftscarred_colossus"
+	_enemy_name_input.text    = "Void Rift Spell Test"
+	_player_hp_input.value    = 3000
+	_enemy_hp_input.value     = 5000
+	_inf_res_check.button_pressed = true
+
+func _preset_act3_spirits() -> void:
+	_hand_input.text          = "void_resonance, void_echo, hollow_sentinel, phase_disruptor, rift_warden, ethereal_titan, riftscarred_colossus, void_architect, rift_tender"
+	_player_deck_input.text   = "void_echo, void_resonance, hollow_sentinel, phase_disruptor, rift_tender, riftscarred_colossus, ethereal_titan"
+	_player_board_input.text  = ""
+	_enemy_board_input.text   = "void_echo, hollow_sentinel, rift_tender"
+	_player_traps_input.text  = ""
+	_enemy_traps_input.text   = ""
+	_enemy_deck_input.text    = "void_resonance, void_resonance, void_echo, void_echo, hollow_sentinel, phase_disruptor, rift_tender, rift_tender, riftscarred_colossus, void_architect, rift_warden, ethereal_titan"
+	_enemy_name_input.text    = "Void Rift Spirit Test"
+	_player_hp_input.value    = 3000
+	_enemy_hp_input.value     = 5000
+	_inf_res_check.button_pressed = true
 
 func _preset_spirit_fuel() -> void:
 	_hand_input.text          = "void_wisp, void_shade, void_wraith, void_revenant, bastion_colossus, sovereigns_decree, thrones_command, sovereigns_edict, sovereigns_herald"
 	_player_deck_input.text   = "phase_stalker, void_pulse, rift_collapse, void_behemoth"
 	_player_board_input.text  = ""
 	_enemy_board_input.text   = "void_wisp, void_shade, void_wraith"
+	_player_traps_input.text  = ""
+	_enemy_traps_input.text   = ""
 	_enemy_deck_input.text    = "bastion_colossus, sovereigns_decree, thrones_command, phase_stalker, void_pulse"
 	_enemy_name_input.text    = "Spirit Test"
 	_player_hp_input.value    = 3000
@@ -233,12 +285,6 @@ func _add_spinbox(parent: VBoxContainer, label_text: String, default_val: float,
 	spin.custom_minimum_size = Vector2(120, 0)
 	hbox.add_child(spin)
 	return spin
-
-func _preset_btn(parent: HBoxContainer, label: String, callback: Callable) -> void:
-	var btn := Button.new()
-	btn.text = label
-	btn.pressed.connect(callback)
-	parent.add_child(btn)
 
 func _sep() -> HSeparator:
 	var s := HSeparator.new()

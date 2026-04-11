@@ -108,6 +108,10 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 	var spell := inst.card_data as SpellCardData
 	sim.enemy_hand.erase(inst)
 	sim.enemy_discard.append(inst)
+	# Phase Disruptor counter: player counters enemy spell
+	if sim._enemy_spell_counter > 0:
+		sim._enemy_spell_counter -= 1
+		return sim.winner.is_empty()
 	# Fire ON_ENEMY_SPELL_CAST before resolving (matches CombatScene behavior)
 	if sim.trigger_manager:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
@@ -169,7 +173,20 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 	return sim.winner.is_empty()
 
 func consume_minion(minion: MinionInstance) -> void:
+	var spark_val: int = (minion.card_data as MinionCardData).spark_value
 	sim.enemy_board.erase(minion)
+	for slot in sim.enemy_slots:
+		if slot.minion == minion:
+			slot.minion = null
+			break
+	# Fire spark consumed event for passives (void_detonation etc.)
+	if spark_val > 0 and sim.trigger_manager:
+		var event := Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED if minion.owner == "enemy" \
+			else Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED
+		var ctx := EventContext.make(event, minion.owner)
+		ctx.minion = minion
+		ctx.damage = spark_val
+		sim.trigger_manager.fire(ctx)
 
 # ---------------------------------------------------------------------------
 # Utilities

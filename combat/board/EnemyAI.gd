@@ -137,6 +137,8 @@ var active_environment: EnvironmentCardData = null
 # ---------------------------------------------------------------------------
 
 var _deck: Array[CardInstance] = []
+## Card IDs flagged as limited — drawn once per copy, not re-added to deck.
+var _limited_cards: Array[String] = []
 ## Public read access to the enemy deck (for symmetric card effects like rune_seeker).
 var deck: Array[CardInstance]:
 	get: return _deck
@@ -259,8 +261,10 @@ func _draw_cards(count: int) -> void:
 		var inst: CardInstance = _deck.pop_front()
 		hand.append(inst)
 		# Add a fresh replacement so the deck never truly empties
-		_deck.append(CardInstance.create(inst.card_data))
-		_deck.shuffle()
+		# Limited cards are NOT re-added (one-time draw per copy)
+		if inst.card_data.id not in _limited_cards:
+			_deck.append(CardInstance.create(inst.card_data))
+			_deck.shuffle()
 
 # ---------------------------------------------------------------------------
 # Public helpers — utilities for profiles
@@ -269,12 +273,21 @@ func _draw_cards(count: int) -> void:
 ## Remove an enemy minion from the board silently (no death triggers, no animation).
 ## Used for Void Spirit consumption to pay spark costs.
 func consume_minion(minion: MinionInstance) -> void:
+	var spark_val: int = (minion.card_data as MinionCardData).spark_value
 	enemy_board.erase(minion)
 	for slot in enemy_slots:
 		if slot.minion == minion:
 			slot.remove_minion()
 			break
 	scene._log("  %s consumed as spark fuel." % minion.card_data.card_name, 1)
+	# Fire spark consumed event for passives (void_detonation etc.)
+	if spark_val > 0 and scene.trigger_manager:
+		var event := Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED if minion.owner == "enemy" \
+			else Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED
+		var ctx := EventContext.make(event, minion.owner)
+		ctx.minion = minion
+		ctx.damage = spark_val
+		scene.trigger_manager.fire(ctx)
 
 ## Returns the first empty enemy board slot, or null if board is full.
 ## Skips slots that are claimed by an in-progress summon reveal.

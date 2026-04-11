@@ -354,7 +354,6 @@ func _show_occupied_state() -> void:
 		_art_rect.position = _CFG_GENERIC["art"]["pos"]
 		_art_rect.size     = _CFG_GENERIC["art"]["size"]
 		_status_bar.position = _CFG_GENERIC["status"]["pos"]
-		_status_bar.size     = _CFG_GENERIC["status"]["size"]
 		_atk_label.position = _CFG_GENERIC["atk"]["pos"]
 		_atk_label.size     = _CFG_GENERIC["atk"]["size"]
 		_hp_label.position  = _CFG_GENERIC["hp"]["pos"]
@@ -363,7 +362,6 @@ func _show_occupied_state() -> void:
 		_art_rect.position = _CFG["art"]["pos"]
 		_art_rect.size     = _CFG["art"]["size"]
 		_status_bar.position = _CFG["status"]["pos"]
-		_status_bar.size     = _CFG["status"]["size"]
 		_atk_label.position = _CFG["atk"]["pos"]
 		_atk_label.size     = _CFG["atk"]["size"]
 		_hp_label.position  = _CFG["hp"]["pos"]
@@ -419,6 +417,7 @@ func _show_occupied_state() -> void:
 	# Status bar — clear and rebuild each refresh
 	_hide_status_tooltip()
 	for child in _status_bar.get_children():
+		_status_bar.remove_child(child)
 		child.queue_free()
 
 	if minion.has_guard():
@@ -427,9 +426,21 @@ func _show_occupied_state() -> void:
 	if minion.has_deathless():
 		_status_bar_add_interactive_icon("icon_deathless.png", "DEATHLESS",
 			"The first time this minion would die, it survives with 1 HP.")
-	if minion.has_spell_immune():
+	if minion.has_immune():
+		_status_bar_add_interactive_icon("icon_guard.png", "IMMUNE",
+			"Cannot take any damage.")
+	elif minion.has_spell_immune():
 		_status_bar_add_interactive_icon("icon_guard.png", "SPELL IMMUNE",
 			"Immune to all spell effects.")
+	if minion.has_ethereal():
+		_status_bar_add_interactive_icon("icon_ethereal.png", "ETHEREAL",
+			"Takes 50% less damage from minion attacks, 50% more from spell effects.")
+	if minion.has_pierce():
+		_status_bar_add_interactive_icon("icon_pierce.png", "PIERCE",
+			"Excess damage from killing a minion carries through to the enemy hero.")
+	if minion.has_lifedrain():
+		_status_bar_add_interactive_icon("icon_lifedrain.png", "LIFEDRAIN",
+			"Damage dealt to the enemy hero heals your hero by the same amount.")
 	if minion.has_critical_strike():
 		var crit_stacks: int = minion.critical_strike_stacks()
 		_status_bar_add_interactive_icon("icon_critical_strike.png", "CRITICAL STRIKE",
@@ -453,6 +464,9 @@ func _show_occupied_state() -> void:
 	elif minion.owner == "player" and minion.state == Enums.MinionState.EXHAUSTED:
 		_status_bar_add_interactive_icon("icon_tired.png", "EXHAUSTED", "Cannot attack yet.")
 
+	# Set status bar size from config (always controlled here, not in place_minion)
+	var cfg_status: Dictionary = (_CFG_GENERIC if _using_generic else _CFG)["status"]
+	_status_bar.size = cfg_status["size"]
 	_status_bar.visible = _status_bar.get_child_count() > 0
 
 func _set_overlay_glow(color: Color) -> void:

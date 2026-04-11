@@ -62,11 +62,12 @@ static func _parse_deck_entry(entry: Variant) -> Dictionary:
 		var d := entry as Dictionary
 		var cards: Array = d.get("cards", []) as Array
 		var profile: String = d.get("ai_profile", "") as String
-		return {"cards": cards, "ai_profile": profile}
+		var limited: Array = d.get("limited", []) as Array
+		return {"cards": cards, "ai_profile": profile, "limited": limited}
 	if entry is Array:
 		# Legacy format: plain array of card IDs
-		return {"cards": entry as Array, "ai_profile": ""}
-	return {"cards": [], "ai_profile": ""}
+		return {"cards": entry as Array, "ai_profile": "", "limited": []}
+	return {"cards": [], "ai_profile": "", "limited": []}
 
 # ---------------------------------------------------------------------------
 # Pool queries
@@ -103,6 +104,18 @@ static func get_deck(deck_id: String) -> Array[String]:
 	for id in (parsed.cards as Array):
 		cards.append(id as String)
 	return cards
+
+## Returns the list of limited card IDs for a deck (one-time draw, not re-added).
+static func get_deck_limited(deck_id: String) -> Array[String]:
+	var data := load_data()
+	var decks: Dictionary = data.decks
+	if not decks.has(deck_id):
+		return []
+	var parsed := _parse_deck_entry(decks[deck_id])
+	var result: Array[String] = []
+	for id in (parsed.limited as Array):
+		result.append(id as String)
+	return result
 
 ## Returns the AI profile override for a deck, or "" if none set.
 static func get_deck_profile(deck_id: String) -> String:

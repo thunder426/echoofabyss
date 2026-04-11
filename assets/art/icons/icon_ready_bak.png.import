@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d0dhka2m7bkfr"
-path="res://.godot/imported/icon_deathless.png-b2d468f62ad40d9d7029b7c306c3c7b1.ctex"
+uid="uid://nccgbbpencrr"
+path="res://.godot/imported/icon_ready_bak.png-02706514e3a4c359911b60682de5178b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/icons/icon_deathless.png"
-dest_files=["res://.godot/imported/icon_deathless.png-b2d468f62ad40d9d7029b7c306c3c7b1.ctex"]
+source_file="res://assets/art/icons/icon_ready_bak.png"
+dest_files=["res://.godot/imported/icon_ready_bak.png-02706514e3a4c359911b60682de5178b.ctex"]
 
 [params]
 

@@ -61,6 +61,11 @@ func attack_phase() -> void:
 	if _is_aggro() and lethal_threat and not can_go_lethal:
 		await _aggro_threat_response()
 		return
+	# Tempo: trade only when behind on board; go face when ahead or even
+	if _is_tempo() and not can_go_lethal and _is_behind_on_board():
+		await _execute_tempo_trades()
+		if not agent.is_alive(): return
+
 	for minion in agent.friendly_board.duplicate():
 		if not agent.friendly_board.has(minion) or not minion.can_attack():
 			continue
@@ -79,11 +84,6 @@ func attack_phase() -> void:
 			if not await agent.do_attack_minion(minion, target):
 				if not agent.is_alive(): return
 		elif lethal_threat and not agent.opponent_board.is_empty():
-			var target := agent.pick_swift_target(minion)
-			if not await agent.do_attack_minion(minion, target):
-				if not agent.is_alive(): return
-		elif _is_tempo() and not agent.opponent_board.is_empty():
-			# Tempo: prioritise board control — trade into opponent minions
 			var target := agent.pick_swift_target(minion)
 			if not await agent.do_attack_minion(minion, target):
 				if not agent.is_alive(): return
@@ -109,6 +109,179 @@ func _is_aggro() -> bool:
 ## Return true if this profile represents a tempo/board-control deck.
 ## Tempo profiles prioritise trading into opponent minions over going face,
 ## unless lethal is available.
+## Execute all favorable tempo trades. Goal: minimize enemy board total ATK.
+##
+## Trade types (in priority order):
+##   1. Favored: our minion kills target and survives
+##   2. Trade-up: both die, but our minion is smaller (ATK+HP < target ATK+HP)
+##   3. Multi-minion kill: multiple small minions gang up to kill a high-ATK target
+##
+## After all good trades, remaining attackers go face.
+func _execute_tempo_trades() -> void:
+	# --- Pass 0: Protective trades ---
+	# If an enemy minion threatens to kill our high-value minion next turn,
+	# preemptively trade a cheaper minion into it to protect the big one.
+	await _execute_protective_trades()
+	if not agent.is_alive(): return
+
+	var traded := true
+	while traded:
+		traded = false
+		if agent.opponent_board.is_empty():
+			break
+
+		var best_plan: Array[MinionInstance] = []
+		var best_target: MinionInstance = null
+		var best_score: float = -1.0
+
+		var attackers: Array[MinionInstance] = []
+		for m: MinionInstance in agent.friendly_board:
+			if m.can_attack():
+				attackers.append(m)
+		if attackers.is_empty():
+			break
+
+		# Must attack guards first — handled by main loop, skip tempo for guarded boards
+		var guards := CombatManager.get_taunt_minions(agent.opponent_board)
+		if not guards.is_empty():
+			break
+
+		for target: MinionInstance in agent.opponent_board:
+			var t_hp: int = target.current_health + target.current_shield
+			var t_atk: int = target.effective_atk()
+			var t_value: int = t_atk + target.current_health
+
+			# --- Single attacker options ---
+			for atk: MinionInstance in attackers:
+				var a_dmg: int = atk.effective_atk()
+				var a_hp: int = atk.current_health
+				var a_value: int = a_dmg + a_hp
+				var can_kill: bool = a_dmg >= t_hp
+				var survives: bool = t_atk < a_hp
+
+				if can_kill and survives:
+					# Favored: kill + survive. Skip if our ATK massively outclasses target (>2x)
+					if t_atk * 2 < a_dmg:
+						continue
+					var score: float = t_atk + 1000.0  # +1000 bonus for surviving
+					if score > best_score:
+						best_score = score
+						best_target = target
+						best_plan = [atk]
+				elif can_kill and not survives:
+					# Trade-up: both die, only if our minion is smaller
+					if a_value < t_value:
+						var score: float = float(t_atk - a_dmg)
+						if score > best_score:
+							best_score = score
+							best_target = target
+							best_plan = [atk]
+
+			# --- Multi-minion kill: gang up on high-value targets ---
+			if t_atk >= 200:
+				# Sort attackers by value ascending (sacrifice cheapest first)
+				var sorted_atks: Array[MinionInstance] = attackers.duplicate()
+				sorted_atks.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
+					return (a.effective_atk() + a.current_health) < (b.effective_atk() + b.current_health))
+				var plan: Array[MinionInstance] = []
+				var remaining_hp: int = t_hp
+				var total_friendly_value := 0
+				for atk: MinionInstance in sorted_atks:
+					if remaining_hp <= 0:
+						break
+					plan.append(atk)
+					remaining_hp -= atk.effective_atk()
+					total_friendly_value += atk.effective_atk() + atk.current_health
+				if remaining_hp <= 0 and plan.size() > 1 and total_friendly_value < t_value:
+					# Multi-kill is worth it: our total value < their value
+					var score: float = float(t_atk)
+					if score > best_score:
+						best_score = score
+						best_target = target
+						best_plan = plan
+
+		if best_target != null and not best_plan.is_empty():
+			for atk: MinionInstance in best_plan:
+				if not agent.friendly_board.has(atk) or not atk.can_attack():
+					continue
+				if not agent.opponent_board.has(best_target):
+					break  # target already dead from earlier hit
+				if not await agent.do_attack_minion(atk, best_target):
+					if not agent.is_alive(): return
+			traded = true
+
+## Protective trades: if an enemy minion can kill our high-value minion next turn,
+## trade a cheaper minion into it now.
+## Example: we have 500/100 + 200/100, enemy has 100/100.
+## Enemy 100 ATK kills our 500/100 → trade 200/100 into 100/100 to protect.
+func _execute_protective_trades() -> void:
+	var traded := true
+	while traded:
+		traded = false
+		if agent.opponent_board.is_empty():
+			break
+		var guards := CombatManager.get_taunt_minions(agent.opponent_board)
+		if not guards.is_empty():
+			break
+
+		# Find the biggest threat: enemy minion that can kill our most valuable minion
+		var best_threat: MinionInstance = null
+		var best_protected: MinionInstance = null
+		var best_protector: MinionInstance = null
+		var best_protected_value := 0
+
+		for enemy: MinionInstance in agent.opponent_board:
+			var e_atk: int = enemy.effective_atk()
+			var e_hp: int = enemy.current_health + enemy.current_shield
+
+			# Which of our minions does this enemy threaten? (can kill next turn)
+			var threatened: MinionInstance = null
+			var threatened_value := 0
+			for friendly: MinionInstance in agent.friendly_board:
+				if e_atk >= friendly.current_health:
+					var f_value: int = friendly.effective_atk() + friendly.current_health
+					if friendly.effective_atk() > threatened_value:
+						threatened = friendly
+						threatened_value = friendly.effective_atk()
+
+			if threatened == null:
+				continue
+
+			# Find cheapest attacker that can kill this enemy (and is cheaper than what we protect)
+			var protector: MinionInstance = null
+			var protector_value := 999999
+			for friendly: MinionInstance in agent.friendly_board:
+				if not friendly.can_attack() or friendly == threatened:
+					continue
+				var f_value: int = friendly.effective_atk() + friendly.current_health
+				if friendly.effective_atk() >= e_hp and f_value < protector_value:
+					# Only worth it if protector is less valuable than protected
+					if f_value < threatened_value:
+						protector = friendly
+						protector_value = f_value
+
+			if protector != null and threatened_value > best_protected_value:
+				best_threat = enemy
+				best_protected = threatened
+				best_protector = protector
+				best_protected_value = threatened_value
+
+		if best_threat != null and best_protector != null:
+			if agent.friendly_board.has(best_protector) and agent.opponent_board.has(best_threat):
+				if not await agent.do_attack_minion(best_protector, best_threat):
+					if not agent.is_alive(): return
+				traded = true
+
+## True if the enemy is behind on board — opponent has more total ATK.
+func _is_behind_on_board() -> bool:
+	var friendly_atk := 0
+	for m: MinionInstance in agent.friendly_board:
+		friendly_atk += m.effective_atk()
+	var opponent_atk := 0
+	for m: MinionInstance in agent.opponent_board:
+		opponent_atk += m.effective_atk()
+	return opponent_atk > friendly_atk
+
 func _is_tempo() -> bool:
 	return false
 
@@ -671,11 +844,19 @@ func _pick_default_trap_env_target():
 ## Deck archetype for fuel attack priority.
 enum DeckType { AGGRO, TEMPO }
 
-## Effective spark cost after void_mastery passive (halves costs, minimum 1).
+## Effective spark cost after void_mastery passive (halves costs, minimum 1)
+## and void_herald champion (all spark costs become 0).
 func _effective_spark_cost(card: CardData) -> int:
 	var base: int = card.void_spark_cost
 	if base <= 0:
 		return 0
+	# Void Herald champion aura: all spark costs become 0
+	var vh_alive: bool = agent.scene.get("_champion_vh_summoned") if agent.scene.get("_champion_vh_summoned") != null else false
+	if vh_alive:
+		# Check champion is actually on the board
+		for m: MinionInstance in agent.friendly_board:
+			if m.card_data.id == "champion_void_herald":
+				return 0
 	var passives = agent.scene.get("_active_enemy_passives")
 	if passives != null and "void_mastery" in passives:
 		return maxi(ceili(float(base) / 2.0), 1)
@@ -683,10 +864,12 @@ func _effective_spark_cost(card: CardData) -> int:
 
 ## True if a spark-cost card can be played (resource + spark check).
 func _can_afford_spark_card(card: CardData) -> bool:
-	var spark_cost: int = _effective_spark_cost(card)
-	if spark_cost <= 0:
+	# Only applies to cards that have a base spark cost
+	if card.void_spark_cost <= 0:
 		return false
-	if not _can_afford_sparks(spark_cost):
+	var spark_cost: int = _effective_spark_cost(card)
+	# spark_cost can be 0 if Void Herald aura is active — that's affordable
+	if spark_cost > 0 and not _can_afford_sparks(spark_cost):
 		return false
 	if card is SpellCardData:
 		var spell := card as SpellCardData

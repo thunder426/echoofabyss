@@ -29,6 +29,8 @@ enum EffectType {
 	VOID_BOLT,         # Deal amount Void Bolt damage to enemy hero (scales with Void Marks, triggers bolt passives)
 	GRANT_CRITICAL_STRIKE,  # Grant amount stacks of Critical Strike to target(s)
 	GRANT_ON_DEATH_SUMMON,  # Grant target(s) a runtime "ON DEATH: summon card_id" effect
+	COUNTER_SPELL,     # Increment owner's spell counter — next enemy spell is cancelled
+	TUTOR,             # Search owner's deck for a card matching tutor_filter and add to hand
 	HARDCODED,         # Fall through to CombatScene._resolve_hardcoded(hardcoded_id, ctx)
 	CONVERT_RESOURCE,  # Convert all of convert_from resource into convert_to, capped at target's max
 	PURGE,             # Dispel all buffs from enemy target or cleanse all debuffs from friendly target; purge_filter narrows to a specific BuffType
@@ -127,6 +129,9 @@ enum MinionFilter {
 ## When true, ctx.source is excluded from the resolved target pool (used for self-granting effects).
 @export var exclude_self: bool = false
 
+## TUTOR: filter key for deck search. "spark_cost" = void_spark_cost > 0, "rune" = is_rune.
+@export var tutor_filter: String = ""
+
 ## Conditional bonus added on top of amount when ALL bonus_conditions pass.
 ## Checked globally (board state), not per-target. Use for "deal X, +Y if condition" on a single hit.
 @export var bonus_amount: int = 0
@@ -173,6 +178,7 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "convert_to"     in d: s.convert_to     = d["convert_to"]
 	if "purge_filter"   in d: s.purge_filter   = d["purge_filter"]
 	if "exclude_self"   in d: s.exclude_self   = d["exclude_self"]
+	if "tutor_filter"   in d: s.tutor_filter   = d["tutor_filter"]
 	if "bonus_amount"   in d: s.bonus_amount   = d["bonus_amount"]
 	if "bonus_conditions" in d:
 		var bc: Array[String] = []

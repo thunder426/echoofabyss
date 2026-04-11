@@ -102,11 +102,10 @@ func has_guard() -> bool:
 	return BuffSystem.has_type(self, Enums.BuffType.GRANT_GUARD) \
 		or Enums.Keyword.GUARD in card_data.keywords
 
-## True if this minion has Deathless (base keyword or granted at runtime).
+## True if this minion has Deathless (granted via buff at creation or runtime).
 ## Deathless prevents the next fatal hit (sets HP to 50) then is consumed.
 func has_deathless() -> bool:
-	return BuffSystem.has_type(self, Enums.BuffType.GRANT_DEATHLESS) \
-		or Enums.Keyword.DEATHLESS in card_data.keywords
+	return BuffSystem.has_type(self, Enums.BuffType.GRANT_DEATHLESS)
 
 ## True if this minion has Lifedrain (base keyword or granted at runtime).
 func has_lifedrain() -> bool:
@@ -128,6 +127,18 @@ func critical_strike_stacks() -> int:
 ## True if this minion is immune to spells (runtime grant via buff).
 func has_spell_immune() -> bool:
 	return BuffSystem.has_type(self, Enums.BuffType.GRANT_SPELL_IMMUNE)
+
+## True if this minion is fully immune to all damage.
+func has_immune() -> bool:
+	return BuffSystem.has_type(self, Enums.BuffType.GRANT_IMMUNE)
+
+## True if this minion has Ethereal (50% less minion damage, 50% more spell damage).
+func has_ethereal() -> bool:
+	return Enums.Keyword.ETHEREAL in card_data.keywords
+
+## True if this minion has Pierce (excess kill damage carries to enemy hero).
+func has_pierce() -> bool:
+	return Enums.Keyword.PIERCE in card_data.keywords
 
 # ---------------------------------------------------------------------------
 # Turn lifecycle

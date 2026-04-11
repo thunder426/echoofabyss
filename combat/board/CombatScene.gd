@@ -228,6 +228,14 @@ var _enemy_traps_blocked: bool = false
 ## When true, player traps cannot trigger (set by enemy Saboteur Adept, cleared at enemy turn end).
 var _player_traps_blocked: bool = false
 
+## Spell counter: when > 0, next spell cast by this side is cancelled and counter decrements.
+## Set by Phase Disruptor ON PLAY (COUNTER_SPELL effect).
+var _player_spell_counter: int = 0
+var _enemy_spell_counter: int = 0
+
+## Persistent warning label shown when the player's next spell will be countered.
+var _counter_warning_label: Label = null
+
 ## Prevents Soul Rune from firing more than once per enemy turn.
 var _soul_rune_fires_this_turn: int = 0
 
@@ -254,6 +262,10 @@ var feral_instinct_granted_this_turn: bool = false
 var _vp_pre_crit_stacks: int = 0
 var _spirit_conscription_fired: bool = false
 var crit_multiplier: float = 2.0
+var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
+var _enemy_crits_consumed: int = 0  ## Total enemy crits consumed (for champion tracking)
+var _player_crits_consumed: int = 0
+var _last_crit_attacker: MinionInstance = null  ## Set by _apply_crit for post-crit processing
 var _dark_channeling_active: bool = false
 var _dark_channeling_multiplier: float = 1.0
 
@@ -279,6 +291,22 @@ var _champion_vr_summoned: bool = false
 var _champion_ch_spark_count: int = 0
 var _champion_ch_summoned: bool = false
 var _champion_ch_aura_dmg: int = 0
+
+## Act 3 champion: Rift Stalker
+var _champion_rs_spark_dmg: int = 0
+var _champion_rs_summoned: bool = false
+
+## Act 3 champion: Void Aberration
+var _champion_va_sparks_consumed: int = 0
+var _champion_va_summoned: bool = false
+
+## Act 4 champion: Void Scout
+var _champion_vs_crits_consumed: int = 0
+var _champion_vs_summoned: bool = false
+
+## Act 3 champion: Void Herald
+var _champion_vh_spark_cards_played: int = 0
+var _champion_vh_summoned: bool = false
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -439,6 +467,22 @@ func _find_nodes() -> void:
 	for i in 5:
 		player_slots.append($UI/PlayerBoard.get_child(i) as BoardSlot)
 		enemy_slots.append($UI/EnemyBoard.get_child(i) as BoardSlot)
+	# Counter-spell warning label (hidden by default)
+	_counter_warning_label = Label.new()
+	_counter_warning_label.text = "⚠ Your next spell will be COUNTERED!"
+	_counter_warning_label.add_theme_font_override("font", DAMAGE_FONT)
+	_counter_warning_label.add_theme_font_size_override("font_size", 18)
+	_counter_warning_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35, 1.0))
+	_counter_warning_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.8))
+	_counter_warning_label.add_theme_constant_override("shadow_offset_x", 2)
+	_counter_warning_label.add_theme_constant_override("shadow_offset_y", 2)
+	_counter_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_counter_warning_label.anchors_preset = Control.PRESET_CENTER_TOP
+	_counter_warning_label.position = Vector2(960 - 220, 460)
+	_counter_warning_label.size = Vector2(440, 30)
+	_counter_warning_label.z_index = 90
+	_counter_warning_label.visible = false
+	$UI.add_child(_counter_warning_label)
 
 # ---------------------------------------------------------------------------
 # Signal wiring
@@ -462,6 +506,8 @@ func _setup_enemy_ai() -> void:
 		enemy_deck = GameManager.current_enemy.deck
 		enemy_ai.ai_profile = GameManager.current_enemy.ai_profile
 	enemy_ai.scene = self
+	if GameManager.current_enemy != null:
+		enemy_ai._limited_cards = GameManager.current_enemy.limited_cards
 	enemy_ai.setup_deck(enemy_deck)
 
 func _connect_turn_manager() -> void:
@@ -850,6 +896,13 @@ func _try_play_spell(spell: SpellCardData) -> void:
 		hand_display.remove_card(pending_play_card)
 		hand_display.deselect_current()
 	pending_play_card = null
+	# Phase Disruptor counter: enemy counters player spell
+	if _player_spell_counter > 0:
+		_player_spell_counter -= 1
+		_log("  Spell countered!", _LogType.ENEMY)
+		_show_spell_countered_anim(spell)
+		_update_counter_warning()
+		return
 	# Show large card preview; resolve effects on impact so damage visuals sync
 	_show_card_cast_anim(spell, false, func() -> void:
 		if not spell.effect_steps.is_empty():
@@ -1598,6 +1651,23 @@ func _apply_test_config() -> void:
 	for id in TestConfig.enemy_board_cards:
 		_summon_token(id, "enemy")
 
+	# Pre-place player traps
+	for id in TestConfig.player_traps:
+		var trap_card := CardDatabase.get_card(id)
+		if trap_card is TrapCardData and active_traps.size() < trap_slot_panels.size():
+			active_traps.append(trap_card as TrapCardData)
+	if not TestConfig.player_traps.is_empty():
+		_update_trap_display()
+
+	# Pre-place enemy traps
+	if enemy_ai:
+		for id in TestConfig.enemy_traps:
+			var trap_card := CardDatabase.get_card(id)
+			if trap_card is TrapCardData and enemy_ai.active_traps.size() < enemy_trap_slot_panels.size():
+				enemy_ai.active_traps.append(trap_card as TrapCardData)
+		if not TestConfig.enemy_traps.is_empty():
+			_update_enemy_trap_display()
+
 	# Override starting resources
 	if TestConfig.start_essence_max > 0:
 		turn_manager.essence_max = TestConfig.start_essence_max
@@ -2328,7 +2398,7 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 			"name": "Rogue Imp Pack",
 			"condition": "4 different Rabid Imps have attacked",
 			"stats": "200 ATK / 400 HP — SWIFT",
-			"aura": "All friendly Feral Imps gain +100 ATK.",
+			"aura": "All friendly FERAL IMP minions have +100 ATK.",
 			"on_death": "Deal 20% of max HP to enemy hero.",
 		},
 		"champion_corrupted_broodlings": {
@@ -2342,14 +2412,14 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 			"name": "Imp Matriarch",
 			"condition": "2nd Pack Frenzy cast",
 			"stats": "300 ATK / 500 HP — GUARD",
-			"aura": "Pack Frenzy also grants +200 HP to all Feral Imps.",
+			"aura": "Pack Frenzy also gives all FERAL IMP minions +200 HP.",
 			"on_death": "Deal 20% of max HP to enemy hero.",
 		},
 		"champion_abyss_cultist_patrol": {
 			"name": "Abyss Cultist Patrol",
 			"condition": "5 corruption stacks consumed",
 			"stats": "300 ATK / 300 HP",
-			"aura": "Corruption applied to player minions instantly detonates.",
+			"aura": "Corruption applied to enemy minions instantly detonates.",
 			"on_death": "Deal 20% of max HP to enemy hero.",
 		},
 		"champion_void_ritualist": {
@@ -2363,7 +2433,7 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 			"name": "Corrupted Handler",
 			"condition": "3 Void Sparks created",
 			"stats": "300 ATK / 300 HP",
-			"aura": "Whenever a Void Spark is summoned, deal 200 damage to player hero.",
+			"aura": "Whenever a Void Spark is summoned, deal 200 damage to enemy hero.",
 			"on_death": "Deal 20% of max HP to enemy hero.",
 		},
 		"champion_duel": {
@@ -2685,6 +2755,12 @@ func _player_pay_sparks(cost: int) -> bool:
 			player_board.erase(m)
 			_clear_slot_for(m, player_slots)
 			_log("  %s consumed as spark fuel." % m.card_data.card_name)
+		# Fire spark consumed event
+		if sv > 0 and trigger_manager:
+			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED, "player")
+			ctx.minion = m
+			ctx.damage = sv
+			trigger_manager.fire(ctx)
 		remaining -= sv
 	return remaining <= 0
 
@@ -3123,6 +3199,7 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 	# ON_PLAY effects are resolved by CombatHandlers.on_enemy_minion_played_effect registered in _setup_triggers().
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 	ctx.minion = minion
+	ctx.card = minion.card_data
 	trigger_manager.fire(ctx)
 	# Signal AFTER place_minion — guarantees AI continues only after the slot is occupied.
 	enemy_summon_reveal_done.emit()
@@ -3170,6 +3247,12 @@ func _show_enemy_summon_reveal(card: CardData) -> void:
 func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	_log("Enemy casts: %s" % spell.card_name, _LogType.ENEMY)
 	_update_enemy_status_panel()
+	# Phase Disruptor counter: player counters enemy spell
+	if _enemy_spell_counter > 0:
+		_enemy_spell_counter -= 1
+		_log("  Spell countered!", _LogType.PLAYER)
+		_show_spell_countered_anim(spell)
+		return
 	# Fire ON_ENEMY_SPELL_CAST BEFORE resolving so Null Seal can set _spell_cancelled.
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
 	ctx.card = spell
@@ -3259,12 +3342,19 @@ func _update_trap_display_for(owner: String) -> void:
 				# Start pulse glow for runes (both player and enemy)
 				_start_rune_glow(i, trap, owner)
 			elif is_enemy:
-				_apply_slot_style(panel, Color(0.14, 0.04, 0.04, 1), Color(0.80, 0.18, 0.18, 1))
-				lbl.visible = true
-				lbl.text = "??"
+				# Enemy trap (non-rune): same sealed look as player traps
+				if art_container and ResourceLoader.exists(_TRAP_BATTLEFIELD_ART):
+					art.texture = load(_TRAP_BATTLEFIELD_ART)
+					art.modulate = Color(0.55, 0.35, 0.65, 0.6)
+					art_container.visible = true
+					lbl.visible = false
+				else:
+					if art_container: art_container.visible = false
+					lbl.visible = true
+					lbl.text = trap.card_name
+				_apply_slot_style(panel, _TRAP_SEALED_BG, _TRAP_SEALED_BORDER)
 				panel.tooltip_text = ""
-				if art_container: art_container.visible = false
-				_stop_rune_glow(i, owner)
+				_start_trap_sealed_pulse(i, "enemy")
 			else:
 				# Player trap (non-rune): sealed/hidden look
 				if is_player and art_container and ResourceLoader.exists(_TRAP_BATTLEFIELD_ART):
@@ -3321,16 +3411,18 @@ func _stop_rune_glow(slot_idx: int, owner: String = "player") -> void:
 		(panels[slot_idx] as Panel).modulate = Color(1, 1, 1, 1)
 
 ## Slow, subtle pulse for sealed traps — dim energy bleeding through.
-func _start_trap_sealed_pulse(slot_idx: int) -> void:
-	if slot_idx >= _trap_slot_glow_tweens.size():
+func _start_trap_sealed_pulse(slot_idx: int, owner: String = "player") -> void:
+	var tweens: Array = _trap_slot_glow_tweens if owner == "player" else _enemy_trap_slot_glow_tweens
+	var panels: Array = trap_slot_panels if owner == "player" else enemy_trap_slot_panels
+	if slot_idx >= tweens.size():
 		return
-	if _trap_slot_glow_tweens[slot_idx] != null:
+	if tweens[slot_idx] != null:
 		return
-	var panel: Panel = trap_slot_panels[slot_idx]
+	var panel: Panel = panels[slot_idx]
 	var tween := create_tween().set_loops()
 	tween.tween_property(panel, "modulate", Color(1.15, 1.0, 1.2, 1.0), 2.0).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(panel, "modulate", Color(0.7, 0.6, 0.75, 1.0), 2.0).set_ease(Tween.EASE_IN_OUT)
-	_trap_slot_glow_tweens[slot_idx] = tween
+	tweens[slot_idx] = tween
 
 func _update_trap_display() -> void:
 	_update_trap_display_for("player")
@@ -3516,11 +3608,9 @@ func _fire_ritual(ritual: RitualData) -> void:
 	_log("★ RITUAL — %s!" % ritual.ritual_name, _LogType.PLAYER)
 	var ritual_ctx := EffectContext.make(self, "player")
 	EffectResolver.run(ritual.effect_steps, ritual_ctx)
-	# Talent: ritual_surge — summon 2 Void Imps after any ritual fires
-	if _has_talent("ritual_surge"):
-		_summon_void_imp()
-		_summon_void_imp()
-		_log("  Ritual Surge: 2 Void Imps summoned!", _LogType.PLAYER)
+	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
+	var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
+	trigger_manager.fire(fired_ctx)
 
 
 ## Create a StyleBoxFlat with uniform border/corner settings.
@@ -4693,7 +4783,7 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 		},
 		"champion_rogue_imp_pack": {
 			"name": "Champion: Rogue Imp Pack",
-			"desc": "Summoned after 4 Rabid Imps have attacked. SWIFT. Aura: All friendly Feral Imps gain +100 ATK. On death: Deal 20% of your max HP to you."
+			"desc": "Summoned after 4 Rabid Imps have attacked. SWIFT. AURA: All friendly FERAL IMP minions have +100 ATK. On death: Deal 20% of max HP to enemy hero."
 		},
 		"champion_corrupted_broodlings": {
 			"name": "Champion: Corrupted Broodlings",
@@ -4701,19 +4791,19 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 		},
 		"champion_imp_matriarch": {
 			"name": "Champion: Imp Matriarch",
-			"desc": "Summoned after 2nd Pack Frenzy cast. GUARD. Aura: Pack Frenzy also grants +200 HP to all Feral Imps. On death: Deal 20% of max HP to enemy hero."
+			"desc": "Summoned after 2nd Pack Frenzy cast. GUARD. AURA: Pack Frenzy also gives all FERAL IMP minions +200 HP. On death: Deal 20% of max HP to enemy hero."
 		},
 		"champion_abyss_cultist_patrol": {
 			"name": "Champion: Abyss Cultist Patrol",
-			"desc": "Summoned after 5 corruption stacks consumed. Aura: Corruption applied to player minions instantly detonates for 100 damage per stack."
+			"desc": "Summoned after 5 corruption stacks consumed. AURA: Corruption applied to enemy minions instantly detonates for 100 damage per stack."
 		},
 		"champion_void_ritualist": {
 			"name": "Champion: Void Ritualist",
-			"desc": "Summoned when Ritual Sacrifice triggers. Aura: Rune placement costs 1 less Mana."
+			"desc": "Summoned when Ritual Sacrifice triggers. AURA: Rune placement costs 1 less Mana."
 		},
 		"champion_corrupted_handler": {
 			"name": "Champion: Corrupted Handler",
-			"desc": "Summoned after 3 Void Sparks created. Aura: Whenever a Void Spark is summoned, deal 200 damage to player hero."
+			"desc": "Summoned after 3 Void Sparks created. AURA: Whenever a Void Spark is summoned, deal 200 damage to enemy hero."
 		},
 		"champion_duel": {
 			"name": "Champion: Void Duel",
@@ -4725,24 +4815,24 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 		},
 		"ancient_frenzy": {
 			"name": "Ancient Frenzy",
-			"desc": "Pack Frenzy also grants all Feral Imps Lifedrain for the turn, and costs 1 less Mana. Starts with one extra Pack Frenzy in hand."
+			"desc": "Pack Frenzy also gives all FERAL IMP minions Lifedrain this turn, and costs 1 less Mana. Starts with one extra Pack Frenzy in hand."
 		},
 		# ── Act 2 enemy passives ──────────────────────────────────────────────────
 		"feral_reinforcement": {
 			"name": "Feral Reinforcement",
-			"desc": "The first Human summoned each turn adds a random Feral Imp to the enemy's hand."
+			"desc": "The first Human summoned each turn adds a random FERAL IMP to your hand."
 		},
 		"corrupt_authority": {
 			"name": "Corrupt Authority",
-			"desc": "Each Human summoned applies 1 Corruption to a random player minion. Each Feral Imp summoned consumes all Corruption stacks on player minions, dealing 100 damage per stack."
+			"desc": "Each Human summoned applies 1 Corruption to a random enemy minion. Each FERAL IMP summoned consumes all Corruption stacks on enemy minions, dealing 100 damage per stack."
 		},
 		"ritual_sacrifice": {
 			"name": "Ritual Sacrifice",
-			"desc": "When a Feral Imp is summoned and the enemy has a Blood Rune and Dominion Rune active: consume both runes and the imp, deal 200 damage to 2 random player targets, then summon a 500/500 Demon."
+			"desc": "When a FERAL IMP is summoned and you have a Blood Rune and Dominion Rune active: consume both runes and the imp, deal 200 damage to 2 random enemy targets, then summon a 500/500 Demon."
 		},
 		"void_unraveling": {
 			"name": "Void Unraveling",
-			"desc": "When a Feral Imp is summoned, all enemy Void Sparks are Corrupted and transferred to the player's board."
+			"desc": "When a FERAL IMP is summoned, all enemy Void Sparks are Corrupted and transferred to your board."
 		},
 	}
 
@@ -5153,6 +5243,97 @@ func _show_card_cast_anim(card: CardData, is_enemy: bool, on_impact: Callable) -
 	# Animate out
 	tw.tween_property(cv, "modulate:a", 0.0, 0.22)
 	tw.tween_callback(cv.queue_free)
+
+## Show a "COUNTERED!" animation: card appears, gets a red overlay + shake, then fizzles out.
+func _show_spell_countered_anim(card: CardData) -> void:
+	var cv: CardVisual = CARD_VISUAL_SCENE.instantiate() as CardVisual
+	cv.apply_size_mode("combat_preview")
+	cv.z_index = 100
+	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$UI.add_child(cv)
+	cv.setup(card)
+	var vp := get_viewport().get_visible_rect().size
+	var card_sz := Vector2(336.0, 504.0)
+	var center_pos := (vp - card_sz) * 0.5
+	cv.position     = center_pos
+	cv.pivot_offset = card_sz * 0.5
+	cv.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	cv.scale = Vector2(0.65, 0.65)
+	# "COUNTERED!" text overlay
+	var counter_lbl := Label.new()
+	counter_lbl.text = "COUNTERED!"
+	counter_lbl.add_theme_font_override("font", DAMAGE_FONT)
+	counter_lbl.add_theme_font_size_override("font_size", 36)
+	counter_lbl.add_theme_color_override("font_color", Color(1.0, 0.15, 0.15, 1.0))
+	counter_lbl.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	counter_lbl.add_theme_constant_override("shadow_offset_x", 3)
+	counter_lbl.add_theme_constant_override("shadow_offset_y", 3)
+	counter_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	counter_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	counter_lbl.set_anchors_preset(Control.PRESET_CENTER)
+	counter_lbl.size = Vector2(336, 60)
+	counter_lbl.position = Vector2(0, 220)
+	counter_lbl.modulate = Color(1, 1, 1, 0)
+	cv.add_child(counter_lbl)
+	# Animate in
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(cv, "modulate:a", 1.0, 0.22)
+	tw.tween_property(cv, "scale", Vector2(1.0, 1.0), 0.22) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.set_parallel(false)
+	tw.tween_interval(0.12)
+	# Flash red tint + show COUNTERED text
+	tw.tween_callback(func() -> void:
+		counter_lbl.modulate = Color(1, 1, 1, 1)
+	)
+	tw.set_parallel(true)
+	tw.tween_property(cv, "modulate", Color(1.0, 0.3, 0.3, 1.0), 0.15)
+	tw.tween_property(counter_lbl, "scale", Vector2(1.2, 1.2), 0.15) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.set_parallel(false)
+	# Shake
+	var base_x := cv.position.x
+	for i in 4:
+		var offset_x := 12.0 if i % 2 == 0 else -12.0
+		tw.tween_property(cv, "position:x", base_x + offset_x, 0.05)
+	tw.tween_property(cv, "position:x", base_x, 0.05)
+	# Hold briefly
+	tw.tween_interval(0.5)
+	# Fizzle out — shrink + fade
+	tw.set_parallel(true)
+	tw.tween_property(cv, "modulate:a", 0.0, 0.35)
+	tw.tween_property(cv, "scale", Vector2(0.7, 0.7), 0.35) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.set_parallel(false)
+	tw.tween_callback(cv.queue_free)
+
+## Show or hide the counter-spell warning label based on current counter state.
+func _update_counter_warning() -> void:
+	if not _counter_warning_label:
+		return
+	var should_show: bool = _player_spell_counter > 0
+	if should_show and not _counter_warning_label.visible:
+		_counter_warning_label.visible = true
+		_counter_warning_label.modulate = Color(1, 1, 1, 0)
+		var tw := create_tween()
+		tw.tween_property(_counter_warning_label, "modulate:a", 1.0, 0.3)
+		# Subtle pulse loop
+		var pulse := create_tween().set_loops()
+		pulse.tween_property(_counter_warning_label, "modulate:a", 0.5, 0.8) \
+			.set_trans(Tween.TRANS_SINE)
+		pulse.tween_property(_counter_warning_label, "modulate:a", 1.0, 0.8) \
+			.set_trans(Tween.TRANS_SINE)
+		_counter_warning_label.set_meta("pulse_tween", pulse)
+	elif not should_show and _counter_warning_label.visible:
+		if _counter_warning_label.has_meta("pulse_tween"):
+			var pulse: Tween = _counter_warning_label.get_meta("pulse_tween")
+			if pulse and pulse.is_valid():
+				pulse.kill()
+			_counter_warning_label.remove_meta("pulse_tween")
+		var tw := create_tween()
+		tw.tween_property(_counter_warning_label, "modulate:a", 0.0, 0.25)
+		tw.tween_callback(func() -> void: _counter_warning_label.visible = false)
 
 ## Wrapper: apply spell damage to a minion + show flash and damage popup.
 func _spell_dmg(target: MinionInstance, damage: int) -> void:

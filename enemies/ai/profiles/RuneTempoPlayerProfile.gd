@@ -27,7 +27,7 @@
 class_name RuneTempoPlayerProfile
 extends CombatProfile
 
-const _RUNE_IDS:         Array[String] = ["dominion_rune", "blood_rune"]
+const _RUNE_IDS:         Array[String] = ["dominion_rune", "blood_rune", "echo_rune"]
 const _CHEAP_MINION_IDS: Array[String] = ["void_imp", "shadow_hound", "void_netter"]
 
 # ---------------------------------------------------------------------------

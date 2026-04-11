@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dgajfmaucdj4k"
-path="res://.godot/imported/icon_deathless copy.png-19e4122b6f599c60aad4c800f9339ce7.ctex"
+uid="uid://bdhwxdpu4eof3"
+path="res://.godot/imported/icon_ethereal.png-e97af3389033e099f2de1d523852b280.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/art/icons/icon_deathless copy.png"
-dest_files=["res://.godot/imported/icon_deathless copy.png-19e4122b6f599c60aad4c800f9339ce7.ctex"]
+source_file="res://assets/art/icons/icon_ethereal.png"
+dest_files=["res://.godot/imported/icon_ethereal.png-e97af3389033e099f2de1d523852b280.ctex"]
 
 [params]
 

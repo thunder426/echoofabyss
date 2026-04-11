@@ -1,40 +1,69 @@
 ## VoidScoutProfile.gd
 ## AI profile for the Void Scout encounter (Act 4, Fight 10).
 ##
-## Passives: void_might (shared) + void_precision (crit → +200 ATK permanent)
+## Passives: void_might (shared Act 4, +1 crit to random minion each turn)
+##           + void_precision (crit consumed → +200 ATK permanent)
 ##
-## Strategy: Play spirit minions as board presence and spark fuel.
-## Sovereign's Herald delivers targeted crits to the biggest minion,
-## which snowballs via void_precision. Spark-cost cards consume
-## Void Sparks first, then cheapest spirits.
+## Strategy: Flood board with cheap Spirit minions, stack crits via
+## Sovereign's Herald and void_might passive. Crit minions snowball
+## via void_precision (+200 ATK per crit used). Tempo trading to
+## protect high-ATK crit-buffed minions.
 ##
 ## Play order:
-##   1. Regular spirits (flood board for fuel + bodies)
-##   2. Sovereign's Herald (delivers crits to strongest minion)
-##   3. Regular mana spells
-##   4. Spark-cost spells (Void Pulse for draw, Rift Collapse for AoE)
-##   5. Spark-cost minions (Phase Stalker, Void Behemoth, Bastion Colossus)
+##   1. Sovereign's Herald first (grants crit to strongest minion)
+##   2. Other regular minions (void_wisp, void_echo, void_shade, void_wraith)
+##   3. Mana-only spells
 ##
 ## Resource growth:
-##   Essence to 5 → Mana to 3 → Essence to 7
+##   Essence to 5 → Mana to 2 → Essence to 7
 class_name VoidScoutProfile
 extends CombatProfile
 
 func play_phase() -> void:
-	# Phase 1: Flood spirits + heralds
+	# Phase 1: Sovereign's Herald first (crit enabler — highest priority)
+	await _play_heralds()
+	if not agent.is_alive(): return
+	# Phase 2: Other regular minions (cheap bodies for crit targets)
 	await _play_regular_minions()
 	if not agent.is_alive(): return
-	# Phase 2: Mana spells
-	await _play_spells_pass()
-	if not agent.is_alive(): return
-	# Phase 3: Spark-cost spells
+	# Phase 3: Spark-cost spells (Rift Collapse) — consume non-crit fuel
 	await _play_spark_spells()
 	if not agent.is_alive(): return
-	# Phase 4: Spark-cost minions
-	await _play_spark_minions()
+	# Phase 4: Void Wind — only against runes
+	await _try_void_wind()
+	if not agent.is_alive(): return
+	# Phase 5: Mana-only spells
+	await _play_spells_pass()
+
+func _is_tempo() -> bool:
+	return true
 
 func _get_spell_rules() -> Dictionary:
-	return {}
+	return {
+		"void_wind": {"cast_if": "never"},
+	}
+
+## Cast Void Wind when opponent has any rune.
+func _try_void_wind() -> void:
+	var opponent_traps: Array = agent.scene._opponent_traps("enemy")
+	if opponent_traps.is_empty():
+		return
+	var has_rune := false
+	for trap in opponent_traps:
+		if trap is TrapCardData and (trap as TrapCardData).is_rune:
+			has_rune = true
+			break
+	if not has_rune:
+		return
+	for inst in agent.hand.duplicate():
+		if inst.card_data.id != "void_wind":
+			continue
+		var spell := inst.card_data as SpellCardData
+		if agent.effective_spell_cost(spell) > agent.mana:
+			continue
+		agent.mana -= agent.effective_spell_cost(spell)
+		await agent.commit_play_spell(inst, null)
+		return
 
 # ---------------------------------------------------------------------------
 # Resource growth
@@ -53,29 +82,26 @@ func _void_scout_growth(state: Object, turn: int) -> void:
 		return
 	if e < 5:
 		state.enemy_essence_max += 1
-	elif m < 3:
+	elif m < 2:
 		state.enemy_mana_max += 1
 	else:
 		state.enemy_essence_max += 1
 
 # ---------------------------------------------------------------------------
-# Spark affordability (uses shared _available_sparks from CombatProfile)
+# Board awareness
 # ---------------------------------------------------------------------------
 
-func _can_afford_spark_card(card: CardData) -> bool:
-	var spark_cost: int = card.void_spark_cost
-	if spark_cost <= 0:
-		return false
-	if not _can_afford_sparks(spark_cost):
-		return false
-	if card is SpellCardData:
-		var spell := card as SpellCardData
-		return agent.effective_spell_cost(spell) <= agent.mana
-	elif card is MinionCardData:
-		var mc := card as MinionCardData
-		var mana_cost: int = agent.effective_minion_mana_cost(mc)
-		return mc.essence_cost <= agent.essence and mana_cost <= agent.mana
-	return false
+func _empty_slot_count() -> int:
+	var slots: Array = []
+	if agent.get("enemy_slots") != null:
+		slots = agent.get("enemy_slots")
+	elif agent.get("sim") != null:
+		slots = agent.sim.enemy_slots
+	var count := 0
+	for slot in slots:
+		if slot.is_empty():
+			count += 1
+	return count
 
 # ---------------------------------------------------------------------------
 # On-play targeting: Herald grants crit to highest-ATK friendly minion
@@ -83,30 +109,151 @@ func _can_afford_spark_card(card: CardData) -> bool:
 
 func pick_on_play_target(mc: MinionCardData):
 	if mc.id == "sovereigns_herald":
-		return _pick_highest_atk_friendly()
+		return _pick_crit_target()
 	return super.pick_on_play_target(mc)
 
+## Legacy alias for child profiles.
 func _pick_highest_atk_friendly() -> MinionInstance:
-	var best: MinionInstance = null
+	return _pick_crit_target()
+
+## Pick the best target for Sovereign's Herald crit grant.
+## Priority: 1. Can attack this turn + no crit yet + highest ATK
+##           2. Can attack this turn + highest ATK (even if has crit)
+##           3. Any non-herald minion (fallback)
+func _pick_crit_target() -> MinionInstance:
+	# Pass 1: attackable minion without crit — best value
+	var best_no_crit: MinionInstance = null
 	for m: MinionInstance in agent.friendly_board:
-		if best == null or m.effective_atk() > best.effective_atk():
-			best = m
-	return best
+		if m.card_data.id == "sovereigns_herald":
+			continue
+		if not m.can_attack():
+			continue
+		if m.has_critical_strike():
+			continue
+		if best_no_crit == null or m.effective_atk() > best_no_crit.effective_atk():
+			best_no_crit = m
+	if best_no_crit != null:
+		return best_no_crit
+
+	# Pass 2: attackable minion (even with crit) — stacking is still useful
+	var best_attackable: MinionInstance = null
+	for m: MinionInstance in agent.friendly_board:
+		if m.card_data.id == "sovereigns_herald":
+			continue
+		if not m.can_attack():
+			continue
+		if best_attackable == null or m.effective_atk() > best_attackable.effective_atk():
+			best_attackable = m
+	if best_attackable != null:
+		return best_attackable
+
+	# Pass 3: any non-herald minion
+	var best_any: MinionInstance = null
+	for m: MinionInstance in agent.friendly_board:
+		if m.card_data.id == "sovereigns_herald":
+			continue
+		if best_any == null or m.effective_atk() > best_any.effective_atk():
+			best_any = m
+	return best_any
 
 # ---------------------------------------------------------------------------
 # Play phases
 # ---------------------------------------------------------------------------
 
-## Play regular (non-spark-cost) minions: spirits and heralds.
+## Play Sovereign's Heralds — only when there's an attackable non-Herald target.
+## This ensures the crit is used this turn, not wasted on an exhausted minion.
+func _play_heralds() -> void:
+	var placed := true
+	while placed:
+		placed = false
+		# Check if there's an attackable target for crit
+		var has_attackable_target := false
+		for m: MinionInstance in agent.friendly_board:
+			if m.card_data.id != "sovereigns_herald" and m.can_attack():
+				has_attackable_target = true
+				break
+		if not has_attackable_target:
+			return  # Hold heralds until there's something to buff
+		for inst in agent.hand.duplicate():
+			if inst.card_data.id != "sovereigns_herald":
+				continue
+			var mc := inst.card_data as MinionCardData
+			if mc.essence_cost > agent.essence:
+				continue
+			var slot: BoardSlot = agent.find_empty_slot()
+			if slot == null:
+				return
+			agent.essence -= mc.essence_cost
+			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
+				return
+			placed = true
+			break
+
+## Play spark-cost spells — only when opponent has 2+ minions (AoE value).
+## Consumes cheapest non-crit fuel to preserve crit-buffed minions.
+func _play_spark_spells() -> void:
+	if agent.scene._opponent_board("enemy").size() < 2:
+		return
+	var cast := true
+	while cast:
+		cast = false
+		for inst in agent.hand.duplicate():
+			if not (inst.card_data is SpellCardData):
+				continue
+			if inst.card_data.void_spark_cost <= 0:
+				continue
+			var spell := inst.card_data as SpellCardData
+			var sc: int = _effective_spark_cost(spell)
+			if agent.effective_spell_cost(spell) > agent.mana:
+				continue
+			var plan := _plan_spark_payment_no_crit(sc)
+			if plan.is_empty():
+				continue
+			await _pay_sparks_smart(plan, DeckType.AGGRO)
+			if not agent.is_alive(): return
+			agent.mana -= agent.effective_spell_cost(spell)
+			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
+				return
+			cast = true
+			break
+
+func _play_spark_minions() -> void:
+	pass
+
+## Plan spark payment preferring non-crit minions. Falls back to base if needed.
+func _plan_spark_payment_no_crit(cost: int) -> Array[MinionInstance]:
+	if cost <= 0:
+		return []
+	# Gather fuel without crit first
+	var no_crit: Array[MinionInstance] = []
+	for m: MinionInstance in agent.friendly_board:
+		var sv: int = (m.card_data as MinionCardData).spark_value
+		if sv > 0 and sv <= cost and not m.has_critical_strike():
+			no_crit.append(m)
+	# Sort by value ascending (cheapest first)
+	no_crit.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
+		return (a.effective_atk() + a.current_health) < (b.effective_atk() + b.current_health))
+	var plan: Array[MinionInstance] = []
+	var remaining := cost
+	for m: MinionInstance in no_crit:
+		if remaining <= 0:
+			break
+		plan.append(m)
+		remaining -= (m.card_data as MinionCardData).spark_value
+	if remaining <= 0:
+		return plan
+	# Not enough non-crit fuel — fall back to base payment
+	return _plan_spark_payment(cost)
+
+## Play regular (non-Herald) minions — cheap bodies for crit targets.
 func _play_regular_minions() -> void:
 	var placed := true
 	while placed:
 		placed = false
 		var minion_hand: Array[CardInstance] = []
 		for inst in agent.hand:
-			if inst.card_data is MinionCardData and inst.card_data.void_spark_cost <= 0:
+			if inst.card_data is MinionCardData and inst.card_data.id != "sovereigns_herald":
 				minion_hand.append(inst)
-		# Cheapest first to flood the board
 		minion_hand.sort_custom(agent.sort_by_total_cost)
 		for inst in minion_hand:
 			var mc := inst.card_data as MinionCardData
@@ -122,71 +269,3 @@ func _play_regular_minions() -> void:
 				return
 			placed = true
 			break
-
-## Play spark-cost spells from hand. Spirits attack before being consumed.
-func _play_spark_spells() -> void:
-	var cast := true
-	while cast:
-		cast = false
-		var best: CardInstance = null
-		var best_priority := -1
-		for inst in agent.hand:
-			if not (inst.card_data is SpellCardData):
-				continue
-			if inst.card_data.void_spark_cost <= 0:
-				continue
-			if not _can_afford_spark_card(inst.card_data):
-				continue
-			var p: int = _spark_spell_priority(inst.card_data.id)
-			if p > best_priority:
-				best = inst
-				best_priority = p
-		if best != null:
-			var spell := best.card_data as SpellCardData
-			var plan := _plan_spark_payment(spell.void_spark_cost)
-			if plan.is_empty():
-				return
-			await _pay_sparks_smart(plan, DeckType.TEMPO)
-			if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
-			if not await agent.commit_play_spell(best, pick_spell_target(spell)):
-				return
-			cast = true
-
-## Play spark-cost minions, most expensive first. Spirits attack before consumed.
-func _play_spark_minions() -> void:
-	var placed := true
-	while placed:
-		placed = false
-		var spark_hand: Array[CardInstance] = []
-		for inst in agent.hand:
-			if inst.card_data is MinionCardData and inst.card_data.void_spark_cost > 0:
-				spark_hand.append(inst)
-		# Most expensive first — prioritise Bastion Colossus over Phase Stalker
-		spark_hand.sort_custom(func(a: CardInstance, b: CardInstance) -> bool:
-			return a.card_data.void_spark_cost > b.card_data.void_spark_cost)
-		for inst in spark_hand:
-			if not _can_afford_spark_card(inst.card_data):
-				continue
-			var slot: BoardSlot = agent.find_empty_slot()
-			if slot == null:
-				return
-			var mc := inst.card_data as MinionCardData
-			var plan := _plan_spark_payment(mc.void_spark_cost)
-			if plan.is_empty():
-				continue
-			await _pay_sparks_smart(plan, DeckType.TEMPO)
-			if not agent.is_alive(): return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= agent.effective_minion_mana_cost(mc)
-			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
-				return
-			placed = true
-			break
-
-func _spark_spell_priority(id: String) -> int:
-	match id:
-		"rift_collapse":     return 3
-		"void_pulse":        return 2
-		"sovereigns_decree": return 1
-	return 0

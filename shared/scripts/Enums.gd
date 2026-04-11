@@ -40,6 +40,8 @@ enum Keyword {
 	RUNE,           # A persistent trap placed face-up; provides an ongoing aura effect until consumed by a Ritual
 	CORRUPTION,     # Reduces the afflicted minion's ATK by 100 per stack
 	DEATHLESS,      # Prevents the next fatal damage once; sets HP to 50 and is consumed
+	ETHEREAL,       # Takes 50% reduced damage from minion attacks, 50% increased from spells
+	PIERCE,         # Excess kill damage on a minion carries through to the enemy hero
 	VOID_MARK,      # Display-only pseudo-keyword: shown in tooltip on cards that apply Void Marks
 	RITUAL,         # Display-only pseudo-keyword: shown in tooltip on environment cards that define rituals
 }
@@ -85,6 +87,9 @@ enum TriggerEvent {
 	# ---- Rune / Ritual ----
 	ON_RUNE_PLACED,                    # Player places a Rune (ctx.card = rune). Ritual handlers listen here.
 	ON_RITUAL_ENVIRONMENT_PLAYED,      # Player plays an Environment that defines rituals. Ritual handlers scan here.
+	ON_RITUAL_FIRED,                   # A ritual has resolved (ctx.owner = "player").
+	ON_PLAYER_SPARK_CONSUMED,          # A player minion was consumed as spark cost (ctx.damage = spark_value).
+	ON_ENEMY_SPARK_CONSUMED,           # An enemy minion was consumed as spark cost (ctx.damage = spark_value).
 
 	# ---- Combat lifecycle ----
 	ON_COMBAT_START,            # Combat has begun
@@ -109,6 +114,8 @@ static func mirror_trigger(trigger: TriggerEvent) -> TriggerEvent:
 		TriggerEvent.ON_ENEMY_ATTACK:            return TriggerEvent.ON_PLAYER_ATTACK
 		TriggerEvent.ON_HERO_DAMAGED:            return TriggerEvent.ON_ENEMY_HERO_DAMAGED
 		TriggerEvent.ON_ENEMY_HERO_DAMAGED:      return TriggerEvent.ON_HERO_DAMAGED
+		TriggerEvent.ON_PLAYER_SPARK_CONSUMED:   return TriggerEvent.ON_ENEMY_SPARK_CONSUMED
+		TriggerEvent.ON_ENEMY_SPARK_CONSUMED:    return TriggerEvent.ON_PLAYER_SPARK_CONSUMED
 	return trigger
 
 ## Rune sub-types used as ritual components (Abyss Order signature mechanic)
@@ -158,6 +165,7 @@ enum BuffType {
 	# ---- Combat grants ----
 	CRITICAL_STRIKE, # Stacking. Consumed 1 per attack; doubles effective_atk for that attack.
 	GRANT_SPELL_IMMUNE, # Grants Spell Immune at runtime. Dispellable.
+	GRANT_IMMUNE,       # Grants full damage immunity. Cannot take any damage. Dispellable.
 	# ---- Debuffs ----
 	CORRUPTION,      # Stacking ATK penalty. amount = penalty per stack (100 base, 200 w/ talent).
 }

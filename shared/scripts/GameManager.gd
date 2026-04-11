@@ -198,6 +198,10 @@ func unlock_talent(id: String) -> void:
 		return
 	unlocked_talents.append(id)
 	talent_points -= 1
+	# Capstone rewards: add cards to player deck
+	if id == "abyss_convergence":
+		player_deck.append("echo_rune")
+		player_deck.append("echo_rune")
 
 func has_talent(id: String) -> bool:
 	return id in unlocked_talents
@@ -232,6 +236,8 @@ func get_encounter(index: int) -> EnemyData:
 	var deck_profile: String = result.get("ai_profile", "") as String
 	if not deck_profile.is_empty():
 		e.ai_profile = deck_profile
+	# Per-deck limited cards
+	e.limited_cards = EncounterDecks.get_deck_limited(current_deck_id)
 	return e
 
 func _build_encounter(index: int) -> EnemyData:
@@ -282,30 +288,30 @@ func _build_encounter(index: int) -> EnemyData:
 				"res://assets/art/enemies/portraits/corrupted_handler_portrait.png")
 		# -- Act 3: Void Rift World --
 		7:
-			return _make_encounter("Rift Stalker", 3800, [],
+			return _make_encounter("Rift Stalker", 3000, [],
 				"ENCOUNTER I",
 				"The Void Rift World — a place where reality has frayed. Rift Stalkers phase between dimensions, attacking from angles that shouldn't exist. Stay focused. Don't let it disorient you.",
 				"res://assets/art/progression/backgrounds/fight7_loading.png",
-				["void_rift", "void_empowerment"], "rift_stalker")
+				["void_rift", "void_empowerment", "champion_rift_stalker"], "rift_stalker")
 		8:
-			return _make_encounter("Void Aberration", 4600, [],
+			return _make_encounter("Void Aberration", 3400, [],
 				"ENCOUNTER II",
 				"A Void Aberration — a creature that should not exist in any plane. It was assembled from the broken remnants of things consumed by the rift. It has no purpose except destruction.",
 				"res://assets/art/progression/backgrounds/fight8_loading.png",
-				["void_rift", "void_detonation_passive"], "void_aberration")
+				["void_rift", "void_detonation_passive", "champion_void_aberration"], "void_aberration")
 		9:
-			return _make_encounter("Void Herald", 6500, [],
+			return _make_encounter("Void Herald", 4000, [],
 				"VOID HERALD",
 				"The Void Herald speaks with the voice of the Abyss itself. It has crossed countless worlds before this one. It carries a message: the Abyss Sovereign is coming, and nothing will remain.",
 				"res://assets/art/progression/backgrounds/fight9_loading.png",
-				["void_rift", "void_mastery"], "void_herald")
+				["void_rift", "void_mastery", "champion_void_herald"], "void_herald")
 		# -- Act 4: Void Castle --
 		10:
 			return _make_encounter("Void Scout", 5000, [],
 				"ENCOUNTER I",
 				"The Void Castle looms at the edge of existence. Void Scouts patrol its outer walls — swift, precise, and utterly loyal. The Sovereign's inner sanctum is somewhere beyond.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "void_precision"], "void_scout")
+				["void_might", "void_precision", "champion_void_scout"], "void_scout")
 		11:
 			return _make_encounter("Void Warband", 5600, [],
 				"ENCOUNTER II",

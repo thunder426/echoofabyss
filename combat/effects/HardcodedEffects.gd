@@ -92,13 +92,14 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			_runic_echo(ctx)
 		"echo_rune_fire":
 			_echo_rune_fire(ctx)
-		"rune_seeker_play":
-			_rune_seeker_play(ctx)
 		# --- Void Rift World ---
 		"void_rift_lord_mana_drain":
-			if ctx.owner == "enemy":
+			var opponent: String = _scene._opponent_of(ctx.owner)
+			if opponent == "player":
 				_scene.set("_void_mana_drain_pending", true)
-				_log("  Void Rift Lord: player's Mana will be drained to 0 next turn!", _LOG_ENEMY)
+			if _scene.get("_rift_lord_plays") != null:
+				_scene._rift_lord_plays += 1
+			_log("  Void Rift Lord: %s's Mana will be drained to 0 next turn!" % opponent, _log_side(ctx.owner))
 		# --- Feral Imp Clan ---
 		"frenzied_imp_play":
 			_frenzied_imp_play(ctx)
@@ -313,18 +314,6 @@ func _echo_rune_fire(ctx: EffectContext) -> void:
 		var eff_ctx := EffectContext.make(_scene, ctx.owner)
 		EffectResolver.run(last_rune.aura_effect_steps, eff_ctx)
 
-## rune_seeker_play: symmetric — searches owner's deck for a rune
-func _rune_seeker_play(ctx: EffectContext) -> void:
-	var deck: Array = _scene._friendly_deck(ctx.owner)
-	var ls := _log_side(ctx.owner)
-	for i in deck.size():
-		var inst: CardInstance = deck[i]
-		if inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune:
-			deck.remove_at(i)
-			_scene._add_to_owner_hand(ctx.owner, inst)
-			_log("  Rune Seeker: found %s." % inst.card_data.card_name, ls)
-			return
-	_log("  Rune Seeker: no Rune in deck.", ls)
 
 # ---------------------------------------------------------------------------
 # Feral Imp Clan effects (already symmetric)

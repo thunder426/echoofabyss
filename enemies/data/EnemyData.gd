@@ -19,3 +19,5 @@ extends Resource
 @export var passives: Array[String] = []
 ## AI behaviour profile ID. "default" = generic EnemyAI logic; others are encounter-specific.
 @export var ai_profile: String = "default"
+## Card IDs flagged as limited — drawn once per copy, not re-added to deck after draw.
+@export var limited_cards: Array[String] = []

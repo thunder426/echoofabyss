@@ -112,6 +112,36 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					ctx.scene.combat_manager.apply_hero_damage(opponent, dmg, Enums.DamageType.SPELL)
 			return
 
+		EffectStep.EffectType.TUTOR:
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var count := maxi(1, step.amount)
+				var found := 0
+				var deck: Array = ctx.scene._friendly_deck(ctx.owner)
+				var i := 0
+				while i < deck.size() and found < count:
+					var inst: CardInstance = deck[i]
+					var match_found := false
+					match step.tutor_filter:
+						"spark_cost":
+							match_found = inst.card_data.void_spark_cost > 0
+						"rune":
+							match_found = inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune
+					if match_found:
+						deck.remove_at(i)
+						ctx.scene._add_to_owner_hand(ctx.owner, inst)
+						found += 1
+					else:
+						i += 1
+			return
+
+		EffectStep.EffectType.COUNTER_SPELL:
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var opponent := "player" if ctx.owner == "enemy" else "enemy"
+				var key := "_player_spell_counter" if opponent == "player" else "_enemy_spell_counter"
+				var current: int = ctx.scene.get(key) if ctx.scene.get(key) != null else 0
+				ctx.scene.set(key, current + 1)
+			return
+
 		EffectStep.EffectType.HARDCODED:
 			ctx.scene._resolve_hardcoded(step.hardcoded_id, ctx)
 			return

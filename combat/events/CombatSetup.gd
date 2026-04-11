@@ -58,6 +58,10 @@ const _REGISTRY: Dictionary = {
 		"triggers": [],
 		"stats":    { "rune_aura_multiplier": 2 }
 	},
+	"ritual_surge": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_RITUAL_FIRED, "method": "on_ritual_fired_ritual_surge", "priority": 0 }],
+		"stats":    {}
+	},
 
 	# ── Hero passives ─────────────────────────────────────────────────────────
 	"void_imp_boost": {
@@ -163,6 +167,38 @@ const _REGISTRY: Dictionary = {
 		],
 		"stats": { "_champion_ch_spark_count": 0, "_champion_ch_summoned": false }
 	},
+	# ── Act 3 enemy champion passives ────────────────────────────────────────
+	"champion_rift_stalker": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK,           "method": "on_enemy_attack_champion_rs",        "priority": 86 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  "method": "on_enemy_summon_champion_rs_immune", "priority": 87 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,      "method": "on_enemy_died_champion_rs",          "priority": 88 },
+		],
+		"stats": { "_champion_rs_spark_dmg": 0, "_champion_rs_summoned": false }
+	},
+	"champion_void_aberration": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED,  "method": "on_spark_consumed_champion_va", "priority": 89 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_champion_va",     "priority": 90 },
+		],
+		"stats": { "_champion_va_sparks_consumed": 0, "_champion_va_summoned": false }
+	},
+	"champion_void_herald": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,       "method": "on_enemy_spark_card_champion_vh", "priority": 91 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  "method": "on_enemy_spark_card_champion_vh", "priority": 91 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,      "method": "on_enemy_died_champion_vh",       "priority": 92 },
+		],
+		"stats": { "_champion_vh_spark_cards_played": 0, "_champion_vh_summoned": false }
+	},
+	# ── Act 4 enemy champion passives ────────────────────────────────────────
+	"champion_void_scout": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_END,     "method": "on_enemy_turn_end_champion_vs",    "priority": 50 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,  "method": "on_enemy_died_champion_vs",        "priority": 93 },
+		],
+		"stats": { "_champion_vs_crits_consumed": 0, "_champion_vs_summoned": false }
+	},
 	# ── Act 3 enemy passives ──────────────────────────────────────────────────
 	"void_rift": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_void_rift", "priority": 3 }],
@@ -172,9 +208,8 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_void_empowerment", "priority": 1 }],
 		"stats":    {}
 	},
-	# void_detonation_passive: no triggers — invoked directly by AI profile's _consume_sparks()
 	"void_detonation_passive": {
-		"triggers": [],
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED, "method": "on_spark_consumed_void_detonation", "priority": 5 }],
 		"stats":    {}
 	},
 	# void_mastery: no triggers — AI profile checks for this passive to halve spark costs
@@ -192,11 +227,8 @@ const _REGISTRY: Dictionary = {
 		"stats":    {}
 	},
 	"void_precision": {
-		"triggers": [
-			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK, "method": "on_enemy_attack_void_precision_pre",  "priority": 0 },
-			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK, "method": "on_enemy_attack_void_precision_post", "priority": 99 },
-		],
-		"stats":    { "_vp_pre_crit_stacks": 0 }
+		"triggers": [],  # Handled directly by CombatManager._post_crit()
+		"stats":    {}
 	},
 	"spirit_conscription": {
 		"triggers": [
@@ -243,6 +275,8 @@ func setup(
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_minion_died_death_effect,           5)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     h.on_minion_died_death_effect,           5)
 	tm.register(Enums.TriggerEvent.ON_RUNE_PLACED,           h.on_player_minion_died_rune_warden,     5)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_turn_end_hollow_sentinel,          20)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_END,       h.on_turn_end_hollow_sentinel,          20)
 
 	# ── Conditional: registry-driven registration and stat overrides ──────────
 	for id in talents:       _apply(id, tm, h, scene)

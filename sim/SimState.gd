@@ -61,6 +61,7 @@ var player_discard: Array[CardInstance] = []
 var enemy_deck:    Array[CardInstance] = []
 var enemy_hand:    Array[CardInstance] = []
 var enemy_discard: Array[CardInstance] = []
+var enemy_limited_cards: Array[String] = []
 
 # ---------------------------------------------------------------------------
 # Traps / environment / void marks
@@ -99,6 +100,10 @@ var _enemy_traps_blocked: bool = false
 
 ## When true, player traps cannot trigger (set by enemy Saboteur Adept, cleared at enemy turn end).
 var _player_traps_blocked: bool = false
+
+## Spell counter: when > 0, next spell cast by this side is cancelled and counter decrements.
+var _player_spell_counter: int = 0
+var _enemy_spell_counter: int = 0
 
 ## Debug counters for sim tracking.
 var _ritual_sacrifice_count: int = 0   ## Enemy ritual_sacrifice passive fires
@@ -163,6 +168,10 @@ var feral_instinct_granted_this_turn: bool = false
 var _vp_pre_crit_stacks: int = 0
 var _spirit_conscription_fired: bool = false
 var crit_multiplier: float = 2.0
+var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
+var _enemy_crits_consumed: int = 0
+var _player_crits_consumed: int = 0
+var _last_crit_attacker: MinionInstance = null
 var _dark_channeling_active: bool = false
 var _dark_channeling_multiplier: float = 1.0
 
@@ -181,6 +190,23 @@ var _champion_vr_summoned: bool = false
 var _champion_ch_spark_count: int = 0
 var _champion_ch_summoned: bool = false
 var _champion_ch_aura_dmg: int = 0
+# Act 3 champion state
+var _champion_rs_spark_dmg: int = 0
+var _champion_rs_summoned: bool = false
+# Act 3 champion: Void Aberration
+var _champion_va_sparks_consumed: int = 0
+var _champion_va_summoned: bool = false
+# Act 3 champion: Void Herald
+var _champion_vh_spark_cards_played: int = 0
+var _champion_vh_summoned: bool = false
+# Act 4 champion: Void Scout
+var _champion_vs_crits_consumed: int = 0
+var _champion_vs_summoned: bool = false
+var _rift_lord_plays: int = 0  ## Times Void Rift Lord was played
+var _hollow_sentinel_buffs: int = 0  ## Times Hollow Sentinel buffed sparks
+var _immune_dmg_prevented: int = 0  ## Total damage prevented by GRANT_IMMUNE
+var _rift_collapse_casts: int = 0   ## Rift Collapse casts by enemy
+var _rift_collapse_kills: int = 0   ## Player minions killed by Rift Collapse
 
 # ---------------------------------------------------------------------------
 # Sim result
@@ -385,10 +411,16 @@ func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = n
 func _void_mark_damage_per_stack() -> int:
 	return void_mark_damage_per_stack
 
+var debug_log_enabled: bool = false
+
 func _log(_msg: Variant, _type: int = 0) -> void:
-	pass  # no logging in headless sim
+	if debug_log_enabled:
+		print(_msg)
 
 func _refresh_slot_for(_target) -> void:
+	pass  # no UI
+
+func _update_counter_warning() -> void:
 	pass  # no UI
 
 func _update_champion_progress(_current: int, _total: int) -> void:
@@ -598,9 +630,10 @@ func _fire_ritual(ritual: RitualData) -> void:
 					break
 	var ritual_ctx := EffectContext.make(self, "player")
 	EffectResolver.run(ritual.effect_steps, ritual_ctx)
-	if "ritual_surge" in talents:
-		_summon_void_imp()
-		_summon_void_imp()
+	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
+	if trigger_manager:
+		var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
+		trigger_manager.fire(fired_ctx)
 
 ## Draw a random Rune card from the player's deck into hand, applying -1 cost via cost_delta.
 func _draw_rune_from_deck() -> void:
@@ -651,11 +684,14 @@ func _draw_enemy(count: int) -> void:
 	for _i in count:
 		if enemy_hand.size() >= ENEMY_HAND_MAX: break
 		if enemy_deck.is_empty():
-			if enemy_discard.is_empty(): break
-			enemy_deck = enemy_discard.duplicate()
-			enemy_discard.clear()
+			break
+		var inst: CardInstance = enemy_deck.pop_front()
+		enemy_hand.append(inst)
+		# Add a fresh replacement so the deck never truly empties
+		# Limited cards are NOT re-added (one-time draw per copy)
+		if inst.card_data.id not in enemy_limited_cards:
+			enemy_deck.append(CardInstance.create(inst.card_data))
 			enemy_deck.shuffle()
-		enemy_hand.append(enemy_deck.pop_front())
 
 # ---------------------------------------------------------------------------
 # Turn helpers — called by CombatSim

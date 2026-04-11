@@ -63,11 +63,11 @@ const _ENEMY_PASSIVES: Dictionary = {
 	"cultist_patrol_tempo": ["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"],
 	"void_ritualist":       ["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"],
 	"corrupted_handler":    ["feral_reinforcement", "void_unraveling", "champion_corrupted_handler"],
-	"rift_stalker":         ["void_rift", "void_empowerment"],
-	"void_aberration":      ["void_rift", "void_detonation_passive"],
-	"void_herald":          ["void_rift", "void_mastery"],
+	"rift_stalker":         ["void_rift", "void_empowerment", "champion_rift_stalker"],
+	"void_aberration":      ["void_rift", "void_detonation_passive", "champion_void_aberration"],
+	"void_herald":          ["void_rift", "void_mastery", "champion_void_herald"],
 	# Act 4 — Void Castle
-	"void_scout":           ["void_might", "void_precision"],
+	"void_scout":           ["void_might", "void_precision", "champion_void_scout"],
 	"void_warband":         ["void_might", "spirit_conscription"],
 	"void_captain":         ["void_might", "captain_orders"],
 	"void_ritualist_prime": ["void_might", "dark_channeling"],
@@ -113,10 +113,14 @@ func run(
 		player_hero_passives: Array[String] = [],
 		player_relic_ids: Array[String] = [],
 		relic_bonus_charges: Dictionary = {},
-		dmg_log: bool = false) -> Dictionary:
+		dmg_log: bool = false,
+		debug: bool = false,
+		enemy_limited: Array[String] = []) -> Dictionary:
 
 	var state := SimState.new()
 	state.dmg_log_enabled = dmg_log
+	state.debug_log_enabled = debug
+	state.enemy_limited_cards = enemy_limited
 	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
 	state.enemy_hp_max = enemy_hp
 	state.talents = player_talents
@@ -165,14 +169,29 @@ func run(
 	while state.winner.is_empty() and turn < MAX_TURNS:
 		turn += 1
 
+		if state.debug_log_enabled:
+			print("\n=== TURN %d === P_HP:%d E_HP:%d" % [turn, state.player_hp, state.enemy_hp])
+			var p_cards: Array[String] = []
+			for m in state.player_board: p_cards.append("%s(%d/%d)" % [m.card_data.card_name, m.effective_atk(), m.current_health])
+			var e_cards: Array[String] = []
+			for m in state.enemy_board: e_cards.append("%s(%d/%d)" % [m.card_data.card_name, m.effective_atk(), m.current_health])
+			print("  P_Board: %s" % ", ".join(p_cards) if not p_cards.is_empty() else "  P_Board: (empty)")
+			print("  E_Board: %s" % ", ".join(e_cards) if not e_cards.is_empty() else "  E_Board: (empty)")
+			var e_hand: Array[String] = []
+			for inst in state.enemy_hand: e_hand.append(inst.card_data.card_name)
+			print("  E_Hand: %s" % ", ".join(e_hand) if not e_hand.is_empty() else "  E_Hand: (empty)")
+
 		# ── Player turn ──────────────────────────────────────────────────────
 		state.begin_player_turn(turn)
 		state._relic_hero_immune = false
 		state._relic_cost_reduction = 0
 		if relic_rt:
 			relic_rt.on_turn_start()
-			# Phase 1: Activate draw/imp relics at turn start (on cooldown)
+			# Phase 1: Activate draw/imp/guardian relics at turn start (on cooldown)
 			_try_relic_start_of_turn(relic_rt, relic_fx, state)
+			# Phase 1b: Dark Mirror — cost reduction before play phase
+			if not relic_rt.activated_this_turn:
+				_try_relic_dark_mirror(relic_rt, relic_fx, state)
 		await p_profile.play_phase()
 		if not state.winner.is_empty(): break
 		# Phase 2: Mana Shard — after play phase if mana spent and castable cards remain
@@ -182,6 +201,12 @@ func run(
 			if relic_rt.activated_this_turn:
 				await p_profile.play_phase()
 				if not state.winner.is_empty(): break
+		# Phase 2b: Void Lens — AoE after play phase
+		if relic_rt and not relic_rt.activated_this_turn:
+			_try_relic_void_lens(relic_rt, relic_fx, state)
+		# Phase 2c: Blood Chalice — execute after play phase
+		if relic_rt and not relic_rt.activated_this_turn:
+			_try_relic_blood_chalice(relic_rt, relic_fx, state)
 		await p_profile.attack_phase()
 		# Phase 3: Bone Shield — after attacks, if enemy threatens lethal
 		if relic_rt and not relic_rt.activated_this_turn:
@@ -201,9 +226,18 @@ func run(
 
 		# ── Enemy turn ───────────────────────────────────────────────────────
 		state.begin_enemy_turn(turn)
+		if state.debug_log_enabled:
+			print("  -- Enemy play phase --")
 		await e_profile.play_phase()
 		if not state.winner.is_empty(): break
+		if state.debug_log_enabled:
+			var e_cards_post: Array[String] = []
+			for m in state.enemy_board: e_cards_post.append("%s(%d/%d)" % [m.card_data.card_name, m.effective_atk(), m.current_health])
+			print("  E_Board after play: %s" % ", ".join(e_cards_post) if not e_cards_post.is_empty() else "  E_Board after play: (empty)")
+			print("  -- Enemy attack phase --")
 		await e_profile.attack_phase()
+		if state.debug_log_enabled:
+			print("  P_HP after attacks: %d  E_HP: %d" % [state.player_hp, state.enemy_hp])
 		state.end_enemy_turn()
 
 	return {
@@ -231,6 +265,13 @@ func run(
 		"void_bolt_spell_casts": state._void_bolt_spell_casts,
 		"void_bolt_total_dmg": state._void_bolt_total_dmg,
 		"void_imp_dmg": state._void_imp_dmg,
+		"spark_atk_dmg": state._champion_rs_spark_dmg,
+		"hollow_sentinel_buffs": state._hollow_sentinel_buffs,
+		"immune_dmg_prevented": state._immune_dmg_prevented,
+		"rift_lord_plays": state._rift_lord_plays,
+		"enemy_crits_consumed": state._enemy_crits_consumed,
+		"rift_collapse_casts": state._rift_collapse_casts,
+		"rift_collapse_kills": state._rift_collapse_kills,
 		"dmg_log": state.dmg_log,
 		"relic_activations": relic_rt.total_activations if relic_rt else 0,
 	}
@@ -252,7 +293,8 @@ func run_many(
 		player_profile_id: String = "default",
 		player_hero_passives: Array[String] = [],
 		player_relic_ids: Array[String] = [],
-		relic_bonus_charges: Dictionary = {}) -> Dictionary:
+		relic_bonus_charges: Dictionary = {},
+		enemy_limited: Array[String] = []) -> Dictionary:
 
 	var wins   := 0
 	var losses := 0
@@ -279,11 +321,21 @@ func run_many(
 	var total_void_bolt_casts := 0
 	var total_void_bolt_dmg := 0
 	var total_void_imp_dmg := 0
+	var total_spark_atk_dmg := 0
+	var total_sentinel_buffs := 0
+	var total_immune_prevented := 0
+	var total_collapse_casts := 0
+	var total_collapse_kills := 0
+	var total_rift_lord_plays := 0
+	var rift_lord_wins := 0
+	var rift_lord_games := 0
+	var total_crits_consumed := 0
 
 	for _i in count:
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
 				enemy_deck_ids, player_hp, enemy_hp, player_talents, player_profile_id,
-				player_hero_passives, player_relic_ids, relic_bonus_charges)
+				player_hero_passives, player_relic_ids, relic_bonus_charges, false, false,
+				enemy_limited)
 		match r["winner"]:
 			"player": wins   += 1
 			"enemy":  losses += 1
@@ -310,6 +362,18 @@ func run_many(
 		total_void_bolt_casts += r.get("void_bolt_spell_casts", 0)
 		total_void_bolt_dmg += r.get("void_bolt_total_dmg", 0)
 		total_void_imp_dmg += r.get("void_imp_dmg", 0)
+		total_spark_atk_dmg += r.get("spark_atk_dmg", 0)
+		total_sentinel_buffs += r.get("hollow_sentinel_buffs", 0)
+		total_immune_prevented += r.get("immune_dmg_prevented", 0)
+		total_collapse_casts += r.get("rift_collapse_casts", 0)
+		total_collapse_kills += r.get("rift_collapse_kills", 0)
+		total_crits_consumed += r.get("enemy_crits_consumed", 0)
+		var rl: int = r.get("rift_lord_plays", 0)
+		total_rift_lord_plays += rl
+		if rl > 0:
+			rift_lord_games += 1
+			if r["winner"] == "player":
+				rift_lord_wins += 1
 
 	return {
 		"count":          count,
@@ -339,6 +403,15 @@ func run_many(
 		"avg_void_bolt_casts": float(total_void_bolt_casts) / count,
 		"avg_void_bolt_dmg": float(total_void_bolt_dmg) / count,
 		"avg_void_imp_dmg": float(total_void_imp_dmg) / count,
+		"avg_spark_atk_dmg": float(total_spark_atk_dmg) / count,
+		"avg_sentinel_buffs": float(total_sentinel_buffs) / count,
+		"avg_immune_prevented": float(total_immune_prevented) / count,
+		"avg_collapse_casts": float(total_collapse_casts) / count,
+		"avg_collapse_kills": float(total_collapse_kills) / count,
+		"avg_crits_consumed": float(total_crits_consumed) / count,
+		"avg_rift_lord_plays": float(total_rift_lord_plays) / count,
+		"rift_lord_games": rift_lord_games,
+		"rift_lord_win_rate": float(rift_lord_wins) / rift_lord_games if rift_lord_games > 0 else 0.0,
 	}
 
 # ---------------------------------------------------------------------------
@@ -351,7 +424,7 @@ func _try_relic_start_of_turn(rt: RelicRuntime, fx: RelicEffects, _state: SimSta
 		if not rt.can_activate(i):
 			continue
 		var eid: String = rt.relics[i].data.effect_id
-		if eid in ["relic_draw_2", "relic_add_void_imp"]:
+		if eid in ["relic_draw_2", "relic_add_void_imp", "relic_summon_guardian"]:
 			var effect_id: String = rt.activate(i)
 			if effect_id != "":
 				fx.resolve(effect_id)
@@ -401,6 +474,43 @@ func _try_relic_bone_shield(rt: RelicRuntime, fx: RelicEffects, state: SimState)
 		var effect_id: String = rt.activate(idx)
 		if effect_id != "":
 			fx.resolve(effect_id)
+
+## Dark Mirror: use before play phase — reduces next card cost by 2E+2M.
+func _try_relic_dark_mirror(rt: RelicRuntime, fx: RelicEffects, _state: SimState) -> void:
+	var idx: int = rt.find_by_id("dark_mirror")
+	if idx < 0 or not rt.can_activate(idx):
+		return
+	var effect_id: String = rt.activate(idx)
+	if effect_id != "":
+		fx.resolve(effect_id)
+
+## Void Lens: use after play phase — AoE 100 damage + corruption to all enemies.
+func _try_relic_void_lens(rt: RelicRuntime, fx: RelicEffects, state: SimState) -> void:
+	var idx: int = rt.find_by_id("void_lens")
+	if idx < 0 or not rt.can_activate(idx):
+		return
+	# Only fire if enemy has minions to hit
+	if state.enemy_board.is_empty():
+		return
+	var effect_id: String = rt.activate(idx)
+	if effect_id != "":
+		fx.resolve(effect_id)
+
+## Blood Chalice: use after play phase — 500 damage to highest ATK enemy.
+func _try_relic_blood_chalice(rt: RelicRuntime, fx: RelicEffects, state: SimState) -> void:
+	var idx: int = rt.find_by_id("blood_chalice")
+	if idx < 0 or not rt.can_activate(idx):
+		return
+	# Fire if there's a high-value target (ATK >= 300) or if it would kill something
+	var best_atk := 0
+	for m in state.enemy_board:
+		if m.effective_atk() > best_atk:
+			best_atk = m.effective_atk()
+	if best_atk < 300 and state.enemy_board.is_empty():
+		return
+	var effect_id: String = rt.activate(idx)
+	if effect_id != "":
+		fx.resolve(effect_id)
 
 ## Count 0-ATK minions on the player board (corrupted sparks clogging slots).
 static func _count_clogged_slots(state: SimState) -> int:

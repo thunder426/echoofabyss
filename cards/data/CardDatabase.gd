@@ -96,7 +96,7 @@ func _register_wanderer_cards() -> void:
 	void_imp.id             = "void_imp"
 	void_imp.card_name      = "Void Imp"
 	void_imp.essence_cost   = 1
-	void_imp.description    = "ON PLAY: deal 100 damage to the enemy hero."
+	void_imp.description    = "ON PLAY: Deal 100 damage to enemy hero."
 	void_imp.atk            = 100
 	void_imp.health         = 100
 	void_imp.minion_type    = Enums.MinionType.DEMON
@@ -113,7 +113,7 @@ func _register_wanderer_cards() -> void:
 	senior_void_imp.id           = "senior_void_imp"
 	senior_void_imp.card_name    = "Senior Void Imp"
 	senior_void_imp.essence_cost = 2
-	senior_void_imp.description  = "ON PLAY: deal 100 damage to the enemy hero."
+	senior_void_imp.description  = "ON PLAY: Deal 100 damage to enemy hero."
 	senior_void_imp.atk          = 300
 	senior_void_imp.health       = 250
 	senior_void_imp.minion_type  = Enums.MinionType.DEMON
@@ -131,7 +131,7 @@ func _register_wanderer_cards() -> void:
 	runic_void_imp.card_name             = "Runic Void Imp"
 	runic_void_imp.essence_cost          = 2
 	runic_void_imp.mana_cost             = 1
-	runic_void_imp.description           = "ON PLAY: deal 300 damage to a selected enemy minion."
+	runic_void_imp.description           = "ON PLAY: Deal 300 damage to an enemy minion."
 	runic_void_imp.atk                   = 200
 	runic_void_imp.health                = 300
 	runic_void_imp.minion_type           = Enums.MinionType.DEMON
@@ -151,7 +151,7 @@ func _register_wanderer_cards() -> void:
 	void_imp_wizard.card_name    = "Void Imp Wizard"
 	void_imp_wizard.essence_cost = 2
 	void_imp_wizard.mana_cost    = 1
-	void_imp_wizard.description  = "ON PLAY: deal 300 Void Bolt damage to the enemy hero and apply 1 VOID MARK."
+	void_imp_wizard.description  = "ON PLAY: Deal 300 Void Bolt damage to enemy hero and apply 1 VOID MARK."
 	void_imp_wizard.atk          = 100
 	void_imp_wizard.health       = 300
 	void_imp_wizard.minion_type  = Enums.MinionType.DEMON
@@ -170,7 +170,7 @@ func _register_wanderer_cards() -> void:
 	shadow_hound.id             = "shadow_hound"
 	shadow_hound.card_name      = "Shadow Hound"
 	shadow_hound.essence_cost   = 2
-	shadow_hound.description    = "ON PLAY: gains +100 ATK for each other Demon on your board."
+	shadow_hound.description    = "ON PLAY: Gain +100 ATK for each other friendly Demon on board."
 	shadow_hound.atk            = 200
 	shadow_hound.health         = 300
 	shadow_hound.minion_type    = Enums.MinionType.DEMON
@@ -200,7 +200,7 @@ func _register_wanderer_cards() -> void:
 	dark_empowerment.id             = "dark_empowerment"
 	dark_empowerment.card_name      = "Dark Empowerment"
 	dark_empowerment.cost           = 1
-	dark_empowerment.description    = "Give a friendly minion +150 ATK permanently. If it's a Demon, also give it +150 HP."
+	dark_empowerment.description    = "Give a friendly minion +150 ATK. If it is a Demon, also give +150 HP."
 	dark_empowerment.requires_target = true
 	dark_empowerment.target_type    = "friendly_minion"
 	dark_empowerment.effect_steps = [
@@ -257,7 +257,7 @@ func _register_wanderer_cards() -> void:
 	void_execution.id             = "void_execution"
 	void_execution.card_name      = "Void Execution"
 	void_execution.cost           = 3
-	void_execution.description    = "Deal 500 damage to a target enemy. If you control any Human, deal 700 instead."
+	void_execution.description    = "Deal 500 damage to an enemy minion or enemy hero. If you control any Human, deal 700 instead."
 	void_execution.requires_target = true
 	void_execution.target_type    = "enemy_minion_or_hero"
 	void_execution.effect_steps = [
@@ -319,7 +319,7 @@ func _register_wanderer_cards() -> void:
 	var traveling_merchant := MinionCardData.new()
 	traveling_merchant.id             = "traveling_merchant"
 	traveling_merchant.card_name      = "Traveling Merchant"
-	traveling_merchant.description    = "ON PLAY: draw a card."
+	traveling_merchant.description    = "ON PLAY: Draw a card."
 	traveling_merchant.essence_cost   = 2
 	traveling_merchant.atk            = 100
 	traveling_merchant.health         = 100
@@ -332,7 +332,7 @@ func _register_wanderer_cards() -> void:
 	var trapbreaker_rogue := MinionCardData.new()
 	trapbreaker_rogue.id             = "trapbreaker_rogue"
 	trapbreaker_rogue.card_name      = "Trapbreaker Rogue"
-	trapbreaker_rogue.description    = "ON PLAY: destroy a random enemy trap."
+	trapbreaker_rogue.description    = "ON PLAY: Destroy a random enemy trap."
 	trapbreaker_rogue.essence_cost   = 2
 	trapbreaker_rogue.atk            = 250
 	trapbreaker_rogue.health         = 200
@@ -368,7 +368,7 @@ func _register_wanderer_cards() -> void:
 	var spell_taxer := MinionCardData.new()
 	spell_taxer.id             = "spell_taxer"
 	spell_taxer.card_name      = "Spell Taxer"
-	spell_taxer.description    = "ON PLAY: enemy spells cost +1 Mana next turn."
+	spell_taxer.description    = "ON PLAY: Enemy spells cost +1 Mana next turn."
 	spell_taxer.essence_cost   = 3
 	spell_taxer.atk            = 250
 	spell_taxer.health         = 300
@@ -381,7 +381,7 @@ func _register_wanderer_cards() -> void:
 	var saboteur_adept := MinionCardData.new()
 	saboteur_adept.id             = "saboteur_adept"
 	saboteur_adept.card_name      = "Saboteur Adept"
-	saboteur_adept.description    = "ON PLAY: enemy traps cannot trigger this turn."
+	saboteur_adept.description    = "ON PLAY: Enemy traps cannot trigger this turn."
 	saboteur_adept.essence_cost   = 3
 	saboteur_adept.atk            = 300
 	saboteur_adept.health         = 300
@@ -410,7 +410,7 @@ func _register_wanderer_cards() -> void:
 	var bulwark_automaton := MinionCardData.new()
 	bulwark_automaton.id          = "bulwark_automaton"
 	bulwark_automaton.card_name   = "Bulwark Automaton"
-	bulwark_automaton.description = "DEATHLESS."
+	bulwark_automaton.description = ""
 	bulwark_automaton.essence_cost = 4
 	bulwark_automaton.atk         = 300
 	bulwark_automaton.health      = 500
@@ -439,7 +439,7 @@ func _register_wanderer_cards() -> void:
 	var ruins_archivist := MinionCardData.new()
 	ruins_archivist.id             = "ruins_archivist"
 	ruins_archivist.card_name      = "Ruins Archivist"
-	ruins_archivist.description    = "ON PLAY: draw a card."
+	ruins_archivist.description    = "ON PLAY: Draw a card."
 	ruins_archivist.essence_cost   = 5
 	ruins_archivist.atk            = 450
 	ruins_archivist.health         = 500
@@ -500,7 +500,7 @@ func _register_wanderer_cards() -> void:
 	arcane_strike.id              = "arcane_strike"
 	arcane_strike.card_name       = "Arcane Strike"
 	arcane_strike.cost            = 1
-	arcane_strike.description     = "Deal 300 damage to a target minion."
+	arcane_strike.description     = "Deal 300 damage to a minion."
 	arcane_strike.requires_target = true
 	arcane_strike.target_type     = "any_minion"
 
@@ -513,7 +513,7 @@ func _register_wanderer_cards() -> void:
 	purge.id              = "purge"
 	purge.card_name       = "Purge"
 	purge.cost            = 1
-	purge.description     = "Remove all runtime effects from a target minion."
+	purge.description     = "Remove all buffs and debuffs from a minion."
 	purge.requires_target = true
 	purge.target_type     = "any_minion"
 	purge.faction         = "neutral"
@@ -525,7 +525,7 @@ func _register_wanderer_cards() -> void:
 	cyclone.id          = "cyclone"
 	cyclone.card_name   = "Cyclone"
 	cyclone.cost        = 1
-	cyclone.description    = "Destroy a target active Trap or the active Environment."
+	cyclone.description    = "Destroy an active Trap/Rune or the active Environment."
 	cyclone.requires_target = true
 	cyclone.target_type     = "trap_or_env"
 	cyclone.effect_steps    = [{"type": "DESTROY", "scope": "SINGLE_CHOSEN_TRAP_OR_ENV"}]
@@ -548,7 +548,7 @@ func _register_wanderer_cards() -> void:
 	precision_strike.id              = "precision_strike"
 	precision_strike.card_name       = "Precision Strike"
 	precision_strike.cost            = 3
-	precision_strike.description     = "Deal 600 damage to a target minion."
+	precision_strike.description     = "Deal 600 damage to a minion."
 	precision_strike.requires_target = true
 	precision_strike.target_type     = "any_minion"
 
@@ -580,8 +580,8 @@ func _register_wanderer_cards() -> void:
 	dark_covenant.id                    = "dark_covenant"
 	dark_covenant.card_name             = "Dark Covenant"
 	dark_covenant.cost                  = 2
-	dark_covenant.description           = "While any friendly Human is on your board, your Demons have +100 ATK.\nWhile any friendly Demon is on your board, your Humans have +100 HP."
-	dark_covenant.passive_description   = "Demons have +100 ATK while a Human is present. Humans restore 100 HP each turn while a Demon is present."
+	dark_covenant.description           = "AURA: While a friendly Human is on board, all friendly Demons have +100 ATK.\nWhile a friendly Demon is on board, all friendly Humans have +100 HP."
+	dark_covenant.passive_description   = "AURA: All friendly Demons have +100 ATK while a friendly Human is present. All friendly Humans have +100 HP while a friendly Demon is present."
 	dark_covenant.passive_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "dark_covenant_passive"}]
 	dark_covenant.on_replace_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "dark_covenant_remove"}]
 	dark_covenant.faction               = "abyss_order"
@@ -598,7 +598,7 @@ func _register_wanderer_cards() -> void:
 	abyss_cultist.id             = "abyss_cultist"
 	abyss_cultist.card_name      = "Abyss Cultist"
 	abyss_cultist.essence_cost   = 1
-	abyss_cultist.description    = "ON PLAY: CORRUPT a random enemy minion, apply 1 stack of CORRUPTION to it."
+	abyss_cultist.description    = "ON PLAY: Apply 1 CORRUPTION to a random enemy minion."
 	abyss_cultist.atk            = 100
 	abyss_cultist.health         = 300
 	abyss_cultist.minion_type    = Enums.MinionType.HUMAN
@@ -612,7 +612,7 @@ func _register_wanderer_cards() -> void:
 	void_netter.id             = "void_netter"
 	void_netter.card_name      = "Void Netter"
 	void_netter.essence_cost   = 2
-	void_netter.description             = "ON PLAY: deal 200 damage to a target enemy minion."
+	void_netter.description             = "ON PLAY: Deal 200 damage to an enemy minion."
 	void_netter.atk                     = 100
 	void_netter.health                  = 300
 	void_netter.minion_type             = Enums.MinionType.HUMAN
@@ -628,7 +628,7 @@ func _register_wanderer_cards() -> void:
 	corruption_weaver.id             = "corruption_weaver"
 	corruption_weaver.card_name      = "Corruption Weaver"
 	corruption_weaver.essence_cost   = 3
-	corruption_weaver.description    = "ON PLAY: CORRUPT all enemy minions, apply 1 stack of CORRUPTION to them"
+	corruption_weaver.description    = "ON PLAY: Apply 1 CORRUPTION to all enemy minions."
 	corruption_weaver.atk            = 100
 	corruption_weaver.health         = 400
 	corruption_weaver.minion_type    = Enums.MinionType.HUMAN
@@ -642,7 +642,7 @@ func _register_wanderer_cards() -> void:
 	soul_collector.id             = "soul_collector"
 	soul_collector.card_name      = "Soul Collector"
 	soul_collector.essence_cost   = 5
-	soul_collector.description             = "ON PLAY: instantly kill a target Corrupted enemy minion."
+	soul_collector.description             = "ON PLAY: Destroy a Corrupted enemy minion."
 	soul_collector.atk                     = 300
 	soul_collector.health                  = 700
 	soul_collector.minion_type             = Enums.MinionType.HUMAN
@@ -677,7 +677,7 @@ func _register_wanderer_cards() -> void:
 	void_spawner.id           = "void_spawner"
 	void_spawner.card_name    = "Void Spawner"
 	void_spawner.essence_cost = 4
-	void_spawner.description  = "PASSIVE: whenever a friendly demon dies, summon a 100/100 Void Spark."
+	void_spawner.description  = "PASSIVE: Whenever a friendly Demon dies, summon a 100/100 Void Spark."
 	void_spawner.atk          = 200
 	void_spawner.health       = 600
 	void_spawner.minion_type  = Enums.MinionType.DEMON
@@ -691,7 +691,7 @@ func _register_wanderer_cards() -> void:
 	abyssal_tide.id           = "abyssal_tide"
 	abyssal_tide.card_name    = "Abyssal Tide"
 	abyssal_tide.essence_cost = 5
-	abyssal_tide.description  = "PASSIVE: whenever a friendly minion dies, deal 200 damage to the enemy hero."
+	abyssal_tide.description  = "PASSIVE: Whenever a friendly minion dies, deal 200 damage to enemy hero."
 	abyssal_tide.atk          = 400
 	abyssal_tide.health       = 400
 	abyssal_tide.minion_type  = Enums.MinionType.DEMON
@@ -707,7 +707,7 @@ func _register_wanderer_cards() -> void:
 	void_devourer.id             = "void_devourer"
 	void_devourer.card_name      = "Void Devourer"
 	void_devourer.essence_cost   = 6
-	void_devourer.description    = "ON PLAY: sacrifice adjacent friendly minions. Gains +300 ATK and +300 HP per sacrificed."
+	void_devourer.description    = "ON PLAY: Sacrifice adjacent friendly minions. Gain +300 ATK and +300 HP per sacrificed minion."
 	void_devourer.atk            = 200
 	void_devourer.health         = 600
 	void_devourer.minion_type    = Enums.MinionType.DEMON
@@ -724,7 +724,7 @@ func _register_wanderer_cards() -> void:
 	nyx_ael.id           = "nyx_ael"
 	nyx_ael.card_name    = "Nyx'ael, Void Sovereign"
 	nyx_ael.essence_cost = 5
-	nyx_ael.description  = "CHAMPION: Summoned when 3 VOID IMP CLAN minions are on the battlefield. \nPASSIVE: At the start of your turn, deal 200 damage to all enemy minions."
+	nyx_ael.description  = "Summoned when 3 VOID IMP CLAN minions are on the battlefield.\nPASSIVE: At the start of your turn, deal 200 damage to all enemy minions."
 	nyx_ael.atk          = 500
 	nyx_ael.health       = 500
 	nyx_ael.minion_type  = Enums.MinionType.DEMON
@@ -750,7 +750,7 @@ func _register_wanderer_cards() -> void:
 	void_bolt_spell.id             = "void_bolt"
 	void_bolt_spell.card_name      = "Void Bolt"
 	void_bolt_spell.cost           = 2
-	void_bolt_spell.description    = "Deal 500 Void Bolt damage to the enemy hero."
+	void_bolt_spell.description    = "Deal 500 Void Bolt damage to enemy hero."
 	void_bolt_spell.effect_steps = [
 		{"type": "VOID_BOLT", "amount": 500},
 		{"type": "VOID_MARK", "amount": 1, "conditions": ["has_piercing_void"]},
@@ -766,7 +766,7 @@ func _register_wanderer_cards() -> void:
 	hidden_ambush.id           = "hidden_ambush"
 	hidden_ambush.card_name    = "Hidden Ambush"
 	hidden_ambush.cost         = 1
-	hidden_ambush.description  = "Trap: When an enemy minion attacks, deal 400 damage to that minion."
+	hidden_ambush.description  = "TRAP: When an enemy minion attacks, deal 400 damage to that minion."
 	hidden_ambush.trigger      = Enums.TriggerEvent.ON_ENEMY_ATTACK
 	hidden_ambush.effect_steps = [{"type": "DAMAGE_MINION", "scope": "TRIGGER_MINION", "amount": 400}]
 	hidden_ambush.art_path     = "res://assets/art/traps/neutral/hidden_ambush.png"
@@ -777,7 +777,7 @@ func _register_wanderer_cards() -> void:
 	smoke_veil.id           = "smoke_veil"
 	smoke_veil.card_name    = "Smoke Veil"
 	smoke_veil.cost         = 2
-	smoke_veil.description  = "Trap: When an enemy minion attacks, cancel that attack and exhaust all enemy minions."
+	smoke_veil.description  = "TRAP: When an enemy minion attacks, cancel that attack and exhaust all enemy minions."
 	smoke_veil.trigger      = Enums.TriggerEvent.ON_ENEMY_ATTACK
 	smoke_veil.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "smoke_veil"}]
 	smoke_veil.art_path     = "res://assets/art/traps/neutral/smoke_veil.png"
@@ -788,7 +788,7 @@ func _register_wanderer_cards() -> void:
 	silence_trap.id           = "silence_trap"
 	silence_trap.card_name    = "Silence Trap"
 	silence_trap.cost         = 2
-	silence_trap.description  = "Trap: When the enemy casts a spell, cancel that spell entirely."
+	silence_trap.description  = "TRAP: When enemy casts a spell, cancel that spell."
 	silence_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_SPELL_CAST
 	silence_trap.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "silence_trap"}]
 	silence_trap.art_path     = "res://assets/art/traps/neutral/silence_trap.png"
@@ -799,7 +799,7 @@ func _register_wanderer_cards() -> void:
 	death_trap.id           = "death_trap"
 	death_trap.card_name    = "Death Trap"
 	death_trap.cost         = 2
-	death_trap.description  = "Trap: When the enemy summons a minion, destroy that minion immediately."
+	death_trap.description  = "TRAP: When enemy summons a minion, destroy that minion."
 	death_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
 	death_trap.effect_steps = [{"type": "SACRIFICE", "scope": "TRIGGER_MINION"}]
 	death_trap.art_path     = "res://assets/art/traps/neutral/death_trap.png"
@@ -815,7 +815,7 @@ func _register_wanderer_cards() -> void:
 	mark_the_target.id          = "mark_the_target"
 	mark_the_target.card_name   = "Mark the Target"
 	mark_the_target.cost        = 2
-	mark_the_target.description = "Apply 2 VOID MARKS to the enemy hero. Draw a card."
+	mark_the_target.description = "Apply 2 VOID MARKS to enemy hero. Draw a card."
 
 	mark_the_target.art_path     = "res://assets/art/spells/abyss_order/mark_the_target.png"
 	mark_the_target.faction      = "abyss_order"
@@ -829,7 +829,7 @@ func _register_wanderer_cards() -> void:
 	font_of_the_depths.id          = "font_of_the_depths"
 	font_of_the_depths.card_name   = "Font of the Depths"
 	font_of_the_depths.cost        = 1
-	font_of_the_depths.description = "Permanently gain +1 maximum Mana. Draw a card."
+	font_of_the_depths.description = "Gain +1 maximum Mana. Draw a card."
 	font_of_the_depths.art_path    = "res://assets/art/spells/abyss_order/font_of_the_depths.png"
 	font_of_the_depths.faction     = "abyss_order"
 	font_of_the_depths.effect_steps = [
@@ -842,7 +842,7 @@ func _register_wanderer_cards() -> void:
 	void_detonation.id          = "void_detonation"
 	void_detonation.card_name   = "Void Detonation"
 	void_detonation.cost        = 4
-	void_detonation.description = "Deal 500 Void Bolt damage to the enemy hero. Gain +50 damage per VOID MARK."
+	void_detonation.description = "Deal 500 Void Bolt damage to enemy hero. Gain +50 damage per VOID MARK on enemy hero."
 	void_detonation.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_detonation_effect"}]
 	void_detonation.art_path    = "res://assets/art/spells/abyss_order/void_detonation.png"
 	void_detonation.faction     = "abyss_order"
@@ -852,7 +852,7 @@ func _register_wanderer_cards() -> void:
 	var abyssal_arcanist := MinionCardData.new()
 	abyssal_arcanist.id            = "abyssal_arcanist"
 	abyssal_arcanist.card_name     = "Abyssal Arcanist"
-	abyssal_arcanist.description   = "ON PLAY: add a Void Bolt spell to your hand."
+	abyssal_arcanist.description   = "ON PLAY: Add a Void Bolt spell to your hand."
 	abyssal_arcanist.essence_cost  = 1
 	abyssal_arcanist.mana_cost     = 2
 	abyssal_arcanist.atk           = 200
@@ -902,7 +902,7 @@ func _register_wanderer_cards() -> void:
 	var soul_taskmaster := MinionCardData.new()
 	soul_taskmaster.id                = "soul_taskmaster"
 	soul_taskmaster.card_name         = "Soul Taskmaster"
-	soul_taskmaster.description       = "PASSIVE: whenever a friendly Demon dies, this minion permanently gains +50 ATK."
+	soul_taskmaster.description       = "PASSIVE: Whenever a friendly Demon dies, this minion gains +50 ATK."
 	soul_taskmaster.essence_cost      = 3
 	soul_taskmaster.atk               = 250
 	soul_taskmaster.health            = 400
@@ -916,7 +916,7 @@ func _register_wanderer_cards() -> void:
 	var void_amplifier := MinionCardData.new()
 	void_amplifier.id                = "void_amplifier"
 	void_amplifier.card_name         = "Void Amplifier"
-	void_amplifier.description       = "PASSIVE: whenever you play a Demon, it enters with +100 ATK and +100 HP."
+	void_amplifier.description       = "PASSIVE: Whenever you play a Demon, it enters with +100 ATK and +100 HP."
 	void_amplifier.essence_cost      = 4
 	void_amplifier.atk               = 250
 	void_amplifier.health            = 350
@@ -932,7 +932,7 @@ func _register_wanderer_cards() -> void:
 	blood_pact.id          = "blood_pact"
 	blood_pact.card_name   = "Blood Pact"
 	blood_pact.cost        = 2
-	blood_pact.description    = "Sacrifice a friendly Human. All friendly Demons permanently gain +200 ATK and +100 HP."
+	blood_pact.description    = "Sacrifice a friendly Human. Give all friendly Demons +200 ATK and +100 HP."
 	blood_pact.requires_target = true
 	blood_pact.target_type     = "friendly_human"
 	blood_pact.effect_steps    = [
@@ -948,7 +948,7 @@ func _register_wanderer_cards() -> void:
 	soul_shatter.id          = "soul_shatter"
 	soul_shatter.card_name   = "Soul Shatter"
 	soul_shatter.cost        = 3
-	soul_shatter.description    = "Sacrifice a friendly Demon. Deal 200 AoE to all enemy minions. Deal 300 instead if the sacrifice had 300+ HP."
+	soul_shatter.description    = "Sacrifice a friendly Demon. Deal 200 damage to all enemy minions. Deal 300 if the sacrifice had 300+ HP."
 	soul_shatter.requires_target = true
 	soul_shatter.target_type     = "friendly_demon"
 	soul_shatter.effect_steps    = [{"type": "HARDCODED", "hardcoded_id": "soul_shatter"}]
@@ -982,7 +982,7 @@ func _register_wanderer_cards() -> void:
 	void_rune.id               = "void_rune"
 	void_rune.card_name        = "Void Rune"
 	void_rune.cost             = 2
-	void_rune.description      = "RUNE: At the start of your turn, deal 100 Void Bolt damage to the enemy hero."
+	void_rune.description      = "RUNE: At the start of your turn, deal 100 Void Bolt damage to enemy hero."
 	void_rune.is_rune          = true
 	void_rune.rune_type        = Enums.RuneType.VOID_RUNE
 	void_rune.aura_trigger     = Enums.TriggerEvent.ON_PLAYER_TURN_START
@@ -997,7 +997,7 @@ func _register_wanderer_cards() -> void:
 	blood_rune.id               = "blood_rune"
 	blood_rune.card_name        = "Blood Rune"
 	blood_rune.cost             = 2
-	blood_rune.description      = "RUNE: Whenever a friendly minion dies, restore 100 HP to your hero."
+	blood_rune.description      = "RUNE: Whenever a friendly minion dies, heal your hero for 100 HP."
 	blood_rune.is_rune          = true
 	blood_rune.rune_type        = Enums.RuneType.BLOOD_RUNE
 	blood_rune.aura_trigger     = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
@@ -1060,8 +1060,8 @@ func _register_wanderer_cards() -> void:
 	abyssal_summoning_circle.id                         = "abyssal_summoning_circle"
 	abyssal_summoning_circle.card_name                  = "Abyssal Summoning Circle"
 	abyssal_summoning_circle.cost                       = 2
-	abyssal_summoning_circle.description                = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero. \nRITUAL: Blood + Dominion → Demon Ascendant."
-	abyssal_summoning_circle.passive_description        = "Whenever a friendly Demon dies, deal 200 damage to the enemy hero."
+	abyssal_summoning_circle.description                = "Whenever a friendly Demon dies, deal 200 damage to enemy hero. \nRITUAL: Blood + Dominion → Demon Ascendant."
+	abyssal_summoning_circle.passive_description        = "Whenever a friendly Demon dies, deal 200 damage to enemy hero."
 	abyssal_summoning_circle.on_player_minion_died_steps = [{"type": "DAMAGE_HERO", "amount": 200, "conditions": ["dead_is_demon"]}]
 	abyssal_summoning_circle.rituals                    = [blood_dominion_ritual]
 	abyssal_summoning_circle.faction                    = "abyss_order"
@@ -1074,7 +1074,7 @@ func _register_wanderer_cards() -> void:
 
 	var void_blood_ritual := RitualData.new()
 	void_blood_ritual.ritual_name    = "Soul Cataclysm"
-	void_blood_ritual.description    = "Consume Void + Blood Runes. Deal 400 Void Bolt damage to the enemy hero. Restore 400 HP to your hero."
+	void_blood_ritual.description    = "Consume Void + Blood Runes. Deal 400 Void Bolt damage to enemy hero. Heal your hero for 400 HP."
 	void_blood_ritual.required_runes = [Enums.RuneType.VOID_RUNE, Enums.RuneType.BLOOD_RUNE]
 	void_blood_ritual.effect_steps   = [
 		{"type": "VOID_BOLT", "amount": 400},
@@ -1085,8 +1085,8 @@ func _register_wanderer_cards() -> void:
 	abyss_ritual_circle.id                  = "abyss_ritual_circle"
 	abyss_ritual_circle.card_name           = "Abyss Ritual Circle"
 	abyss_ritual_circle.cost                = 2
-	abyss_ritual_circle.description         = "Each turn, deal 100 damage to a random minion (both sides). \nRITUAL: Void + Blood → Soul Cataclysm."
-	abyss_ritual_circle.passive_description = "At the start of each turn, deal 100 damage to a random minion on the battlefield."
+	abyss_ritual_circle.description         = "Each turn, deal 100 damage to a random minion. \nRITUAL: Void + Blood → Soul Cataclysm."
+	abyss_ritual_circle.passive_description = "At the start of each turn, deal 100 damage to a random minion."
 	abyss_ritual_circle.passive_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "abyss_ritual_circle_passive"}]
 	abyss_ritual_circle.fires_on_enemy_turn = true
 	abyss_ritual_circle.rituals             = [void_blood_ritual]
@@ -1114,7 +1114,7 @@ func _register_wanderer_cards() -> void:
 	imp_martyr.id                  = "imp_martyr"
 	imp_martyr.card_name           = "Imp Martyr"
 	imp_martyr.essence_cost        = 2
-	imp_martyr.description         = "ON DEATH: Give all friendly VOID IMP CLAN minions +100/+100 permanently."
+	imp_martyr.description         = "ON DEATH: Give all friendly VOID IMP CLAN minions +100 ATK and +100 HP."
 	imp_martyr.atk                 = 100
 	imp_martyr.health              = 100
 	imp_martyr.minion_type         = Enums.MinionType.DEMON
@@ -1170,7 +1170,7 @@ func _register_wanderer_cards() -> void:
 	vaels_colossal_guard.id                   = "vaels_colossal_guard"
 	vaels_colossal_guard.card_name            = "Vael's Colossal Guard"
 	vaels_colossal_guard.essence_cost         = 7
-	vaels_colossal_guard.description          = "ON PLAY: Gain +300/+300 for each other VOID IMP CLAN minion on board. Give all other VOID IMP CLAN minions +100 ATK permanently."
+	vaels_colossal_guard.description          = "ON PLAY: Gain +300 ATK and +300 HP for each other VOID IMP CLAN minion on board. Give all other VOID IMP CLAN minions +100 ATK."
 	vaels_colossal_guard.atk                  = 300
 	vaels_colossal_guard.health               = 300
 	vaels_colossal_guard.minion_type          = Enums.MinionType.DEMON
@@ -1195,7 +1195,7 @@ func _register_wanderer_cards() -> void:
 	runic_blast.id          = "runic_blast"
 	runic_blast.card_name   = "Runic Blast"
 	runic_blast.cost        = 2
-	runic_blast.description = "Deal 200 damage to 2 random enemy minions. If you have 2+ Runes, deal 200 to ALL enemy minions instead."
+	runic_blast.description = "Deal 200 damage to 2 random enemy minions. If you have 2+ Runes, deal 200 to all enemy minions instead."
 	runic_blast.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "runic_blast"}]
 	runic_blast.art_path    = "res://assets/art/spells/abyss_order/runic_blast.png"
 	runic_blast.faction     = "abyss_order"
@@ -1215,7 +1215,7 @@ func _register_wanderer_cards() -> void:
 	rune_warden.id                       = "rune_warden"
 	rune_warden.card_name                = "Rune Warden"
 	rune_warden.essence_cost             = 3
-	rune_warden.description              = "PASSIVE: Whenever you place a Rune, this minion gains +200 ATK until end of turn."
+	rune_warden.description              = "PASSIVE: Whenever you place a Rune, this minion gains +200 ATK this turn."
 	rune_warden.atk                      = 200
 	rune_warden.health                   = 400
 	rune_warden.minion_type              = Enums.MinionType.HUMAN
@@ -1233,7 +1233,7 @@ func _register_wanderer_cards() -> void:
 	rune_seeker.atk                     = 150
 	rune_seeker.health                  = 400
 	rune_seeker.minion_type             = Enums.MinionType.HUMAN
-	rune_seeker.on_play_effect_steps    = [{"type": "HARDCODED", "hardcoded_id": "rune_seeker_play"}]
+	rune_seeker.on_play_effect_steps    = [{"type": "TUTOR", "tutor_filter": "rune"}]
 	rune_seeker.art_path                = "res://assets/art/minions/abyss_order/rune_seeker.png"
 	rune_seeker.battlefield_art_path    = "res://assets/art/minions/abyss_order/rune_seeker_small.png"
 	rune_seeker.faction                 = "abyss_order"
@@ -1347,7 +1347,7 @@ func _register_wanderer_cards() -> void:
 	matriarchs_broodling.id           = "matriarchs_broodling"
 	matriarchs_broodling.card_name    = "Matriarch's Broodling"
 	matriarchs_broodling.essence_cost = 4
-	matriarchs_broodling.description  = "GUARD.\nON DEATH: Summon a Brood Imp."
+	matriarchs_broodling.description  = "ON DEATH: Summon a Brood Imp."
 	matriarchs_broodling.atk          = 200
 	matriarchs_broodling.health       = 500
 	matriarchs_broodling.minion_type  = Enums.MinionType.DEMON
@@ -1366,7 +1366,7 @@ func _register_wanderer_cards() -> void:
 	rogue_imp_elder.id           = "rogue_imp_elder"
 	rogue_imp_elder.card_name    = "Rogue Imp Elder"
 	rogue_imp_elder.essence_cost = 4
-	rogue_imp_elder.description  = "PASSIVE (aura): All friendly FERAL IMP minions have +100 ATK."
+	rogue_imp_elder.description  = "AURA: All friendly FERAL IMP minions have +100 ATK."
 	rogue_imp_elder.atk          = 300
 	rogue_imp_elder.health       = 500
 	rogue_imp_elder.minion_type  = Enums.MinionType.DEMON
@@ -1389,7 +1389,7 @@ func _register_wanderer_cards() -> void:
 	champion_rogue_imp_pack.id           = "champion_rogue_imp_pack"
 	champion_rogue_imp_pack.card_name    = "Rogue Imp Pack"
 	champion_rogue_imp_pack.essence_cost = 0
-	champion_rogue_imp_pack.description  = "CHAMPION. SWIFT.\nSummoned after 4 Rabid Imp attacks.\nAura: All friendly FERAL IMP minions gain +100 ATK."
+	champion_rogue_imp_pack.description  = "Summoned after 4 Rabid Imp attacks.\nAURA: All friendly FERAL IMP minions have +100 ATK."
 	champion_rogue_imp_pack.atk          = 300
 	champion_rogue_imp_pack.health       = 400
 	champion_rogue_imp_pack.minion_type  = Enums.MinionType.DEMON
@@ -1406,7 +1406,7 @@ func _register_wanderer_cards() -> void:
 	champion_corrupted_broodlings.id           = "champion_corrupted_broodlings"
 	champion_corrupted_broodlings.card_name    = "Corrupted Broodlings"
 	champion_corrupted_broodlings.essence_cost = 0
-	champion_corrupted_broodlings.description  = "CHAMPION.\nOn death: Summon a Void-Touched Imp."
+	champion_corrupted_broodlings.description  = "ON DEATH: Summon a Void-Touched Imp."
 	champion_corrupted_broodlings.atk          = 200
 	champion_corrupted_broodlings.health       = 400
 	champion_corrupted_broodlings.minion_type  = Enums.MinionType.DEMON
@@ -1423,7 +1423,7 @@ func _register_wanderer_cards() -> void:
 	champion_imp_matriarch.id           = "champion_imp_matriarch"
 	champion_imp_matriarch.card_name    = "Imp Matriarch"
 	champion_imp_matriarch.essence_cost = 0
-	champion_imp_matriarch.description  = "CHAMPION. GUARD.\nAura: Pack Frenzy also grants +200 HP to all FERAL IMP minions."
+	champion_imp_matriarch.description  = "AURA: Pack Frenzy also gives all FERAL IMP minions +200 HP."
 	champion_imp_matriarch.atk          = 300
 	champion_imp_matriarch.health       = 500
 	champion_imp_matriarch.minion_type  = Enums.MinionType.DEMON
@@ -1456,7 +1456,7 @@ func _register_wanderer_cards() -> void:
 	void_screech.id          = "void_screech"
 	void_screech.card_name   = "Void Screech"
 	void_screech.cost        = 1
-	void_screech.description = "Deal 250 damage to the enemy hero. If you have 3+ FERAL IMP minions on board, deal 350 instead."
+	void_screech.description = "Deal 250 damage to enemy hero. If you have 3+ FERAL IMP minions on board, deal 350 instead."
 	void_screech.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_screech"}]
 	void_screech.faction   = "abyss_order"
 	void_screech.art_path  = "res://assets/art/spells/feral_imp_clan/void_screech.png"
@@ -1476,7 +1476,7 @@ func _register_wanderer_cards() -> void:
 	pack_frenzy.id          = "pack_frenzy"
 	pack_frenzy.card_name   = "Pack Frenzy"
 	pack_frenzy.cost        = 3
-	pack_frenzy.description = "All friendly FERAL IMP minions gain +250 ATK and SWIFT this turn."
+	pack_frenzy.description = "Give all friendly FERAL IMP minions +250 ATK and SWIFT this turn."
 	pack_frenzy.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "pack_frenzy"}]
 	pack_frenzy.faction   = "abyss_order"
 	pack_frenzy.art_path  = "res://assets/art/spells/feral_imp_clan/pack_frenzy.png"
@@ -1501,7 +1501,7 @@ func _register_wanderer_cards() -> void:
 	dark_command.id          = "dark_command"
 	dark_command.card_name   = "Dark Command"
 	dark_command.cost        = 1
-	dark_command.description = "Grant +100 ATK and +100 HP to all friendly Human minions."
+	dark_command.description = "Give all friendly Human minions +100 ATK and +100 HP."
 	dark_command.effect_steps = [
 		{"type": "BUFF_ATK", "scope": "ALL_FRIENDLY", "filter": "HUMAN", "amount": 100, "permanent": true},
 		{"type": "BUFF_HP",  "scope": "ALL_FRIENDLY", "filter": "HUMAN", "amount": 100},
@@ -1516,7 +1516,7 @@ func _register_wanderer_cards() -> void:
 	champion_abyss_cultist_patrol.id           = "champion_abyss_cultist_patrol"
 	champion_abyss_cultist_patrol.card_name    = "Abyss Cultist Patrol"
 	champion_abyss_cultist_patrol.essence_cost = 0
-	champion_abyss_cultist_patrol.description  = "CHAMPION.\nSummoned after 4 corruption stacks consumed.\nAura: Corruption applied to player minions instantly detonates."
+	champion_abyss_cultist_patrol.description  = "Summoned after 4 corruption stacks consumed.\nAURA: Corruption applied to enemy minions instantly detonates."
 	champion_abyss_cultist_patrol.atk          = 300
 	champion_abyss_cultist_patrol.health       = 300
 	champion_abyss_cultist_patrol.minion_type  = Enums.MinionType.HUMAN
@@ -1532,7 +1532,7 @@ func _register_wanderer_cards() -> void:
 	champion_void_ritualist.id           = "champion_void_ritualist"
 	champion_void_ritualist.card_name    = "Void Ritualist"
 	champion_void_ritualist.essence_cost = 0
-	champion_void_ritualist.description  = "CHAMPION.\nSummoned when ritual sacrifice triggers.\nAura: Rune placement costs 1 less Mana."
+	champion_void_ritualist.description  = "Summoned when ritual sacrifice triggers.\nAURA: Rune placement costs 1 less Mana."
 	champion_void_ritualist.atk          = 200
 	champion_void_ritualist.health       = 300
 	champion_void_ritualist.minion_type  = Enums.MinionType.HUMAN
@@ -1548,7 +1548,7 @@ func _register_wanderer_cards() -> void:
 	champion_corrupted_handler.id           = "champion_corrupted_handler"
 	champion_corrupted_handler.card_name    = "Corrupted Handler"
 	champion_corrupted_handler.essence_cost = 0
-	champion_corrupted_handler.description  = "CHAMPION.\nSummoned after 3 void sparks created.\nAura: Whenever a Void Spark is summoned, deal 200 damage to player hero."
+	champion_corrupted_handler.description  = "Summoned after 3 void sparks created.\nAURA: Whenever a Void Spark is summoned, deal 200 damage to enemy hero."
 	champion_corrupted_handler.atk          = 300
 	champion_corrupted_handler.health       = 300
 	champion_corrupted_handler.minion_type  = Enums.MinionType.HUMAN
@@ -1559,6 +1559,66 @@ func _register_wanderer_cards() -> void:
 	champion_corrupted_handler.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_corrupted_handler_small.png"
 	champion_corrupted_handler.faction      = "abyss_order"
 	all.append(champion_corrupted_handler)
+
+	# --- Act 3 champions ---
+
+	var champion_rift_stalker := MinionCardData.new()
+	champion_rift_stalker.id           = "champion_rift_stalker"
+	champion_rift_stalker.card_name    = "Rift Stalker"
+	champion_rift_stalker.essence_cost = 0
+	champion_rift_stalker.description  = "Summoned after Void Sparks deal 1500 damage.\nAURA: All friendly Void Sparks are immune."
+	champion_rift_stalker.atk          = 400
+	champion_rift_stalker.health       = 400
+	champion_rift_stalker.minion_type  = Enums.MinionType.SPIRIT
+	champion_rift_stalker.keywords     = [Enums.Keyword.CHAMPION]
+	champion_rift_stalker.is_champion  = true
+	champion_rift_stalker.minion_tags  = ["enemy_champion"]
+	champion_rift_stalker.faction      = "abyss_order"
+	all.append(champion_rift_stalker)
+
+	var champion_void_aberration := MinionCardData.new()
+	champion_void_aberration.id           = "champion_void_aberration"
+	champion_void_aberration.card_name    = "Void Aberration"
+	champion_void_aberration.essence_cost = 0
+	champion_void_aberration.description  = "Summoned after 5 sparks consumed as costs.\nAURA: Void Detonation deals 200 damage instead of 100."
+	champion_void_aberration.atk          = 300
+	champion_void_aberration.health       = 300
+	champion_void_aberration.minion_type  = Enums.MinionType.SPIRIT
+	champion_void_aberration.keywords     = [Enums.Keyword.CHAMPION, Enums.Keyword.ETHEREAL]
+	champion_void_aberration.is_champion  = true
+	champion_void_aberration.minion_tags  = ["enemy_champion"]
+	champion_void_aberration.faction      = "abyss_order"
+	all.append(champion_void_aberration)
+
+	var champion_void_herald := MinionCardData.new()
+	champion_void_herald.id           = "champion_void_herald"
+	champion_void_herald.card_name    = "Void Herald"
+	champion_void_herald.essence_cost = 0
+	champion_void_herald.description  = "Summoned after 6 spark-cost cards played.\nAURA: All spark costs become 0. Void Rift stops generating sparks."
+	champion_void_herald.atk          = 200
+	champion_void_herald.health       = 500
+	champion_void_herald.minion_type  = Enums.MinionType.SPIRIT
+	champion_void_herald.keywords     = [Enums.Keyword.CHAMPION]
+	champion_void_herald.is_champion  = true
+	champion_void_herald.minion_tags  = ["enemy_champion"]
+	champion_void_herald.faction      = "abyss_order"
+	all.append(champion_void_herald)
+
+	# --- Act 4 champions ---
+
+	var champion_void_scout := MinionCardData.new()
+	champion_void_scout.id           = "champion_void_scout"
+	champion_void_scout.card_name    = "Void Scout"
+	champion_void_scout.essence_cost = 0
+	champion_void_scout.description  = "Summoned after 5 critical strikes consumed.\nAURA: Critical Strike deals 2.5x damage instead of 2x."
+	champion_void_scout.atk          = 400
+	champion_void_scout.health       = 500
+	champion_void_scout.minion_type  = Enums.MinionType.SPIRIT
+	champion_void_scout.keywords     = [Enums.Keyword.CHAMPION]
+	champion_void_scout.is_champion  = true
+	champion_void_scout.minion_tags  = ["enemy_champion"]
+	champion_void_scout.faction      = "abyss_order"
+	all.append(champion_void_scout)
 
 	# --- Void Rift World — Act 3 enemy-only cards (dual cost: mana/essence + Void Sparks) ---
 
@@ -1578,7 +1638,7 @@ func _register_wanderer_cards() -> void:
 	phase_stalker.card_name       = "Phase Stalker"
 	phase_stalker.essence_cost    = 2
 	phase_stalker.void_spark_cost = 1
-	phase_stalker.description     = "Consume 1 Void Spark. Swift."
+	phase_stalker.description     = "Consume 1 Void Spark."
 	phase_stalker.atk             = 400
 	phase_stalker.health          = 300
 	phase_stalker.minion_type     = Enums.MinionType.SPIRIT
@@ -1591,7 +1651,7 @@ func _register_wanderer_cards() -> void:
 	var rift_collapse := SpellCardData.new()
 	rift_collapse.id              = "rift_collapse"
 	rift_collapse.card_name       = "Rift Collapse"
-	rift_collapse.cost            = 2
+	rift_collapse.cost            = 1
 	rift_collapse.void_spark_cost = 1
 	rift_collapse.description     = "Consume 1 Void Spark. Deal 200 damage to all enemy minions."
 	rift_collapse.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 200}]
@@ -1604,7 +1664,7 @@ func _register_wanderer_cards() -> void:
 	void_behemoth.card_name       = "Void Behemoth"
 	void_behemoth.essence_cost    = 3
 	void_behemoth.void_spark_cost = 2
-	void_behemoth.description     = "Consume 2 Void Sparks. Guard."
+	void_behemoth.description     = "Consume 2 Void Sparks."
 	void_behemoth.atk             = 400
 	void_behemoth.health          = 600
 	void_behemoth.minion_type     = Enums.MinionType.SPIRIT
@@ -1634,7 +1694,7 @@ func _register_wanderer_cards() -> void:
 	void_rift_lord.card_name       = "Void Rift Lord"
 	void_rift_lord.essence_cost    = 4
 	void_rift_lord.void_spark_cost = 3
-	void_rift_lord.description     = "Consume 3 Void Sparks. On play: set enemy Mana to 0 next turn."
+	void_rift_lord.description     = "Consume 3 Void Sparks. ON PLAY: Set enemy Mana to 0 next turn."
 	void_rift_lord.atk             = 400
 	void_rift_lord.health          = 600
 	void_rift_lord.minion_type     = Enums.MinionType.SPIRIT
@@ -1643,6 +1703,53 @@ func _register_wanderer_cards() -> void:
 	void_rift_lord.art_path             = "res://assets/art/minions/abyss_order/void_rift_lord.png"
 	void_rift_lord.battlefield_art_path = "res://assets/art/minions/abyss_order/void_rift_lord_small.png"
 	all.append(void_rift_lord)
+
+	# --- Act 3 new spells (mana-only, no spark cost) ---
+
+	var void_shatter := SpellCardData.new()
+	void_shatter.id          = "void_shatter"
+	void_shatter.card_name   = "Void Shatter"
+	void_shatter.cost        = 3
+	void_shatter.description = "Deal 100 damage to a random enemy minion 8 times."
+	void_shatter.effect_steps = [
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+	]
+	void_shatter.requires_target = false
+	void_shatter.faction     = "abyss_order"
+	all.append(void_shatter)
+
+	var spirit_surge := SpellCardData.new()
+	spirit_surge.id          = "spirit_surge"
+	spirit_surge.card_name   = "Spirit Surge"
+	spirit_surge.cost        = 2
+	spirit_surge.description = "Draw a Spark Cost card from your deck. Summon a 100/100 Void Spark."
+	spirit_surge.effect_steps = [
+		{"type": "TUTOR", "tutor_filter": "spark_cost"},
+		{"type": "SUMMON", "card_id": "void_spark"},
+	]
+	spirit_surge.requires_target = false
+	spirit_surge.faction     = "abyss_order"
+	all.append(spirit_surge)
+
+	var void_wind := SpellCardData.new()
+	void_wind.id          = "void_wind"
+	void_wind.card_name   = "Void Wind"
+	void_wind.cost        = 1
+	void_wind.description = "Destroy a random enemy trap. Heal your hero for 500 HP."
+	void_wind.effect_steps = [
+		{"type": "HARDCODED", "hardcoded_id": "destroy_random_enemy_trap"},
+		{"type": "HEAL_HERO", "amount": 500},
+	]
+	void_wind.requires_target = false
+	void_wind.faction     = "abyss_order"
+	all.append(void_wind)
 
 	# ---------------------------------------------------------------------------
 	# --- Act 4 — Void Castle enemy cards ---
@@ -1717,7 +1824,7 @@ func _register_wanderer_cards() -> void:
 	sovereigns_decree.card_name        = "Sovereign's Decree"
 	sovereigns_decree.cost             = 2
 	sovereigns_decree.void_spark_cost  = 2
-	sovereigns_decree.description      = "Deal 300 damage to the enemy hero. Apply 2 Corruption to all enemy minions."
+	sovereigns_decree.description      = "Deal 300 damage to enemy hero. Apply 2 Corruption to all enemy minions."
 	sovereigns_decree.effect_steps     = [
 		{"type": "DAMAGE_HERO", "amount": 300},
 		{"type": "CORRUPTION", "scope": "ALL_ENEMY", "amount": 2},
@@ -1731,7 +1838,7 @@ func _register_wanderer_cards() -> void:
 	thrones_command.card_name        = "Throne's Command"
 	thrones_command.cost             = 1
 	thrones_command.void_spark_cost  = 3
-	thrones_command.description      = "Grant all friendly minions +1 Critical Strike."
+	thrones_command.description      = "Give all friendly minions +1 Critical Strike."
 	thrones_command.effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "ALL_FRIENDLY", "amount": 1}]
 	thrones_command.faction          = "abyss_order"
 	thrones_command.art_path         = "res://assets/art/spells/abyss_order/thrones_command.png"
@@ -1761,7 +1868,7 @@ func _register_wanderer_cards() -> void:
 	sovereigns_edict.id          = "sovereigns_edict"
 	sovereigns_edict.card_name   = "Sovereign's Edict"
 	sovereigns_edict.cost        = 3
-	sovereigns_edict.description = "Grant all current friendly minions 'ON DEATH: Summon a Void Spark.'"
+	sovereigns_edict.description = "Give all friendly minions 'ON DEATH: Summon a Void Spark.'"
 	sovereigns_edict.effect_steps = [{"type": "GRANT_ON_DEATH_SUMMON", "scope": "ALL_FRIENDLY", "card_id": "void_spark"}]
 	sovereigns_edict.faction     = "abyss_order"
 	sovereigns_edict.art_path    = "res://assets/art/spells/abyss_order/sovereigns_edict.png"
@@ -1773,10 +1880,10 @@ func _register_wanderer_cards() -> void:
 	sovereigns_herald.id                       = "sovereigns_herald"
 	sovereigns_herald.card_name                = "Sovereign's Herald"
 	sovereigns_herald.essence_cost             = 2
-	sovereigns_herald.description              = "ON PLAY: Grant a target friendly minion +1 Critical Strike."
+	sovereigns_herald.description              = "ON PLAY: Give a friendly minion +1 Critical Strike."
 	sovereigns_herald.atk                      = 200
 	sovereigns_herald.health                   = 200
-	sovereigns_herald.minion_type              = Enums.MinionType.DEMON
+	sovereigns_herald.minion_type              = Enums.MinionType.SPIRIT
 	sovereigns_herald.on_play_requires_target  = true
 	sovereigns_herald.on_play_target_type      = "friendly_minion"
 	sovereigns_herald.on_play_effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 1}]
@@ -1784,6 +1891,127 @@ func _register_wanderer_cards() -> void:
 	sovereigns_herald.art_path                 = "res://assets/art/minions/abyss_order/sovereigns_herald.png"
 	sovereigns_herald.battlefield_art_path     = "res://assets/art/minions/abyss_order/sovereigns_herald_small.png"
 	all.append(sovereigns_herald)
+
+	# --- New Act 3-4 Spirit minions ──────────────────────────────────────────
+
+	var void_resonance := MinionCardData.new()
+	void_resonance.id              = "void_resonance"
+	void_resonance.card_name       = "Void Resonance"
+	void_resonance.essence_cost    = 1
+	void_resonance.description     = "ON PLAY: Heal your hero for 300 HP."
+	void_resonance.atk             = 100
+	void_resonance.health          = 100
+	void_resonance.minion_type     = Enums.MinionType.SPIRIT
+	void_resonance.keywords.append(Enums.Keyword.ETHEREAL)
+	void_resonance.on_play_effect_steps = [{"type": "HEAL_HERO", "amount": 300}]
+	void_resonance.faction         = "abyss_order"
+	all.append(void_resonance)
+
+	var void_echo := MinionCardData.new()
+	void_echo.id              = "void_echo"
+	void_echo.card_name       = "Void Echo"
+	void_echo.essence_cost    = 2
+	void_echo.description     = "ON PLAY: Draw 1 card."
+	void_echo.atk             = 200
+	void_echo.health          = 150
+	void_echo.minion_type     = Enums.MinionType.SPIRIT
+	void_echo.keywords.append(Enums.Keyword.SWIFT)
+	void_echo.keywords.append(Enums.Keyword.ETHEREAL)
+	void_echo.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
+	void_echo.faction         = "abyss_order"
+	all.append(void_echo)
+
+	var rift_tender := MinionCardData.new()
+	rift_tender.id              = "rift_tender"
+	rift_tender.card_name       = "Rift Tender"
+	rift_tender.essence_cost    = 2
+	rift_tender.description     = "ON PLAY: Summon a 100/100 Void Spark."
+	rift_tender.atk             = 150
+	rift_tender.health          = 250
+	rift_tender.minion_type     = Enums.MinionType.SPIRIT
+	rift_tender.on_play_effect_steps = [{"type": "SUMMON", "card_id": "void_spark"}]
+	rift_tender.faction         = "abyss_order"
+	all.append(rift_tender)
+
+	var hollow_sentinel := MinionCardData.new()
+	hollow_sentinel.id              = "hollow_sentinel"
+	hollow_sentinel.card_name       = "Hollow Sentinel"
+	hollow_sentinel.essence_cost    = 4
+	hollow_sentinel.description     = "AURA: At the end of your turn, give all friendly Void Sparks +100 ATK."
+	hollow_sentinel.atk             = 300
+	hollow_sentinel.health          = 500
+	hollow_sentinel.minion_type     = Enums.MinionType.SPIRIT
+	hollow_sentinel.keywords.append(Enums.Keyword.ETHEREAL)
+	hollow_sentinel.passive_effect_id = "hollow_sentinel_spark_buff"
+	hollow_sentinel.faction         = "abyss_order"
+	all.append(hollow_sentinel)
+
+	var phase_disruptor := MinionCardData.new()
+	phase_disruptor.id              = "phase_disruptor"
+	phase_disruptor.card_name       = "Phase Disruptor"
+	phase_disruptor.essence_cost    = 3
+	phase_disruptor.description     = "ON PLAY: Counter the next spell the enemy casts."
+	phase_disruptor.atk             = 300
+	phase_disruptor.health          = 250
+	phase_disruptor.minion_type     = Enums.MinionType.SPIRIT
+	phase_disruptor.keywords.append(Enums.Keyword.ETHEREAL)
+	phase_disruptor.on_play_effect_steps = [{"type": "COUNTER_SPELL"}]
+	phase_disruptor.faction         = "abyss_order"
+	all.append(phase_disruptor)
+
+	var void_architect := MinionCardData.new()
+	void_architect.id              = "void_architect"
+	void_architect.card_name       = "Void Architect"
+	void_architect.essence_cost    = 4
+	void_architect.description     = "ON PLAY: Increase max Mana by 1."
+	void_architect.atk             = 250
+	void_architect.health          = 400
+	void_architect.minion_type     = Enums.MinionType.SPIRIT
+	void_architect.on_play_effect_steps = [{"type": "GROW_MANA_MAX", "amount": 1}]
+	void_architect.faction         = "abyss_order"
+	all.append(void_architect)
+
+	var riftscarred_colossus := MinionCardData.new()
+	riftscarred_colossus.id              = "riftscarred_colossus"
+	riftscarred_colossus.card_name       = "Riftscarred Colossus"
+	riftscarred_colossus.essence_cost    = 4
+	riftscarred_colossus.description     = "ON PLAY: Summon a 100/100 Void Spark."
+	riftscarred_colossus.atk             = 500
+	riftscarred_colossus.health          = 300
+	riftscarred_colossus.minion_type     = Enums.MinionType.SPIRIT
+	riftscarred_colossus.keywords.append(Enums.Keyword.SWIFT)
+	riftscarred_colossus.on_play_effect_steps = [{"type": "SUMMON", "card_id": "void_spark"}]
+	riftscarred_colossus.faction         = "abyss_order"
+	all.append(riftscarred_colossus)
+
+	var rift_warden := MinionCardData.new()
+	rift_warden.id              = "rift_warden"
+	rift_warden.card_name       = "Rift Warden"
+	rift_warden.essence_cost    = 4
+	rift_warden.void_spark_cost = 1
+	rift_warden.description     = "AURA: Damage prevented by Ethereal is dealt to the enemy hero."
+	rift_warden.atk             = 350
+	rift_warden.health          = 400
+	rift_warden.minion_type     = Enums.MinionType.SPIRIT
+	rift_warden.keywords.append(Enums.Keyword.GUARD)
+	rift_warden.keywords.append(Enums.Keyword.ETHEREAL)
+	rift_warden.passive_effect_id = "rift_warden_siphon"
+	rift_warden.faction         = "abyss_order"
+	all.append(rift_warden)
+
+	var ethereal_titan := MinionCardData.new()
+	ethereal_titan.id              = "ethereal_titan"
+	ethereal_titan.card_name       = "Ethereal Titan"
+	ethereal_titan.essence_cost    = 5
+	ethereal_titan.description     = ""
+	ethereal_titan.atk             = 600
+	ethereal_titan.health          = 400
+	ethereal_titan.minion_type     = Enums.MinionType.SPIRIT
+	ethereal_titan.keywords.append(Enums.Keyword.SWIFT)
+	ethereal_titan.keywords.append(Enums.Keyword.ETHEREAL)
+	ethereal_titan.keywords.append(Enums.Keyword.PIERCE)
+	ethereal_titan.faction         = "abyss_order"
+	all.append(ethereal_titan)
 
 	# --- Pool assignments (controls deck builder visibility and collection) ---
 	# "" = token/internal; cards with no entry stay ""
@@ -1834,7 +2062,7 @@ func _register_wanderer_cards() -> void:
 		# Lord Vael — Rune Master unlock pool (rune_caller talent)
 		"runic_blast": "vael_rune_master",       "runic_echo": "vael_rune_master",
 		"rune_warden": "vael_rune_master",        "rune_seeker": "vael_rune_master",
-		"echo_rune": "vael_rune_master",
+		# echo_rune: removed from pool — granted as capstone reward (abyss_convergence)
 		# Feral Imp Clan — Act 1 enemy-only pool (not visible to players)
 		"rabid_imp": "feral_imp_clan",             "brood_imp": "feral_imp_clan",
 		"imp_brawler": "feral_imp_clan",           "void_touched_imp": "feral_imp_clan",
@@ -1848,6 +2076,13 @@ func _register_wanderer_cards() -> void:
 		"void_pulse": "void_rift",              "phase_stalker": "void_rift",
 		"rift_collapse": "void_rift",           "void_behemoth": "void_rift",
 		"dimensional_breach": "void_rift",      "void_rift_lord": "void_rift",
+		"void_resonance": "void_rift",          "void_echo": "void_rift",
+		"rift_tender": "void_rift",             "hollow_sentinel": "void_rift",
+		"phase_disruptor": "void_rift",         "void_architect": "void_rift",
+		"riftscarred_colossus": "void_rift",    "rift_warden": "void_rift",
+		"ethereal_titan": "void_rift",
+		"void_shatter": "void_rift",            "spirit_surge": "void_rift",
+		"void_wind": "void_rift",
 		# Void Castle — Act 4 enemy-only pool (not visible to players)
 		"void_wisp": "void_castle",            "void_shade": "void_castle",
 		"void_wraith": "void_castle",          "void_revenant": "void_castle",
