@@ -49,7 +49,7 @@ func resolve(effect_id: String) -> bool:
 			return true
 
 		"relic_summon_guardian":
-			_scene._summon_token("void_spark", "player", 300, 300)
+			_scene._summon_token("void_spark", "player", 200, 300)
 			# Grant Guard to the summoned token
 			var board: Array = _scene.player_board
 			if not board.is_empty():

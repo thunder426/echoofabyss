@@ -1052,7 +1052,7 @@ func _register_wanderer_cards() -> void:
 
 	var blood_dominion_ritual := RitualData.new()
 	blood_dominion_ritual.ritual_name    = "Demon Ascendant"
-	blood_dominion_ritual.description    = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Special Summon a 600/600 Demon."
+	blood_dominion_ritual.description    = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Special Summon a 500/500 Demon."
 	blood_dominion_ritual.required_runes = [Enums.RuneType.BLOOD_RUNE, Enums.RuneType.DOMINION_RUNE]
 	blood_dominion_ritual.effect_steps   = [{"type": "HARDCODED", "hardcoded_id": "demon_ascendant"}]
 
@@ -1620,6 +1620,34 @@ func _register_wanderer_cards() -> void:
 	champion_void_scout.faction      = "abyss_order"
 	all.append(champion_void_scout)
 
+	var champion_void_warband := MinionCardData.new()
+	champion_void_warband.id           = "champion_void_warband"
+	champion_void_warband.card_name    = "Void Warband"
+	champion_void_warband.essence_cost = 0
+	champion_void_warband.description  = "Summoned after 3 Spirits consumed as fuel.\nOn summon: gains 1 Critical Strike.\nAURA: When a friendly Spirit with Crit is consumed, summon a 100/100 Void Spark."
+	champion_void_warband.atk          = 500
+	champion_void_warband.health       = 600
+	champion_void_warband.minion_type  = Enums.MinionType.SPIRIT
+	champion_void_warband.keywords     = [Enums.Keyword.CHAMPION]
+	champion_void_warband.is_champion  = true
+	champion_void_warband.minion_tags  = ["enemy_champion"]
+	champion_void_warband.faction      = "abyss_order"
+	all.append(champion_void_warband)
+
+	var champion_void_captain := MinionCardData.new()
+	champion_void_captain.id           = "champion_void_captain"
+	champion_void_captain.card_name    = "Void Captain"
+	champion_void_captain.essence_cost = 0
+	champion_void_captain.description  = "Summoned after 2 Throne's Command cast.\nOn summon: gains 2 Critical Strike.\nAURA: When a friendly minion consumes a Critical Strike, deal 100 damage to each of 2 random enemies."
+	champion_void_captain.atk          = 300
+	champion_void_captain.health       = 600
+	champion_void_captain.minion_type  = Enums.MinionType.SPIRIT
+	champion_void_captain.keywords     = [Enums.Keyword.CHAMPION]
+	champion_void_captain.is_champion  = true
+	champion_void_captain.minion_tags  = ["enemy_champion"]
+	champion_void_captain.faction      = "abyss_order"
+	all.append(champion_void_captain)
+
 	# --- Void Rift World — Act 3 enemy-only cards (dual cost: mana/essence + Void Sparks) ---
 
 	var void_pulse := SpellCardData.new()
@@ -1658,6 +1686,17 @@ func _register_wanderer_cards() -> void:
 	rift_collapse.faction         = "abyss_order"
 	rift_collapse.art_path        = "res://assets/art/spells/abyss_order/rift_collapse.png"
 	all.append(rift_collapse)
+
+	var void_lance := SpellCardData.new()
+	void_lance.id              = "void_lance"
+	void_lance.card_name       = "Void Lance"
+	void_lance.cost            = 2
+	void_lance.description     = "Deal 600 damage to a minion."
+	void_lance.requires_target = true
+	void_lance.target_type     = "any_minion"
+	void_lance.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 600}]
+	void_lance.faction         = "abyss_order"
+	all.append(void_lance)
 
 	var void_behemoth := MinionCardData.new()
 	void_behemoth.id              = "void_behemoth"
@@ -1755,17 +1794,15 @@ func _register_wanderer_cards() -> void:
 	# --- Act 4 — Void Castle enemy cards ---
 	# ---------------------------------------------------------------------------
 
-	# --- Void Spirit clan (textless, consumable as spark fuel) ---
+	# --- Spirit fuel minions (textless, consumable as spark fuel) ---
 
 	var void_wisp := MinionCardData.new()
 	void_wisp.id            = "void_wisp"
 	void_wisp.card_name     = "Void Wisp"
 	void_wisp.essence_cost  = 1
 	void_wisp.atk           = 150
-	void_wisp.health        = 100
+	void_wisp.health        = 200
 	void_wisp.minion_type   = Enums.MinionType.SPIRIT
-	void_wisp.minion_tags   = ["void_spirit"]
-	void_wisp.clan          = "Void Spirit"
 	void_wisp.spark_value   = 1
 	void_wisp.faction       = "abyss_order"
 	void_wisp.art_path             = "res://assets/art/minions/abyss_order/void_wisp.png"
@@ -1777,10 +1814,8 @@ func _register_wanderer_cards() -> void:
 	void_shade.card_name     = "Void Shade"
 	void_shade.essence_cost  = 2
 	void_shade.atk           = 250
-	void_shade.health        = 200
+	void_shade.health        = 250
 	void_shade.minion_type   = Enums.MinionType.SPIRIT
-	void_shade.minion_tags   = ["void_spirit"]
-	void_shade.clan          = "Void Spirit"
 	void_shade.spark_value   = 2
 	void_shade.faction       = "abyss_order"
 	void_shade.art_path             = "res://assets/art/minions/abyss_order/void_shade.png"
@@ -1794,8 +1829,6 @@ func _register_wanderer_cards() -> void:
 	void_wraith.atk           = 300
 	void_wraith.health        = 400
 	void_wraith.minion_type   = Enums.MinionType.SPIRIT
-	void_wraith.minion_tags   = ["void_spirit"]
-	void_wraith.clan          = "Void Spirit"
 	void_wraith.spark_value   = 3
 	void_wraith.faction       = "abyss_order"
 	void_wraith.art_path             = "res://assets/art/minions/abyss_order/void_wraith.png"
@@ -1809,8 +1842,6 @@ func _register_wanderer_cards() -> void:
 	void_revenant.atk           = 500
 	void_revenant.health        = 500
 	void_revenant.minion_type   = Enums.MinionType.SPIRIT
-	void_revenant.minion_tags   = ["void_spirit"]
-	void_revenant.clan          = "Void Spirit"
 	void_revenant.spark_value   = 4
 	void_revenant.faction       = "abyss_order"
 	void_revenant.art_path             = "res://assets/art/minions/abyss_order/void_revenant.png"
@@ -1837,7 +1868,7 @@ func _register_wanderer_cards() -> void:
 	thrones_command.id               = "thrones_command"
 	thrones_command.card_name        = "Throne's Command"
 	thrones_command.cost             = 1
-	thrones_command.void_spark_cost  = 3
+	thrones_command.void_spark_cost  = 2
 	thrones_command.description      = "Give all friendly minions +1 Critical Strike."
 	thrones_command.effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "ALL_FRIENDLY", "amount": 1}]
 	thrones_command.faction          = "abyss_order"
@@ -1855,7 +1886,7 @@ func _register_wanderer_cards() -> void:
 	bastion_colossus.atk                  = 600
 	bastion_colossus.health               = 800
 	bastion_colossus.minion_type          = Enums.MinionType.SPIRIT
-	bastion_colossus.keywords             = [Enums.Keyword.GUARD]
+	bastion_colossus.keywords             = [Enums.Keyword.GUARD, Enums.Keyword.ETHEREAL]
 	bastion_colossus.on_play_effect_steps = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SELF", "amount": 2}]
 	bastion_colossus.faction              = "abyss_order"
 	bastion_colossus.art_path             = "res://assets/art/minions/abyss_order/bastion_colossus.png"

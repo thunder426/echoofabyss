@@ -173,13 +173,19 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 	return sim.winner.is_empty()
 
 func consume_minion(minion: MinionInstance) -> void:
-	var spark_val: int = (minion.card_data as MinionCardData).spark_value
+	var spark_val: int = minion.effective_spark_value(sim)
+	# Track if Behemoth or Bastion is being consumed (should never happen by design)
+	if minion.card_data.id == "void_behemoth":
+		sim._vw_behemoth_lost["consumed"] += 1
+	elif minion.card_data.id == "bastion_colossus":
+		sim._vw_bastion_lost["consumed"] += 1
 	sim.enemy_board.erase(minion)
 	for slot in sim.enemy_slots:
 		if slot.minion == minion:
 			slot.minion = null
 			break
-	# Fire spark consumed event for passives (void_detonation etc.)
+	# Fire spark consumed event for passives (void_detonation, champion_vw, etc.)
+	# Use effective value so spirit_resonance-boosted Spirits still fire.
 	if spark_val > 0 and sim.trigger_manager:
 		var event := Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED if minion.owner == "enemy" \
 			else Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED

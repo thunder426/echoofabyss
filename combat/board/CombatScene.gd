@@ -304,6 +304,20 @@ var _champion_va_summoned: bool = false
 var _champion_vs_crits_consumed: int = 0
 var _champion_vs_summoned: bool = false
 
+## Act 4 champion: Void Warband
+var _champion_vw_spirits_consumed: int = 0
+var _champion_vw_summoned: bool = false
+var _vw_behemoth_plays: int = 0
+var _vw_bastion_plays: int = 0
+var _void_echo_fired_this_turn: bool = false
+var _vw_death_crit_grants: int = 0
+var _vw_behemoth_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
+var _vw_bastion_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
+
+## Act 4 champion: Void Captain
+var _champion_vc_tc_cast: int = 0
+var _champion_vc_summoned: bool = false
+
 ## Act 3 champion: Void Herald
 var _champion_vh_spark_cards_played: int = 0
 var _champion_vh_summoned: bool = false

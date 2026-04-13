@@ -313,17 +313,17 @@ func _build_encounter(index: int) -> EnemyData:
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
 				["void_might", "void_precision", "champion_void_scout"], "void_scout")
 		11:
-			return _make_encounter("Void Warband", 5600, [],
+			return _make_encounter("Void Warband", 5000, [],
 				"ENCOUNTER II",
 				"A full Void Warband stands between you and the castle's keep. These are the Sovereign's chosen soldiers — hardened by centuries of conquest across dying worlds.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "spirit_conscription"], "void_warband")
+				["void_might", "spirit_resonance", "champion_void_warband"], "void_warband")
 		12:
-			return _make_encounter("Void Captain", 6200, [],
+			return _make_encounter("Void Captain", 5000, [],
 				"VOID CAPTAIN",
 				"The Void Captain commands the castle's garrison. A veteran of a hundred conquests, she has never known defeat. She regards you with curiosity — a new species of prey.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "captain_orders"], "void_captain")
+				["void_might", "captain_orders", "champion_void_captain"], "void_captain")
 		13:
 			return _make_encounter("Void Ritualist Prime", 7000, [],
 				"VOID RITUALIST PRIME",

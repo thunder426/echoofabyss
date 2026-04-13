@@ -273,14 +273,15 @@ func _draw_cards(count: int) -> void:
 ## Remove an enemy minion from the board silently (no death triggers, no animation).
 ## Used for Void Spirit consumption to pay spark costs.
 func consume_minion(minion: MinionInstance) -> void:
-	var spark_val: int = (minion.card_data as MinionCardData).spark_value
+	var spark_val: int = minion.effective_spark_value(scene)
 	enemy_board.erase(minion)
 	for slot in enemy_slots:
 		if slot.minion == minion:
 			slot.remove_minion()
 			break
 	scene._log("  %s consumed as spark fuel." % minion.card_data.card_name, 1)
-	# Fire spark consumed event for passives (void_detonation etc.)
+	# Fire spark consumed event for passives (void_detonation, champion_vw, etc.)
+	# Use effective value so spirit_resonance-boosted Spirits still fire.
 	if spark_val > 0 and scene.trigger_manager:
 		var event := Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED if minion.owner == "enemy" \
 			else Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED

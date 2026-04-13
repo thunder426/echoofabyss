@@ -19,8 +19,11 @@ extends RefCounted
 const _REGISTRY: Dictionary = {
 	# ── Player talents ────────────────────────────────────────────────────────
 	"void_echo": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN,      "method": "on_card_drawn_void_echo",        "priority": 0  }],
-		"stats":    {}
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN,  "method": "on_card_drawn_void_echo",       "priority": 0 },
+			{ "event": Enums.TriggerEvent.ON_PLAYER_TURN_START,  "method": "on_player_turn_start_void_echo", "priority": 99 },
+		],
+		"stats":    { "_void_echo_fired_this_turn": false }
 	},
 	"rune_caller": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED,   "method": "on_played_rune_caller",          "priority": 0  }],
@@ -199,6 +202,20 @@ const _REGISTRY: Dictionary = {
 		],
 		"stats": { "_champion_vs_crits_consumed": 0, "_champion_vs_summoned": false }
 	},
+	"champion_void_warband": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED, "method": "on_spark_consumed_champion_vw", "priority": 95 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,    "method": "on_enemy_died_champion_vw",     "priority": 94 },
+		],
+		"stats": { "_champion_vw_spirits_consumed": 0, "_champion_vw_summoned": false }
+	},
+	"champion_void_captain": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,  "method": "on_enemy_spell_champion_vc", "priority": 91 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_champion_vc",  "priority": 95 },
+		],
+		"stats": { "_champion_vc_tc_cast": 0, "_champion_vc_summoned": false }
+	},
 	# ── Act 3 enemy passives ──────────────────────────────────────────────────
 	"void_rift": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_void_rift", "priority": 3 }],
@@ -230,6 +247,15 @@ const _REGISTRY: Dictionary = {
 		"triggers": [],  # Handled directly by CombatManager._post_crit()
 		"stats":    {}
 	},
+	"spirit_resonance": {
+		# Shared enemy passive — 2 effects in one:
+		#   1. Spirits with crit have +1 effective spark_value (checked in MinionInstance.effective_spark_value)
+		#   2. Consuming a crit-Spirit as fuel spawns a 100/100 Void Spark
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED, "method": "on_spark_consumed_spirit_resonance", "priority": 90 },
+		],
+		"stats":    {}
+	},
 	"spirit_conscription": {
 		"triggers": [
 			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START,      "method": "on_enemy_turn_reset_spirit_conscription", "priority": 0 },
@@ -238,8 +264,8 @@ const _REGISTRY: Dictionary = {
 		"stats":    { "_spirit_conscription_fired": false }
 	},
 	"captain_orders": {
-		"triggers": [],
-		"stats":    { "crit_multiplier": 2.5 }
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_END, "method": "on_enemy_turn_end_captain_orders", "priority": 40 }],
+		"stats":    {}
 	},
 	"dark_channeling": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "method": "on_enemy_spell_dark_channeling", "priority": 0 }],

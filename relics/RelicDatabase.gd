@@ -86,7 +86,7 @@ func _register_all_relics() -> void:
 		"res://assets/art/relics/void_lens.png"))
 
 	_reg(_make("soul_anchor", "Soul Anchor",
-		"Summon a 300/300 Void Spark and grant it Guard.", 2, 1, 4, "relic_summon_guardian",
+		"Summon a 200/300 Void Spark and grant it Guard.", 2, 1, 4, "relic_summon_guardian",
 		"res://assets/art/relics/soul_anchor.png"))
 
 	_reg(_make("dark_mirror", "Dark Mirror",

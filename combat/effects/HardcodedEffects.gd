@@ -206,14 +206,14 @@ func _demon_ascendant(ctx: EffectContext) -> void:
 		var target_m: MinionInstance = _scene._find_random_minion(_scene._opponent_board(ctx.owner))
 		if target_m:
 			_scene._spell_dmg(target_m, 200)
-	_log("  Demon Ascendant: Special Summon a 600/600 Void Demon!", ls)
+	_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", ls)
 	for slot in (_scene._friendly_slots(ctx.owner) as Array):
 		if slot.is_empty():
 			var demon_data := CardDatabase.get_card("void_demon") as MinionCardData
 			if demon_data:
 				var instance := MinionInstance.create(demon_data, ctx.owner)
-				instance.current_atk    = 600
-				instance.current_health = 600
+				instance.current_atk    = 500
+				instance.current_health = 500
 				(_scene._friendly_board(ctx.owner) as Array).append(instance)
 				slot.place_minion(instance)
 				# Special Summon: intentionally does NOT fire ON_*_MINION_SUMMONED

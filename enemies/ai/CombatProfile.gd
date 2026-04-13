@@ -844,8 +844,10 @@ func _pick_default_trap_env_target():
 ## Deck archetype for fuel attack priority.
 enum DeckType { AGGRO, TEMPO }
 
-## Effective spark cost after void_mastery passive (halves costs, minimum 1)
-## and void_herald champion (all spark costs become 0).
+## Effective spark cost after passive discounts:
+##   - captain_orders: Throne's Command costs 1 less spark (min 0)
+##   - void_mastery: halves all spark costs (min 1)
+##   - void_herald champion: all spark costs become 0
 func _effective_spark_cost(card: CardData) -> int:
 	var base: int = card.void_spark_cost
 	if base <= 0:
@@ -857,10 +859,14 @@ func _effective_spark_cost(card: CardData) -> int:
 		for m: MinionInstance in agent.friendly_board:
 			if m.card_data.id == "champion_void_herald":
 				return 0
+	var cost: int = base
 	var passives = agent.scene.get("_active_enemy_passives")
+	# captain_orders: Throne's Command costs 1 less spark
+	if passives != null and "captain_orders" in passives and card.id == "thrones_command":
+		cost = maxi(cost - 1, 0)
 	if passives != null and "void_mastery" in passives:
-		return maxi(ceili(float(base) / 2.0), 1)
-	return base
+		return maxi(ceili(float(cost) / 2.0), 1)
+	return cost
 
 ## True if a spark-cost card can be played (resource + spark check).
 func _can_afford_spark_card(card: CardData) -> bool:
@@ -881,11 +887,11 @@ func _can_afford_spark_card(card: CardData) -> bool:
 	return false
 
 ## Total spark value available on the friendly board.
-## All minions with spark_value > 0 contribute (Void Sparks = 1, Void Spirits = 1-4).
+## Uses effective_spark_value which respects spirit_resonance passive.
 func _available_sparks() -> int:
 	var total := 0
 	for m: MinionInstance in agent.friendly_board:
-		total += (m.card_data as MinionCardData).spark_value
+		total += m.effective_spark_value(agent.scene)
 	return total
 
 ## True if the board has enough spark fuel to pay the given cost.
@@ -903,16 +909,16 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 	if cost <= 0:
 		return []
 
-	# Gather all eligible fuel (spark_value > 0 and not bigger than cost)
+	# Gather all eligible fuel (effective spark_value > 0 and not bigger than cost)
 	var eligible: Array[MinionInstance] = []
 	for m: MinionInstance in agent.friendly_board:
-		var sv: int = (m.card_data as MinionCardData).spark_value
+		var sv: int = m.effective_spark_value(agent.scene)
 		if sv > 0 and sv <= cost:
 			eligible.append(m)
 
 	# Sort by spark_value descending (pick biggest first = fewest bodies consumed)
 	eligible.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return (a.card_data as MinionCardData).spark_value > (b.card_data as MinionCardData).spark_value)
+		return a.effective_spark_value(agent.scene) > b.effective_spark_value(agent.scene))
 
 	var plan: Array[MinionInstance] = []
 	var remaining := cost
@@ -921,7 +927,7 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 		if remaining <= 0:
 			break
 		plan.append(m)
-		remaining -= (m.card_data as MinionCardData).spark_value
+		remaining -= m.effective_spark_value(agent.scene)
 
 	if remaining > 0:
 		return []  # Can't afford

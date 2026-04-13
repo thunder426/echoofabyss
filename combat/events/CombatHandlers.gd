@@ -93,14 +93,22 @@ func _apply_void_bolt_passive(effect_id: String, count: int) -> void:
 func on_card_drawn_void_echo(ctx: EventContext) -> void:
 	if ctx.card == null or not _card_has_tag(ctx.card, "base_void_imp"):
 		return
+	# Once per turn — tracked via scene flag, reset at player turn start.
+	if _scene.get("_void_echo_fired_this_turn"):
+		return
 	# Append directly — NOT via turn_manager.add_to_hand — to avoid re-triggering the drawn signal
 	var copy := CardDatabase.get_card("void_imp")
 	if copy and _scene.turn_manager.player_hand.size() < _scene.turn_manager.HAND_SIZE_MAX:
 		var inst := CardInstance.create(copy)
 		_scene.turn_manager.player_hand.append(inst)
+		_scene.set("_void_echo_fired_this_turn", true)
 		if "hand_display" in _scene and _scene.hand_display:
 			_scene.hand_display.add_card_generated(inst)
 		_log("  Void Echo: Void Imp drawn — free copy added to hand.", _LOG_PLAYER)
+
+## Reset void_echo once-per-turn flag at player turn start.
+func on_player_turn_start_void_echo(_ctx: EventContext) -> void:
+	_scene.set("_void_echo_fired_this_turn", false)
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_SUMMONED
@@ -145,8 +153,7 @@ func on_played_rune_caller(ctx: EventContext) -> void:
 
 func on_ritual_fired_ritual_surge(_ctx: EventContext) -> void:
 	_scene._summon_token("void_imp", "player")
-	_scene._summon_token("void_imp", "player")
-	_log("  Ritual Surge: 2 Void Imps summoned!", _LOG_PLAYER)
+	_log("  Ritual Surge: Void Imp summoned!", _LOG_PLAYER)
 
 func on_summon_piercing_void(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp"):
@@ -816,6 +823,126 @@ func _champion_vs_is_alive() -> bool:
 			return true
 	return false
 
+## ── Champion: Void Warband ────────────────────────────────────────────────
+## Summon condition: 2 Spirits consumed as spark fuel.
+## On summon: gains 1 Critical Strike.
+## Aura: (separate — to be defined)
+
+const _VW_THRESHOLD := 2
+const _VW_PIPS := 2
+
+## spirit_resonance passive — shared enemy passive, 2 effects:
+##   1. Spirits with crit have +1 effective spark_value (checked in MinionInstance)
+##   2. Consuming a crit-Spirit spawns a 100/100 Void Spark
+func on_spark_consumed_spirit_resonance(ctx: EventContext) -> void:
+	var minion: MinionInstance = ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.minion_type != Enums.MinionType.SPIRIT:
+		return
+	if not minion.has_critical_strike():
+		return
+	_scene._summon_token("void_spark", "enemy", 100, 100)
+	_log("  Spirit Resonance: crit-Spirit consumed — a Void Spark manifests!", _LOG_ENEMY)
+
+func on_spark_consumed_champion_vw(ctx: EventContext) -> void:
+	var minion: MinionInstance = ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.minion_type != Enums.MinionType.SPIRIT:
+		return
+	# Champion already summoned — no further tracking needed
+	if _scene.get("_champion_vw_summoned"):
+		return
+	_scene._champion_vw_spirits_consumed += 1
+	var total: int = _scene._champion_vw_spirits_consumed
+	var pips: int = mini(total, _VW_PIPS)
+	_scene._update_champion_progress(pips, _VW_PIPS)
+	_log("  Champion progress: %d / %d Spirits consumed." % [mini(total, _VW_THRESHOLD), _VW_THRESHOLD], _LOG_ENEMY)
+	if total >= _VW_THRESHOLD:
+		_summon_enemy_champion("champion_void_warband")
+		# Grant 1 Critical Strike on summon
+		for m: MinionInstance in _scene.enemy_board:
+			if m.card_data.id == "champion_void_warband":
+				BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike")
+				_scene._refresh_slot_for(m)
+				break
+
+func on_enemy_died_champion_vw(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_warband":
+		_on_enemy_champion_killed()
+		return
+	# Aura: while champion is alive, dying friendly Spirits apply 1 Critical Strike
+	# to a random friendly minion.
+	if not _champion_vw_is_alive():
+		return
+	if minion.card_data.minion_type != Enums.MinionType.SPIRIT:
+		return
+	var candidates: Array[MinionInstance] = []
+	for m: MinionInstance in _scene.enemy_board:
+		if m == minion:
+			continue
+		candidates.append(m)
+	if candidates.is_empty():
+		return
+	var target: MinionInstance = candidates[randi() % candidates.size()]
+	BuffSystem.apply(target, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike")
+	_scene._refresh_slot_for(target)
+	if _scene.get("_vw_death_crit_grants") != null:
+		_scene._vw_death_crit_grants += 1
+	_log("  Void Warband aura: %s's death grants Critical Strike to %s." % [minion.card_data.card_name, target.card_data.card_name], _LOG_ENEMY)
+
+func _champion_vw_is_alive() -> bool:
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "champion_void_warband":
+			return true
+	return false
+
+## ── Champion: Void Captain ──────────────────────────────────────────────
+## Summon condition: 2 Throne's Command cast.
+## On summon: gains 2 Critical Strike.
+## Aura: When a friendly minion consumes a Critical Strike, deal 100 damage
+##        to each of 2 random enemies (minions or hero).
+
+const _VC_THRESHOLD := 2
+const _VC_PIPS := 2
+
+func on_enemy_spell_champion_vc(ctx: EventContext) -> void:
+	if _scene.get("_champion_vc_summoned"):
+		return
+	var card: CardData = ctx.card
+	if card == null or card.id != "thrones_command":
+		return
+	_scene._champion_vc_tc_cast += 1
+	var total: int = _scene._champion_vc_tc_cast
+	var pips: int = mini(total, _VC_PIPS)
+	_scene._update_champion_progress(pips, _VC_PIPS)
+	_log("  Champion progress: %d / %d Throne's Command cast." % [mini(total, _VC_THRESHOLD), _VC_THRESHOLD], _LOG_ENEMY)
+	if total >= _VC_THRESHOLD:
+		_summon_enemy_champion("champion_void_captain")
+		# Grant 2 Critical Strike on summon
+		for m: MinionInstance in _scene.enemy_board:
+			if m.card_data.id == "champion_void_captain":
+				BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 2, "critical_strike")
+				_scene._refresh_slot_for(m)
+				break
+
+func on_enemy_died_champion_vc(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_captain":
+		_on_enemy_champion_killed()
+
+func _champion_vc_is_alive() -> bool:
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "champion_void_captain":
+			return true
+	return false
+
 # ---------------------------------------------------------------------------
 # Act 4 — Void Castle passive handlers
 # ---------------------------------------------------------------------------
@@ -879,9 +1006,25 @@ func on_enemy_summon_spirit_conscription(ctx: EventContext) -> void:
 	_scene._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Spirit Conscription: a Void Spark joins the enemy ranks.", _LOG_ENEMY)
 
-## captain_orders (Fight 12 — Void Captain): crit damage is 2.5x instead of 2x.
-## Implemented as a stat override: scene.crit_multiplier = 2.5
-## No trigger handler needed — just the stat in the registry.
+## captain_orders (Fight 12 — Void Captain):
+##   1. Throne's Command costs 1 less spark (handled in CombatProfile._effective_spark_cost)
+##   2. At end of enemy turn, consume 1 crit from each friendly minion and deal
+##      that minion's ATK as damage to enemy hero.
+func on_enemy_turn_end_captain_orders(_ctx: EventContext) -> void:
+	for m: MinionInstance in _scene.enemy_board:
+		if not BuffSystem.has_type(m, Enums.BuffType.CRITICAL_STRIKE):
+			continue
+		BuffSystem.remove_one_source(m, "critical_strike")
+		var dmg: int = m.effective_atk()
+		if dmg > 0:
+			_scene.combat_manager.apply_hero_damage("player", dmg, Enums.DamageType.SPELL)
+			_log("  Captain's Orders: %s's crit consumed — %d damage to enemy hero." % [m.card_data.card_name, dmg], _LOG_ENEMY)
+		_scene._refresh_slot_for(m)
+		# Track for crit counter
+		var key := "_enemy_crits_consumed"
+		var cur = _scene.get(key)
+		if cur != null:
+			_scene.set(key, (cur as int) + 1)
 
 ## dark_channeling (Fight 13 — Void Ritualist Prime): when enemy casts a
 ## damage-dealing spell, consume 1 crit stack from a random friendly minion.
@@ -1157,6 +1300,10 @@ func _summon_enemy_champion(card_id: String) -> void:
 			_scene.set("_champion_vh_summoned", true)
 		"champion_void_scout":
 			_scene.set("_champion_vs_summoned", true)
+		"champion_void_warband":
+			_scene.set("_champion_vw_summoned", true)
+		"champion_void_captain":
+			_scene.set("_champion_vc_summoned", true)
 	var count: int = _scene.get("_champion_summon_count")
 	_scene.set("_champion_summon_count", count + 1)
 	_scene._summon_token(card_id, "enemy")

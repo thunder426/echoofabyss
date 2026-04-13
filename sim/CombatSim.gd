@@ -68,8 +68,8 @@ const _ENEMY_PASSIVES: Dictionary = {
 	"void_herald":          ["void_rift", "void_mastery", "champion_void_herald"],
 	# Act 4 — Void Castle
 	"void_scout":           ["void_might", "void_precision", "champion_void_scout"],
-	"void_warband":         ["void_might", "spirit_conscription"],
-	"void_captain":         ["void_might", "captain_orders"],
+	"void_warband":         ["void_might", "spirit_resonance", "champion_void_warband"],
+	"void_captain":         ["void_might", "captain_orders", "champion_void_captain"],
 	"void_ritualist_prime": ["void_might", "dark_channeling"],
 	"void_champion":        ["void_might", "champion_duel"],
 	"abyss_sovereign":      ["void_might", "void_precision", "dark_channeling"],
@@ -240,6 +240,12 @@ func run(
 			print("  P_HP after attacks: %d  E_HP: %d" % [state.player_hp, state.enemy_hp])
 		state.end_enemy_turn()
 
+	# Count Behemoth/Bastion still alive on enemy board as "survived"
+	for m: MinionInstance in state.enemy_board:
+		if m.card_data.id == "void_behemoth":
+			state._vw_behemoth_lost["survived"] += 1
+		elif m.card_data.id == "bastion_colossus":
+			state._vw_bastion_lost["survived"] += 1
 	return {
 		"winner":       state.winner if not state.winner.is_empty() else "draw",
 		"turns":        turn,
@@ -247,12 +253,17 @@ func run(
 		"enemy_hp":     state.enemy_hp,
 		"player_board": state.player_board.size(),
 		"enemy_board":  state.enemy_board.size(),
+		"vw_behemoth_lost": state._vw_behemoth_lost.duplicate(),
+		"vw_bastion_lost": state._vw_bastion_lost.duplicate(),
 		"ritual_sacrifice_count": state._ritual_sacrifice_count,
 		"detonation_count": state._detonation_count,
 		"player_ritual_count": state._player_ritual_count,
 		"spark_spawned_count": state._spark_spawned_count,
 		"spark_transfer_count": state._spark_transfer_count,
 		"champion_summon_count": state._champion_summon_count,
+		"vw_behemoth_plays": state._vw_behemoth_plays,
+		"vw_bastion_plays": state._vw_bastion_plays,
+		"vw_death_crit_grants": state._vw_death_crit_grants,
 		"corruption_detonation_times": state._corruption_detonation_times,
 		"ritual_invoke_times": state._ritual_invoke_times,
 		"handler_spark_buff_times": state._handler_spark_buff_times,
@@ -309,6 +320,11 @@ func run_many(
 	var total_spark_transfer := 0
 	var total_relic_activations := 0
 	var total_champion_summons := 0
+	var total_vw_behemoth := 0
+	var total_vw_bastion := 0
+	var total_vw_death_crit := 0
+	var total_beh_lost := {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
+	var total_bas_lost := {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
 	var total_corruption_det := 0
 	var total_ritual_invoke := 0
 	var total_spark_buff := 0
@@ -350,6 +366,15 @@ func run_many(
 		total_spark_transfer += r.get("spark_transfer_count", 0)
 		total_relic_activations += r.get("relic_activations", 0)
 		total_champion_summons += r.get("champion_summon_count", 0)
+		total_vw_behemoth += r.get("vw_behemoth_plays", 0)
+		total_vw_bastion += r.get("vw_bastion_plays", 0)
+		total_vw_death_crit += r.get("vw_death_crit_grants", 0)
+		var beh_lost: Dictionary = r.get("vw_behemoth_lost", {})
+		for k in beh_lost:
+			total_beh_lost[k] += beh_lost[k]
+		var bas_lost: Dictionary = r.get("vw_bastion_lost", {})
+		for k in bas_lost:
+			total_bas_lost[k] += bas_lost[k]
 		total_corruption_det += r.get("corruption_detonation_times", 0)
 		total_ritual_invoke += r.get("ritual_invoke_times", 0)
 		total_spark_buff += r.get("handler_spark_buff_times", 0)
@@ -391,6 +416,11 @@ func run_many(
 		"avg_spark_transfer": float(total_spark_transfer) / count,
 		"avg_relic_activations": float(total_relic_activations) / count,
 		"avg_champion_summons": float(total_champion_summons) / count,
+		"avg_vw_behemoth": float(total_vw_behemoth) / count,
+		"avg_vw_bastion": float(total_vw_bastion) / count,
+		"avg_vw_death_crit": float(total_vw_death_crit) / count,
+		"vw_behemoth_lost_total": total_beh_lost,
+		"vw_bastion_lost_total": total_bas_lost,
 		"avg_corruption_det": float(total_corruption_det) / count,
 		"avg_ritual_invoke": float(total_ritual_invoke) / count,
 		"avg_spark_buff": float(total_spark_buff) / count,

@@ -132,6 +132,24 @@ func has_spell_immune() -> bool:
 func has_immune() -> bool:
 	return BuffSystem.has_type(self, Enums.BuffType.GRANT_IMMUNE)
 
+## Effective spark value, accounting for passives like spirit_resonance.
+## spirit_resonance: Spirit minions with Critical Strike have +1 spark_value (min 1).
+func effective_spark_value(scene: Object = null) -> int:
+	var base: int = (card_data as MinionCardData).spark_value
+	if scene == null:
+		return base
+	var passives = scene.get("_active_enemy_passives")
+	if passives == null or not ("spirit_resonance" in passives):
+		return base
+	# Passive applies to enemy Spirit minions with crit
+	if owner != "enemy":
+		return base
+	if card_data.minion_type != Enums.MinionType.SPIRIT:
+		return base
+	if not has_critical_strike():
+		return base
+	return maxi(base + 1, 1)
+
 ## True if this minion has Ethereal (50% less minion damage, 50% more spell damage).
 func has_ethereal() -> bool:
 	return Enums.Keyword.ETHEREAL in card_data.keywords

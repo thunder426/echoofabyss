@@ -202,6 +202,20 @@ var _champion_vh_summoned: bool = false
 # Act 4 champion: Void Scout
 var _champion_vs_crits_consumed: int = 0
 var _champion_vs_summoned: bool = false
+# Act 4 champion: Void Captain
+var _champion_vc_tc_cast: int = 0
+var _champion_vc_summoned: bool = false
+# Act 4 champion: Void Warband
+var _champion_vw_spirits_consumed: int = 0
+var _champion_vw_summoned: bool = false
+var _vw_behemoth_plays: int = 0   ## Void Behemoth plays by Warband profile
+var _vw_bastion_plays: int = 0    ## Bastion Colossus plays by Warband profile
+var _void_echo_fired_this_turn: bool = false ## Swarm capstone once-per-turn flag
+var _vw_death_crit_grants: int = 0 ## Spirit-death aura crit grants while champion alive
+## Death/loss tracking for Behemoth/Bastion (key = minion card id, value = count)
+## Causes: "consumed" (fuel), "damage" (spell/AoE), "combat" (minion attack), "survived"
+var _vw_behemoth_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
+var _vw_bastion_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
 var _rift_lord_plays: int = 0  ## Times Void Rift Lord was played
 var _hollow_sentinel_buffs: int = 0  ## Times Hollow Sentinel buffed sparks
 var _immune_dmg_prevented: int = 0  ## Total damage prevented by GRANT_IMMUNE

@@ -61,29 +61,28 @@ const _ACT_FIGHTS: Dictionary = {
 const _ACT_RELICS: Dictionary = {
 	1: [],  # no relics in Act 1
 	2: [["scouts_lantern"], ["imp_talisman"], ["mana_shard"], ["bone_shield"]],
-	# Act 3: 1 representative Act 1 relic + 1 representative Act 2 relic
-	# Swarm:       scouts_lantern + soul_anchor
-	# Voidbolt:    mana_shard    + blood_chalice
-	# DeathCircle: bone_shield   + void_lens
+	# Act 3: 1 Act-1 relic + 1 Act-2 relic (2 combos per preset for variance)
 	3: [
 		["scouts_lantern", "soul_anchor"],
+		["imp_talisman",   "soul_anchor"],
 		["mana_shard",     "blood_chalice"],
+		["mana_shard",     "dark_mirror"],
 		["bone_shield",    "void_lens"],
+		["scouts_lantern", "dark_mirror"],
 	],
-	# Act 4: same 2 relics as Act 3 but with +1 bonus charge each
+	# Act 4: same combos as Act 3, 1 random relic gets +1 bonus charge (applied per-run)
 	4: [
 		["scouts_lantern", "soul_anchor"],
+		["imp_talisman",   "soul_anchor"],
 		["mana_shard",     "blood_chalice"],
+		["mana_shard",     "dark_mirror"],
 		["bone_shield",    "void_lens"],
+		["scouts_lantern", "dark_mirror"],
 	],
 }
 
-# Act 4: +1 bonus charge to each relic
-const _ACT4_BONUS_CHARGES: Dictionary = {
-	"scouts_lantern": 1, "soul_anchor": 1,
-	"mana_shard": 1,     "blood_chalice": 1,
-	"bone_shield": 1,    "void_lens": 1,
-}
+# Act 4: +1 bonus charge to ONE of the 2 relics (random per run).
+# Implemented by splitting each sim run: half with bonus on relic[0], half with bonus on relic[1].
 
 # Short display names for presets
 const _PRESET_NAMES: Dictionary = {
@@ -237,17 +236,65 @@ func _run() -> void:
 							parts.append(_RELIC_NAMES.get(rid as String, rid as String))
 						var relic_display: String = "+".join(parts) if not parts.is_empty() else "none"
 
-						var bonus_charges: Dictionary = _ACT4_BONUS_CHARGES if act_int >= 4 else {}
-						var s: Dictionary = await sim.run_many(
-							runs, deck, enemy_profile, enemy_deck,
-							3000, enemy_hp, talents, profile_id,
-							hero_passives, relic_ids, bonus_charges,
-							enemy_limited)
+						var s: Dictionary
+						if act_int >= 4 and relic_ids.size() >= 2:
+							# Act 4: +1 bonus to exactly ONE relic per run, randomly split.
+							# Simulate by running half the runs with bonus on relic[0] and half on relic[1].
+							var half_a: int = runs / 2
+							var half_b: int = runs - half_a
+							var bonus_a: Dictionary = {relic_ids[0]: 1}
+							var bonus_b: Dictionary = {relic_ids[1]: 1}
+							var s_a: Dictionary = await sim.run_many(
+								half_a, deck, enemy_profile, enemy_deck,
+								3000, enemy_hp, talents, profile_id,
+								hero_passives, relic_ids, bonus_a,
+								enemy_limited)
+							var s_b: Dictionary = await sim.run_many(
+								half_b, deck, enemy_profile, enemy_deck,
+								3000, enemy_hp, talents, profile_id,
+								hero_passives, relic_ids, bonus_b,
+								enemy_limited)
+							s = _merge_stats(s_a, s_b, half_a, half_b)
+						else:
+							var bonus_charges: Dictionary = {}
+							s = await sim.run_many(
+								runs, deck, enemy_profile, enemy_deck,
+								3000, enemy_hp, talents, profile_id,
+								hero_passives, relic_ids, bonus_charges,
+								enemy_limited)
 
 						_print_row(preset_name, relic_display, enc.enemy_name, fight_idx as int, s, deck_id)
 
 	print("")
 	print("Done.")
+
+# ---------------------------------------------------------------------------
+# Stat merging — combine two run_many results proportionally by their counts.
+# ---------------------------------------------------------------------------
+
+func _merge_stats(s_a: Dictionary, s_b: Dictionary, n_a: int, n_b: int) -> Dictionary:
+	var total: int = n_a + n_b
+	if total == 0:
+		return s_a
+	var merged: Dictionary = {}
+	for key in s_a.keys():
+		var val_a = s_a[key]
+		var val_b: Variant = s_b.get(key, val_a)
+		if val_a is int and val_b is int:
+			merged[key] = (val_a as int) + (val_b as int)
+		elif val_a is float and val_b is float:
+			# Weighted average for average-style keys
+			merged[key] = ((val_a as float) * n_a + (val_b as float) * n_b) / float(total)
+		elif val_a is Dictionary and val_b is Dictionary:
+			# Sum per-key (death tracking dicts)
+			var sub: Dictionary = {}
+			for k in (val_a as Dictionary).keys():
+				sub[k] = int(val_a[k]) + int((val_b as Dictionary).get(k, 0))
+			merged[key] = sub
+		else:
+			merged[key] = val_a
+	merged["count"] = total
+	return merged
 
 # ---------------------------------------------------------------------------
 # Output
@@ -306,6 +353,20 @@ func _print_row(preset: String, relic: String, fight_name: String, fight_idx: in
 	var crt: float = s.get("avg_crits_consumed", 0.0)
 	if crt > 0: extras.append("Crt:%.1f" % crt)
 	if rl_p > 0: extras.append("RL:%.1fx(%d g,%.0f%%wr)" % [rl_p, rl_g, rl_wr * 100.0])
+	var vw_beh: float = s.get("avg_vw_behemoth", 0.0)
+	var vw_bas: float = s.get("avg_vw_bastion", 0.0)
+	if vw_beh > 0 or vw_bas > 0:
+		extras.append("VW:Beh%.2f/Bas%.2f" % [vw_beh, vw_bas])
+	var vw_dc: float = s.get("avg_vw_death_crit", 0.0)
+	if vw_dc > 0:
+		extras.append("DCrit:%.2f" % vw_dc)
+	# Behemoth/Bastion death cause breakdown
+	var beh_lost: Dictionary = s.get("vw_behemoth_lost_total", {})
+	var bas_lost: Dictionary = s.get("vw_bastion_lost_total", {})
+	if beh_lost.size() > 0 and (int(beh_lost["consumed"]) + int(beh_lost["damage"]) + int(beh_lost["combat"]) + int(beh_lost["survived"])) > 0:
+		extras.append("BehL:c%d/d%d/b%d/s%d" % [beh_lost["consumed"], beh_lost["damage"], beh_lost["combat"], beh_lost["survived"]])
+	if bas_lost.size() > 0 and (int(bas_lost["consumed"]) + int(bas_lost["damage"]) + int(bas_lost["combat"]) + int(bas_lost["survived"])) > 0:
+		extras.append("BasL:c%d/d%d/b%d/s%d" % [bas_lost["consumed"], bas_lost["damage"], bas_lost["combat"], bas_lost["survived"]])
 
 	if not extras.is_empty():
 		print("             %s" % " | ".join(extras))

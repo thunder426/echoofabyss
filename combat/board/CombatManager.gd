@@ -116,6 +116,15 @@ func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = 
 				minion.current_health = 50
 				return
 			minion.current_health = 0
+			# F11 debug: track Behemoth/Bastion death cause
+			if scene != null and minion.owner == "enemy":
+				var id: String = minion.card_data.id
+				if id == "void_behemoth" or id == "bastion_colossus":
+					var key: String = "_vw_behemoth_lost" if id == "void_behemoth" else "_vw_bastion_lost"
+					var dict = scene.get(key)
+					if dict is Dictionary:
+						var cause: String = "damage" if type == Enums.DamageType.SPELL else "combat"
+						dict[cause] = (dict[cause] as int) + 1
 			minion_vanished.emit(minion)
 
 ## Apply spell damage to a minion. Respects SPELL_IMMUNE.
@@ -203,15 +212,42 @@ func _check_post_crit(attacker: MinionInstance) -> void:
 	if attacker.current_health > 0:
 		_post_crit(attacker)
 
-## Post-crit processing: void_precision (+200 ATK) and champion crit tracking.
-## Called after attack resolves when a crit was consumed.
+## Post-crit processing: void_precision (+200 ATK), champion_void_captain aura,
+## and champion crit tracking.  Called after attack resolves when a crit was consumed.
 func _post_crit(attacker: MinionInstance) -> void:
 	# void_precision: grant +200 ATK permanently after crit
 	var passives = scene.get("_active_enemy_passives")
 	if passives != null and "void_precision" in passives and attacker.owner == "enemy":
 		BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 200, "void_precision", false)
+	# Champion void_captain aura: on enemy crit consumed, deal 100 damage to
+	# each of 2 random player targets (minions or hero).
+	if attacker.owner == "enemy" and _champion_vc_is_alive():
+		for i in 2:
+			var targets: Array = []
+			var player_board: Array[MinionInstance] = scene.get("player_board") as Array[MinionInstance]
+			if player_board != null:
+				for m: MinionInstance in player_board:
+					if m.current_health > 0:
+						targets.append(m)
+			targets.append("hero")  # hero is always a valid target
+			var pick: Variant = targets[randi() % targets.size()]
+			if pick is MinionInstance:
+				apply_spell_damage(pick as MinionInstance, 100)
+			else:
+				hero_damaged.emit("player", 100, Enums.DamageType.SPELL)
 	# Champion void_scout tracking is handled via _enemy_crits_consumed counter
 	# (incremented in _apply_crit, checked by champion handler on turn events)
+
+func _champion_vc_is_alive() -> bool:
+	if scene == null:
+		return false
+	var board: Array[MinionInstance] = scene.get("enemy_board") as Array[MinionInstance]
+	if board == null:
+		return false
+	for m: MinionInstance in board:
+		if m.card_data.id == "champion_void_captain":
+			return true
+	return false
 
 ## Returns true if the board has any minion with Guard.
 static func board_has_taunt(board: Array[MinionInstance]) -> bool:

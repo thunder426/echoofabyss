@@ -123,7 +123,7 @@ func _register_lord_vael_talents() -> void:
 
 	_register(_make(
 		"void_echo", "lord_vael", "Void Echo",
-		"CAPSTONE: Whenever you draw a Void Imp, add a free Void Imp copy to your hand.",
+		"CAPSTONE: Once per turn, when you draw a Void Imp, add a free Void Imp copy to your hand.",
 		"swarm", 3, "imp_warband"))
 
 	# -----------------------------------------------------------------------
@@ -142,7 +142,7 @@ func _register_lord_vael_talents() -> void:
 
 	_register(_make(
 		"ritual_surge", "lord_vael", "Ritual Surge",
-		"When any ritual fires, summon 2 Void Imps.",
+		"When any ritual fires, summon a Void Imp.",
 		"rune_master", 2, "runic_attunement"))
 
 	var abyss_convergence := _make(
