@@ -1370,12 +1370,8 @@ func _register_wanderer_cards() -> void:
 	rogue_imp_elder.atk          = 300
 	rogue_imp_elder.health       = 500
 	rogue_imp_elder.minion_type  = Enums.MinionType.DEMON
-	rogue_imp_elder.on_play_effect_steps = [
-		{"type": "BUFF_ATK", "scope": "ALL_FRIENDLY", "filter": "FERAL_IMP", "amount": 100, "permanent": true, "source_tag": "rogue_imp_elder", "exclude_self": true},
-	]
-	rogue_imp_elder.on_death_effect_steps = [
-		{"type": "HARDCODED", "hardcoded_id": "rogue_imp_elder_remove"},
-	]
+	# Aura wired via on_enemy_summon_rogue_imp_elder_aura / on_died_rogue_imp_elder_aura
+	# (recomputed on every summon/death — true continuous aura, not a one-time buff).
 	rogue_imp_elder.minion_tags  = ["feral_imp"]
 	rogue_imp_elder.faction              = "abyss_order"
 	rogue_imp_elder.clan                 = "Feral Imp"
@@ -1695,6 +1691,7 @@ func _register_wanderer_cards() -> void:
 	void_lance.requires_target = true
 	void_lance.target_type     = "any_minion"
 	void_lance.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 600}]
+	void_lance.art_path        = "res://assets/art/spells/abyss_order/void_lance.png"
 	void_lance.faction         = "abyss_order"
 	all.append(void_lance)
 
@@ -1761,6 +1758,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
 	]
 	void_shatter.requires_target = false
+	void_shatter.art_path    = "res://assets/art/spells/abyss_order/void_shatter.png"
 	void_shatter.faction     = "abyss_order"
 	all.append(void_shatter)
 
@@ -1774,6 +1772,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "SUMMON", "card_id": "void_spark"},
 	]
 	spirit_surge.requires_target = false
+	spirit_surge.art_path    = "res://assets/art/spells/abyss_order/spirit_surge.png"
 	spirit_surge.faction     = "abyss_order"
 	all.append(spirit_surge)
 
@@ -1787,6 +1786,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "HEAL_HERO", "amount": 500},
 	]
 	void_wind.requires_target = false
+	void_wind.art_path    = "res://assets/art/spells/abyss_order/void_wind.png"
 	void_wind.faction     = "abyss_order"
 	all.append(void_wind)
 
@@ -1935,6 +1935,8 @@ func _register_wanderer_cards() -> void:
 	void_resonance.minion_type     = Enums.MinionType.SPIRIT
 	void_resonance.keywords.append(Enums.Keyword.ETHEREAL)
 	void_resonance.on_play_effect_steps = [{"type": "HEAL_HERO", "amount": 300}]
+	void_resonance.art_path             = "res://assets/art/minions/abyss_order/void_resonance.png"
+	void_resonance.battlefield_art_path = "res://assets/art/minions/abyss_order/void_resonance_small.png"
 	void_resonance.faction         = "abyss_order"
 	all.append(void_resonance)
 
@@ -1949,6 +1951,8 @@ func _register_wanderer_cards() -> void:
 	void_echo.keywords.append(Enums.Keyword.SWIFT)
 	void_echo.keywords.append(Enums.Keyword.ETHEREAL)
 	void_echo.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
+	void_echo.art_path             = "res://assets/art/minions/abyss_order/void_echo.png"
+	void_echo.battlefield_art_path = "res://assets/art/minions/abyss_order/void_echo_small.png"
 	void_echo.faction         = "abyss_order"
 	all.append(void_echo)
 
@@ -1961,6 +1965,8 @@ func _register_wanderer_cards() -> void:
 	rift_tender.health          = 250
 	rift_tender.minion_type     = Enums.MinionType.SPIRIT
 	rift_tender.on_play_effect_steps = [{"type": "SUMMON", "card_id": "void_spark"}]
+	rift_tender.art_path             = "res://assets/art/minions/abyss_order/rift_tender.png"
+	rift_tender.battlefield_art_path = "res://assets/art/minions/abyss_order/rift_tender_small.png"
 	rift_tender.faction         = "abyss_order"
 	all.append(rift_tender)
 
@@ -1974,6 +1980,8 @@ func _register_wanderer_cards() -> void:
 	hollow_sentinel.minion_type     = Enums.MinionType.SPIRIT
 	hollow_sentinel.keywords.append(Enums.Keyword.ETHEREAL)
 	hollow_sentinel.passive_effect_id = "hollow_sentinel_spark_buff"
+	hollow_sentinel.art_path             = "res://assets/art/minions/abyss_order/hollow_sentinel.png"
+	hollow_sentinel.battlefield_art_path = "res://assets/art/minions/abyss_order/hollow_sentinel_small.png"
 	hollow_sentinel.faction         = "abyss_order"
 	all.append(hollow_sentinel)
 
@@ -1987,6 +1995,8 @@ func _register_wanderer_cards() -> void:
 	phase_disruptor.minion_type     = Enums.MinionType.SPIRIT
 	phase_disruptor.keywords.append(Enums.Keyword.ETHEREAL)
 	phase_disruptor.on_play_effect_steps = [{"type": "COUNTER_SPELL"}]
+	phase_disruptor.art_path             = "res://assets/art/minions/abyss_order/phase_disruptor.png"
+	phase_disruptor.battlefield_art_path = "res://assets/art/minions/abyss_order/phase_disruptor_small.png"
 	phase_disruptor.faction         = "abyss_order"
 	all.append(phase_disruptor)
 
@@ -1999,6 +2009,8 @@ func _register_wanderer_cards() -> void:
 	void_architect.health          = 400
 	void_architect.minion_type     = Enums.MinionType.SPIRIT
 	void_architect.on_play_effect_steps = [{"type": "GROW_MANA_MAX", "amount": 1}]
+	void_architect.art_path             = "res://assets/art/minions/abyss_order/void_architect.png"
+	void_architect.battlefield_art_path = "res://assets/art/minions/abyss_order/void_architect_small.png"
 	void_architect.faction         = "abyss_order"
 	all.append(void_architect)
 
@@ -2012,6 +2024,8 @@ func _register_wanderer_cards() -> void:
 	riftscarred_colossus.minion_type     = Enums.MinionType.SPIRIT
 	riftscarred_colossus.keywords.append(Enums.Keyword.SWIFT)
 	riftscarred_colossus.on_play_effect_steps = [{"type": "SUMMON", "card_id": "void_spark"}]
+	riftscarred_colossus.art_path             = "res://assets/art/minions/abyss_order/riftscarred_colossus.png"
+	riftscarred_colossus.battlefield_art_path = "res://assets/art/minions/abyss_order/riftscarred_colossus_small.png"
 	riftscarred_colossus.faction         = "abyss_order"
 	all.append(riftscarred_colossus)
 
@@ -2027,6 +2041,8 @@ func _register_wanderer_cards() -> void:
 	rift_warden.keywords.append(Enums.Keyword.GUARD)
 	rift_warden.keywords.append(Enums.Keyword.ETHEREAL)
 	rift_warden.passive_effect_id = "rift_warden_siphon"
+	rift_warden.art_path             = "res://assets/art/minions/abyss_order/rift_warden.png"
+	rift_warden.battlefield_art_path = "res://assets/art/minions/abyss_order/rift_warden_small.png"
 	rift_warden.faction         = "abyss_order"
 	all.append(rift_warden)
 
@@ -2041,6 +2057,8 @@ func _register_wanderer_cards() -> void:
 	ethereal_titan.keywords.append(Enums.Keyword.SWIFT)
 	ethereal_titan.keywords.append(Enums.Keyword.ETHEREAL)
 	ethereal_titan.keywords.append(Enums.Keyword.PIERCE)
+	ethereal_titan.art_path             = "res://assets/art/minions/abyss_order/ethereal_titan.png"
+	ethereal_titan.battlefield_art_path = "res://assets/art/minions/abyss_order/ethereal_titan_small.png"
 	ethereal_titan.faction         = "abyss_order"
 	all.append(ethereal_titan)
 

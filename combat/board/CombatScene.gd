@@ -919,13 +919,18 @@ func _try_play_spell(spell: SpellCardData) -> void:
 		return
 	# Show large card preview; resolve effects on impact so damage visuals sync
 	_show_card_cast_anim(spell, false, func() -> void:
-		if not spell.effect_steps.is_empty():
-			EffectResolver.run(spell.effect_steps, EffectContext.make(self, "player"))
+		var resolve_damage := func() -> void:
+			if not spell.effect_steps.is_empty():
+				EffectResolver.run(spell.effect_steps, EffectContext.make(self, "player"))
+			else:
+				_resolve_spell_effect(spell.effect_id, null)
+			var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+			spell_ctx.card = spell
+			trigger_manager.fire(spell_ctx)
+		if spell.id == "void_screech":
+			_play_void_screech_vfx("player", resolve_damage)
 		else:
-			_resolve_spell_effect(spell.effect_id, null)
-		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-		spell_ctx.card = spell
-		trigger_manager.fire(spell_ctx)
+			resolve_damage.call()
 	)
 
 func _try_play_trap(trap: TrapCardData) -> void:
@@ -1331,17 +1336,178 @@ func _spawn_slot_ripple(slot: BoardSlot, total_cost: int = 0, is_champion: bool 
 	slot.z_index = prev_z
 	slot.z_as_relative = prev_relative
 
+## Pack Chain VFX — visualize pack_instinct when a new feral imp joins the pack.
+## Refreshes the ENTIRE pack network: each feral imp re-links to its adjacent
+## neighbors. Isolated imps (no adjacent feral imp) fall back to linking with the
+## single nearest other feral imp by slot index distance.
+## Chain endpoints are anchored at slot edges (facing each other), not slot centers.
+func _spawn_pack_chain_vfx_for_new_imp(_new_imp: MinionInstance, side: String = "enemy") -> void:
+	var slots: Array[BoardSlot] = enemy_slots if side == "enemy" else player_slots
+
+	# Collect every feral-imp slot on this side
+	var imp_slots: Array[BoardSlot] = []
+	for s in slots:
+		if s.minion != null and _minion_has_tag(s.minion, "feral_imp"):
+			imp_slots.append(s)
+	if imp_slots.size() < 2:
+		return
+
+	# Build the set of chain pairs — each imp links to adjacent imps (slot index ±1);
+	# imps with no adjacent feral imp fall back to their single nearest by index distance.
+	# Deduped so we don't render the same pair twice.
+	var pairs: Dictionary = {}  # "lo:hi" → [BoardSlot, BoardSlot]
+	for imp in imp_slots:
+		var adjacent: Array[BoardSlot] = []
+		for other in imp_slots:
+			if other != imp and abs(other.index - imp.index) == 1:
+				adjacent.append(other)
+		var targets: Array[BoardSlot] = adjacent
+		if targets.is_empty():
+			var nearest: BoardSlot = null
+			for other in imp_slots:
+				if other == imp:
+					continue
+				if nearest == null or abs(other.index - imp.index) < abs(nearest.index - imp.index):
+					nearest = other
+			if nearest != null:
+				targets.append(nearest)
+		for t in targets:
+			var lo: int = mini(imp.index, t.index)
+			var hi: int = maxi(imp.index, t.index)
+			var key := "%d:%d" % [lo, hi]
+			if not pairs.has(key):
+				# Always store with the lower-index slot first for consistent anchor calculation
+				var lo_slot: BoardSlot = imp if imp.index < t.index else t
+				var hi_slot: BoardSlot = t if imp.index < t.index else imp
+				pairs[key] = [lo_slot, hi_slot]
+
+	if pairs.is_empty():
+		return
+
+	# Small delay so the chain gets its own beat after the enemy summon reveal
+	# has fully faded and the landing punch has resolved.
+	await get_tree().create_timer(0.35).timeout
+	if not is_inside_tree():
+		return
+	# Re-verify feral imps still alive after the delay (a kill effect could have cleared them)
+	var any_alive := false
+	for pair in pairs.values():
+		if pair[0].minion != null and pair[1].minion != null:
+			any_alive = true
+			break
+	if not any_alive:
+		return
+
+	# SFX once per burst (not per chain) to avoid audio stacking
+	AudioManager.play_sfx("res://assets/audio/sfx/minions/pack_chain.wav", -4.0)
+
+	for pair in pairs.values():
+		var a: BoardSlot = pair[0]
+		var b: BoardSlot = pair[1]
+		if a.minion == null or b.minion == null:
+			continue  # imp died during the delay
+		var chain := preload("res://combat/effects/PackChainVFX.gd").new()
+		$UI.add_child(chain)
+		var a_pos: Vector2 = _pack_chain_anchor(a, b)
+		var b_pos: Vector2 = _pack_chain_anchor(b, a)
+		chain.play(a_pos, b_pos)
+
+## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
+## procedural chevron to the right of it, both timed to coincide with the chain
+## VFX so the player reads "chains link → ATK jumps up" as one beat.
+## The caller (on_board_changed_pack_instinct) has already reverted the ATK
+## label's text to the old value; this method updates it to the new value.
+func _spawn_pack_instinct_buff_vfx(minion: MinionInstance, _delta_atk: int) -> void:
+	# Defer so it lands in the same visual beat as the chain animation
+	await get_tree().create_timer(0.45).timeout
+	if not is_inside_tree():
+		return
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot == null or slot.minion != minion:
+		return  # minion died or moved
+
+	# Flip the ATK label to the new (buffed) value now — synchronised with the pulse
+	var atk_lbl: Label = slot._atk_label
+	if atk_lbl == null:
+		return
+	atk_lbl.text = str(minion.effective_atk())
+
+	# Pulse the ATK label — scale up briefly + color flash to green
+	atk_lbl.pivot_offset = atk_lbl.size * 0.5
+	var original_color: Color = atk_lbl.get_theme_color("font_color")
+	var pulse_color := Color(0.45, 1.00, 0.35, 1.0)
+	var tw := atk_lbl.create_tween().set_parallel(true)
+	tw.tween_property(atk_lbl, "scale", Vector2(1.35, 1.35), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_method(func(c: Color) -> void:
+			atk_lbl.add_theme_color_override("font_color", c),
+			original_color, pulse_color, 0.12)
+	tw.chain().tween_property(atk_lbl, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_SINE)
+	tw.parallel().tween_method(func(c: Color) -> void:
+			atk_lbl.add_theme_color_override("font_color", c),
+			pulse_color, original_color, 0.35)
+
+	# Spawn a procedural green chevron to the right of the ATK label.
+	# Rendered via _draw() on a helper Control — no font glyph needed.
+	var chevron := preload("res://combat/effects/BuffChevronVFX.gd").new()
+	slot.add_child(chevron)
+	# Anchor just past the right edge of the atk_label, vertically centered
+	chevron.position = atk_lbl.position + Vector2(atk_lbl.size.x - 10.0, atk_lbl.size.y * 0.5 - 8.0)
+	chevron.set_size(Vector2(14, 16))
+	chevron.play()
+
+## Void Screech VFX — red sonic rings converging on the opposing hero panel.
+## Standard mode: one ring from the center of the caster's board area.
+## Chorus mode (3+ friendly feral imps): one ring per feral imp slot, symmetric
+## for both sides so player-cast would work too if ever added to the player pool.
+func _play_void_screech_vfx(caster_side: String, on_impact: Callable = Callable()) -> void:
+	var target_panel: Control = _enemy_status_panel if caster_side == "player" else _player_status_panel
+	if target_panel == null:
+		if on_impact.is_valid(): on_impact.call()
+		return
+	var caster_slots: Array[BoardSlot] = player_slots if caster_side == "player" else enemy_slots
+
+	# Collect feral imp slots for chorus mode
+	var feral_slots: Array[BoardSlot] = []
+	for s in caster_slots:
+		if s.minion != null and _minion_has_tag(s.minion, "feral_imp"):
+			feral_slots.append(s)
+
+	var sources: Array = []
+	if feral_slots.size() >= 3:
+		# Chorus: one ring from each feral imp's slot center
+		for s in feral_slots:
+			sources.append(s.global_position + s.size * 0.5)
+	else:
+		# Standard: single ring from the center of the caster's board row
+		var center := Vector2.ZERO
+		var count := 0
+		for s in caster_slots:
+			center += s.global_position + s.size * 0.5
+			count += 1
+		if count > 0:
+			sources.append(center / float(count))
+
+	VoidScreechVFX.play(self, sources, target_panel, on_impact)
+
+## Return the point on `from` slot's edge closest to `toward` slot — so chain VFX
+## appears to emerge from the side of the minion facing its neighbor, not from
+## its dead center.
+func _pack_chain_anchor(from: BoardSlot, toward: BoardSlot) -> Vector2:
+	var from_center: Vector2 = from.global_position + from.size * 0.5
+	var toward_center: Vector2 = toward.global_position + toward.size * 0.5
+	var dir: Vector2 = (toward_center - from_center).normalized()
+	# Pull the anchor ~35% of the slot size toward the neighbor (stops inside the sprite's edge)
+	var offset: float = min(from.size.x, from.size.y) * 0.35
+	return from_center + dir * offset
+
 ## Dramatic entrance sequence for champion token summons.
 ## Shows card reveal → banner → screen shake → gold flash → place minion → fire trigger.
 func _champion_summon_sequence(card: MinionCardData, instance: MinionInstance, slot: BoardSlot) -> void:
 	var owner: String = instance.owner
 
-	# 1. Card reveal with golden tint and longer hold
-	await _show_champion_reveal(card)
-	if not is_inside_tree(): slot.place_minion(instance); return
-
-	# 2. "CHAMPION" banner across the screen
-	await _show_champion_banner(card.card_name)
+	# 1+2. Card reveal + "CHAMPION" banner shown together, held longer
+	AudioManager.play_sfx("res://assets/audio/sfx/minions/champion_summon.wav")
+	await _show_champion_reveal_with_banner(card)
 	if not is_inside_tree(): slot.place_minion(instance); return
 
 	# 3. Place the minion on the slot
@@ -1362,8 +1528,11 @@ func _champion_summon_sequence(card: MinionCardData, instance: MinionInstance, s
 	_champion_slot_flash(slot)
 	_spawn_slot_ripple(slot, 8, true)
 
-## Card reveal with golden tint for champions — longer hold than normal.
-func _show_champion_reveal(card: CardData) -> void:
+## Card reveal + "CHAMPION" banner shown together, held long enough to read.
+func _show_champion_reveal_with_banner(card: CardData) -> void:
+	var vp := get_viewport().get_visible_rect().size
+
+	# --- Card visual (offset above center so banner can sit below it) ---
 	var visual: CardVisual = CARD_VISUAL_SCENE.instantiate()
 	visual.apply_size_mode("combat_preview")
 	visual.mouse_filter  = Control.MOUSE_FILTER_IGNORE
@@ -1372,40 +1541,21 @@ func _show_champion_reveal(card: CardData) -> void:
 	visual.modulate      = Color(0, 0, 0, 0)
 	$UI.add_child(visual)
 	visual.setup(card)
-	var vp := get_viewport().get_visible_rect().size
-	visual.position = vp / 2.0 - visual.size / 2.0
+	# Anchor card so its top is ~60px from the top edge (with minimum padding safety)
+	var card_top_y: float = max(60.0, vp.y * 0.08)
+	visual.position = Vector2(vp.x / 2.0 - visual.size.x / 2.0, card_top_y)
 
-	# Fade in with golden tint
-	var t1 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t1.tween_property(visual, "modulate", Color(1.2, 1.05, 0.75, 1.0), 0.25)
-	await t1.finished
-	if not is_inside_tree(): visual.queue_free(); return
-
-	# Hold longer than normal summons
-	await get_tree().create_timer(1.5).timeout
-	if not is_inside_tree(): visual.queue_free(); return
-
-	# Fade out
-	var t2 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t2.tween_property(visual, "modulate:a", 0.0, 0.25)
-	await t2.finished
-	visual.queue_free()
-
-## Show a "CHAMPION" banner with the unit name across the screen.
-func _show_champion_banner(champion_name: String) -> void:
-	var vp := get_viewport().get_visible_rect().size
-
-	# Dark overlay strip
+	# --- Banner (below the card, with a small gap) ---
+	var banner_y: float = card_top_y + visual.size.y + 30.0
 	var bg := ColorRect.new()
 	bg.color = Color(0.0, 0.0, 0.0, 0.0)
 	bg.set_size(Vector2(vp.x, 80))
-	bg.position = Vector2(0, vp.y / 2.0 - 40)
+	bg.position = Vector2(0, banner_y)
 	bg.z_index = 25
 	bg.z_as_relative = false
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	$UI.add_child(bg)
 
-	# "CHAMPION" title
 	var title := Label.new()
 	title.text = "★  C H A M P I O N  ★"
 	title.add_theme_font_size_override("font_size", 22)
@@ -1417,9 +1567,8 @@ func _show_champion_banner(champion_name: String) -> void:
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bg.add_child(title)
 
-	# Champion name subtitle
 	var name_lbl := Label.new()
-	name_lbl.text = champion_name
+	name_lbl.text = card.card_name
 	name_lbl.add_theme_font_size_override("font_size", 16)
 	name_lbl.add_theme_color_override("font_color", Color(0.90, 0.75, 0.50, 0.0))
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1429,40 +1578,47 @@ func _show_champion_banner(champion_name: String) -> void:
 	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bg.add_child(name_lbl)
 
-	# Fade in
+	# --- Fade in (card + banner together) ---
 	var t1 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t1.tween_property(bg, "color:a", 0.75, 0.2)
-	t1.tween_property(title, "theme_override_colors/font_color:a", 1.0, 0.25)
-	t1.tween_property(name_lbl, "theme_override_colors/font_color:a", 1.0, 0.3)
+	t1.tween_property(visual, "modulate", Color(1.2, 1.05, 0.75, 1.0), 0.3)
+	t1.tween_property(bg, "color:a", 0.75, 0.3)
+	t1.tween_property(title, "theme_override_colors/font_color:a", 1.0, 0.35)
+	t1.tween_property(name_lbl, "theme_override_colors/font_color:a", 1.0, 0.4)
 	await t1.finished
-	if not is_inside_tree(): bg.queue_free(); return
+	if not is_inside_tree(): visual.queue_free(); bg.queue_free(); return
 
-	# Hold
-	await get_tree().create_timer(1.0).timeout
-	if not is_inside_tree(): bg.queue_free(); return
+	# --- Hold (longer than before) ---
+	await get_tree().create_timer(2.8).timeout
+	if not is_inside_tree(): visual.queue_free(); bg.queue_free(); return
 
-	# Fade out
-	var t2 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t2.tween_property(bg, "modulate:a", 0.0, 0.3)
+	# --- Fade out together ---
+	var t2 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t2.tween_property(visual, "modulate:a", 0.0, 0.35)
+	t2.tween_property(bg, "modulate:a", 0.0, 0.35)
 	await t2.finished
+	visual.queue_free()
 	bg.queue_free()
 
-## Screen shake for champion entrance.
+## Screen shake for champion entrance. Heavy impact with decay.
 func _champion_screen_shake() -> void:
 	var ui_node: Node = $UI
 	if ui_node == null:
 		return
 	var original_pos: Vector2 = ui_node.get("position") if ui_node.get("position") != null else Vector2.ZERO
-	for i in 6:
+	var ticks: int = 14
+	var max_amp: float = 18.0
+	for i in ticks:
 		if not is_inside_tree():
 			ui_node.set("position", original_pos)
 			return
+		var decay: float = 1.0 - (float(i) / float(ticks))
+		var amp: float = max_amp * decay
 		var offset := Vector2(
-			randf_range(-4.0, 4.0),
-			randf_range(-4.0, 4.0)
+			randf_range(-amp, amp),
+			randf_range(-amp, amp)
 		)
 		ui_node.set("position", original_pos + offset)
-		await get_tree().create_timer(0.03).timeout
+		await get_tree().create_timer(0.025).timeout
 	ui_node.set("position", original_pos)
 
 ## Gold flash overlay on a slot when a champion lands.
@@ -2457,6 +2613,48 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 			"aura": "Enemy minions with Critical Strike have Spell Immune.",
 			"on_death": "",
 		},
+		"champion_rift_stalker": {
+			"name": "Rift Stalker",
+			"condition": "Void Sparks have dealt 1500 damage",
+			"stats": "400 ATK / 400 HP",
+			"aura": "All friendly Void Sparks are immune.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_void_aberration": {
+			"name": "Void Aberration",
+			"condition": "5 sparks consumed as costs",
+			"stats": "300 ATK / 300 HP — ETHEREAL",
+			"aura": "Void Detonation deals 200 damage instead of 100.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_void_herald": {
+			"name": "Void Herald",
+			"condition": "6 spark-cost cards played",
+			"stats": "200 ATK / 500 HP",
+			"aura": "All spark costs become 0. Void Rift stops generating sparks.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_void_scout": {
+			"name": "Void Scout",
+			"condition": "5 critical strikes consumed",
+			"stats": "400 ATK / 500 HP",
+			"aura": "Critical Strike deals 2.5x damage instead of 2x.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_void_warband": {
+			"name": "Void Warband",
+			"condition": "3 Spirits consumed as fuel",
+			"stats": "500 ATK / 600 HP — 1 Critical Strike",
+			"aura": "When a friendly Spirit with Crit is consumed, summon a 100/100 Void Spark.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
+		"champion_void_captain": {
+			"name": "Void Captain",
+			"condition": "2 Throne's Command cast",
+			"stats": "300 ATK / 600 HP — 2 Critical Strike",
+			"aura": "When a friendly minion consumes a Critical Strike, deal 100 damage to each of 2 random enemies.",
+			"on_death": "Deal 20% of max HP to enemy hero.",
+		},
 	}
 
 	var info: Dictionary = CHAMPION_INFO.get(champ_id, {})
@@ -3280,15 +3478,23 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	enemy_ai.spell_chosen_target = null
 	# Show large card preview; resolve effects on impact so damage visuals sync
 	_show_card_cast_anim(spell, true, func() -> void:
-		if not spell.effect_steps.is_empty():
-			var ectx := EffectContext.make(self, "enemy")
-			if chosen is MinionInstance:
-				ectx.chosen_target = chosen
-			else:
-				ectx.chosen_object = chosen
-			EffectResolver.run(spell.effect_steps, ectx)
-		elif not spell.effect_id.is_empty():
-			_resolve_spell_effect(spell.effect_id, null, "enemy")
+		# Build the damage-resolution callable so it can either run immediately
+		# OR be deferred to fire exactly when a VFX's impact phase starts.
+		var resolve_damage := func() -> void:
+			if not spell.effect_steps.is_empty():
+				var ectx := EffectContext.make(self, "enemy")
+				if chosen is MinionInstance:
+					ectx.chosen_target = chosen
+				else:
+					ectx.chosen_object = chosen
+				EffectResolver.run(spell.effect_steps, ectx)
+			elif not spell.effect_id.is_empty():
+				_resolve_spell_effect(spell.effect_id, null, "enemy")
+		# Per-spell VFX — VFX owns the timing; damage fires at impact moment
+		if spell.id == "void_screech":
+			_play_void_screech_vfx("enemy", resolve_damage)
+		else:
+			resolve_damage.call()
 	)
 
 ## Called by EnemyAI's trap_placed signal.
@@ -4970,9 +5176,10 @@ func _on_enemy_hero_button_pressed() -> void:
 		return
 	_log("Your %s attacks Enemy Hero" % selected_attacker.card_data.card_name)
 	var _hero_atk_slot := _find_slot_for(selected_attacker)
+	var _hero_attacker_ref: MinionInstance = selected_attacker
 	combat_manager.resolve_minion_attack_hero(selected_attacker, "enemy")
 	if _hero_atk_slot and _enemy_status_panel:
-		_play_hero_attack_anim(_hero_atk_slot, _enemy_status_panel)
+		_play_hero_attack_anim(_hero_atk_slot, _enemy_status_panel, _hero_attacker_ref)
 	selected_attacker = null
 	_clear_all_highlights()
 	_show_hero_button(false)
@@ -5173,6 +5380,14 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 	var direction := (def_rect.get_center() - atk_rect.get_center()).normalized()
 	var lunge_pos := atk_rect.position + direction * 55.0
 
+	# Champion strike overlay — afterimage trail during lunge
+	var is_champ_attack: bool = attacker != null and attacker.card_data != null \
+			and attacker.card_data is MinionCardData and (attacker.card_data as MinionCardData).is_champion
+	var champ_config: Dictionary = ChampionStrikeVFX.DEFAULT_CONFIG
+	if is_champ_attack:
+		champ_config = ChampionStrikeVFX.config_for((attacker.card_data as MinionCardData).id)
+		ChampionStrikeVFX.spawn_afterimage_trail($UI, atk_slot, lunge_pos, champ_config)
+
 	var lunge_info := _reparent_slot_for_lunge(atk_slot)
 	var orig_parent: Control = lunge_info[0]
 	var orig_index: int = lunge_info[1]
@@ -5185,6 +5400,9 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		_flash_slot(def_slot)
 		if damage > 0:
 			_spawn_damage_popup(def_rect.get_center(), damage)
+		if is_champ_attack:
+			ChampionStrikeVFX.spawn_shockwave($UI, def_slot, champ_config)
+			ChampionStrikeVFX.mild_shake($UI, get_tree())
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
@@ -5195,11 +5413,19 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		if defender: _refresh_slot_for(defender)
 	)
 
-func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control) -> void:
+func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control, attacker: MinionInstance = null) -> void:
 	var atk_rect   := atk_slot.get_global_rect()
 	var hero_rect  := hero_panel.get_global_rect()
 	var direction  := (hero_rect.get_center() - atk_rect.get_center()).normalized()
 	var lunge_pos  := atk_rect.position + direction * 55.0
+
+	# Champion strike overlay — afterimage trail + shockwave on hero panel
+	var is_champ_attack: bool = attacker != null and attacker.card_data != null \
+			and attacker.card_data is MinionCardData and (attacker.card_data as MinionCardData).is_champion
+	var champ_config: Dictionary = ChampionStrikeVFX.DEFAULT_CONFIG
+	if is_champ_attack:
+		champ_config = ChampionStrikeVFX.config_for((attacker.card_data as MinionCardData).id)
+		ChampionStrikeVFX.spawn_afterimage_trail($UI, atk_slot, lunge_pos, champ_config)
 
 	var lunge_info := _reparent_slot_for_lunge(atk_slot)
 	var orig_parent: Control = lunge_info[0]
@@ -5213,11 +5439,34 @@ func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control) -> void:
 		var ftw := create_tween()
 		ftw.tween_property(hero_panel, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
 		ftw.tween_property(hero_panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
+		if is_champ_attack:
+			# Shockwave centered on the hero panel — reuse spawn_shockwave via a fake slot-sized rect
+			_champion_strike_hero_shockwave(hero_panel, champ_config)
+			ChampionStrikeVFX.mild_shake($UI, get_tree())
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
 		_restore_slot_from_lunge(atk_slot, orig_parent, orig_index, placeholder)
 	)
+
+## Hero-panel version of the shockwave (hero isn't a BoardSlot, so we can't reuse
+## spawn_shockwave directly — this mirrors its behavior using the panel rect).
+func _champion_strike_hero_shockwave(hero_panel: Control, config: Dictionary) -> void:
+	var color: Color = config.get("shockwave_color", Color.WHITE)
+	var end_scale: float = config.get("shockwave_scale", 2.3)
+	var ring := ColorRect.new()
+	ring.color = Color(color.r, color.g, color.b, 0.75)
+	ring.z_index = 4
+	ring.z_as_relative = false
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	$UI.add_child(ring)
+	ring.set_size(hero_panel.size)
+	ring.pivot_offset = hero_panel.size * 0.5
+	ring.global_position = hero_panel.global_position
+	var tw := ring.create_tween().set_parallel(true)
+	tw.tween_property(ring, "scale",      Vector2(end_scale, end_scale), 0.40).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(ring, "modulate:a", 0.0,                           0.40).set_trans(Tween.TRANS_SINE)
+	tw.chain().tween_callback(ring.queue_free)
 
 func _flash_slot(slot: BoardSlot) -> void:
 	var tw := slot.create_tween()
@@ -5463,7 +5712,7 @@ func _on_enemy_attacking_hero(attacker: MinionInstance) -> void:
 	ctx.minion = attacker
 	trigger_manager.fire(ctx)
 	if atk_slot and _player_status_panel:
-		_play_hero_attack_anim(atk_slot, _player_status_panel)
+		_play_hero_attack_anim(atk_slot, _player_status_panel, attacker)
 
 enum _LogType { TURN, PLAYER, ENEMY, DAMAGE, HEAL, TRAP, DEATH }
 const _LOG_MAX := 80

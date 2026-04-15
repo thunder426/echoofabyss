@@ -432,6 +432,48 @@ func play_phase_two_pass() -> void:
 	await _play_spells_pass()
 	if not agent.is_alive(): return
 	await _play_traps_pass()
+	if not agent.is_alive(): return
+	# Hand-jam relief: if hand is near cap and normal passes couldn't play anything
+	# rule-gated, dump any castable spell to make room for draws.
+	await _play_spells_relief_pass()
+
+## Hand-jam relief pass. Triggered when hand is near cap (>=9) — bypasses
+## _get_spell_rules() gating so the AI doesn't brick holding uncastable cards.
+## Still respects mana, board-slot requirements for summon spells, and target
+## availability. Skips spells explicitly gated "never".
+func _play_spells_relief_pass() -> void:
+	const HAND_JAM_THRESHOLD: int = 9
+	if agent.hand.size() < HAND_JAM_THRESHOLD:
+		return
+	var cast := true
+	while cast and agent.hand.size() >= HAND_JAM_THRESHOLD:
+		cast = false
+		var spell_hand: Array[CardInstance] = []
+		for inst in agent.hand:
+			if inst.card_data is SpellCardData and inst.card_data.void_spark_cost <= 0:
+				spell_hand.append(inst)
+		spell_hand.sort_custom(agent.sort_by_total_cost)
+		var rules := _get_spell_rules()
+		for inst in spell_hand:
+			var spell := inst.card_data as SpellCardData
+			var cost: int = agent.effective_spell_cost(spell)
+			if cost > agent.mana:
+				continue
+			# Skip explicit "never" rules — profile is deliberately withholding
+			if rules.has(spell.id) and (rules[spell.id] as Dictionary).get("cast_if", "") == "never":
+				continue
+			# Respect board-slot reservation for summon spells
+			if _spell_needs_board_slot(spell) and agent.empty_slot_count() <= _reserved_slots():
+				continue
+			var target: Variant = pick_spell_target(spell)
+			# If spell requires a target but none is available, skip
+			if spell.requires_target and target == null:
+				continue
+			agent.mana -= cost
+			if not await agent.commit_play_spell(inst, target):
+				return
+			cast = true
+			break
 
 ## How many board slots to keep free for champion/ritual summons.
 ## Override in profiles that need space for triggered summons.

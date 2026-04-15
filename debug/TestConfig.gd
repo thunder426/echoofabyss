@@ -45,6 +45,12 @@ var start_essence_max: int = 6
 ## Starting mana max for test mode (0 = use combat default).
 var start_mana_max: int = 5
 
+## Enemy AI profile key (e.g. "feral_pack", "default"). Empty = "default".
+var enemy_ai_profile: String = ""
+
+## Enemy passives to activate (e.g. ["pack_instinct", "champion_rogue_imp_pack"]).
+var enemy_passives: Array[String] = []
+
 # ---------------------------------------------------------------------------
 
 func reset() -> void:
@@ -62,6 +68,8 @@ func reset() -> void:
 	infinite_resources  = false
 	start_essence_max   = 6
 	start_mana_max      = 5
+	enemy_ai_profile    = ""
+	enemy_passives      = []
 
 ## Configure GameManager with a minimal test state then jump to CombatScene.
 func launch() -> void:
@@ -77,6 +85,10 @@ func launch() -> void:
 	e.enemy_name = enemy_name
 	e.hp         = enemy_hp if enemy_hp > 0 else 2000
 	e.deck       = enemy_deck
+	if enemy_ai_profile != "":
+		e.ai_profile = enemy_ai_profile
+	if not enemy_passives.is_empty():
+		e.passives = enemy_passives.duplicate()
 	GameManager.current_enemy = e
 
 	# Override player HP if requested

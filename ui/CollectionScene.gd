@@ -101,9 +101,9 @@ func _setup_filters() -> void:
 	)
 
 	_add_dropdown(row, "Pool",
-		["All Pools", "Vael Pool", "Void Bolt Pool", "Endless Tide Pool", "Rune Master Pool", "Feral Imp Clan", "Abyss Cultist Clan"],
+		["All Pools", "Vael Pool", "Void Bolt Pool", "Endless Tide Pool", "Rune Master Pool", "Feral Imp Clan", "Abyss Cultist Clan", "Void Rift", "Void Castle"],
 		func(idx: int) -> void:
-			var vals := ["", "vael_common", "vael_piercing_void", "vael_endless_tide", "vael_rune_master", "feral_imp_clan", "abyss_cultist_clan"]
+			var vals := ["", "vael_common", "vael_piercing_void", "vael_endless_tide", "vael_rune_master", "feral_imp_clan", "abyss_cultist_clan", "void_rift", "void_castle"]
 			_filter_pool = vals[idx]
 			_build_list()
 	)
@@ -142,11 +142,11 @@ func _build_list() -> void:
 
 	# --- Filter ---
 	var visible_ids: Array[String] = []
-	for card_id in CardDatabase.get_card_ids_in_pools(["vael_common", "vael_piercing_void", "vael_endless_tide", "vael_rune_master", "feral_imp_clan", "abyss_cultist_clan"]):
+	for card_id in CardDatabase.get_card_ids_in_pools(["vael_common", "vael_piercing_void", "vael_endless_tide", "vael_rune_master", "feral_imp_clan", "abyss_cultist_clan", "void_rift", "void_castle"]):
 		var card := CardDatabase.get_card(card_id)
 		if not card:
 			continue
-		var is_unlocked := card_id in unlocked
+		var is_unlocked := true
 
 		if _filter_type != -1 and card.card_type != _filter_type:
 			continue
@@ -170,7 +170,7 @@ func _build_list() -> void:
 		return
 
 	# --- Sort: pool asc, then act_gate asc, then name ---
-	var pool_order := {"vael_common": 0, "vael_piercing_void": 1, "vael_endless_tide": 2, "vael_rune_master": 3, "feral_imp_clan": 4, "abyss_cultist_clan": 5}
+	var pool_order := {"vael_common": 0, "vael_piercing_void": 1, "vael_endless_tide": 2, "vael_rune_master": 3, "feral_imp_clan": 4, "abyss_cultist_clan": 5, "void_rift": 6, "void_castle": 7}
 	visible_ids.sort_custom(func(a: String, b: String) -> bool:
 		var ca := CardDatabase.get_card(a)
 		var cb := CardDatabase.get_card(b)
@@ -269,6 +269,8 @@ func _pool_display_name(pool: String) -> String:
 		"vael_rune_master":   return "Rune Master Pool"
 		"feral_imp_clan":           return "Feral Imp Clan"
 		"abyss_cultist_clan":       return "Abyss Cultist Clan"
+		"void_rift":                return "Void Rift"
+		"void_castle":              return "Void Castle"
 	return pool
 
 func _pool_color(pool: String) -> Color:
@@ -279,6 +281,8 @@ func _pool_color(pool: String) -> Color:
 		"vael_rune_master":   return Color(0.90, 0.55, 1.00, 1)
 		"feral_imp_clan":           return Color(1.00, 0.45, 0.35, 1)
 		"abyss_cultist_clan":       return Color(0.80, 0.50, 0.90, 1)
+		"void_rift":                return Color(0.70, 0.20, 0.90, 1)
+		"void_castle":              return Color(1.00, 0.75, 0.10, 1)
 	return Color(0.55, 0.55, 0.65, 1)
 
 func _act_gate_label(gate: int) -> String:

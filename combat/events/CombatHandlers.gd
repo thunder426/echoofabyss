@@ -318,16 +318,25 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
 		_scene._update_counter_warning()
 
-func on_enemy_summon_rogue_imp_elder(ctx: EventContext) -> void:
-	var summoned := ctx.minion
-	if summoned == null or not _scene._minion_has_tag(summoned, "feral_imp"):
-		return
-	var has_elder: bool = _scene.enemy_board.any(
-		func(m: MinionInstance) -> bool: return m.card_data.id == "rogue_imp_elder" and m != summoned)
-	if has_elder:
-		BuffSystem.apply(summoned, Enums.BuffType.ATK_BONUS, 100, "rogue_imp_elder")
-		_scene._refresh_slot_for(summoned)
-		_log("  Rogue Imp Elder aura: %s enters with +100 ATK." % summoned.card_data.card_name, _LOG_ENEMY)
+## Rogue Imp Elder — true aura: each live Elder grants +100 ATK to every friendly
+## FERAL IMP on the same side (including other Elders). Recomputed on every
+## summon/death so the buff count always matches the live Elder count.
+## Symmetric: works for both player-owned and enemy-owned Elders.
+func on_minion_event_rogue_imp_elder_aura(ctx: EventContext) -> void:
+	_refresh_rogue_imp_elder_aura("player")
+	_refresh_rogue_imp_elder_aura("enemy")
+
+func _refresh_rogue_imp_elder_aura(side: String) -> void:
+	var board: Array[MinionInstance] = _scene._friendly_board(side)
+	var elder_count: int = 0
+	for m in board:
+		if m.card_data.id == "rogue_imp_elder":
+			elder_count += 1
+	for m in board:
+		BuffSystem.remove_source(m, "rogue_imp_elder_aura")
+		if _scene._minion_has_tag(m, "feral_imp") and elder_count > 0:
+			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100 * elder_count, "rogue_imp_elder_aura")
+		_scene._refresh_slot_for(m)
 
 # ---------------------------------------------------------------------------
 # Enemy encounter passive handlers
@@ -358,17 +367,45 @@ func on_enemy_died_feral_instinct(ctx: EventContext) -> void:
 	_scene.enemy_ai.draw_cards(1)
 	_log("  Feral Instinct: death draw triggered — enemy draws 1.", _LOG_ENEMY)
 
-func on_board_changed_pack_instinct(_ctx: EventContext) -> void:
+func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 	var feral_imps: Array[MinionInstance] = []
 	for m in _scene.enemy_board:
 		if _scene._minion_has_tag(m, "feral_imp"):
 			feral_imps.append(m)
+	# Snapshot old ATK so we can show a buff-gain VFX for each imp whose ATK goes up
+	var pre_atk: Dictionary = {}  # MinionInstance → int
+	for m in feral_imps:
+		pre_atk[m] = m.effective_atk()
 	for m in feral_imps:
 		BuffSystem.remove_source(m, "pack_instinct")
 		var others := feral_imps.size() - 1
 		if others > 0:
 			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, others * 50, "pack_instinct")
 		_scene._refresh_slot_for(m)
+	# Visualize the pack link — only on SUMMONED events, tying the new imp to its neighbors.
+	var is_summon: bool = ctx.event_type == Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	if is_summon \
+			and feral_imps.size() >= 2 \
+			and ctx.minion != null \
+			and _scene._minion_has_tag(ctx.minion, "feral_imp") \
+			and _scene.has_method("_spawn_pack_chain_vfx_for_new_imp"):
+		_scene._spawn_pack_chain_vfx_for_new_imp(ctx.minion, "enemy")
+	# ATK-increase popup on every imp that gained ATK this tick (only on summon —
+	# death events should silently lose the buff without drawing attention).
+	# The buff is ALREADY applied (game state uses new ATK immediately), but we
+	# hold the visual ATK label at the OLD value and let the VFX helper flip it
+	# in sync with the chain animation.
+	if is_summon and _scene.has_method("_spawn_pack_instinct_buff_vfx"):
+		for m in feral_imps:
+			var old_atk: int = int(pre_atk.get(m, m.effective_atk()))
+			var new_atk: int = m.effective_atk()
+			if new_atk > old_atk:
+				# Override the atk label text back to the old value so it doesn't
+				# update instantly — _spawn_pack_instinct_buff_vfx flips it later.
+				var slot: BoardSlot = _scene._find_slot_for(m)
+				if slot != null and slot._atk_label != null:
+					slot._atk_label.text = str(old_atk)
+				_scene._spawn_pack_instinct_buff_vfx(m, new_atk - old_atk)
 
 func on_enemy_died_corrupted_death(_ctx: EventContext) -> void:
 	pass  # Death effect removed — corrupted_death now only provides cost discounts

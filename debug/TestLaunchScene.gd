@@ -8,6 +8,10 @@ extends Control
 # UI references
 # ---------------------------------------------------------------------------
 
+# Preset-carried state (not exposed as UI fields since rarely tweaked)
+var _preset_ai_profile:   String = ""
+var _preset_passives:     Array[String] = []
+
 var _hand_input:          LineEdit
 var _player_deck_input:   LineEdit
 var _player_board_input:  LineEdit
@@ -97,12 +101,13 @@ func _build_ui() -> void:
 	var preset_dropdown := OptionButton.new()
 	preset_dropdown.add_theme_font_size_override("font_size", 14)
 	preset_dropdown.custom_minimum_size = Vector2(0, 36)
-	preset_dropdown.add_item("Empty Board",   0)
-	preset_dropdown.add_item("Full Hand",     1)
-	preset_dropdown.add_item("Board Fight",   2)
-	preset_dropdown.add_item("Spirit Fuel",   3)
-	preset_dropdown.add_item("Act 3 Spirits", 4)
-	preset_dropdown.add_item("Act 3 Spells",  5)
+	preset_dropdown.add_item("Empty Board",         0)
+	preset_dropdown.add_item("Full Hand",           1)
+	preset_dropdown.add_item("Board Fight",         2)
+	preset_dropdown.add_item("Spirit Fuel",         3)
+	preset_dropdown.add_item("Act 3 Spirits",       4)
+	preset_dropdown.add_item("Act 3 Spells",        5)
+	preset_dropdown.add_item("Void Screech VFX",    6)
 	preset_dropdown.item_selected.connect(_on_preset_selected)
 	vbox.add_child(preset_dropdown)
 
@@ -140,6 +145,9 @@ func _build_ui() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_preset_selected(index: int) -> void:
+	# Default: clear AI profile / passives; individual presets override as needed
+	_preset_ai_profile = ""
+	_preset_passives   = []
 	match index:
 		0: _preset_empty()
 		1: _preset_full_hand()
@@ -147,6 +155,7 @@ func _on_preset_selected(index: int) -> void:
 		3: _preset_spirit_fuel()
 		4: _preset_act3_spirits()
 		5: _preset_act3_spells()
+		6: _preset_void_screech_vfx()
 
 func _on_launch_pressed() -> void:
 	_status_label.text = ""
@@ -163,6 +172,8 @@ func _on_launch_pressed() -> void:
 	TestConfig.player_hp          = int(_player_hp_input.value)
 	TestConfig.enemy_hp           = int(_enemy_hp_input.value)
 	TestConfig.infinite_resources = _inf_res_check.button_pressed
+	TestConfig.enemy_ai_profile   = _preset_ai_profile
+	TestConfig.enemy_passives     = _preset_passives.duplicate()
 
 	# Validate card IDs
 	var all_ids := TestConfig.hand_cards + TestConfig.player_deck_cards + TestConfig.player_board_cards + TestConfig.enemy_board_cards + TestConfig.player_traps + TestConfig.enemy_traps + TestConfig.enemy_deck
@@ -238,6 +249,25 @@ func _preset_act3_spirits() -> void:
 	_player_hp_input.value    = 3000
 	_enemy_hp_input.value     = 5000
 	_inf_res_check.button_pressed = true
+
+## Void Screech VFX test — enemy board pre-loaded with 3 feral imps, hand full
+## of Void Screech. Enemy uses feral_pack AI which will cast void_screech every
+## turn (gate `board_full_or_no_minions_in_hand` is true: hand has no minions).
+## With 3 feral imps on board, chorus mode triggers — 3 rings converging on hero.
+func _preset_void_screech_vfx() -> void:
+	_preset_ai_profile        = "feral_pack"
+	_preset_passives          = ["pack_instinct"]
+	_hand_input.text          = ""
+	_player_deck_input.text   = ""
+	_player_board_input.text  = ""
+	_enemy_board_input.text   = "rabid_imp, brood_imp, imp_brawler"
+	_player_traps_input.text  = ""
+	_enemy_traps_input.text   = ""
+	_enemy_deck_input.text    = "void_screech, void_screech, void_screech, void_screech, void_screech, void_screech, void_screech, void_screech"
+	_enemy_name_input.text    = "Screech VFX Test"
+	_player_hp_input.value    = 9999
+	_enemy_hp_input.value     = 9999
+	_inf_res_check.button_pressed = false
 
 func _preset_spirit_fuel() -> void:
 	_hand_input.text          = "void_wisp, void_shade, void_wraith, void_revenant, bastion_colossus, sovereigns_decree, thrones_command, sovereigns_edict, sovereigns_herald"

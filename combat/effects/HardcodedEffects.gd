@@ -109,8 +109,6 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			_brood_call(ctx)
 		"pack_frenzy":
 			_pack_frenzy(ctx)
-		"rogue_imp_elder_remove":
-			_rogue_imp_elder_remove(ctx)
 
 # ---------------------------------------------------------------------------
 # Spell effects
@@ -364,11 +362,6 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 	if ancient_active:
 		frenzy_msg += " and LIFEDRAIN (Ancient Frenzy)"
 	_log(frenzy_msg + ".", _log_side(ctx.owner))
-
-func _rogue_imp_elder_remove(ctx: EffectContext) -> void:
-	for m in (_scene._friendly_board(ctx.owner) as Array):
-		BuffSystem.remove_source(m, "rogue_imp_elder")
-		_scene._refresh_slot_for(m)
 
 # ---------------------------------------------------------------------------
 # Logging helper
