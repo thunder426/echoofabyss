@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://bu6yta5qm7qry" path="res://combat/board/BoardSlot.gd" id="3_2ubrw"]
 [ext_resource type="PackedScene" path="res://combat/ui/HandDisplay.tscn" id="4_handdisplay"]
 [ext_resource type="Script" path="res://combat/board/EnemyAI.gd" id="5_enemyai"]
+[ext_resource type="Script" path="res://combat/effects/vfx/VfxController.gd" id="6_vfxctrl"]
 
 [node name="CombatScene" type="Node2D" unique_id=220153093]
 script = ExtResource("1_dyoly")
@@ -438,3 +439,15 @@ offset_right = 110.0
 offset_bottom = 50.0
 grow_horizontal = 2
 text = "Play Again"
+
+[node name="VfxLayer" type="CanvasLayer" parent="." unique_id=200000001]
+layer = 2
+
+[node name="VfxShakeRoot" type="Control" parent="VfxLayer" unique_id=200000002]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="VfxController" type="Node" parent="." unique_id=200000003]
+script = ExtResource("6_vfxctrl")

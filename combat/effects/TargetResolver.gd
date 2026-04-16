@@ -42,7 +42,9 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 		EffectStep.TargetScope.ALL_FRIENDLY:
 			return scene._friendly_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.SINGLE_CHOSEN:
-			return scene._opponent_board(ctx.owner).duplicate()
+			# Both boards — spells like Arcane Strike ("any_minion") can target friendlies.
+			# The chosen_target check in resolve() ensures only the picked minion is hit.
+			return (scene._friendly_board(ctx.owner) + scene._opponent_board(ctx.owner)).duplicate()
 		EffectStep.TargetScope.SINGLE_CHOSEN_FRIENDLY:
 			return scene._friendly_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.ALL_BOARD:

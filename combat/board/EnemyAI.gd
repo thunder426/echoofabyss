@@ -372,6 +372,11 @@ func commit_spell_cast(inst: CardInstance, chosen_target = null) -> bool:
 	spell_chosen_target = chosen_target
 	enemy_spell_cast.emit(spell)
 	if not is_inside_tree(): return false
+	# Wait for the card cast animation + VFX to finish before the next AI action
+	# so consecutive enemy spell VFX don't overlap.
+	if scene != null and scene.get("_enemy_spell_cast_active") == true:
+		await scene.enemy_spell_cast_done
+	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
 	return is_inside_tree()
 

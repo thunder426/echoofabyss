@@ -401,7 +401,8 @@ func _show_occupied_state() -> void:
 
 	# ATK — tinted darker when corrupted
 	var corruption_total := BuffSystem.sum_type(minion, Enums.BuffType.CORRUPTION)
-	_atk_label.text = str(minion.effective_atk())
+	var effective_atk := minion.effective_atk()
+	_atk_label.text = str(effective_atk)
 	_atk_label.add_theme_color_override("font_color",
 		Color(0.70, 0.45, 0.10, 1) if corruption_total > 0 else Color(1.00, 0.75, 0.25, 1))
 
@@ -413,6 +414,18 @@ func _show_occupied_state() -> void:
 	else:
 		_hp_label.add_theme_color_override("font_color", Color(0.35, 1.00, 0.50, 1))
 	_hp_label.text = hp_text
+
+	# Buffed-stat highlight: slow pulse on any stat differing from base.
+	#   ATK: corruption → debuff dim; above base (no corruption) → buff glow
+	#   HP:  current_health above base → buff glow (no HP debuff concept yet)
+	var atk_mode: String = ""
+	if corruption_total > 0:
+		atk_mode = "debuff"
+	elif effective_atk > minion.current_atk:
+		atk_mode = "buff"
+	var hp_mode: String = "buff" if minion.current_health > minion.card_data.health else ""
+	_set_buff_glow(_atk_label, atk_mode)
+	_set_buff_glow(_hp_label,  hp_mode)
 
 	# Status bar — clear and rebuild each refresh
 	_hide_status_tooltip()
@@ -455,7 +468,11 @@ func _show_occupied_state() -> void:
 		var stacks := corruption_total / 100
 		_status_bar_add_interactive_icon("icon_corruption.png", "CORRUPTION",
 			"x%d stacks — -%d ATK." % [stacks, corruption_total])
+		var _corr_icon: Node = _status_bar.get_child(_status_bar.get_child_count() - 1)
+		_corr_icon.name = "corruption_icon"
 		_status_bar_add_count("x%d" % stacks, Color(0.85, 0.55, 1.00, 1))
+		var _corr_count: Node = _status_bar.get_child(_status_bar.get_child_count() - 1)
+		_corr_count.name = "corruption_count"
 	var on_death_body := _build_on_death_tooltip_body(minion)
 	if not on_death_body.is_empty():
 		_status_bar_add_interactive_icon("icon_on_death.png", "ON DEATH", on_death_body)
@@ -468,6 +485,44 @@ func _show_occupied_state() -> void:
 	var cfg_status: Dictionary = (_CFG_GENERIC if _using_generic else _CFG)["status"]
 	_status_bar.size = cfg_status["size"]
 	_status_bar.visible = _status_bar.get_child_count() > 0
+
+## Looping modulate-pulse tweens for the ATK/HP labels when the stat is buffed
+## or debuffed. Keyed by label so each stat pulses independently. Stopped +
+## cleared when the stat returns to base.
+##
+## Buff pulse brightens toward white ("stat is empowered"); debuff pulse
+## dims toward gray ("stat is being drained") — the semantic opposition
+## reads clearly without fighting the existing darkened-orange color.
+var _buff_glow_tweens: Dictionary = {}
+
+const _BUFF_GLOW_PERIOD: float = 1.2
+const _BUFF_GLOW_PEAK: Color   = Color(2.2, 2.2, 2.2, 1.0)   # buff: brighten toward white
+const _DEBUFF_GLOW_PEAK: Color = Color(0.55, 0.55, 0.55, 1.0) # debuff: dim toward gray
+
+func _set_buff_glow(lbl: Label, mode: String) -> void:
+	# mode: "buff", "debuff", or "" (off)
+	if lbl == null:
+		return
+	var existing: Tween = _buff_glow_tweens.get(lbl, null)
+	if mode == "":
+		if existing != null and existing.is_valid():
+			existing.kill()
+		_buff_glow_tweens.erase(lbl)
+		lbl.modulate = Color(1, 1, 1, 1)
+		return
+	# If already pulsing in the same mode, let it continue seamlessly.
+	var current_mode: String = _buff_glow_tweens.get("%s_mode" % lbl.get_instance_id(), "")
+	if existing != null and existing.is_valid() and current_mode == mode:
+		return
+	if existing != null and existing.is_valid():
+		existing.kill()
+	lbl.modulate = Color(1, 1, 1, 1)
+	var peak: Color = _BUFF_GLOW_PEAK if mode == "buff" else _DEBUFF_GLOW_PEAK
+	var tw := lbl.create_tween().set_loops()
+	tw.tween_property(lbl, "modulate", peak, _BUFF_GLOW_PERIOD * 0.5).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(lbl, "modulate", Color(1, 1, 1, 1), _BUFF_GLOW_PERIOD * 0.5).set_trans(Tween.TRANS_SINE)
+	_buff_glow_tweens[lbl] = tw
+	_buff_glow_tweens["%s_mode" % lbl.get_instance_id()] = mode
 
 func _set_overlay_glow(color: Color) -> void:
 	var border_w: float = 3.0 + _pulse_t * 2.5
@@ -533,6 +588,42 @@ func _status_bar_add_count(text: String, color: Color) -> void:
 		lbl.add_theme_font_override("font", _bold_font)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_status_bar.add_child(lbl)
+
+## Blink the corruption icon + stack counter in the status bar.
+## Call AFTER `_refresh_slot_for` so the status bar is freshly rebuilt with
+## the up-to-date stack count and our tagged nodes exist.
+func blink_corruption_status() -> void:
+	var icon: Control = _status_bar.get_node_or_null("corruption_icon") as Control
+	var count: Label  = _status_bar.get_node_or_null("corruption_count") as Label
+	_blink_node(icon)
+	_blink_node(count)
+
+func _blink_node(node: CanvasItem) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	var original: Color = node.modulate
+	var hot := Color(2.2, 1.1, 2.5, 1.0)  # brighten toward corruption purple
+	var tw := node.create_tween()
+	tw.tween_property(node, "modulate", hot, 0.08).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(node, "modulate", original, 0.14).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(node, "modulate", hot, 0.08).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(node, "modulate", original, 0.20).set_trans(Tween.TRANS_SINE)
+
+## Flash the ATK label red and drop a downward chevron next to it — signals
+## that this minion's ATK was just reduced (e.g. by Corruption).
+func flash_atk_debuff() -> void:
+	if _atk_label == null or not is_instance_valid(_atk_label):
+		return
+	var original: Color = _atk_label.modulate
+	var tw := _atk_label.create_tween()
+	tw.tween_property(_atk_label, "modulate", Color(2.4, 0.35, 0.35, 1.0), 0.06).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(_atk_label, "modulate", original, 0.32).set_trans(Tween.TRANS_SINE)
+
+	var chevron := CorruptionChevronVFX.new()
+	add_child(chevron)
+	chevron.set_size(Vector2(14, 16))
+	chevron.position = _atk_label.position + Vector2(_atk_label.size.x - 10.0, _atk_label.size.y * 0.5 - 8.0)
+	chevron.play()
 
 ## Build the on-death tooltip body for a minion — card description lines + granted effects.
 func _build_on_death_tooltip_body(m: MinionInstance) -> String:

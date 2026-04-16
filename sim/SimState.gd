@@ -400,7 +400,7 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 		trigger_manager.fire(ctx)
 
 func _corrupt_minion(target: MinionInstance) -> void:
-	BuffSystem.apply(target, Enums.BuffType.CORRUPTION, 100, "corruption")
+	BuffSystem.apply(target, Enums.BuffType.CORRUPTION, 100, "corruption", false, false)
 
 func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
@@ -480,7 +480,7 @@ func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
 	for m in player_board:
 		if (m as MinionInstance).card_data.minion_type == Enums.MinionType.DEMON:
 			if active:
-				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune")
+				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune", false, false)
 			else:
 				BuffSystem.remove_source(m, "dominion_rune")
 

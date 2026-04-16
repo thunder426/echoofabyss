@@ -54,7 +54,7 @@ func resolve(effect_id: String) -> bool:
 			var board: Array = _scene.player_board
 			if not board.is_empty():
 				var spark: MinionInstance = board[board.size() - 1]
-				BuffSystem.apply(spark, Enums.BuffType.GRANT_GUARD, 1, "relic_guardian")
+				BuffSystem.apply(spark, Enums.BuffType.GRANT_GUARD, 1, "relic_guardian", false, false)
 				_scene._refresh_slot_for(spark)
 			_log("  Relic: Soul Anchor — summoned a 300/300 Void Spark with Guard!")
 			return true
@@ -87,14 +87,14 @@ func resolve(effect_id: String) -> bool:
 			var board: Array = _scene.player_board
 			if not board.is_empty():
 				var demon: MinionInstance = board[board.size() - 1]
-				BuffSystem.apply(demon, Enums.BuffType.GRANT_LIFEDRAIN, 1, "relic_demon")
+				BuffSystem.apply(demon, Enums.BuffType.GRANT_LIFEDRAIN, 1, "relic_demon", false, false)
 				_scene._refresh_slot_for(demon)
 			_log("  Relic: Oblivion Seal — summoned a 500/500 Void Demon with Lifedrain!")
 			return true
 
 		"relic_mass_buff":
 			for m in (_scene.player_board as Array):
-				BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 200, "relic_crown")
+				BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 200, "relic_crown", false, false)
 				_scene._refresh_slot_for(m)
 			_log("  Relic: Nether Crown — all friendly minions +200 ATK this turn!")
 			return true

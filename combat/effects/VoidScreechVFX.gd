@@ -4,18 +4,18 @@
 ##
 ## Phases:
 ##   1. Windup (0.40s) — rune sigil + pulsing glow + inward particles per source
-##   2. Burst  (0.50s) — SHADER-DRIVEN expanding radial wave that distorts screen
+##   2. Burst  (0.90s) — SHADER-DRIVEN expanding radial wave that distorts screen
 ##                       pixels as it travels, with subtle red tint (almost
 ##                       invisible, just a shimmer)
-##   3. Impact (0.40s) — panel-centered wave + panel flash/shake/scale + smoke
+##   3. Impact (0.75s) — panel-centered wave + panel flash/shake/scale + smoke
 ##                       + spark motes + full-screen red pulse
 ##
 ## Uses `sonic_wave.gdshader` — samples SCREEN_TEXTURE and warps pixels via
 ## sin-wave radial displacement around a configurable center_uv.
 ##
-## Static API — call VoidScreechVFX.play(scene, sources, target_panel).
+## Spawn via VfxController — do not parent manually.
 class_name VoidScreechVFX
-extends RefCounted
+extends BaseVfx
 
 const TEX_GLOW: Texture2D   = preload("res://assets/art/fx/glow_soft.png")
 const TEX_RUNE: Texture2D   = preload("res://assets/art/fx/screech_rune.png")
@@ -30,69 +30,88 @@ const WINDUP_DURATION: float  = 0.40
 const BURST_DURATION: float   = 0.90
 const IMPACT_DURATION: float  = 0.75
 
+var _sources: Array = []
+var _target_panel: Control = null
 
-## `on_impact` is called at the exact moment the impact phase starts — use it
-## to resolve damage so popups sync with the visual impact (not the cast moment).
-## Pass Callable() to skip.
-static func play(scene: Node, sources: Array, target_panel: Control, on_impact: Callable = Callable()) -> void:
-	if sources.is_empty() or target_panel == null or not scene.is_inside_tree():
-		if on_impact.is_valid(): on_impact.call()
-		return
-	var ui: Node = scene.get_node_or_null("UI")
-	if ui == null:
-		if on_impact.is_valid(): on_impact.call()
+
+static func create(sources: Array, target_panel: Control) -> VoidScreechVFX:
+	var vfx := VoidScreechVFX.new()
+	vfx._sources = sources
+	vfx._target_panel = target_panel
+	return vfx
+
+
+func _play() -> void:
+	# `host` = VfxLayer (our parent). All UI children parent to it so they
+	# render at layer 2, above the HUD.
+	var host: Node = get_parent()
+	if _sources.is_empty() or _target_panel == null or host == null:
+		impact_hit.emit(0)
+		finished.emit()
+		queue_free()
 		return
 
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_screech.wav", -3.0)
 
 	# ── Phase 1: Windup ──────────────────────────────────────────────────────
 	var windup_nodes: Array[Node] = []
-	for src in sources:
+	for src in _sources:
 		var src_vec: Vector2 = src as Vector2
-		_spawn_windup(ui, src_vec, windup_nodes)
-	await scene.get_tree().create_timer(WINDUP_DURATION).timeout
-	if not scene.is_inside_tree():
+		_spawn_windup(host, src_vec, windup_nodes)
+	await get_tree().create_timer(WINDUP_DURATION).timeout
+	if not is_inside_tree():
+		finished.emit()
+		queue_free()
 		return
 	for n in windup_nodes:
 		if is_instance_valid(n):
 			n.queue_free()
 
-	var target_center: Vector2 = target_panel.global_position + target_panel.size * 0.5
+	var target_center: Vector2 = _target_panel.global_position + _target_panel.size * 0.5
 
 	# ── Phase 2: Burst — shader wave expanding outward from each source ──────
-	# Center is fixed at the source; wave radius grows. Each source gets its
-	# own fullscreen shader node.
 	const OVERSHOOT_PX: float = 220.0
 	var earliest_arrival: float = BURST_DURATION
-	for src in sources:
+	for src in _sources:
 		var src_vec: Vector2 = src as Vector2
 		var dist_to_hero: float = src_vec.distance_to(target_center)
 		var max_radius: float = dist_to_hero + OVERSHOOT_PX
-		_spawn_sonic_wave(scene, ui, src_vec, BURST_DURATION, max_radius)
+		_spawn_sonic_wave(self, host, src_vec, BURST_DURATION, max_radius)
 		# Compute when this wave's ring crosses the hero (using easeOutCubic curve):
 		# progress(t) = 1 - (1 - t/D)^3, solved for radius == dist_to_hero.
-		# ratio = dist_to_hero / max_radius
-		# t = D * (1 - (1 - ratio)^(1/3))
 		var ratio: float = dist_to_hero / max_radius
 		var arrival_t: float = BURST_DURATION * (1.0 - pow(1.0 - ratio, 1.0 / 3.0))
 		if arrival_t < earliest_arrival:
 			earliest_arrival = arrival_t
 
 	# Fire impact the moment the first wave reaches the hero
-	await scene.get_tree().create_timer(earliest_arrival).timeout
-	if not scene.is_inside_tree():
-		if on_impact.is_valid(): on_impact.call()
+	await get_tree().create_timer(earliest_arrival).timeout
+	if not is_inside_tree():
+		impact_hit.emit(0)
+		finished.emit()
+		queue_free()
 		return
 
 	# ── Phase 3: Impact ──────────────────────────────────────────────────────
-	# Resolve damage now so the popup appears in sync with the visual impact
-	if on_impact.is_valid():
-		on_impact.call()
-	_spawn_impact(scene, ui, target_panel, target_center)
+	impact_hit.emit(0)
+	_spawn_impact(self, host, _target_panel, target_center)
+
+	# Unblock game flow as soon as impact fires — the trailing wave, flash, and
+	# shake continue visually but don't gate enemy turn progression. A short
+	# settle delay keeps the `finished` emission just past the impact peak.
+	await get_tree().create_timer(0.15).timeout
+	finished.emit()
+
+	# Let the trailing visual effects play out, then clean up.
+	var remaining_burst: float = maxf(BURST_DURATION - earliest_arrival, 0.0)
+	var remaining_wait: float = maxf(remaining_burst + IMPACT_DURATION - 0.15, 0.0)
+	if remaining_wait > 0.0:
+		await get_tree().create_timer(remaining_wait).timeout
+	queue_free()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Phase 1: Windup (unchanged — these read well)
+# Phase 1: Windup
 # ═════════════════════════════════════════════════════════════════════════════
 
 static func _spawn_windup(ui: Node, src: Vector2, out_nodes: Array[Node]) -> void:
@@ -210,7 +229,6 @@ static func _spawn_sonic_wave(scene: Node, ui: Node, pos: Vector2,
 
 static func _spawn_impact(scene: Node, ui: Node, target_panel: Control, target_center: Vector2) -> void:
 	# ── Shader-driven impact wave — small ring expanding outward from hero ───
-	# Radius sized to cover just the panel area plus a bit, not half the screen.
 	var impact_radius: float = maxf(target_panel.size.x, target_panel.size.y) * 0.7
 	_spawn_sonic_wave(scene, ui, target_center, IMPACT_DURATION, impact_radius)
 
@@ -224,7 +242,7 @@ static func _spawn_impact(scene: Node, ui: Node, target_panel: Control, target_c
 	flash_tw.parallel().tween_property(target_panel, "scale", Vector2.ONE, 0.28)
 
 	# ── Strong panel shake ───────────────────────────────────────────────────
-	_shake_control(target_panel, scene, 16.0, 12)
+	ScreenShakeEffect.shake(target_panel, scene, 16.0, 12)
 
 	# ── Subtle full-screen red pulse ─────────────────────────────────────────
 	var flash := ColorRect.new()
@@ -255,17 +273,3 @@ static func _make_additive_sprite(tex: Texture2D, color: Color) -> TextureRect:
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	tr.material = mat
 	return tr
-
-static func _shake_control(ctrl: Control, scene: Node, max_amp: float, ticks: int) -> void:
-	if ctrl == null or scene == null:
-		return
-	var original_pos: Vector2 = ctrl.position
-	for i in ticks:
-		if not ctrl.is_inside_tree():
-			ctrl.position = original_pos
-			return
-		var decay: float = 1.0 - (float(i) / float(ticks))
-		var amp: float = max_amp * decay
-		ctrl.position = original_pos + Vector2(randf_range(-amp, amp), randf_range(-amp, amp))
-		await scene.get_tree().create_timer(0.025).timeout
-	ctrl.position = original_pos

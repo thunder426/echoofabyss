@@ -30,6 +30,9 @@ var player_deck_cards: Array[String] = []
 ## Card IDs forming the enemy's deck. Empty = enemy passes every turn.
 var enemy_deck: Array[String] = []
 
+## Card IDs added to the enemy's hand at combat start.
+var enemy_hand_cards: Array[String] = []
+
 ## Card IDs pre-placed as player traps at combat start.
 var player_traps: Array[String] = []
 
@@ -65,6 +68,7 @@ func reset() -> void:
 	enemy_name          = "Training Dummy"
 	player_deck_cards   = []
 	enemy_deck          = []
+	enemy_hand_cards    = []
 	infinite_resources  = false
 	start_essence_max   = 6
 	start_mana_max      = 5

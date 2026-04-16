@@ -3,15 +3,9 @@
 ## An arc sweeps down onto the target (revealed via shader wipe),
 ## then detonates with an explosion burst.
 ##
-## Usage:
-##   var vfx := VoidExecutionVFX.create(target_global_pos)
-##   parent.add_child(vfx)
-##   await vfx.finished
+## Spawn via VfxController — do not parent manually.
 class_name VoidExecutionVFX
-extends Node2D
-
-signal finished
-signal impact_hit  ## Emitted when the arc completes and explosion begins
+extends BaseVfx
 
 const ARC_TEXTURE: Texture2D = preload("res://assets/animation/spells/void_execution/void_execution_arc.png")
 const EXPLOSION_TEXTURE: Texture2D = preload("res://assets/animation/spells/void_execution/void_execution_explosion.png")
@@ -24,27 +18,33 @@ var _explosion_size: float = DEFAULT_EXPLOSION_SIZE
 const ARC_DURATION := 0.45
 const HOLD_DURATION := 0.1
 const EXPLOSION_DURATION := 0.5
-const SHAKE_INTENSITY := 8.0
-const SHAKE_COUNT := 6
+const SHAKE_AMPLITUDE := 8.0
+const SHAKE_TICKS := 6
 
 var _target_pos: Vector2
+var _shake_target: Node = null
 var _arc: Sprite2D
 var _explosion: Sprite2D
 var _arc_material: ShaderMaterial
 
-static func create(target_pos: Vector2, size_scale: float = 1.0) -> VoidExecutionVFX:
+## target_pos:   impact position in global coords
+## size_scale:   scales both arc and explosion (0.55 for hero hits)
+## shake_target: Node to shake on impact (typically the target BoardSlot or
+##               hero panel). Pass null to skip shake. Never pass a CanvasLayer.
+static func create(target_pos: Vector2, size_scale: float = 1.0, shake_target: Node = null) -> VoidExecutionVFX:
 	var vfx := VoidExecutionVFX.new()
 	vfx._target_pos = target_pos
 	vfx._arc_size = DEFAULT_ARC_SIZE * size_scale
 	vfx._explosion_size = DEFAULT_EXPLOSION_SIZE * size_scale
+	vfx._shake_target = shake_target
 	vfx.z_index = 200
 	return vfx
 
-func _ready() -> void:
+func _play() -> void:
 	position = _target_pos
 	_build_arc()
 	_build_explosion()
-	_play()
+	_run_sequence()
 
 func _build_arc() -> void:
 	_arc = Sprite2D.new()
@@ -75,7 +75,7 @@ func _build_explosion() -> void:
 	_explosion.visible = false
 	add_child(_explosion)
 
-func _play() -> void:
+func _run_sequence() -> void:
 	# Phase 1: Arc wipe reveal
 	if _arc and _arc_material:
 		_arc.visible = true
@@ -88,9 +88,11 @@ func _play() -> void:
 		if not is_inside_tree(): queue_free(); return
 
 	# Phase 2: Hold + screen shake + SFX
-	impact_hit.emit()
+	impact_hit.emit(0)
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_execution.wav")
-	_do_screen_shake()
+	# Shake the target node (slot/panel) — ScreenShakeEffect handles missing targets.
+	if _shake_target != null:
+		ScreenShakeEffect.shake(_shake_target, self, SHAKE_AMPLITUDE, SHAKE_TICKS)
 	await get_tree().create_timer(HOLD_DURATION).timeout
 	if not is_inside_tree(): queue_free(); return
 
@@ -128,28 +130,6 @@ func _set_arc_progress(value: float) -> void:
 func _set_arc_glow(value: float) -> void:
 	if _arc_material:
 		_arc_material.set_shader_parameter("glow_strength", value)
-
-func _do_screen_shake() -> void:
-	var canvas_layer: Node = get_parent()
-	if not canvas_layer:
-		return
-	var original_offset: Vector2 = Vector2.ZERO
-	if canvas_layer is CanvasLayer:
-		original_offset = canvas_layer.offset
-	for i in SHAKE_COUNT:
-		if not is_inside_tree():
-			if canvas_layer is CanvasLayer:
-				canvas_layer.offset = original_offset
-			return
-		var offset := Vector2(
-			randf_range(-SHAKE_INTENSITY, SHAKE_INTENSITY),
-			randf_range(-SHAKE_INTENSITY, SHAKE_INTENSITY)
-		)
-		if canvas_layer is CanvasLayer:
-			canvas_layer.offset = original_offset + offset
-		await get_tree().create_timer(0.03).timeout
-	if is_instance_valid(canvas_layer) and canvas_layer is CanvasLayer:
-		canvas_layer.offset = original_offset
 
 func _spawn_void_particles() -> void:
 	var burst := CPUParticles2D.new()

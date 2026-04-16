@@ -70,7 +70,7 @@ static func create(data: MinionCardData, owner_id: String) -> MinionInstance:
 		instance.state = Enums.MinionState.EXHAUSTED
 	# Apply keyword-based runtime buffs
 	if Enums.Keyword.DEATHLESS in data.keywords:
-		BuffSystem.apply(instance, Enums.BuffType.GRANT_DEATHLESS, 1, "base_keyword")
+		BuffSystem.apply(instance, Enums.BuffType.GRANT_DEATHLESS, 1, "base_keyword", false, false)
 	return instance
 
 # ---------------------------------------------------------------------------

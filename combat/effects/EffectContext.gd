@@ -33,6 +33,11 @@ var dead_minion: MinionInstance = null
 ## True when the effect was fired by a rune aura (used for Void Bolt projectile origin).
 var from_rune: bool = false
 
+## Card id that originated this effect run (e.g. "dark_empowerment" for a spell cast,
+## or a minion's card id for on-play effects). Used as the default source_tag for
+## buff steps that don't specify one, so BuffVfxRegistry can route per-card preludes.
+var source_card_id: String = ""
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------

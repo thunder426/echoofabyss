@@ -56,64 +56,25 @@ var _recent_popups: Array = []        # Array[{center: Vector2, time: float}]
 var _enemy_summon_reveal_active: bool = false
 signal enemy_summon_reveal_done()
 
-# Enemy hero status panel (built programmatically)
-var _enemy_status_panel: Control = null
-var _enemy_panel_bg: Panel = null
-var _hero_spell_tween: Tween = null
-var _hero_spell_pulse: float = 0.0
-var _hero_attack_tween: Tween = null
-var _hero_attack_pulse: float = 0.0
-var _enemy_status_hp_label: Label = null
-var _enemy_hp_bar_fill: TextureRect = null
-var _enemy_hp_bar_drain: ColorRect = null
-var _enemy_hp_bar_bg: Control = null
-var _enemy_hp_bar_tween: Tween = null
-var _enemy_status_essence_label: Label = null
-var _enemy_status_mana_label: Label = null
-var _enemy_status_hand_label: Label = null
-var _enemy_status_marks_row:   HBoxContainer = null
-var _enemy_status_marks_label: Label = null
+## True while an enemy spell cast animation + VFX is on screen — EnemyAI waits on this before its next action
+## so consecutive enemy spells don't overlap their VFX.
+var _enemy_spell_cast_active: bool = false
+signal enemy_spell_cast_done()
+
+# Enemy hero status panel
+var _enemy_hero_panel: EnemyHeroPanel = null
+var _enemy_status_panel: Control = null   ## alias → _enemy_hero_panel (backward-compat)
+var _enemy_panel_bg: Panel = null         ## alias → _enemy_hero_panel.highlight_panel
 var enemy_hp_max: int = 0
-# Champion progress UI
-var _champion_progress_row: HBoxContainer = null
-var _champion_progress_label: Label = null
-var _champion_progress_pips: Array[Label] = []
-var _champion_progress_current: int = 0
-var _champion_progress_max: int = 0
-var _champion_progress_tween: Tween = null
 
-# Player hero status panel (built programmatically)
-var _player_status_panel: Control = null
-var _player_status_hp_label: Label = null
-var _player_hp_bar_fill: TextureRect = null
-var _player_hp_bar_drain: ColorRect = null
-var _player_hp_bar_bg: Control = null
-var _player_hp_bar_tween: Tween = null
+# Player hero status panel
+var _player_hero_panel: PlayerHeroPanel = null
+var _player_status_panel: Control = null  ## alias → _player_hero_panel (backward-compat)
 
-# Pip bar columns (essence left, mana right) — 10 pips each, built in _setup_pip_bars()
-var _pip_essence_panels: Array[Panel]       = []
-var _pip_mana_panels:    Array[Panel]       = []
-var _pip_essence_rects:  Array[TextureRect] = []
-var _pip_mana_rects:     Array[TextureRect] = []
-var _ess_pip_tex: GradientTexture2D = null
-var _mna_pip_tex: GradientTexture2D = null
-var _ess_ovf_tex: GradientTexture2D = null  # overflow/temp essence
-var _mna_ovf_tex: GradientTexture2D = null  # overflow/temp mana
-# Outer border panels — animated on resource gain/spend
-var _ess_col_panel: Panel = null
-var _mna_col_panel: Panel = null
-var _ess_col_tween: Tween = null
-var _mna_col_tween: Tween = null
-# Previous values used to detect direction of change
+# Pip bar (essence + mana columns)
+var _pip_bar: PipBar = null
 var _prev_essence: int = -1
 var _prev_mana:    int = -1
-# Card-cost blink — highlights which pips will be spent / gained when a card is selected
-var _pip_ess_blink:  int   = 0   # essence pips to fade (spend)
-var _pip_mna_blink:  int   = 0   # mana pips to fade (spend)
-var _pip_ess_gain:   int   = 0   # essence pips to glow (gain)
-var _pip_mna_gain:   int   = 0   # mana pips to glow (gain)
-var _pip_blink_tween: Tween = null
-var _pip_blink_phase: float = 0.0
 
 # ---------------------------------------------------------------------------
 # Internal state
@@ -128,6 +89,13 @@ var _hardcoded: HardcodedEffects
 var _relic_runtime: RelicRuntime
 var _relic_effects: RelicEffects
 var _relic_bar: RelicBar
+
+## Centralised VFX dispatcher — resolved in _find_nodes. All spell/apply VFX
+## should be parented via vfx_controller.spawn(vfx) so they render on VfxLayer
+## (CanvasLayer layer=2, above UI).
+var vfx_controller: VfxController = null
+var _vfx_layer: CanvasLayer = null
+var _vfx_shake_root: Control = null
 
 ## Relic state flags (set by relic effects, consumed by combat logic)
 var _relic_hero_immune: bool = false    ## Bone Shield: ignore damage this turn
@@ -151,8 +119,13 @@ var _anim_atk_slot: BoardSlot = null
 var _anim_def_slot: BoardSlot = null
 
 # Death animations deferred until after lunge freeze_visuals is released.
-# Each entry is {slot: BoardSlot, pos: Vector2} — position captured when slot is still in-place.
+# Each entry is {slot: BoardSlot, pos: Vector2, minion: MinionInstance} — position captured when slot is still in-place.
 var _deferred_death_slots: Array = []
+
+# Minions whose on-death effects are deferred until after the death animation +
+# on-death icon VFX finishes.  CombatHandlers.on_minion_died_death_effect skips
+# these; _animate_minion_death resolves them after the icon fades.
+var _pending_on_death_vfx: Array[MinionInstance] = []
 
 # Card the player is currently trying to play (dragged or clicked from hand)
 var pending_play_card: CardInstance = null
@@ -331,6 +304,8 @@ func _ready() -> void:
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
 	_find_nodes()
+	_connect_buff_signal()
+	_register_buff_preludes()
 	_load_combat_background()
 	_connect_turn_manager()
 	_connect_board_slots()
@@ -359,15 +334,31 @@ func _ready() -> void:
 	turn_manager.player_board = player_board
 	turn_manager.enemy_board = enemy_board
 	_setup_enemy_ai()
-	turn_manager.start_combat(deck)
 	if GameManager.current_enemy != null:
 		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
-	_setup_enemy_status_panel()
-	_setup_player_status_panel()
+	var ui_root: Node = get_node_or_null("UI")
+	_enemy_hero_panel = EnemyHeroPanel.new()
+	_enemy_hero_panel.setup(self, ui_root)
+	if ui_root:
+		ui_root.add_child(_enemy_hero_panel)
+	_enemy_status_panel = _enemy_hero_panel
+	_enemy_panel_bg = _enemy_hero_panel.highlight_panel
+	_enemy_hero_panel.hero_pressed.connect(_on_enemy_hero_button_pressed)
+	_player_hero_panel = PlayerHeroPanel.new()
+	_player_hero_panel.setup(self, ui_root)
+	if ui_root:
+		ui_root.add_child(_player_hero_panel)
+	_player_status_panel = _player_hero_panel
+	_player_hero_panel.update(player_hp, GameManager.player_hp_max)
+	_pip_bar = PipBar.new()
+	_pip_bar.setup(self, ui_root, essence_label, mana_label)
 	_setup_large_preview()
+	turn_manager.start_combat(deck)
 	_setup_triggers()
 	_setup_relics()
-	_setup_cheat_panel()
+	_cheat = CheatPanel.new()
+	add_child(_cheat)
+	_cheat.setup(self)
 	if TestConfig.enabled:
 		_apply_test_config.call_deferred()
 
@@ -396,6 +387,10 @@ func _load_combat_background() -> void:
 func _find_nodes() -> void:
 	turn_manager            = $TurnManager
 	enemy_ai               = $EnemyAI
+	vfx_controller          = $VfxController
+	_vfx_layer              = $VfxLayer
+	_vfx_shake_root         = $VfxLayer/VfxShakeRoot
+	vfx_controller.setup(self, _vfx_layer, _vfx_shake_root)
 	essence_label          = $UI/EssenceLabel
 	mana_label             = $UI/ManaLabel
 	end_turn_essence_button = $UI/EndTurnPanel/EndTurnEssenceButton
@@ -614,7 +609,7 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		turn_label.text = "Turn %d  |  Deck: %d" % [turn_manager.turn_number, turn_manager.player_deck.size()]
 	if deck_count_label:
 		deck_count_label.text = "%d cards" % turn_manager.player_deck.size()
-	_update_enemy_status_panel()
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 	# Safety sweep: remove any dead minions still visually on the board.
 	# This catches edge cases where minion_vanished fired but the slot wasn't properly cleared.
 	_sweep_dead_minions()
@@ -653,11 +648,11 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		enemy_ai.run_turn()
 		# run_turn() grows resources and refills them synchronously before its
 		# first await, so this panel refresh sees the correct post-growth values.
-		_update_enemy_status_panel()
+		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 
 func _on_turn_ended(is_player_turn: bool) -> void:
 	_clear_all_highlights()
-	_show_hero_button(false)
+	_enemy_hero_panel.show_attackable(false)
 	selected_attacker = null
 	pending_play_card = null
 	if is_player_turn:
@@ -688,12 +683,13 @@ func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: 
 	if hand_display:
 		hand_display.refresh_playability(essence, mana, _relic_cost_reduction, _relic_cost_reduction)
 	_refresh_hand_spell_costs()
-	_update_pip_bars(essence, essence_max, mana, mana_max)
-	# Pulse the column border to signal gain (green) or spend (red/orange)
-	if _prev_essence >= 0 and essence != _prev_essence:
-		_pulse_pip_col(true, essence > _prev_essence)
-	if _prev_mana >= 0 and mana != _prev_mana:
-		_pulse_pip_col(false, mana > _prev_mana)
+	if _pip_bar:
+		_pip_bar.update(essence, essence_max, mana, mana_max)
+		# Pulse the column border to signal gain (green) or spend (red/orange)
+		if _prev_essence >= 0 and essence != _prev_essence:
+			_pip_bar.pulse_col(true, essence > _prev_essence)
+		if _prev_mana >= 0 and mana != _prev_mana:
+			_pip_bar.pulse_col(false, mana > _prev_mana)
 	_prev_essence = essence
 	_prev_mana    = mana
 	# NOTE: end-turn button mode is NOT updated here — temp gains (gain_mana, gain_essence)
@@ -773,7 +769,7 @@ func _on_hand_card_selected(inst: CardInstance) -> void:
 
 ## Cancel a pending card selection: clear state and deselect hand.
 func _cancel_card_select() -> void:
-	_stop_pip_blink()
+	_pip_bar.stop_blink()
 	pending_play_card = null
 	pending_minion_target = null
 	_awaiting_minion_target = false
@@ -796,7 +792,7 @@ func _on_hand_card_unhovered() -> void:
 	_hovered_hand_visual = null
 	_hide_large_preview()
 	if pending_play_card == null:
-		_stop_pip_blink()
+		_pip_bar.stop_blink()
 
 ## Compute and start the pip blink preview for any card type.
 ## Used by hover preview and as a fallback when a targeted card is clicked.
@@ -838,7 +834,7 @@ func _start_pip_blink_for_card(card_data: CardData) -> void:
 		mna_spend = maxi(0, mna_spend - _relic_cost_reduction)
 	if not turn_manager.can_afford(ess_spend, mna_spend):
 		return
-	_start_pip_blink(ess_spend, mna_spend, ess_gain, mna_gain)
+	_pip_bar.start_blink(ess_spend, mna_spend, ess_gain, mna_gain)
 
 ## Handle a spell card being selected from hand.
 ## Instant spells cast immediately (cost preview shown on hover).
@@ -882,7 +878,7 @@ func _begin_minion_select(mc: MinionCardData) -> void:
 		_highlight_empty_player_slots()
 
 func _on_hand_card_deselected() -> void:
-	_stop_pip_blink()
+	_pip_bar.stop_blink()
 	pending_play_card = null
 	pending_minion_target = null
 	_awaiting_minion_target = false
@@ -919,18 +915,17 @@ func _try_play_spell(spell: SpellCardData) -> void:
 		return
 	# Show large card preview; resolve effects on impact so damage visuals sync
 	_show_card_cast_anim(spell, false, func() -> void:
-		var resolve_damage := func() -> void:
+		var resolve_damage := func(_i: int) -> void:
 			if not spell.effect_steps.is_empty():
-				EffectResolver.run(spell.effect_steps, EffectContext.make(self, "player"))
+				var ctx := EffectContext.make(self, "player")
+				ctx.source_card_id = spell.id
+				EffectResolver.run(spell.effect_steps, ctx)
 			else:
 				_resolve_spell_effect(spell.effect_id, null)
 			var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 			spell_ctx.card = spell
 			trigger_manager.fire(spell_ctx)
-		if spell.id == "void_screech":
-			_play_void_screech_vfx("player", resolve_damage)
-		else:
-			resolve_damage.call()
+		await vfx_controller.play_spell(spell.id, "player", null, resolve_damage)
 	)
 
 func _try_play_trap(trap: TrapCardData) -> void:
@@ -1152,7 +1147,7 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	combat_manager.resolve_minion_attack(selected_attacker, minion)
 	selected_attacker = null
 	_clear_all_highlights()
-	_show_hero_button(false)
+	_enemy_hero_panel.show_attackable(false)
 
 # ---------------------------------------------------------------------------
 # Minion play
@@ -1299,42 +1294,73 @@ func _animate_card_to_slot(visual: CardVisual, slot: BoardSlot, hand_index: int,
 
 	_spawn_slot_ripple(slot, total_cost, is_champion)
 
-## Spawn a ripple ring expanding from a board slot.
-## Higher total_cost → larger expansion and higher initial opacity for more impact.
-## The ring draws above other board slots but below the target slot (which is raised temporarily).
+## Spawn a screen-distortion wave expanding from a board slot.
+## Uses the sonic_wave shader for a glass/heat-haze warp — no visible ring,
+## just a radial displacement of the screen behind it.
+## Higher total_cost → larger radius and longer duration. Champion = gold tint,
+## normal = white.
 func _spawn_slot_ripple(slot: BoardSlot, total_cost: int = 0, is_champion: bool = false) -> void:
-	var sz: Vector2 = slot.size
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
+		return
+
 	var t_norm: float = clampf(total_cost / 8.0, 0.0, 1.0)
-	var end_scale: float   = lerp(1.4, 2.4, t_norm)
-	var start_alpha: float = lerp(0.4, 0.85, t_norm)
-	var duration: float    = lerp(0.35, 0.55, t_norm)
+	var expand_px: float = lerp(22.0, 70.0, t_norm)
+	var duration: float  = lerp(0.28, 0.44, t_norm)
+	var strength: float  = lerp(0.010, 0.020, t_norm)
 
-	var ring := ColorRect.new()
-	# Champions get a gold ripple; normal cards get white
-	var base_color := Color(1.0, 0.78, 0.10) if is_champion else Color(1.0, 1.0, 1.0)
-	ring.color = Color(base_color.r, base_color.g, base_color.b, start_alpha)
-	# z=1 absolute: above other board slots (z=0) but below the target slot (raised to z=2)
-	ring.z_index = 1
-	ring.z_as_relative = false
-	$UI.add_child(ring)
-	ring.set_size(sz)
-	ring.pivot_offset = sz * 0.5
-	ring.global_position = slot.global_position
-	ring.scale = Vector2(1.0, 1.0)  # starts at card edge, radiates outward
+	var base_color: Color = Color(1.0, 0.78, 0.10) if is_champion else Color(1.0, 1.0, 1.0)
+	var tint: Color = Color(base_color.r, base_color.g, base_color.b, 0.22)
 
-	# Raise target slot above the ring for the duration of the ripple
-	var prev_z := slot.z_index
-	var prev_relative := slot.z_as_relative
-	slot.z_index = 2
-	slot.z_as_relative = false
+	var fx_layer := CanvasLayer.new()
+	fx_layer.layer = 2
+	add_child(fx_layer)
 
-	var t := create_tween().set_parallel(true)
-	t.tween_property(ring, "scale",      Vector2(end_scale, end_scale), duration).set_trans(Tween.TRANS_SINE)
-	t.tween_property(ring, "modulate:a", 0.0,                           duration).set_trans(Tween.TRANS_SINE)
-	await t.finished
-	ring.queue_free()
-	slot.z_index = prev_z
-	slot.z_as_relative = prev_relative
+	var rect := ColorRect.new()
+	rect.color = Color(1, 1, 1, 1)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	rect.z_index = 15
+	rect.z_as_relative = false
+
+	var aspect: float = vp_size.x / vp_size.y
+	var center_world: Vector2 = slot.global_position + slot.size * 0.5
+	var rect_center_uv := Vector2(center_world.x / vp_size.x, center_world.y / vp_size.y)
+	# Half-size in screen-UV (x uses vp width, y uses vp height).
+	# The shader aspect-compensates x internally, so pass raw UV values here.
+	var rect_half_uv := Vector2(
+		(slot.size.x * 0.5) / vp_size.x,
+		(slot.size.y * 0.5) / vp_size.y
+	)
+	# Convert expand/thickness from pixels to UV (height-based so shader math lines up).
+	var expand_uv: float = expand_px / vp_size.y
+	var thickness_uv: float = 55.0 / vp_size.y
+	var corner_uv: float = 14.0 / vp_size.y
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://combat/effects/card_summon_wave.gdshader")
+	mat.set_shader_parameter("aspect", aspect)
+	mat.set_shader_parameter("tint", tint)
+	mat.set_shader_parameter("rect_center", rect_center_uv)
+	mat.set_shader_parameter("rect_half_size", rect_half_uv)
+	mat.set_shader_parameter("expand_max", expand_uv)
+	mat.set_shader_parameter("thickness", thickness_uv)
+	mat.set_shader_parameter("corner_radius", corner_uv)
+	mat.set_shader_parameter("strength", strength)
+	mat.set_shader_parameter("progress", 0.0)
+	mat.set_shader_parameter("alpha_multiplier", 1.0)
+	rect.material = mat
+	fx_layer.add_child(rect)
+
+	var tw := create_tween().set_parallel(true)
+	tw.tween_method(func(p: float) -> void:
+			mat.set_shader_parameter("progress", p),
+			0.0, 1.0, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.tween_method(func(a: float) -> void:
+			mat.set_shader_parameter("alpha_multiplier", a),
+			1.0, 0.0, duration * 0.4).set_delay(duration * 0.6).set_trans(Tween.TRANS_SINE)
+	await tw.finished
+	if is_instance_valid(fx_layer):
+		fx_layer.queue_free()
 
 ## Pack Chain VFX — visualize pack_instinct when a new feral imp joins the pack.
 ## Refreshes the ENTIRE pack network: each feral imp re-links to its adjacent
@@ -1407,10 +1433,83 @@ func _spawn_pack_chain_vfx_for_new_imp(_new_imp: MinionInstance, side: String = 
 		if a.minion == null or b.minion == null:
 			continue  # imp died during the delay
 		var chain := preload("res://combat/effects/PackChainVFX.gd").new()
-		$UI.add_child(chain)
+		vfx_controller.spawn(chain)
 		var a_pos: Vector2 = _pack_chain_anchor(a, b)
 		var b_pos: Vector2 = _pack_chain_anchor(b, a)
 		chain.play(a_pos, b_pos)
+
+## Register per-card buff VFX preludes. Cards whose visual identity diverges
+## from the generic blessing language (e.g. Abyss Order corruption) supply a
+## factory here; the rest fall through to BuffApplyVFX's default phases.
+func _register_buff_preludes() -> void:
+	BuffVfxRegistry.register("dark_empowerment",
+			DarkEmpowermentPreludeVFX.prelude_factory)
+
+## Subscribe to BuffSystem.bus() so every on-play / spell buff fires the
+## generic BuffApplyVFX. Auras and setup grants pass emit_vfx=false at the
+## call site, so they never reach here.
+func _connect_buff_signal() -> void:
+	var bus: Object = BuffSystem.bus()
+	if bus == null:
+		return
+	if not bus.is_connected("buff_applied", _on_buff_applied):
+		bus.connect("buff_applied", _on_buff_applied)
+
+## The signal bus is a static Object that outlives this scene, so the
+## connection must be torn down or it'll point at a freed receiver next run.
+func _exit_tree() -> void:
+	var bus: Object = BuffSystem.bus()
+	if bus != null and bus.is_connected("buff_applied", _on_buff_applied):
+		bus.disconnect("buff_applied", _on_buff_applied)
+
+## Pending buff VFX to spawn — keyed by (minion, source_tag) so:
+##   • Multiple steps from the same source on the same minion coalesce into
+##     one VFX with combined deltas (e.g. Dark Empowerment's +ATK + +HP).
+##   • Different sources hitting the same minion in the same frame get their
+##     own VFX so per-source preludes don't collide.
+## Each entry value: { "minion": MinionInstance, "source": String,
+##                     "atk": int, "hp": int }
+var _pending_buff_vfx: Dictionary = {}
+
+## Coalesce signals by (minion, source_tag) and schedule one VFX per bucket.
+func _on_buff_applied(minion: MinionInstance, _buff_type: int,
+		atk_delta: int, hp_delta: int, source_tag: String) -> void:
+	if minion == null or not is_instance_valid(minion):
+		return
+	if vfx_controller == null:
+		return
+	var key: String = "%d|%s" % [minion.get_instance_id(), source_tag]
+	var agg: Dictionary = _pending_buff_vfx.get(key, {
+		"minion": minion, "source": source_tag, "atk": 0, "hp": 0
+	})
+	agg["atk"] = int(agg["atk"]) + atk_delta
+	agg["hp"]  = int(agg["hp"])  + hp_delta
+	var was_empty: bool = _pending_buff_vfx.is_empty()
+	_pending_buff_vfx[key] = agg
+	if was_empty:
+		call_deferred("_flush_buff_vfx")
+
+## Spawn one BuffApplyVFX per bucket with aggregated deltas, then clear.
+## Looks up a per-source prelude in BuffVfxRegistry; empty Callable = skip.
+func _flush_buff_vfx() -> void:
+	var pending: Dictionary = _pending_buff_vfx
+	_pending_buff_vfx = {}
+	for key in pending.keys():
+		var agg: Dictionary = pending[key]
+		var m: MinionInstance = agg["minion"] as MinionInstance
+		if m == null or not is_instance_valid(m):
+			continue
+		var slot: BoardSlot = _find_slot_for(m)
+		if slot == null or slot.minion != m:
+			continue
+		var atk_d: int = int(agg["atk"])
+		var hp_d:  int = int(agg["hp"])
+		if atk_d == 0 and hp_d == 0:
+			continue
+		var src:     String   = String(agg["source"])
+		var prelude: Callable = BuffVfxRegistry.build_prelude(src, slot, atk_d, hp_d)
+		var vfx := BuffApplyVFX.create(slot, atk_d, hp_d, prelude)
+		vfx_controller.spawn(vfx)
 
 ## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
 ## procedural chevron to the right of it, both timed to coincide with the chain
@@ -1455,40 +1554,6 @@ func _spawn_pack_instinct_buff_vfx(minion: MinionInstance, _delta_atk: int) -> v
 	chevron.set_size(Vector2(14, 16))
 	chevron.play()
 
-## Void Screech VFX — red sonic rings converging on the opposing hero panel.
-## Standard mode: one ring from the center of the caster's board area.
-## Chorus mode (3+ friendly feral imps): one ring per feral imp slot, symmetric
-## for both sides so player-cast would work too if ever added to the player pool.
-func _play_void_screech_vfx(caster_side: String, on_impact: Callable = Callable()) -> void:
-	var target_panel: Control = _enemy_status_panel if caster_side == "player" else _player_status_panel
-	if target_panel == null:
-		if on_impact.is_valid(): on_impact.call()
-		return
-	var caster_slots: Array[BoardSlot] = player_slots if caster_side == "player" else enemy_slots
-
-	# Collect feral imp slots for chorus mode
-	var feral_slots: Array[BoardSlot] = []
-	for s in caster_slots:
-		if s.minion != null and _minion_has_tag(s.minion, "feral_imp"):
-			feral_slots.append(s)
-
-	var sources: Array = []
-	if feral_slots.size() >= 3:
-		# Chorus: one ring from each feral imp's slot center
-		for s in feral_slots:
-			sources.append(s.global_position + s.size * 0.5)
-	else:
-		# Standard: single ring from the center of the caster's board row
-		var center := Vector2.ZERO
-		var count := 0
-		for s in caster_slots:
-			center += s.global_position + s.size * 0.5
-			count += 1
-		if count > 0:
-			sources.append(center / float(count))
-
-	VoidScreechVFX.play(self, sources, target_panel, on_impact)
-
 ## Return the point on `from` slot's edge closest to `toward` slot — so chain VFX
 ## appears to emerge from the side of the minion facing its neighbor, not from
 ## its dead center.
@@ -1521,8 +1586,8 @@ func _champion_summon_sequence(card: MinionCardData, instance: MinionInstance, s
 	ctx.card   = card
 	trigger_manager.fire(ctx)
 
-	# 5. Screen shake
-	await _champion_screen_shake()
+	# 5. Screen shake — shake the landed slot so the impact reads locally.
+	await _champion_screen_shake(slot)
 
 	# 6. Gold flash on the slot + expanded ripple
 	_champion_slot_flash(slot)
@@ -1600,26 +1665,10 @@ func _show_champion_reveal_with_banner(card: CardData) -> void:
 	bg.queue_free()
 
 ## Screen shake for champion entrance. Heavy impact with decay.
-func _champion_screen_shake() -> void:
-	var ui_node: Node = $UI
-	if ui_node == null:
-		return
-	var original_pos: Vector2 = ui_node.get("position") if ui_node.get("position") != null else Vector2.ZERO
-	var ticks: int = 14
-	var max_amp: float = 18.0
-	for i in ticks:
-		if not is_inside_tree():
-			ui_node.set("position", original_pos)
-			return
-		var decay: float = 1.0 - (float(i) / float(ticks))
-		var amp: float = max_amp * decay
-		var offset := Vector2(
-			randf_range(-amp, amp),
-			randf_range(-amp, amp)
-		)
-		ui_node.set("position", original_pos + offset)
-		await get_tree().create_timer(0.025).timeout
-	ui_node.set("position", original_pos)
+## Target MUST be a Node2D/Control with a real position — pass the slot the
+## champion landed on. Shaking $UI (a CanvasLayer) no-ops.
+func _champion_screen_shake(target: Node) -> void:
+	await ScreenShakeEffect.shake(target, self, 18.0, 14)
 
 ## Gold flash overlay on a slot when a champion lands.
 func _champion_slot_flash(slot: BoardSlot) -> void:
@@ -1652,9 +1701,15 @@ func _resolve_on_death_effect(_minion: MinionInstance) -> void:
 ## Apply one Corruption stack to a minion (each stack reduces ATK by 100).
 func _corrupt_minion(minion: MinionInstance) -> void:
 	var penalty := 100
-	BuffSystem.apply(minion, Enums.BuffType.CORRUPTION, penalty, "corruption")
+	BuffSystem.apply(minion, Enums.BuffType.CORRUPTION, penalty, "corruption", false, false)
 	_log("  %s is Corrupted! (−%d ATK)" % [minion.card_data.card_name, penalty], _LogType.ENEMY)
 	_refresh_slot_for(minion)
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot != null:
+		var vfx := CorruptionApplyVFX.create(slot)
+		vfx_controller.spawn(vfx)
+		slot.blink_corruption_status()
+		slot.flash_atk_debuff()
 
 ## Return a random living enemy minion, or null if the board is empty.
 func _find_random_enemy_minion() -> MinionInstance:
@@ -1741,7 +1796,7 @@ func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = 
 		_log("  Void Devourer sacrifices %s!" % m.card_data.card_name, _LogType.PLAYER)
 		combat_manager.kill_minion(m)
 	if count > 0:
-		BuffSystem.apply(devourer, Enums.BuffType.ATK_BONUS, count * 300, "void_devourer")
+		BuffSystem.apply(devourer, Enums.BuffType.ATK_BONUS, count * 300, "void_devourer", false, false)
 		devourer.current_health += count * 300
 		_log("  Void Devourer grows to %d/%d!" % [devourer.effective_atk(), devourer.current_health], _LogType.PLAYER)
 		_refresh_slot_for(devourer)
@@ -1769,7 +1824,7 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 			if token_hp     > 0: instance.current_health = token_hp
 			if token_shield > 0:
 				instance.current_shield = token_shield
-				BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token")
+				BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token", false, false)
 			board.append(instance)
 			# Champion tokens get a dramatic entrance (fire-and-forget — places minion on slot after animation)
 			if data.is_champion:
@@ -1807,11 +1862,18 @@ func _apply_test_config() -> void:
 	if TestConfig.enemy_hp > 0:
 		enemy_hp     = TestConfig.enemy_hp
 		enemy_hp_max = TestConfig.enemy_hp
-	# Add cards directly to hand
+	# Add cards directly to player hand
 	for id in TestConfig.hand_cards:
 		var card := CardDatabase.get_card(id)
 		if card:
 			turn_manager.add_to_hand(card)
+
+	# Add cards directly to enemy hand
+	if enemy_ai:
+		for id in TestConfig.enemy_hand_cards:
+			var ecard := CardDatabase.get_card(id)
+			if ecard:
+				enemy_ai.add_to_hand(ecard)
 
 	# Pre-summon player board minions
 	for id in TestConfig.player_board_cards:
@@ -1854,18 +1916,7 @@ func _apply_test_config() -> void:
 	_log("[TEST] Test config applied.", _LogType.TURN)
 	TestConfig.enabled = false  # consumed — reset so normal navigation isn't affected
 
-# ---------------------------------------------------------------------------
-# Cheat Panel (Option B) — F12 toggle, always present during combat
-# ---------------------------------------------------------------------------
-
-var _cheat_panel: CanvasLayer
-var _cheat_visible: bool = false
-var _cheat_card_input: LineEdit
-var _cheat_dmg_input:  SpinBox
-var _cheat_status_lbl: Label
-var _cheat_talent_dropdown: OptionButton
-var _cheat_relic_dropdown: OptionButton
-var _cheat_enemy_dropdown: OptionButton
+var _cheat: CheatPanel
 var _talent_tip_vbox: VBoxContainer  ## Talent tooltip content — rebuilt after cheat unlocks
 
 # ---------------------------------------------------------------------------
@@ -1915,10 +1966,10 @@ func _on_relic_hovered(effect_id: String) -> void:
 			# Show mana gain preview: +2 mana (capped at max)
 			var gain: int = mini(2, turn_manager.mana_max - turn_manager.mana)
 			if gain > 0:
-				_start_pip_blink(0, 0, 0, gain)
+				_pip_bar.start_blink(0, 0, 0, gain)
 
 func _on_relic_unhovered() -> void:
-	_stop_pip_blink()
+	_pip_bar.stop_blink()
 
 func _on_relic_activated(index: int) -> void:
 	if not turn_manager.is_player_turn:
@@ -1926,7 +1977,7 @@ func _on_relic_activated(index: int) -> void:
 	var effect_id: String = _relic_runtime.activate(index)
 	if effect_id == "":
 		return
-	_stop_pip_blink()
+	_pip_bar.stop_blink()
 	# Blood Chalice: enter targeting mode instead of resolving immediately
 	if effect_id == "relic_execute":
 		_pending_relic_index = index
@@ -1951,7 +2002,7 @@ func _begin_relic_targeting(effect_id: String) -> void:
 	if _enemy_status_panel:
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		_enemy_status_panel.gui_input.connect(_on_relic_target_hero_input)
-		_start_hero_spell_pulse()
+		_enemy_hero_panel.start_spell_pulse()
 	_log("  Blood Chalice: choose a target (right-click to cancel).", _LogType.PLAYER)
 
 ## Resolve a relic effect on a chosen enemy minion target.
@@ -1998,181 +2049,10 @@ func _on_relic_target_hero_input(event: InputEvent) -> void:
 	elif event.button_index == MOUSE_BUTTON_RIGHT:
 		_cancel_relic_targeting()
 
-func _setup_cheat_panel() -> void:
-	_cheat_panel = CanvasLayer.new()
-	_cheat_panel.layer = 128
-	add_child(_cheat_panel)
-
-	var root := PanelContainer.new()
-	root.custom_minimum_size = Vector2(300, 0)
-	var vp_w: float = get_viewport().get_visible_rect().size.x
-	root.set_position(Vector2(vp_w - 520, 10))
-	_cheat_panel.add_child(root)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
-	root.add_child(vbox)
-
-	var title := Label.new()
-	title.text = "⚙ Cheat Panel  [F12]"
-	title.add_theme_color_override("font_color", Color(1, 0.85, 0.3))
-	title.add_theme_font_size_override("font_size", 14)
-	vbox.add_child(title)
-
-	vbox.add_child(HSeparator.new())
-
-	# Add card to hand
-	var hand_label := Label.new()
-	hand_label.text = "Add card to hand (ID):"
-	hand_label.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(hand_label)
-
-	var hand_row := HBoxContainer.new()
-	vbox.add_child(hand_row)
-	_cheat_card_input = LineEdit.new()
-	_cheat_card_input.placeholder_text = "e.g. arcane_strike"
-	_cheat_card_input.custom_minimum_size = Vector2(200, 0)
-	_cheat_card_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cheat_card_input.text_submitted.connect(func(_t): _cheat_add_card())
-	hand_row.add_child(_cheat_card_input)
-	var add_btn := Button.new()
-	add_btn.text = "Add"
-	add_btn.pressed.connect(_cheat_add_card)
-	hand_row.add_child(add_btn)
-
-	vbox.add_child(HSeparator.new())
-
-	# Damage / heal heroes
-	var dmg_label := Label.new()
-	dmg_label.text = "Damage / Heal heroes:"
-	dmg_label.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(dmg_label)
-
-	var dmg_row := HBoxContainer.new()
-	vbox.add_child(dmg_row)
-	_cheat_dmg_input = SpinBox.new()
-	_cheat_dmg_input.min_value = 0
-	_cheat_dmg_input.max_value = 99999
-	_cheat_dmg_input.value     = 500
-	_cheat_dmg_input.step      = 100
-	_cheat_dmg_input.custom_minimum_size = Vector2(110, 0)
-	dmg_row.add_child(_cheat_dmg_input)
-
-	var dmg_player := Button.new()
-	dmg_player.text = "Dmg Player"
-	dmg_player.pressed.connect(func(): _on_hero_damaged("player", int(_cheat_dmg_input.value)))
-	dmg_row.add_child(dmg_player)
-
-	var dmg_enemy := Button.new()
-	dmg_enemy.text = "Dmg Enemy"
-	dmg_enemy.pressed.connect(func(): _on_hero_damaged("enemy", int(_cheat_dmg_input.value)))
-	dmg_row.add_child(dmg_enemy)
-
-	var kill_enemy := Button.new()
-	kill_enemy.text = "Kill Enemy (5000)"
-	kill_enemy.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35, 1.0))
-	kill_enemy.pressed.connect(func(): _on_hero_damaged("enemy", 5000))
-	dmg_row.add_child(kill_enemy)
-
-	var heal_row := HBoxContainer.new()
-	vbox.add_child(heal_row)
-	var heal_player := Button.new()
-	heal_player.text = "Heal Player"
-	heal_player.pressed.connect(func(): _on_hero_healed("player", int(_cheat_dmg_input.value)))
-	heal_row.add_child(heal_player)
-
-	var heal_enemy := Button.new()
-	heal_enemy.text = "Heal Enemy"
-	heal_enemy.pressed.connect(func(): _on_hero_healed("enemy", int(_cheat_dmg_input.value)))
-	heal_row.add_child(heal_enemy)
-
-	vbox.add_child(HSeparator.new())
-
-	# Resources
-	var res_btn := Button.new()
-	res_btn.text = "Refill Resources (Essence + Mana)"
-	res_btn.pressed.connect(func():
-		turn_manager.gain_essence(turn_manager.essence_max)
-		turn_manager.gain_mana(turn_manager.mana_max))
-	vbox.add_child(res_btn)
-
-	vbox.add_child(HSeparator.new())
-
-	# Unlock talent
-	var talent_label := Label.new()
-	talent_label.text = "Unlock talent:"
-	talent_label.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(talent_label)
-
-	var talent_row := HBoxContainer.new()
-	vbox.add_child(talent_row)
-	_cheat_talent_dropdown = OptionButton.new()
-	_cheat_talent_dropdown.custom_minimum_size = Vector2(200, 0)
-	_cheat_talent_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cheat_populate_talent_dropdown()
-	talent_row.add_child(_cheat_talent_dropdown)
-	var talent_btn := Button.new()
-	talent_btn.text = "Unlock"
-	talent_btn.pressed.connect(_cheat_unlock_selected_talent)
-	talent_row.add_child(talent_btn)
-
-	vbox.add_child(HSeparator.new())
-
-	# Grant relic
-	var relic_label := Label.new()
-	relic_label.text = "Grant relic:"
-	relic_label.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(relic_label)
-
-	var relic_row := HBoxContainer.new()
-	vbox.add_child(relic_row)
-	_cheat_relic_dropdown = OptionButton.new()
-	_cheat_relic_dropdown.custom_minimum_size = Vector2(200, 0)
-	_cheat_relic_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cheat_populate_relic_dropdown()
-	relic_row.add_child(_cheat_relic_dropdown)
-	var relic_btn := Button.new()
-	relic_btn.text = "Grant"
-	relic_btn.pressed.connect(_cheat_grant_selected_relic)
-	relic_row.add_child(relic_btn)
-
-	vbox.add_child(HSeparator.new())
-
-	# Change enemy encounter
-	var enemy_label := Label.new()
-	enemy_label.text = "Switch enemy:"
-	enemy_label.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(enemy_label)
-
-	var enemy_row := HBoxContainer.new()
-	vbox.add_child(enemy_row)
-	_cheat_enemy_dropdown = OptionButton.new()
-	_cheat_enemy_dropdown.custom_minimum_size = Vector2(200, 0)
-	_cheat_enemy_dropdown.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_cheat_populate_enemy_dropdown()
-	enemy_row.add_child(_cheat_enemy_dropdown)
-	var enemy_btn := Button.new()
-	enemy_btn.text = "Switch"
-	enemy_btn.pressed.connect(_cheat_switch_enemy)
-	enemy_row.add_child(enemy_btn)
-
-	# Status feedback
-	_cheat_status_lbl = Label.new()
-	_cheat_status_lbl.add_theme_color_override("font_color", Color(1, 0.4, 0.4))
-	_cheat_status_lbl.add_theme_font_size_override("font_size", 11)
-	_cheat_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vbox.add_child(_cheat_status_lbl)
-
-	# Hidden by default
-	_cheat_panel.visible = false
-
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F12:
-			_cheat_visible = not _cheat_visible
-			_cheat_panel.visible = _cheat_visible
-			if _cheat_visible and _cheat_card_input:
-				_cheat_card_input.call_deferred("grab_focus")
+			_cheat.toggle()
 	# Right-click cancels relic targeting, spell targeting, or minion placement
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		if _pending_relic_target != "":
@@ -2184,150 +2064,8 @@ func _input(event: InputEvent) -> void:
 		elif selected_attacker != null:
 			selected_attacker = null
 			_clear_all_highlights()
-			_show_hero_button(false)
+			_enemy_hero_panel.show_attackable(false)
 			get_viewport().set_input_as_handled()
-
-func _cheat_add_card() -> void:
-	var id := _cheat_card_input.text.strip_edges()
-	if id == "":
-		return
-	var card := CardDatabase.get_card(id)
-	if card == null:
-		_cheat_status_lbl.text = "Unknown card: " + id
-		return
-	turn_manager.add_to_hand(card)
-	_cheat_status_lbl.text = ""
-	_cheat_card_input.text = ""
-
-func _cheat_populate_talent_dropdown() -> void:
-	_cheat_talent_dropdown.clear()
-	var talents: Array[TalentData] = TalentDatabase.get_talents_for_hero(GameManager.current_hero)
-	for t in talents:
-		var suffix := " [OWNED]" if GameManager.has_talent(t.id) else ""
-		_cheat_talent_dropdown.add_item(t.talent_name + suffix)
-		_cheat_talent_dropdown.set_item_metadata(_cheat_talent_dropdown.item_count - 1, t.id)
-
-func _cheat_unlock_selected_talent() -> void:
-	var idx: int = _cheat_talent_dropdown.selected
-	if idx < 0:
-		return
-	var id: String = _cheat_talent_dropdown.get_item_metadata(idx)
-	if GameManager.has_talent(id):
-		_cheat_status_lbl.text = "Already unlocked: " + id
-		return
-	# Grant a talent point so unlock_talent succeeds
-	GameManager.add_talent_point()
-	GameManager.unlock_talent(id)
-	# Clear and re-run trigger setup to register the new talent's handlers
-	trigger_manager.clear()
-	_setup_triggers()
-	# Refresh the talent tooltip and dropdown
-	_rebuild_talent_tooltip_content()
-	_cheat_populate_talent_dropdown()
-	var talent: TalentData = TalentDatabase.get_talent(id)
-	_cheat_status_lbl.text = "Unlocked: " + talent.talent_name
-	_log("  [CHEAT] Talent unlocked: %s" % talent.talent_name, _LogType.PLAYER)
-
-func _cheat_populate_relic_dropdown() -> void:
-	_cheat_relic_dropdown.clear()
-	var all_relics: Array[RelicData] = RelicDatabase.get_all()
-	all_relics.sort_custom(func(a: RelicData, b: RelicData) -> bool: return a.act < b.act)
-	for r in all_relics:
-		var suffix := " [OWNED]" if r.id in GameManager.player_relics else ""
-		_cheat_relic_dropdown.add_item("Act %d: %s%s" % [r.act, r.relic_name, suffix])
-		_cheat_relic_dropdown.set_item_metadata(_cheat_relic_dropdown.item_count - 1, r.id)
-
-func _cheat_grant_selected_relic() -> void:
-	var idx: int = _cheat_relic_dropdown.selected
-	if idx < 0:
-		return
-	var id: String = _cheat_relic_dropdown.get_item_metadata(idx)
-	if id in GameManager.player_relics:
-		_cheat_status_lbl.text = "Already owned: " + id
-		return
-	GameManager.player_relics.append(id)
-	# Rebuild relic runtime and bar
-	_setup_relics()
-	_cheat_populate_relic_dropdown()
-	var relic: RelicData = RelicDatabase.get_relic(id)
-	_cheat_status_lbl.text = "Granted: " + relic.relic_name
-	_log("  [CHEAT] Relic granted: %s" % relic.relic_name, _LogType.PLAYER)
-
-func _cheat_populate_enemy_dropdown() -> void:
-	_cheat_enemy_dropdown.clear()
-	# ACT_SIZES: [3, 3, 3, 6] — map encounter index to act
-	const ACT_SIZES := [3, 3, 3, 6]
-	for i in range(1, 16):
-		var e: EnemyData = GameManager.get_encounter(i)
-		if e == null:
-			continue
-		var act := 1
-		var cumulative := 0
-		for a in ACT_SIZES.size():
-			cumulative += ACT_SIZES[a]
-			if i <= cumulative:
-				act = a + 1
-				break
-		var label := "A%d-%d: %s" % [act, i, e.enemy_name]
-		_cheat_enemy_dropdown.add_item(label)
-		_cheat_enemy_dropdown.set_item_metadata(_cheat_enemy_dropdown.item_count - 1, i)
-
-func _cheat_switch_enemy() -> void:
-	var idx: int = _cheat_enemy_dropdown.selected
-	if idx < 0:
-		return
-	var encounter_idx: int = _cheat_enemy_dropdown.get_item_metadata(idx)
-	GameManager.current_enemy = GameManager.get_encounter(encounter_idx)
-	GameManager.run_node_index = encounter_idx
-	# Reset AudioManager's scene tracking so it re-evaluates music for the new act
-	AudioManager._current_scene_path = ""
-	GameManager.go_to_scene("res://combat/board/CombatScene.tscn")
-
-func _rebuild_talent_tooltip_content() -> void:
-	if _talent_tip_vbox == null:
-		return
-	# Remove only talent entries (everything after the TALENTS header)
-	var found_talents := false
-	var to_remove: Array[Node] = []
-	for child in _talent_tip_vbox.get_children():
-		if child is Label and (child as Label).text == "TALENTS":
-			found_talents = true
-			continue
-		if found_talents:
-			to_remove.append(child)
-	for child in to_remove:
-		child.queue_free()
-	# Re-add talent entries
-	if GameManager.unlocked_talents.is_empty():
-		var none_lbl := Label.new()
-		none_lbl.text = "No talents unlocked"
-		none_lbl.add_theme_font_size_override("font_size", 13)
-		none_lbl.add_theme_color_override("font_color", Color(0.55, 0.52, 0.60, 1))
-		none_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_talent_tip_vbox.add_child(none_lbl)
-	else:
-		for tid in GameManager.unlocked_talents:
-			var td: TalentData = TalentDatabase.get_talent(tid)
-			if td == null:
-				continue
-			var row := VBoxContainer.new()
-			row.add_theme_constant_override("separation", 3)
-			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			_talent_tip_vbox.add_child(row)
-			var t_name := Label.new()
-			t_name.text = td.talent_name
-			t_name.add_theme_font_size_override("font_size", 15)
-			t_name.add_theme_color_override("font_color", Color(0.92, 0.85, 1.0, 1))
-			t_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			t_name.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-			row.add_child(t_name)
-			var t_desc := Label.new()
-			t_desc.text = td.description
-			t_desc.add_theme_font_size_override("font_size", 12)
-			t_desc.add_theme_color_override("font_color", Color(0.65, 0.62, 0.72, 1))
-			t_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			t_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-			row.add_child(t_desc)
 
 ## Entry point for EffectResolver HARDCODED steps — delegates to HardcodedEffects.
 func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
@@ -2455,344 +2193,6 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 			return
 
 # ---------------------------------------------------------------------------
-# Enemy champion progress UI
-# ---------------------------------------------------------------------------
-
-## Called by CombatHandlers when champion progress increments.
-func _update_champion_progress(current: int, total: int) -> void:
-	var prev: int = _champion_progress_current
-	_champion_progress_current = current
-	_champion_progress_max = total
-	if not _champion_progress_row:
-		return
-	_champion_progress_row.visible = true
-
-	# Build pips on first call or when total changes
-	if _champion_progress_pips.size() != total:
-		for p in _champion_progress_pips:
-			p.queue_free()
-		_champion_progress_pips.clear()
-		for i in total:
-			var pip := Label.new()
-			pip.text = "◇"
-			pip.add_theme_font_size_override("font_size", 14)
-			pip.add_theme_color_override("font_color", Color(0.40, 0.35, 0.50, 0.6))
-			pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			_champion_progress_row.add_child(pip)
-			_champion_progress_pips.append(pip)
-
-	# Update pip states
-	var ratio: float = float(current) / float(total) if total > 0 else 0.0
-	for i in total:
-		var pip: Label = _champion_progress_pips[i]
-		if i < current:
-			pip.text = "◆"
-			# Color by urgency
-			if ratio >= 1.0:
-				pip.add_theme_color_override("font_color", Color(1.0, 0.25, 0.15, 1))
-			elif ratio >= 0.75:
-				pip.add_theme_color_override("font_color", Color(1.0, 0.50, 0.12, 1))
-			elif ratio >= 0.5:
-				pip.add_theme_color_override("font_color", Color(1.0, 0.82, 0.20, 1))
-			else:
-				pip.add_theme_color_override("font_color", Color(0.85, 0.70, 0.40, 1))
-		else:
-			pip.text = "◇"
-			pip.add_theme_color_override("font_color", Color(0.40, 0.35, 0.50, 0.6))
-
-	# Animate the newly filled pip(s)
-	for i in range(prev, current):
-		if i >= 0 and i < _champion_progress_pips.size():
-			_animate_pip_fill(_champion_progress_pips[i])
-
-	# Update label text
-	if ratio >= 1.0:
-		_champion_progress_label.text = "SUMMONING..."
-		_champion_progress_label.add_theme_color_override("font_color", Color(1.0, 0.25, 0.15, 1))
-		# Shake the whole row when threshold reached
-		_champion_progress_shake()
-	else:
-		_champion_progress_label.text = ""
-		_champion_progress_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.10, 1))
-
-	# Pulse the row on every increment
-	if _champion_progress_tween:
-		_champion_progress_tween.kill()
-	_champion_progress_row.pivot_offset = _champion_progress_row.size / 2.0
-	_champion_progress_tween = create_tween()
-	_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2(1.15, 1.15), 0.1).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-
-## Animate a pip being filled — scale pop + glow flash.
-func _animate_pip_fill(pip: Label) -> void:
-	pip.pivot_offset = pip.size / 2.0
-	var tw := create_tween().set_parallel(true)
-	# Scale pop
-	tw.tween_property(pip, "scale", Vector2(1.8, 1.8), 0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	# Bright flash
-	tw.tween_property(pip, "modulate", Color(2.0, 1.8, 0.5, 1), 0.08)
-	tw.chain().set_parallel(true)
-	tw.tween_property(pip, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
-	tw.tween_property(pip, "modulate", Color.WHITE, 0.4)
-
-## Rapid shake on the progress row when champion is about to summon.
-func _champion_progress_shake() -> void:
-	var row := _champion_progress_row
-	if row == null:
-		return
-	var original_pos: Vector2 = row.position
-	var shake_tw := create_tween()
-	for i in 8:
-		var offset := Vector2(randf_range(-3.0, 3.0), randf_range(-1.5, 1.5))
-		shake_tw.tween_property(row, "position", original_pos + offset, 0.03)
-	shake_tw.tween_property(row, "position", original_pos, 0.03)
-
-## Build and attach a hover tooltip to the champion progress row showing the summon condition.
-func _setup_champion_progress_tooltip(_parent: Node) -> void:
-	var ui_root := get_node_or_null("UI")
-	if ui_root == null:
-		return
-
-	# Find the active champion passive
-	var champ_id: String = ""
-	for pid in _active_enemy_passives:
-		if pid.begins_with("champion_"):
-			champ_id = pid
-			break
-	if champ_id == "":
-		return
-
-	# Champion info — same data as PASSIVE_INFO in _add_enemy_passive_hover_icon
-	const CHAMPION_INFO: Dictionary = {
-		"champion_rogue_imp_pack": {
-			"name": "Rogue Imp Pack",
-			"condition": "4 different Rabid Imps have attacked",
-			"stats": "200 ATK / 400 HP — SWIFT",
-			"aura": "All friendly FERAL IMP minions have +100 ATK.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_corrupted_broodlings": {
-			"name": "Corrupted Broodlings",
-			"condition": "3 friendly minions have died",
-			"stats": "200 ATK / 400 HP",
-			"aura": "",
-			"on_death": "Summon a Void-Touched Imp. Deal 20% of max HP to enemy hero.",
-		},
-		"champion_imp_matriarch": {
-			"name": "Imp Matriarch",
-			"condition": "2nd Pack Frenzy cast",
-			"stats": "300 ATK / 500 HP — GUARD",
-			"aura": "Pack Frenzy also gives all FERAL IMP minions +200 HP.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_abyss_cultist_patrol": {
-			"name": "Abyss Cultist Patrol",
-			"condition": "5 corruption stacks consumed",
-			"stats": "300 ATK / 300 HP",
-			"aura": "Corruption applied to enemy minions instantly detonates.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_void_ritualist": {
-			"name": "Void Ritualist",
-			"condition": "Ritual Sacrifice triggers",
-			"stats": "200 ATK / 300 HP",
-			"aura": "Rune placement costs 1 less Mana.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_corrupted_handler": {
-			"name": "Corrupted Handler",
-			"condition": "3 Void Sparks created",
-			"stats": "300 ATK / 300 HP",
-			"aura": "Whenever a Void Spark is summoned, deal 200 damage to enemy hero.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_duel": {
-			"name": "Void Duel",
-			"condition": "Always active",
-			"stats": "",
-			"aura": "Enemy minions with Critical Strike have Spell Immune.",
-			"on_death": "",
-		},
-		"champion_rift_stalker": {
-			"name": "Rift Stalker",
-			"condition": "Void Sparks have dealt 1500 damage",
-			"stats": "400 ATK / 400 HP",
-			"aura": "All friendly Void Sparks are immune.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_void_aberration": {
-			"name": "Void Aberration",
-			"condition": "5 sparks consumed as costs",
-			"stats": "300 ATK / 300 HP — ETHEREAL",
-			"aura": "Void Detonation deals 200 damage instead of 100.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_void_herald": {
-			"name": "Void Herald",
-			"condition": "6 spark-cost cards played",
-			"stats": "200 ATK / 500 HP",
-			"aura": "All spark costs become 0. Void Rift stops generating sparks.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_void_scout": {
-			"name": "Void Scout",
-			"condition": "5 critical strikes consumed",
-			"stats": "400 ATK / 500 HP",
-			"aura": "Critical Strike deals 2.5x damage instead of 2x.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_void_warband": {
-			"name": "Void Warband",
-			"condition": "3 Spirits consumed as fuel",
-			"stats": "500 ATK / 600 HP — 1 Critical Strike",
-			"aura": "When a friendly Spirit with Crit is consumed, summon a 100/100 Void Spark.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-		"champion_void_captain": {
-			"name": "Void Captain",
-			"condition": "2 Throne's Command cast",
-			"stats": "300 ATK / 600 HP — 2 Critical Strike",
-			"aura": "When a friendly minion consumes a Critical Strike, deal 100 damage to each of 2 random enemies.",
-			"on_death": "Deal 20% of max HP to enemy hero.",
-		},
-	}
-
-	var info: Dictionary = CHAMPION_INFO.get(champ_id, {})
-	if info.is_empty():
-		return
-
-	var scaffold := _build_hover_tooltip_scaffold(ui_root, 280, Color(0.08, 0.04, 0.02, 0.97), Color(1.0, 0.70, 0.15, 0.85))
-	var tip: PanelContainer = scaffold.tip
-	var tip_vbox: VBoxContainer = scaffold.tip_vbox
-
-	# Header
-	var hdr := Label.new()
-	hdr.text = "★ CHAMPION"
-	hdr.add_theme_font_size_override("font_size", 13)
-	hdr.add_theme_color_override("font_color", Color(1.0, 0.78, 0.15, 1.0))
-	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip_vbox.add_child(hdr)
-
-	# Name
-	var name_lbl := Label.new()
-	name_lbl.text = info.get("name", champ_id) as String
-	name_lbl.add_theme_font_size_override("font_size", 15)
-	name_lbl.add_theme_color_override("font_color", Color(1.0, 0.90, 0.65, 1.0))
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip_vbox.add_child(name_lbl)
-
-	# Stats
-	var stats_str: String = info.get("stats", "") as String
-	if stats_str != "":
-		var stats_lbl := Label.new()
-		stats_lbl.text = stats_str
-		stats_lbl.add_theme_font_size_override("font_size", 12)
-		stats_lbl.add_theme_color_override("font_color", Color(0.80, 0.75, 0.65, 1.0))
-		stats_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		stats_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tip_vbox.add_child(stats_lbl)
-
-	# Summon condition
-	var cond_row := VBoxContainer.new()
-	cond_row.add_theme_constant_override("separation", 2)
-	cond_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tip_vbox.add_child(cond_row)
-
-	var cond_hdr := Label.new()
-	cond_hdr.text = "SUMMON CONDITION"
-	cond_hdr.add_theme_font_size_override("font_size", 11)
-	cond_hdr.add_theme_color_override("font_color", Color(0.65, 0.55, 0.45, 1.0))
-	cond_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cond_row.add_child(cond_hdr)
-
-	var cond_lbl := Label.new()
-	cond_lbl.text = info.get("condition", "") as String
-	cond_lbl.add_theme_font_size_override("font_size", 13)
-	cond_lbl.add_theme_color_override("font_color", Color(1.0, 0.55, 0.20, 1.0))
-	cond_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	cond_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cond_row.add_child(cond_lbl)
-
-	# Aura
-	var aura_str: String = info.get("aura", "") as String
-	if aura_str != "":
-		var aura_row := VBoxContainer.new()
-		aura_row.add_theme_constant_override("separation", 2)
-		aura_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tip_vbox.add_child(aura_row)
-
-		var aura_hdr := Label.new()
-		aura_hdr.text = "AURA"
-		aura_hdr.add_theme_font_size_override("font_size", 11)
-		aura_hdr.add_theme_color_override("font_color", Color(0.65, 0.55, 0.45, 1.0))
-		aura_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		aura_row.add_child(aura_hdr)
-
-		var aura_lbl := Label.new()
-		aura_lbl.text = aura_str
-		aura_lbl.add_theme_font_size_override("font_size", 12)
-		aura_lbl.add_theme_color_override("font_color", Color(0.90, 0.80, 0.60, 1.0))
-		aura_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		aura_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		aura_row.add_child(aura_lbl)
-
-	# On death
-	var death_str: String = info.get("on_death", "") as String
-	if death_str != "":
-		var death_row := VBoxContainer.new()
-		death_row.add_theme_constant_override("separation", 2)
-		death_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tip_vbox.add_child(death_row)
-
-		var death_hdr := Label.new()
-		death_hdr.text = "ON DEATH"
-		death_hdr.add_theme_font_size_override("font_size", 11)
-		death_hdr.add_theme_color_override("font_color", Color(0.65, 0.55, 0.45, 1.0))
-		death_hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		death_row.add_child(death_hdr)
-
-		var death_lbl := Label.new()
-		death_lbl.text = death_str
-		death_lbl.add_theme_font_size_override("font_size", 12)
-		death_lbl.add_theme_color_override("font_color", Color(0.85, 0.45, 0.35, 1.0))
-		death_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		death_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		death_row.add_child(death_lbl)
-
-	# Connect hover events
-	_champion_progress_row.mouse_entered.connect(func() -> void:
-		tip.size = tip.get_minimum_size()
-		tip.position.y = get_viewport().get_visible_rect().size.y - tip.size.y - 16.0
-		tip.visible = true
-	)
-	_champion_progress_row.mouse_exited.connect(func() -> void:
-		tip.visible = false
-	)
-
-## Called by CombatHandlers when the enemy champion is killed — hide progress, show reward feedback.
-func _on_champion_killed() -> void:
-	if _champion_progress_row:
-		# Turn all pips green
-		for pip in _champion_progress_pips:
-			pip.text = "✦"
-			pip.add_theme_color_override("font_color", Color(0.35, 0.90, 0.55, 1))
-		_champion_progress_label.text = "Champion slain!"
-		_champion_progress_label.add_theme_color_override("font_color", Color(0.35, 0.90, 0.55, 1))
-		if _champion_progress_tween:
-			_champion_progress_tween.kill()
-		_champion_progress_row.pivot_offset = _champion_progress_row.size / 2.0
-		_champion_progress_tween = create_tween()
-		# Scale pop
-		_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2(1.25, 1.25), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		_champion_progress_tween.parallel().tween_property(_champion_progress_row, "modulate", Color(0.5, 2.0, 0.5, 1), 0.12)
-		_champion_progress_tween.tween_property(_champion_progress_row, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_SINE)
-		_champion_progress_tween.parallel().tween_property(_champion_progress_row, "modulate", Color.WHITE, 0.4)
-		_champion_progress_tween.tween_interval(2.5)
-		_champion_progress_tween.tween_property(_champion_progress_row, "modulate", Color(1, 1, 1, 0), 0.6)
-
-# ---------------------------------------------------------------------------
 # Talent helpers
 # ---------------------------------------------------------------------------
 
@@ -2842,7 +2242,10 @@ func _void_mark_damage_per_stack() -> int:
 func _apply_void_mark(stacks: int = 1) -> void:
 	enemy_void_marks += stacks
 	_log("  Void Mark x%d applied! (total: %d)" % [stacks, enemy_void_marks], _LogType.PLAYER)
-	_update_enemy_status_panel()
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	if _enemy_status_panel and is_instance_valid(_enemy_status_panel):
+		var vfx := VoidMarkApplyVFX.create(_enemy_status_panel)
+		vfx_controller.spawn(vfx)
 
 ## Deal Void Bolt damage to the enemy hero, scaled by current Void Marks.
 ## CONVENTION: ALL Void Bolt damage in the game must go through this function
@@ -2858,8 +2261,8 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 		_log("  Void Bolt: %d dmg (base %d + %d from %d marks)" % [total, base_damage, bonus, enemy_void_marks], _LogType.PLAYER)
 	else:
 		_log("  Void Bolt: %d damage." % total, _LogType.PLAYER)
-	# Fire projectile and wait for it to arrive before applying damage
-	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_bolt_cast.wav")
+	# Fire projectile and wait for it to arrive before applying damage.
+	# The projectile owns both cast and impact SFX internally.
 	var bolt := _fire_void_bolt_projectile(source_minion, from_rune)
 	if bolt != null and is_inside_tree():
 		await bolt.impact_hit
@@ -2900,11 +2303,7 @@ func _fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune:
 	else:
 		to_pos = Vector2(vp_size.x / 2.0, 80)
 	var bolt := VoidBoltProjectile.create(from_pos, to_pos)
-	var ui_root: Node = get_node_or_null("UI")
-	if ui_root:
-		ui_root.add_child(bolt)
-	else:
-		add_child(bolt)
+	vfx_controller.spawn(bolt)
 	return bolt
 
 ## Cycles through void rune slots so multiple runes alternate firing.
@@ -2977,7 +2376,7 @@ func _player_pay_sparks(cost: int) -> bool:
 	return remaining <= 0
 
 func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
-	_stop_pip_blink()
+	_pip_bar.stop_blink()
 	# Dark Mirror: reduce both essence and mana costs independently (minimum 0)
 	if _relic_cost_reduction > 0:
 		var reduction: int = _relic_cost_reduction
@@ -3035,7 +2434,12 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		enemy_board.erase(minion)
 		_clear_slot_for(minion, enemy_slots)
 	_log("  %s died" % minion.card_data.card_name, _LogType.DEATH)
-	# Fire death events — handlers in _setup_triggers() apply all passive/talent/deathrattle effects
+	# If the minion has on-death effects, defer their resolution until after the
+	# death animation + on-death icon VFX so damage/summons play at the right time.
+	if _minion_has_on_death(minion):
+		_pending_on_death_vfx.append(minion)
+	# Fire death events — handlers in _setup_triggers() apply all passive/talent/deathrattle effects.
+	# on_minion_died_death_effect skips minions in _pending_on_death_vfx.
 	var ctx := EventContext.make(
 		Enums.TriggerEvent.ON_PLAYER_MINION_DIED if minion.owner == "player"
 		else Enums.TriggerEvent.ON_ENEMY_MINION_DIED,
@@ -3047,9 +2451,9 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 	# Position is captured NOW while the slot is still in its original container.
 	if dead_slot:
 		if dead_slot.freeze_visuals:
-			_deferred_death_slots.append({slot = dead_slot, pos = dead_slot.global_position})
+			_deferred_death_slots.append({slot = dead_slot, pos = dead_slot.global_position, minion = minion})
 		else:
-			_animate_minion_death(dead_slot, dead_slot.global_position)
+			_animate_minion_death(dead_slot, dead_slot.global_position, minion)
 
 func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if _combat_ended:
@@ -3060,7 +2464,7 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 			_log("  Bone Shield absorbs %d damage!" % amount, _LogType.PLAYER)
 			return
 		player_hp -= amount
-		_update_player_status_panel()
+		_player_hero_panel.update(player_hp, GameManager.player_hp_max)
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
 		if player_hp <= 0:
 			_flash_hero("player", amount, _on_defeat, type)
@@ -3072,7 +2476,7 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 	else:
 		enemy_hp -= amount
 		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], _LogType.DAMAGE)
-		_update_enemy_status_panel()
+		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 		if enemy_hp <= 0:
 			_flash_hero("enemy", amount, _on_victory, type)
 		else:
@@ -3083,12 +2487,12 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":
 		player_hp = mini(player_hp + amount, GameManager.player_hp_max)
-		_update_player_status_panel()
+		_player_hero_panel.update(player_hp, GameManager.player_hp_max)
 		_flash_hero_heal("player", amount)
 		_log("  You heal %d HP  (HP: %d)" % [amount, player_hp], _LogType.HEAL)
 	elif target == "enemy":
 		enemy_hp = mini(enemy_hp + amount, enemy_hp_max)
-		_update_enemy_status_panel()
+		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 		_flash_hero_heal("enemy", amount)
 		_log("  Enemy heals %d HP  (HP: %d)" % [amount, enemy_hp], _LogType.ENEMY)
 
@@ -3152,7 +2556,7 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 	if hits_hero and _enemy_status_panel:
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		_enemy_status_panel.gui_input.connect(_on_enemy_hero_spell_input)
-		_start_hero_spell_pulse()
+		_enemy_hero_panel.start_spell_pulse()
 
 func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
@@ -3180,23 +2584,15 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 	_clear_all_highlights()
 	var captured_target: MinionInstance = target
 	_show_card_cast_anim(spell, false, func() -> void:
-		# Play spell-specific VFX before resolving damage
-		if spell.id == "void_execution":
-			var slot := _find_slot_for(captured_target)
-			if slot:
-				var vfx := VoidExecutionVFX.create(slot.get_global_rect().get_center())
-				var ui_root: Node = get_node_or_null("UI")
-				if ui_root:
-					ui_root.add_child(vfx)
-				else:
-					add_child(vfx)
-				await vfx.impact_hit
-		if not spell.effect_steps.is_empty():
-			var ctx := EffectContext.make(self, "player")
-			ctx.chosen_target = captured_target
-			EffectResolver.run(spell.effect_steps, ctx)
-		else:
-			_resolve_spell_effect(spell.effect_id, captured_target)
+		var resolve_damage := func(_i: int) -> void:
+			if not spell.effect_steps.is_empty():
+				var ctx := EffectContext.make(self, "player")
+				ctx.chosen_target = captured_target
+				ctx.source_card_id = spell.id
+				EffectResolver.run(spell.effect_steps, ctx)
+			else:
+				_resolve_spell_effect(spell.effect_id, captured_target)
+		await vfx_controller.play_spell(spell.id, "player", captured_target, resolve_damage)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
 		trigger_manager.fire(spell_ctx)
@@ -3221,30 +2617,22 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 	pending_play_card = null
 	_clear_all_highlights()
 	_show_card_cast_anim(spell, false, func() -> void:
-		# Play spell-specific VFX before resolving damage
-		if spell.id == "void_execution" and _enemy_status_panel:
-			var target_pos: Vector2 = _enemy_status_panel.global_position + _enemy_status_panel.size / 2.0 + Vector2(0, 30)
-			var vfx := VoidExecutionVFX.create(target_pos, 0.55)
-			var ui_root: Node = get_node_or_null("UI")
-			if ui_root:
-				ui_root.add_child(vfx)
-			else:
-				add_child(vfx)
-			await vfx.impact_hit
-		# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount
-		var base_dmg: int = 0
-		for step in spell.effect_steps:
-			var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
-			if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
-				var ctx := EffectContext.make(self, "player")
-				if ConditionResolver.check_all(s.conditions, ctx, null):
-					base_dmg += s.amount
-					if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
-						if ConditionResolver.check_all(s.bonus_conditions, ctx, null):
-							base_dmg += s.bonus_amount
-		var total: int = base_dmg
-		_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], _LogType.PLAYER)
-		combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.SPELL)
+		var resolve_damage := func(_i: int) -> void:
+			# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount
+			var base_dmg: int = 0
+			for step in spell.effect_steps:
+				var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
+				if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
+					var ctx := EffectContext.make(self, "player")
+					if ConditionResolver.check_all(s.conditions, ctx, null):
+						base_dmg += s.amount
+						if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
+							if ConditionResolver.check_all(s.bonus_conditions, ctx, null):
+								base_dmg += s.bonus_amount
+			var total: int = base_dmg
+			_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], _LogType.PLAYER)
+			combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.SPELL)
+		await vfx_controller.play_spell(spell.id, "player", _enemy_status_panel, resolve_damage)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
 		trigger_manager.fire(spell_ctx)
@@ -3376,7 +2764,7 @@ func _flash_trap_slot_for(owner: String, slot_idx: int) -> void:
 ## slot.place_minion and triggers are deferred until after the reveal animation.
 func _on_enemy_minion_summoned(minion: MinionInstance, slot: BoardSlot) -> void:
 	_log("Enemy summons: %s" % minion.card_data.card_name, _LogType.ENEMY)
-	_update_enemy_status_panel()
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 	_enemy_summon_reveal_then_land(minion, slot,
 		minion.card_data.essence_cost + minion.card_data.mana_cost,
 		minion.card_data.is_champion)
@@ -3418,6 +2806,10 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 	if not is_inside_tree(): return
 	if slot:
 		_animate_enemy_landing(slot, total_cost, is_champion)
+		# Corrupted Death passive: special VFX for Void-Touched Imp summons
+		if minion.card_data.id == "void_touched_imp" and "corrupted_death" in _active_enemy_passives:
+			var cd_vfx := CorruptedDeathSummonVFX.create(slot)
+			vfx_controller.spawn(cd_vfx)
 
 ## Centre-screen card reveal when an enemy summons a minion.
 ## Uses the same "combat_preview" size mode as the hover preview.
@@ -3457,13 +2849,16 @@ func _show_enemy_summon_reveal(card: CardData) -> void:
 
 ## Called by EnemyAI's enemy_spell_cast signal.
 func _on_enemy_spell_cast(spell: SpellCardData) -> void:
+	_enemy_spell_cast_active = true
 	_log("Enemy casts: %s" % spell.card_name, _LogType.ENEMY)
-	_update_enemy_status_panel()
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 	# Phase Disruptor counter: player counters enemy spell
 	if _enemy_spell_counter > 0:
 		_enemy_spell_counter -= 1
 		_log("  Spell countered!", _LogType.PLAYER)
 		_show_spell_countered_anim(spell)
+		_enemy_spell_cast_active = false
+		enemy_spell_cast_done.emit()
 		return
 	# Fire ON_ENEMY_SPELL_CAST BEFORE resolving so Null Seal can set _spell_cancelled.
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
@@ -3472,17 +2867,20 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	var was_cancelled := _spell_cancelled
 	_spell_cancelled = false
 	if was_cancelled:
+		_enemy_spell_cast_active = false
+		enemy_spell_cast_done.emit()
 		return
 	# Capture chosen target before animation; dispatch to the correct EffectContext field by type.
 	var chosen = enemy_ai.spell_chosen_target
 	enemy_ai.spell_chosen_target = null
 	# Show large card preview; resolve effects on impact so damage visuals sync
 	_show_card_cast_anim(spell, true, func() -> void:
-		# Build the damage-resolution callable so it can either run immediately
-		# OR be deferred to fire exactly when a VFX's impact phase starts.
-		var resolve_damage := func() -> void:
+		# Build the damage-resolution callable so VfxController can fire it at
+		# the impact moment of the chosen spell's VFX.
+		var resolve_damage := func(_i: int) -> void:
 			if not spell.effect_steps.is_empty():
 				var ectx := EffectContext.make(self, "enemy")
+				ectx.source_card_id = spell.id
 				if chosen is MinionInstance:
 					ectx.chosen_target = chosen
 				else:
@@ -3490,11 +2888,9 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 				EffectResolver.run(spell.effect_steps, ectx)
 			elif not spell.effect_id.is_empty():
 				_resolve_spell_effect(spell.effect_id, null, "enemy")
-		# Per-spell VFX — VFX owns the timing; damage fires at impact moment
-		if spell.id == "void_screech":
-			_play_void_screech_vfx("enemy", resolve_damage)
-		else:
-			resolve_damage.call()
+		await vfx_controller.play_spell(spell.id, "enemy", chosen, resolve_damage)
+		_enemy_spell_cast_active = false
+		enemy_spell_cast_done.emit()
 	)
 
 ## Called by EnemyAI's trap_placed signal.
@@ -3504,13 +2900,13 @@ func _on_enemy_trap_placed(trap: TrapCardData) -> void:
 		_apply_rune_aura(trap, "enemy")
 	else:
 		_log("Enemy sets a trap.", _LogType.ENEMY)
-	_update_enemy_status_panel()
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 	_update_enemy_trap_display()
 
 ## Called by EnemyAI's environment_placed signal.
 func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
 	_log("Enemy plays environment: %s" % env.card_name, _LogType.ENEMY)
-	_update_enemy_status_panel()
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 
 const _RUNE_GLOW_DEFAULT := Color(0.30, 0.15, 0.45, 1)  # Fallback dark purple
 const _TRAP_BATTLEFIELD_ART := "res://assets/art/traps/trap_battlefield.png"
@@ -3737,7 +3133,7 @@ func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
 	for m in player_board:
 		if m.card_data.minion_type == Enums.MinionType.DEMON:
 			if active:
-				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune")
+				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune", false, false)
 			else:
 				BuffSystem.remove_one_source(m, "dominion_rune")
 			_refresh_slot_for(m)
@@ -3882,976 +3278,6 @@ func _apply_empty_slot(panel: Panel, lbl: Label) -> void:
 		if lbl:
 			lbl.text    = "[ — ]"
 			lbl.visible = true
-
-# ---------------------------------------------------------------------------
-# Hero attack helpers
-# ---------------------------------------------------------------------------
-
-var _enemy_hero_attackable: bool = false
-
-func _show_hero_button(attackable: bool) -> void:
-	_enemy_hero_attackable = attackable
-	if not _enemy_status_panel:
-		return
-	if attackable:
-		_start_hero_attack_pulse()
-		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	else:
-		_stop_hero_attack_pulse()
-		if _enemy_panel_bg:
-			var clear_style := StyleBoxFlat.new()
-			clear_style.bg_color = Color(0, 0, 0, 0)
-			clear_style.set_border_width_all(0)
-			clear_style.set_corner_radius_all(6)
-			_enemy_panel_bg.add_theme_stylebox_override("panel", clear_style)
-		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-## Apply green border style (static, no shadow) — used when hero is a valid attack target.
-func _apply_hero_attack_style() -> void:
-	if _enemy_status_panel == null:
-		return
-	var s := StyleBoxFlat.new()
-	s.set_corner_radius_all(6)
-	s.bg_color     = Color(0, 0, 0, 0)
-	s.border_color = Color(0.25, 0.92, 0.40, 1.0)
-	s.set_border_width_all(3)
-	s.shadow_color = Color(0.25, 0.92, 0.40, 0.45 + _hero_attack_pulse * 0.35)
-	s.shadow_size  = int(8.0 + _hero_attack_pulse * 10.0)
-	if _enemy_panel_bg:
-		_enemy_panel_bg.add_theme_stylebox_override("panel", s)
-
-## Show static green border and wire hover signals for glow-on-hover.
-func _start_hero_attack_pulse() -> void:
-	_hero_attack_pulse = 0.0
-	_apply_hero_attack_style()
-	if not _enemy_status_panel.mouse_entered.is_connected(_on_hero_attack_hover_enter):
-		_enemy_status_panel.mouse_entered.connect(_on_hero_attack_hover_enter)
-		_enemy_status_panel.mouse_exited.connect(_on_hero_attack_hover_exit)
-
-## Remove attack-target style and disconnect hover signals.
-func _stop_hero_attack_pulse() -> void:
-	if _hero_attack_tween:
-		_hero_attack_tween.kill()
-		_hero_attack_tween = null
-	_hero_attack_pulse = 0.0
-	if _enemy_status_panel and _enemy_status_panel.mouse_entered.is_connected(_on_hero_attack_hover_enter):
-		_enemy_status_panel.mouse_entered.disconnect(_on_hero_attack_hover_enter)
-		_enemy_status_panel.mouse_exited.disconnect(_on_hero_attack_hover_exit)
-
-func _on_hero_attack_hover_enter() -> void:
-	if _hero_attack_tween:
-		_hero_attack_tween.kill()
-	_hero_attack_tween = create_tween().set_loops()
-	_hero_attack_tween.tween_method(func(v: float) -> void:
-		_hero_attack_pulse = v
-		_apply_hero_attack_style(), 0.0, 1.0, 0.5)
-	_hero_attack_tween.tween_method(func(v: float) -> void:
-		_hero_attack_pulse = v
-		_apply_hero_attack_style(), 1.0, 0.0, 0.5)
-
-func _on_hero_attack_hover_exit() -> void:
-	if _hero_attack_tween:
-		_hero_attack_tween.kill()
-		_hero_attack_tween = null
-	_hero_attack_pulse = 0.0
-	_apply_hero_attack_style()
-
-func _on_enemy_hero_frame_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if _enemy_hero_attackable:
-			_on_enemy_hero_button_pressed()
-
-# ---------------------------------------------------------------------------
-# Enemy hero spell-target pulse
-# ---------------------------------------------------------------------------
-
-func _apply_hero_spell_style() -> void:
-	if _enemy_status_panel == null:
-		return
-	var border_w: float = 3.0 + _hero_spell_pulse * 2.5
-	var shadow_sz: float = 8.0 + _hero_spell_pulse * 10.0
-	var shadow_a: float  = 0.55 + _hero_spell_pulse * 0.30
-	var s := StyleBoxFlat.new()
-	s.set_corner_radius_all(6)
-	s.bg_color     = Color(0, 0, 0, 0)
-	s.border_color = Color(0.20, 0.85, 0.30, 1.0)
-	s.set_border_width_all(border_w)
-	s.shadow_color = Color(0.20, 0.85, 0.30, shadow_a)
-	s.shadow_size  = shadow_sz
-	if _enemy_panel_bg:
-		_enemy_panel_bg.add_theme_stylebox_override("panel", s)
-
-func _start_hero_spell_pulse() -> void:
-	# Apply static border immediately; pulse begins only on hover.
-	_hero_spell_pulse = 0.0
-	_apply_hero_spell_style()
-	if not _enemy_status_panel.mouse_entered.is_connected(_on_hero_spell_hover_enter):
-		_enemy_status_panel.mouse_entered.connect(_on_hero_spell_hover_enter)
-		_enemy_status_panel.mouse_exited.connect(_on_hero_spell_hover_exit)
-
-func _stop_hero_spell_pulse() -> void:
-	if _hero_spell_tween:
-		_hero_spell_tween.kill()
-		_hero_spell_tween = null
-	_hero_spell_pulse = 0.0
-	if _enemy_status_panel and _enemy_status_panel.mouse_entered.is_connected(_on_hero_spell_hover_enter):
-		_enemy_status_panel.mouse_entered.disconnect(_on_hero_spell_hover_enter)
-		_enemy_status_panel.mouse_exited.disconnect(_on_hero_spell_hover_exit)
-
-func _on_hero_spell_hover_enter() -> void:
-	if _hero_spell_tween:
-		_hero_spell_tween.kill()
-	_hero_spell_tween = create_tween().set_loops()
-	_hero_spell_tween.tween_method(func(v: float) -> void:
-		_hero_spell_pulse = v
-		_apply_hero_spell_style(), 0.0, 1.0, 0.5)
-	_hero_spell_tween.tween_method(func(v: float) -> void:
-		_hero_spell_pulse = v
-		_apply_hero_spell_style(), 1.0, 0.0, 0.5)
-
-func _on_hero_spell_hover_exit() -> void:
-	if _hero_spell_tween:
-		_hero_spell_tween.kill()
-		_hero_spell_tween = null
-	_hero_spell_pulse = 0.0
-	_apply_hero_spell_style()
-
-# ---------------------------------------------------------------------------
-# Hero passives panel
-# ---------------------------------------------------------------------------
-
-func _setup_enemy_status_panel() -> void:
-	var ui_root: Node = get_node_or_null("UI")
-	if not ui_root:
-		return
-
-	var panel := Control.new()
-	panel.custom_minimum_size = Vector2(300, 155)
-	panel.anchor_left    = 0.5
-	panel.anchor_right   = 0.5
-	panel.anchor_top     = 0.0
-	panel.anchor_bottom  = 0.0
-	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	panel.offset_left    = -150.0
-	panel.offset_right   = 150.0
-	panel.offset_top     = 5.0
-	panel.offset_bottom  = 160.0
-	panel.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-
-	# Layer 1: dark background
-	var bg_fill := Panel.new()
-	bg_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg_fill.add_theme_stylebox_override("panel", _create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1), 6))
-	bg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(bg_fill)
-
-	# Layer 2: enemy portrait (if available) — clipped to panel bounds
-	var enemy_portrait_path: String = GameManager.current_enemy.portrait_path if GameManager.current_enemy else ""
-	if enemy_portrait_path != "":
-		var portrait_clip := Control.new()
-		portrait_clip.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		portrait_clip.clip_contents = true
-		portrait_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_child(portrait_clip)
-
-		var bg_tex := TextureRect.new()
-		bg_tex.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		bg_tex.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
-		bg_tex.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		bg_tex.texture       = load(enemy_portrait_path)
-		bg_tex.modulate      = Color(1, 1, 1, 0.45)
-		bg_tex.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-		portrait_clip.add_child(bg_tex)
-
-		# Layer 2b: dark overlay so text stays readable over the portrait
-		var overlay := ColorRect.new()
-		overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		overlay.color = Color(0.0, 0.0, 0.0, 0.45)
-		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		portrait_clip.add_child(overlay)
-
-	# Layer 3: content
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left",   8)
-	margin.add_theme_constant_override("margin_right",  8)
-	margin.add_theme_constant_override("margin_top",    6)
-	margin.add_theme_constant_override("margin_bottom", 6)
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(margin)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 4)
-	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(vbox)
-
-	_build_enemy_portrait_row(vbox, ui_root)
-	var enemy_bar: Dictionary = _build_hp_bar(vbox, Color(0.85, 0.25, 0.30, 1.0))
-	_enemy_hp_bar_fill  = enemy_bar["fill"] as TextureRect
-	_enemy_hp_bar_drain = enemy_bar["drain"] as ColorRect
-	_enemy_hp_bar_bg    = enemy_bar["bg"] as Control
-
-	var sep := HSeparator.new()
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(sep)
-
-	_build_enemy_stats_cols(vbox)
-
-	_enemy_status_panel = panel
-	panel.gui_input.connect(_on_enemy_hero_frame_input)
-	ui_root.add_child(panel)
-
-	# Highlight border — sibling in ui_root, same position as panel, drawn on top
-	var highlight := Panel.new()
-	highlight.anchor_left    = panel.anchor_left
-	highlight.anchor_right   = panel.anchor_right
-	highlight.anchor_top     = panel.anchor_top
-	highlight.anchor_bottom  = panel.anchor_bottom
-	highlight.grow_horizontal = panel.grow_horizontal
-	highlight.offset_left    = panel.offset_left
-	highlight.offset_right   = panel.offset_right
-	highlight.offset_top     = panel.offset_top
-	highlight.offset_bottom  = panel.offset_bottom
-	var blank_style := StyleBoxFlat.new()
-	blank_style.bg_color = Color(0, 0, 0, 0)
-	blank_style.set_border_width_all(0)
-	blank_style.set_corner_radius_all(6)
-	highlight.add_theme_stylebox_override("panel", blank_style)
-	highlight.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ui_root.add_child(highlight)
-	_enemy_panel_bg = highlight
-	_update_enemy_status_panel()
-
-## Build the name header + passive icon row for the enemy status panel.
-func _build_enemy_portrait_row(vbox: VBoxContainer, ui_root: Node) -> void:
-	var header_row := HBoxContainer.new()
-	header_row.add_theme_constant_override("separation", 6)
-	header_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(header_row)
-
-	var name_lbl := Label.new()
-	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
-	name_lbl.add_theme_font_size_override("font_size", 16)
-	name_lbl.add_theme_color_override("font_color", Color(0.95, 0.70, 1.0, 1))
-	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_lbl.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	if GameManager.current_enemy:
-		var prefix: String = "⚔ BOSS  " if GameManager.is_boss_fight() else ""
-		name_lbl.text = prefix + GameManager.current_enemy.enemy_name.to_upper()
-	header_row.add_child(name_lbl)
-
-	if not _active_enemy_passives.is_empty():
-		_add_enemy_passive_hover_icon(header_row, ui_root)
-
-## Build an HP bar with gradient fill, glow edge, and damage-drain layer.
-## Returns { fill, drain, bg }.
-func _build_hp_bar(parent: VBoxContainer, fill_color: Color) -> Dictionary:
-	# Outer container with rounded dark background
-	var bar_container := PanelContainer.new()
-	bar_container.custom_minimum_size = Vector2(0, 12)
-	bar_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg_style := StyleBoxFlat.new()
-	bg_style.bg_color = Color(0.05, 0.03, 0.08, 0.8)
-	bg_style.border_color = Color(0.25, 0.15, 0.35, 0.6)
-	bg_style.set_border_width_all(1)
-	bg_style.set_corner_radius_all(3)
-	bar_container.add_theme_stylebox_override("panel", bg_style)
-	parent.add_child(bar_container)
-
-	# Inner clip region
-	var bar_clip := Control.new()
-	bar_clip.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bar_clip.clip_contents = true
-	bar_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar_container.add_child(bar_clip)
-
-	# Drain layer — shows old HP in orange/red gradient, tweens down after damage
-	var drain := ColorRect.new()
-	drain.anchor_top    = 0.0
-	drain.anchor_bottom = 1.0
-	drain.anchor_left   = 0.0
-	drain.anchor_right  = 1.0
-	drain.color = Color(0.95, 0.45, 0.10, 0.85)
-	drain.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar_clip.add_child(drain)
-
-	# Fill layer — gradient from bright top to deeper bottom
-	var fill_top: Color = fill_color.lightened(0.35)
-	var fill_bot: Color = fill_color.darkened(0.25)
-	var fill_grad := Gradient.new()
-	fill_grad.set_color(0, fill_top)
-	fill_grad.set_color(1, fill_bot)
-	var fill_tex := GradientTexture2D.new()
-	fill_tex.gradient  = fill_grad
-	fill_tex.fill      = GradientTexture2D.FILL_LINEAR
-	fill_tex.fill_from = Vector2(0.5, 0.0)
-	fill_tex.fill_to   = Vector2(0.5, 1.0)
-	fill_tex.width     = 4
-	fill_tex.height    = 12
-
-	var fill := TextureRect.new()
-	fill.anchor_top    = 0.0
-	fill.anchor_bottom = 1.0
-	fill.anchor_left   = 0.0
-	fill.anchor_right  = 1.0
-	fill.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
-	fill.stretch_mode  = TextureRect.STRETCH_SCALE
-	fill.texture       = fill_tex
-	fill.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	bar_clip.add_child(fill)
-
-	# Glow highlight along top edge
-	var glow := ColorRect.new()
-	glow.anchor_left   = 0.0
-	glow.anchor_right  = 1.0
-	glow.anchor_top    = 0.0
-	glow.anchor_bottom = 0.0
-	glow.offset_bottom = 3
-	glow.color = Color(1, 1, 1, 0.2)
-	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fill.add_child(glow)
-
-	return { "fill": fill, "drain": drain, "bg": bar_clip }
-
-## Animate HP loss: flash only the lost portion, hold the drain at old position, then tween it down.
-func _animate_hp_drain(drain: ColorRect, bg: Control, old_ratio: float, new_ratio: float, tween_prop: String) -> void:
-	# Kill existing drain tween (not flash — flashes are fire-and-forget)
-	var existing: Tween = get(tween_prop) as Tween
-	if existing and existing.is_valid():
-		existing.kill()
-
-	# Flash only the lost portion (new_ratio → old_ratio)
-	_spawn_bar_flash(bg, new_ratio, old_ratio, Color(1, 0.3, 0.3, 0.7), 0.35)
-
-	# Drain bar: hold at old position, then tween down to new position
-	drain.anchor_right = old_ratio
-	var tw := create_tween()
-	tw.tween_interval(0.35)
-	tw.tween_property(drain, "anchor_right", new_ratio, 0.45).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
-	set(tween_prop, tw)
-
-## Animate HP gain: flash only the gained portion green.
-func _animate_hp_heal(bg: Control, old_ratio: float, new_ratio: float, _tween_prop: String) -> void:
-	_spawn_bar_flash(bg, old_ratio, new_ratio, Color(0.3, 1.0, 0.4, 0.6), 0.5)
-
-## Spawn a self-cleaning flash overlay on a portion of an HP bar.
-## Multiple flashes can coexist (e.g. two blood runes healing simultaneously).
-func _spawn_bar_flash(bg: Control, left: float, right: float, color: Color, duration: float) -> void:
-	var flash := ColorRect.new()
-	flash.anchor_left   = left
-	flash.anchor_right  = right
-	flash.anchor_top    = 0.0
-	flash.anchor_bottom = 1.0
-	flash.offset_left   = 0
-	flash.offset_right  = 0
-	flash.offset_top    = 0
-	flash.offset_bottom = 0
-	flash.color = color
-	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(flash)
-	var tw := create_tween()
-	tw.tween_property(flash, "color:a", 0.0, duration)
-	tw.tween_callback(flash.queue_free)
-
-## Update the HP bar gradient colors based on current HP ratio (green→red).
-func _update_hp_bar_gradient(bar_fill: TextureRect, ratio: float) -> void:
-	var base_color: Color = Color(0.85, 0.25, 0.30, 1.0).lerp(Color(0.30, 0.75, 0.35, 1.0), ratio)
-	var grad_tex: GradientTexture2D = bar_fill.texture as GradientTexture2D
-	if grad_tex and grad_tex.gradient:
-		grad_tex.gradient.set_color(0, base_color.lightened(0.15))
-		grad_tex.gradient.set_color(1, base_color.darkened(0.15))
-
-## Build the two-column stats area (HP/Essence/Mana/Hand + Void Mark row).
-func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
-	var cols := HBoxContainer.new()
-	cols.add_theme_constant_override("separation", 8)
-	cols.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(cols)
-
-	var left_col := VBoxContainer.new()
-	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left_col.add_theme_constant_override("separation", 3)
-	left_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cols.add_child(left_col)
-
-	var right_col := VBoxContainer.new()
-	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right_col.add_theme_constant_override("separation", 3)
-	right_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cols.add_child(right_col)
-
-	_enemy_status_hp_label = Label.new()
-	_enemy_status_hp_label.add_theme_font_size_override("font_size", 12)
-	_enemy_status_hp_label.add_theme_color_override("font_color", Color(0.95, 0.40, 0.40, 1))
-	_enemy_status_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left_col.add_child(_enemy_status_hp_label)
-
-	_enemy_status_essence_label = Label.new()
-	_enemy_status_essence_label.add_theme_font_size_override("font_size", 12)
-	_enemy_status_essence_label.add_theme_color_override("font_color", Color(0.70, 0.40, 1.0, 1))
-	_enemy_status_essence_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left_col.add_child(_enemy_status_essence_label)
-
-	_enemy_status_mana_label = Label.new()
-	_enemy_status_mana_label.add_theme_font_size_override("font_size", 12)
-	_enemy_status_mana_label.add_theme_color_override("font_color", Color(0.30, 0.65, 1.0, 1))
-	_enemy_status_mana_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left_col.add_child(_enemy_status_mana_label)
-
-	_enemy_status_hand_label = Label.new()
-	_enemy_status_hand_label.add_theme_font_size_override("font_size", 12)
-	_enemy_status_hand_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.85, 1))
-	_enemy_status_hand_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left_col.add_child(_enemy_status_hand_label)
-
-	_enemy_status_marks_row = HBoxContainer.new()
-	_enemy_status_marks_row.add_theme_constant_override("separation", 4)
-	_enemy_status_marks_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_enemy_status_marks_row.visible = false
-	right_col.add_child(_enemy_status_marks_row)
-
-	const VOIDMARK_ICON := "res://assets/art/icons/icon_voidmark.png"
-	if ResourceLoader.exists(VOIDMARK_ICON):
-		var vm_icon := TextureRect.new()
-		vm_icon.texture             = load(VOIDMARK_ICON)
-		vm_icon.stretch_mode        = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		vm_icon.expand_mode         = TextureRect.EXPAND_IGNORE_SIZE
-		vm_icon.custom_minimum_size = Vector2(14, 14)
-		vm_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		vm_icon.mouse_filter        = Control.MOUSE_FILTER_IGNORE
-		_enemy_status_marks_row.add_child(vm_icon)
-
-	_enemy_status_marks_label = Label.new()
-	_enemy_status_marks_label.add_theme_font_size_override("font_size", 12)
-	_enemy_status_marks_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.15, 1))
-	_enemy_status_marks_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_enemy_status_marks_row.add_child(_enemy_status_marks_label)
-
-	# Champion progress row
-	_champion_progress_row = HBoxContainer.new()
-	_champion_progress_row.add_theme_constant_override("separation", 4)
-	_champion_progress_row.mouse_filter = Control.MOUSE_FILTER_STOP
-	_champion_progress_row.visible = false
-	right_col.add_child(_champion_progress_row)
-
-	var champ_icon := Label.new()
-	champ_icon.text = "★"
-	champ_icon.add_theme_font_size_override("font_size", 13)
-	champ_icon.add_theme_color_override("font_color", Color(1.0, 0.78, 0.10, 1))
-	champ_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_champion_progress_row.add_child(champ_icon)
-
-	_champion_progress_label = Label.new()
-	_champion_progress_label.add_theme_font_size_override("font_size", 12)
-	_champion_progress_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.10, 1))
-	_champion_progress_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_champion_progress_row.add_child(_champion_progress_label)
-
-	_champion_progress_pips.clear()
-
-	# Champion progress hover tooltip
-	_setup_champion_progress_tooltip(right_col)
-
-func _update_enemy_status_panel() -> void:
-	if not _enemy_status_panel:
-		return
-	if _enemy_status_hp_label:
-		_enemy_status_hp_label.text = "❤ HP: %d / %d" % [enemy_hp, enemy_hp_max]
-	if _enemy_hp_bar_fill and enemy_hp_max > 0:
-		var new_ratio: float = clampf(float(enemy_hp) / float(enemy_hp_max), 0.0, 1.0)
-		var old_ratio: float = _enemy_hp_bar_fill.anchor_right
-		_enemy_hp_bar_fill.anchor_right = new_ratio
-		_update_hp_bar_gradient(_enemy_hp_bar_fill, new_ratio)
-		if new_ratio < old_ratio - 0.001:
-			_animate_hp_drain(_enemy_hp_bar_drain, _enemy_hp_bar_bg, old_ratio, new_ratio, "_enemy_hp_bar_tween")
-		elif new_ratio > old_ratio + 0.001:
-			_animate_hp_heal(_enemy_hp_bar_bg, old_ratio, new_ratio, "_enemy_hp_bar_tween")
-	if _enemy_status_essence_label:
-		var ess_max := enemy_ai.essence_max if enemy_ai else 0
-		var ess_cur := enemy_ai.essence if enemy_ai else 0
-		_enemy_status_essence_label.text = "◆ Essence: %d / %d" % [ess_cur, ess_max]
-	if _enemy_status_mana_label:
-		var mana_max := enemy_ai.mana_max if enemy_ai else 0
-		var mana_cur := enemy_ai.mana if enemy_ai else 0
-		_enemy_status_mana_label.text = "◈ Mana: %d / %d" % [mana_cur, mana_max]
-	if _enemy_status_hand_label:
-		var hand_size := enemy_ai.hand.size() if enemy_ai else 0
-		_enemy_status_hand_label.text = "🂠 Hand: %d" % hand_size
-	if _enemy_status_marks_row:
-		if enemy_void_marks > 0:
-			if _enemy_status_marks_label:
-				_enemy_status_marks_label.text = "Void Mark ×%d" % enemy_void_marks
-			_enemy_status_marks_row.visible = true
-		else:
-			_enemy_status_marks_row.visible = false
-
-# ---------------------------------------------------------------------------
-# Player hero status panel (bottom-right)
-# ---------------------------------------------------------------------------
-
-func _setup_player_status_panel() -> void:
-	var ui_root: Node = get_node_or_null("UI")
-	if not ui_root:
-		return
-
-	var panel := Control.new()
-	panel.custom_minimum_size = Vector2(300, 155)
-	panel.anchor_left   = 1.0
-	panel.anchor_right  = 1.0
-	panel.anchor_top    = 1.0
-	panel.anchor_bottom = 1.0
-	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	panel.grow_vertical   = Control.GROW_DIRECTION_BEGIN
-	panel.offset_left   = -310.0
-	panel.offset_right  = -10.0
-	panel.offset_top    = -165.0
-	panel.offset_bottom = -10.0
-	panel.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	panel.clip_contents = true
-
-	# Layer 1: dark background with border
-	var player_bg_fill := Panel.new()
-	player_bg_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	player_bg_fill.add_theme_stylebox_override("panel", _create_stylebox(Color(0.06, 0.06, 0.14, 0.93), Color(0.35, 0.55, 0.90, 1.0), 6))
-	player_bg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(player_bg_fill)
-
-	# Layer 2: hero combat portrait (if available)
-	var hero_data: HeroData = HeroDatabase.get_hero(GameManager.current_hero)
-	var combat_portrait: String = hero_data.combat_portrait_path if hero_data else ""
-	if combat_portrait != "":
-		var bg_tex := TextureRect.new()
-		bg_tex.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		bg_tex.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
-		bg_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-		bg_tex.texture      = load(combat_portrait)
-		bg_tex.modulate     = Color(1, 1, 1, 0.45)
-		bg_tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_child(bg_tex)
-
-		var overlay := ColorRect.new()
-		overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		overlay.color = Color(0.0, 0.0, 0.0, 0.45)
-		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_child(overlay)
-
-	# Layer 3: content (matches enemy panel layout)
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left",   8)
-	margin.add_theme_constant_override("margin_right",  8)
-	margin.add_theme_constant_override("margin_top",    6)
-	margin.add_theme_constant_override("margin_bottom", 6)
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(margin)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 4)
-	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(vbox)
-
-	# Name header row
-	var hero := HeroDatabase.get_hero(GameManager.current_hero)
-	var header_row := HBoxContainer.new()
-	header_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(header_row)
-
-	var name_lbl := Label.new()
-	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.size_flags_vertical   = Control.SIZE_SHRINK_CENTER
-	name_lbl.add_theme_font_size_override("font_size", 16)
-	name_lbl.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0, 1))
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if hero:
-		name_lbl.text = hero.hero_name.to_upper()
-	header_row.add_child(name_lbl)
-
-	# Talent hover icon — shows unlocked talent list on hover
-	_add_talent_hover_icon(header_row, panel)
-	var player_bar: Dictionary = _build_hp_bar(vbox, Color(0.30, 0.75, 0.35, 1.0))
-	_player_hp_bar_fill  = player_bar["fill"] as TextureRect
-	_player_hp_bar_drain = player_bar["drain"] as ColorRect
-	_player_hp_bar_bg    = player_bar["bg"] as Control
-
-	var sep := HSeparator.new()
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(sep)
-
-	_player_status_hp_label = Label.new()
-	_player_status_hp_label.add_theme_font_size_override("font_size", 13)
-	_player_status_hp_label.add_theme_color_override("font_color", Color(0.95, 0.40, 0.40, 1))
-	_player_status_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_player_status_hp_label)
-
-	_player_status_panel = panel
-	ui_root.add_child(panel)
-	_setup_pip_bars(ui_root)
-	_update_player_status_panel()
-
-func _update_player_status_panel() -> void:
-	if not _player_status_hp_label:
-		return
-	_player_status_hp_label.text = "❤ HP: %d / %d" % [player_hp, GameManager.player_hp_max]
-	if _player_hp_bar_fill and GameManager.player_hp_max > 0:
-		var new_ratio: float = clampf(float(player_hp) / float(GameManager.player_hp_max), 0.0, 1.0)
-		var old_ratio: float = _player_hp_bar_fill.anchor_right
-		_player_hp_bar_fill.anchor_right = new_ratio
-		_update_hp_bar_gradient(_player_hp_bar_fill, new_ratio)
-		if new_ratio < old_ratio - 0.001:
-			_animate_hp_drain(_player_hp_bar_drain, _player_hp_bar_bg, old_ratio, new_ratio, "_player_hp_bar_tween")
-		elif new_ratio > old_ratio + 0.001:
-			_animate_hp_heal(_player_hp_bar_bg, old_ratio, new_ratio, "_player_hp_bar_tween")
-
-## Build two vertical pip columns (essence left, mana right) above the player status panel.
-## Each column holds MAX_PIPS pip panels; colors are updated by _update_pip_bars().
-func _setup_pip_bars(ui_root: Node) -> void:
-	const MAX_PIPS      := 10
-	const PIP_W         := 20
-	const PIP_H         := 22
-	const PIP_GAP       := 4
-	const PIP_CORNER    := 3
-	const COL_GAP       := 12   # gap between the two columns
-	const COL_BORDER    := 3    # inner padding inside the outer border panel
-	const COL_W         := PIP_W + COL_BORDER * 2   # = 26px
-	const COL_H         := MAX_PIPS * PIP_H + (MAX_PIPS - 1) * PIP_GAP  # = 256px
-	# MARGIN_BOTTOM = player_panel_top(165) + label_h + gap leaves room below the pips
-	const MARGIN_BOTTOM := 211
-	const RIGHT_MARGIN  := 15
-	const LBL_W         := 44   # fits "10/10" at font 13 with some breathing room
-	const LBL_H         := 22
-	# Column centres from screen-right edge (used for label centering)
-	const MNA_CENTER    := RIGHT_MARGIN + COL_W / 2                     # = 28
-	const ESS_CENTER    := RIGHT_MARGIN + COL_W + COL_GAP + COL_W / 2  # = 67
-
-	# Reusable gradient textures: lighter at pip top, deeper at pip bottom
-	_ess_pip_tex = _make_pip_gradient_tex(Color(0.72, 0.42, 0.96, 1.0), Color(0.62, 0.06, 0.18, 1.0))
-	_mna_pip_tex = _make_pip_gradient_tex(Color(0.40, 0.78, 1.00, 1.0), Color(0.05, 0.18, 0.58, 1.0))
-	# Overflow (temp) textures — gold→orange for essence, bright-cyan→teal for mana
-	_ess_ovf_tex = _make_pip_gradient_tex(Color(1.00, 0.92, 0.38, 1.0), Color(0.95, 0.48, 0.05, 1.0))
-	_mna_ovf_tex = _make_pip_gradient_tex(Color(0.65, 1.00, 1.00, 1.0), Color(0.08, 0.75, 0.90, 1.0))
-
-	# --- Reposition existing scene labels to sit centred under their pip column ---
-	# [label, col_center_from_right, font_color]
-	for lbl_info in [
-		[essence_label, ESS_CENTER, Color(0.78, 0.45, 1.0, 1.0)],
-		[mana_label,    MNA_CENTER, Color(0.35, 0.70, 1.0, 1.0)],
-	]:
-		var lbl := lbl_info[0] as Label
-		if lbl == null:
-			continue
-		var cx: float = float(lbl_info[1] as int)
-		lbl.anchor_left              = 1.0
-		lbl.anchor_right             = 1.0
-		lbl.anchor_top               = 1.0
-		lbl.anchor_bottom            = 1.0
-		lbl.grow_horizontal          = Control.GROW_DIRECTION_BEGIN
-		lbl.grow_vertical            = Control.GROW_DIRECTION_BEGIN
-		lbl.offset_right             = -(cx - LBL_W / 2.0)
-		lbl.offset_left              = -(cx + LBL_W / 2.0)
-		lbl.offset_top               = -float(MARGIN_BOTTOM)
-		lbl.offset_bottom            = -(MARGIN_BOTTOM - LBL_H)
-		lbl.horizontal_alignment     = HORIZONTAL_ALIGNMENT_CENTER
-		lbl.add_theme_font_size_override("font_size", 16)
-		lbl.add_theme_color_override("font_color", lbl_info[2] as Color)
-
-	# --- Build two pip columns ---
-	for col_idx in 2:
-		var is_essence := col_idx == 0
-		# col 0 (essence) sits to the LEFT of col 1 (mana)
-		var col_right := RIGHT_MARGIN + (1 - col_idx) * (COL_W + COL_GAP)
-
-		# Outer Panel — provides the visible border and receives the glow animation
-		var col_panel := Panel.new()
-		col_panel.mouse_filter    = Control.MOUSE_FILTER_IGNORE
-		col_panel.anchor_left     = 1.0
-		col_panel.anchor_right    = 1.0
-		col_panel.anchor_top      = 1.0
-		col_panel.anchor_bottom   = 1.0
-		col_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-		col_panel.grow_vertical   = Control.GROW_DIRECTION_BEGIN
-		col_panel.offset_right    = -float(col_right)
-		col_panel.offset_left     = col_panel.offset_right - COL_W
-		col_panel.offset_bottom   = -float(MARGIN_BOTTOM)
-		col_panel.offset_top      = col_panel.offset_bottom - COL_H
-		col_panel.custom_minimum_size = Vector2(COL_W, COL_H)
-		ui_root.add_child(col_panel)
-		_apply_col_border_style(col_panel, 0.0, true, is_essence)
-
-		if is_essence:
-			_ess_col_panel = col_panel
-		else:
-			_mna_col_panel = col_panel
-
-		# Inner margin to inset pips from the border
-		var margin := MarginContainer.new()
-		margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		margin.add_theme_constant_override("margin_left",   COL_BORDER)
-		margin.add_theme_constant_override("margin_right",  COL_BORDER)
-		margin.add_theme_constant_override("margin_top",    COL_BORDER)
-		margin.add_theme_constant_override("margin_bottom", COL_BORDER)
-		margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col_panel.add_child(margin)
-
-		var vbox := VBoxContainer.new()
-		vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vbox.size_flags_vertical   = Control.SIZE_EXPAND_FILL
-		vbox.add_theme_constant_override("separation", PIP_GAP)
-		vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		margin.add_child(vbox)
-
-		# Spacer at top pushes visible pips to the bottom as max increases
-		var spacer := Control.new()
-		spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		spacer.mouse_filter        = Control.MOUSE_FILTER_IGNORE
-		vbox.add_child(spacer)
-
-		# Pips: index 0 = value 10 (top), index 9 = value 1 (bottom)
-		for _pip_idx in MAX_PIPS:
-			var pip := Panel.new()
-			pip.custom_minimum_size   = Vector2(PIP_W, PIP_H)
-			pip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			pip.mouse_filter          = Control.MOUSE_FILTER_IGNORE
-			pip.clip_contents         = true
-			pip.visible               = false
-			pip.add_theme_stylebox_override("panel",
-				_create_stylebox(Color(0.10, 0.08, 0.16, 0.85),
-					Color(0.28, 0.24, 0.38, 0.65), PIP_CORNER, 1))
-			vbox.add_child(pip)
-
-			var tr := TextureRect.new()
-			tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			tr.offset_left   =  1.0
-			tr.offset_top    =  1.0
-			tr.offset_right  = -1.0
-			tr.offset_bottom = -1.0
-			tr.stretch_mode  = TextureRect.STRETCH_SCALE
-			tr.expand_mode   = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
-			tr.texture       = _ess_pip_tex if is_essence else _mna_pip_tex
-			tr.visible       = false
-			tr.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-			pip.add_child(tr)
-
-			if is_essence:
-				_pip_essence_panels.append(pip)
-				_pip_essence_rects.append(tr)
-			else:
-				_pip_mana_panels.append(pip)
-				_pip_mana_rects.append(tr)
-
-	if turn_manager:
-		_update_pip_bars(turn_manager.essence, turn_manager.essence_max,
-				turn_manager.mana, turn_manager.mana_max)
-
-## Create a small vertical-gradient texture used for filled pip interiors.
-## color_top = colour at the top edge of the pip; color_bot = colour at the bottom edge.
-func _make_pip_gradient_tex(color_top: Color, color_bot: Color) -> GradientTexture2D:
-	var grad := Gradient.new()
-	grad.set_color(0, color_top)
-	grad.set_color(1, color_bot)
-	var tex := GradientTexture2D.new()
-	tex.gradient  = grad
-	tex.fill      = GradientTexture2D.FILL_LINEAR
-	tex.fill_from = Vector2(0.5, 0.0)
-	tex.fill_to   = Vector2(0.5, 1.0)
-	tex.width     = 4
-	tex.height    = 22
-	return tex
-
-func _update_pip_bars(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
-	const MAX_PIPS     := 10
-	const EMPTY_BG       := Color(0.10, 0.08, 0.16, 0.85)
-	const EMPTY_BORDER   := Color(0.28, 0.24, 0.38, 0.65)
-	const ESS_BORDER     := Color(0.62, 0.32, 0.88, 0.90)
-	const MNA_BORDER     := Color(0.22, 0.58, 0.98, 0.90)
-	# Overflow (temp) pips use distinct warm/cool accent borders per resource
-	const ESS_OVF_BORDER := Color(0.98, 0.80, 0.12, 0.95)   # amber-gold  — essence overflow
-	const MNA_OVF_BORDER := Color(0.20, 0.95, 0.88, 0.95)   # cyan-teal   — mana overflow
-
-	if _pip_essence_panels.size() == MAX_PIPS:
-		for i in MAX_PIPS:
-			# i=0 → value=10 (top), i=9 → value=1 (bottom); bar fills from bottom up.
-			var pip_value  := MAX_PIPS - i
-			var pip        := _pip_essence_panels[i] as Panel
-			var tr         := _pip_essence_rects[i]  as TextureRect
-			var visible    := pip_value <= maxi(essence, essence_max)
-			var filled     := pip_value <= essence
-			var overflow   := filled and pip_value > essence_max
-			pip.visible    = visible
-			pip.modulate   = Color.WHITE
-			tr.modulate    = Color.WHITE
-			tr.visible     = filled
-			if visible:
-				if overflow:
-					tr.texture = _ess_ovf_tex
-					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(Color(0, 0, 0, 0), ESS_OVF_BORDER, 3, 1))
-				else:
-					tr.texture = _ess_pip_tex
-					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(
-							Color(0, 0, 0, 0) if filled else EMPTY_BG,
-							ESS_BORDER if filled else EMPTY_BORDER, 3, 1))
-
-	if _pip_mana_panels.size() == MAX_PIPS:
-		for i in MAX_PIPS:
-			var pip_value  := MAX_PIPS - i
-			var pip        := _pip_mana_panels[i] as Panel
-			var tr         := _pip_mana_rects[i]  as TextureRect
-			var visible    := pip_value <= maxi(mana, mana_max)
-			var filled     := pip_value <= mana
-			var overflow   := filled and pip_value > mana_max
-			pip.visible    = visible
-			pip.modulate   = Color.WHITE
-			tr.modulate    = Color.WHITE
-			tr.visible     = filled
-			if visible:
-				if overflow:
-					tr.texture = _mna_ovf_tex
-					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(Color(0, 0, 0, 0), MNA_OVF_BORDER, 3, 1))
-				else:
-					tr.texture = _mna_pip_tex
-					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(
-							Color(0, 0, 0, 0) if filled else EMPTY_BG,
-							MNA_BORDER if filled else EMPTY_BORDER, 3, 1))
-
-## Start a slow blink showing spend (fade filled pips) and/or gain (glow empty pips).
-## ess_cost/mana_cost = pips being spent; ess_gain/mna_gain = pips being gained (0 = skip).
-func _start_pip_blink(ess_cost: int, mana_cost: int, ess_gain: int = 0, mna_gain: int = 0) -> void:
-	_pip_ess_blink = ess_cost
-	_pip_mna_blink = mana_cost
-	_pip_ess_gain  = ess_gain
-	_pip_mna_gain  = mna_gain
-	if _pip_blink_tween:
-		_pip_blink_tween.kill()
-	_pip_blink_phase = 0.0
-	_pip_blink_tween = create_tween().set_loops()
-	_pip_blink_tween.tween_method(func(v: float) -> void:
-			_pip_blink_phase = v
-			_refresh_blink_pips(), 0.0, 1.0, 0.55)
-	_pip_blink_tween.tween_method(func(v: float) -> void:
-			_pip_blink_phase = v
-			_refresh_blink_pips(), 1.0, 0.0, 0.55)
-
-## Stop blinking and restore normal pip styles.
-func _stop_pip_blink() -> void:
-	if _pip_blink_tween:
-		_pip_blink_tween.kill()
-		_pip_blink_tween = null
-	_pip_ess_blink  = 0
-	_pip_mna_blink  = 0
-	_pip_ess_gain   = 0
-	_pip_mna_gain   = 0
-	_pip_blink_phase = 0.0
-	if turn_manager:
-		_update_pip_bars(turn_manager.essence, turn_manager.essence_max,
-				turn_manager.mana, turn_manager.mana_max)
-
-## Repaint only the blinking pips based on the current _pip_blink_phase (0→1).
-## Called every tween tick — fades spent pips, glows gain pips.
-func _refresh_blink_pips() -> void:
-	if not turn_manager:
-		return
-	const MAX_PIPS   := 10
-	const ESS_BORDER := Color(0.62, 0.32, 0.88, 0.90)
-	const MNA_BORDER := Color(0.22, 0.58, 0.98, 0.90)
-	_blink_pip_range(_pip_essence_panels, _pip_essence_rects,
-			turn_manager.essence, _pip_ess_blink, MAX_PIPS)
-	_blink_pip_range(_pip_mana_panels, _pip_mana_rects,
-			turn_manager.mana,    _pip_mna_blink, MAX_PIPS)
-	_blink_pip_gain_range(_pip_essence_panels,
-			turn_manager.essence, _pip_ess_gain, ESS_BORDER, MAX_PIPS)
-	_blink_pip_gain_range(_pip_mana_panels,
-			turn_manager.mana,    _pip_mna_gain, MNA_BORDER, MAX_PIPS)
-
-func _blink_pip_range(panels: Array[Panel], rects: Array[TextureRect],
-		current: int, cost: int, max_pips: int) -> void:
-	if cost <= 0 or panels.size() != max_pips or current <= 0:
-		return
-	# The topmost filled pips are the ones that will be spent: indices [first, last].
-	var first := max_pips - current
-	var last  := first + cost - 1
-	for i in range(clampi(first, 0, max_pips - 1), clampi(last, 0, max_pips - 1) + 1):
-		var pip := panels[i] as Panel
-		var tr  := rects[i]  as TextureRect
-		if not pip.visible:
-			continue
-		# Fade only the gradient fill; the pip border stays visible as an empty-pip outline.
-		tr.modulate.a = 1.0 - _pip_blink_phase
-
-## Glow empty pips that will be filled by a gain effect (e.g. CONVERT_RESOURCE).
-## Pips just above the current fill level pulse with the resource colour.
-func _blink_pip_gain_range(panels: Array[Panel], current: int,
-		gain: int, border_color: Color, max_pips: int) -> void:
-	if gain <= 0 or panels.size() != max_pips:
-		return
-	# The empty pips that will be filled sit just above current fill.
-	var first := max_pips - current - gain
-	var last  := max_pips - current - 1
-	for i in range(clampi(first, 0, max_pips - 1), clampi(last, 0, max_pips - 1) + 1):
-		var pip := panels[i] as Panel
-		# Force-show overflow pips that are hidden because they exceed the current max.
-		# _update_pip_bars will restore correct visibility when the blink stops.
-		pip.visible = true
-		# Pulse the empty pip with resource colour to signal incoming gain.
-		var s := StyleBoxFlat.new()
-		s.bg_color     = Color(border_color.r, border_color.g, border_color.b,
-				_pip_blink_phase * 0.30)
-		s.border_color = border_color
-		s.set_border_width_all(1)
-		s.set_corner_radius_all(3)
-		s.shadow_color = Color(border_color.r, border_color.g, border_color.b,
-				_pip_blink_phase * 0.75)
-		s.shadow_size  = int(_pip_blink_phase * 8.0)
-		pip.add_theme_stylebox_override("panel", s)
-
-## Apply the border/background style to a pip column's outer Panel.
-## `pulse` 0→1 drives the shadow size and border brightness.
-## `is_gain` selects green (gain) vs red-orange (spend) glow color.
-func _apply_col_border_style(panel: Panel, pulse: float, is_gain: bool, is_essence: bool) -> void:
-	var normal_bg     := Color(0.06, 0.05, 0.12, 0.88)
-	var normal_border := Color(0.38, 0.28, 0.58, 0.75) if is_essence \
-			else Color(0.22, 0.38, 0.72, 0.75)
-	var s := StyleBoxFlat.new()
-	s.bg_color = normal_bg
-	s.set_border_width_all(1)
-	s.set_corner_radius_all(4)
-	if pulse > 0.0:
-		var glow := Color(0.22, 0.92, 0.35, 1.0) if is_gain \
-				else Color(0.98, 0.32, 0.10, 1.0)
-		s.border_color = normal_border.lerp(glow, pulse * 0.85)
-		s.shadow_color = Color(glow.r, glow.g, glow.b, pulse * 0.75)
-		s.shadow_size  = int(pulse * 14.0)
-	else:
-		s.border_color = normal_border
-		s.shadow_size  = 0
-	panel.add_theme_stylebox_override("panel", s)
-
-## Animate the pip column border with a gain (green) or spend (red-orange) glow.
-## Pulse rises 0→1 in 0.15 s then decays 1→0 in 0.50 s.
-func _pulse_pip_col(is_essence: bool, is_gain: bool) -> void:
-	var panel := _ess_col_panel if is_essence else _mna_col_panel
-	if panel == null:
-		return
-	if is_essence:
-		if _ess_col_tween:
-			_ess_col_tween.kill()
-	else:
-		if _mna_col_tween:
-			_mna_col_tween.kill()
-	var apply_fn := func(v: float) -> void:
-		_apply_col_border_style(panel, v, is_gain, is_essence)
-	var tween := create_tween()
-	if is_essence:
-		_ess_col_tween = tween
-	else:
-		_mna_col_tween = tween
-	tween.tween_method(apply_fn, 0.0, 1.0, 0.15)
-	tween.tween_method(apply_fn, 1.0, 0.0, 0.50)
 
 ## Build a floating tooltip panel scaffold (PanelContainer → MarginContainer → VBoxContainer).
 ## Anchors at bottom-left of the viewport. Returns {tip, tip_vbox}.
@@ -5171,7 +3597,7 @@ func _on_enemy_hero_button_pressed() -> void:
 		var attacker_ref := selected_attacker
 		selected_attacker = null
 		_clear_all_highlights()
-		_show_hero_button(false)
+		_enemy_hero_panel.show_attackable(false)
 		await _deal_void_bolt_damage(atk, attacker_ref)
 		return
 	_log("Your %s attacks Enemy Hero" % selected_attacker.card_data.card_name)
@@ -5182,7 +3608,7 @@ func _on_enemy_hero_button_pressed() -> void:
 		_play_hero_attack_anim(_hero_atk_slot, _enemy_status_panel, _hero_attacker_ref)
 	selected_attacker = null
 	_clear_all_highlights()
-	_show_hero_button(false)
+	_enemy_hero_panel.show_attackable(false)
 
 # ---------------------------------------------------------------------------
 # Win / loss
@@ -5242,7 +3668,7 @@ func _disable_combat_buttons() -> void:
 		end_turn_mana_button.disabled = true
 	if end_turn_button:
 		end_turn_button.disabled = true
-	_show_hero_button(false)
+	_enemy_hero_panel.show_attackable(false)
 
 func _on_restart_pressed() -> void:
 	if _pending_revive:
@@ -5287,7 +3713,7 @@ func _sweep_dead_minions() -> void:
 ## Spawns a ghost overlay in $UI so the HBoxContainer layout is never disturbed.
 ## pos must be passed explicitly — do NOT read slot.global_position here, as the slot
 ## may have just been reparented and layout recalculation is deferred to the next frame.
-func _animate_minion_death(slot: BoardSlot, pos: Vector2) -> void:
+func _animate_minion_death(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
 	var sz := slot.size
 	# White flash layer — briefly bright, then transitions to soft purple as it rises
 	var ghost := ColorRect.new()
@@ -5306,15 +3732,82 @@ func _animate_minion_death(slot: BoardSlot, pos: Vector2) -> void:
 	await t1.finished
 	if not is_inside_tree(): ghost.queue_free(); return
 
-	# Reset for soul-rise: soft purple, drift upward 50px while fading out
-	ghost.modulate.a = 0.85
-	ghost.color = Color(0.72, 0.52, 1.0, 1.0)  # abyss purple
+	ghost.queue_free()
+
+	# Soul-rise: textured ghost sprite drifts upward while fading out
+	var soul := TextureRect.new()
+	soul.texture = load("res://assets/art/fx/ghost_card_soul.png")
+	soul.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	soul.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	soul.z_index = 5
+	soul.z_as_relative = false
+	soul.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	soul.modulate = Color(1.0, 1.0, 1.0, 0.9)
+	$UI.add_child(soul)
+	var soul_sz := sz * 0.4
+	soul.set_size(soul_sz)
+	soul.pivot_offset = soul_sz / 2.0
+	soul.global_position = pos + (sz - soul_sz) / 2.0
 
 	var t2 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t2.tween_property(ghost, "global_position:y", ghost.global_position.y - 50.0, 0.65)
-	t2.tween_property(ghost, "modulate:a", 0.0, 0.65)
+	t2.tween_property(soul, "global_position:y", soul.global_position.y - 50.0, 0.65)
+	t2.tween_property(soul, "modulate:a", 0.0, 0.65)
 	await t2.finished
-	ghost.queue_free()
+	if is_instance_valid(soul):
+		soul.queue_free()
+
+	# On-death icon VFX — show if the dead minion had on-death effects
+	if dead_minion != null and _minion_has_on_death(dead_minion):
+		if not is_inside_tree(): return
+		var icon_vfx := OnDeathIconVFX.create(pos, sz)
+		vfx_controller.spawn(icon_vfx)
+		await icon_vfx.finished
+		# Void-Touched Imp: AoE death explosion VFX before damage resolves
+		if dead_minion.card_data.id == "void_touched_imp":
+			if not is_inside_tree(): return
+			var origin_center: Vector2 = pos + sz * 0.5
+			var opponent_slots: Array = _get_opponent_occupied_slots(dead_minion.owner)
+			var opponent_board: Control = $UI/EnemyBoard if dead_minion.owner == "player" else $UI/PlayerBoard
+			var death_vfx := VoidTouchedImpDeathVFX.create(origin_center, opponent_slots, opponent_board)
+			vfx_controller.spawn(death_vfx)
+			await death_vfx.impact_hit
+			if not is_inside_tree(): return
+		# Resolve deferred on-death effects now that the icon has faded
+		_resolve_deferred_on_death(dead_minion)
+
+
+## Returns true if a minion has any on-death effects (steps or granted).
+func _minion_has_on_death(minion: MinionInstance) -> bool:
+	if minion.card_data is MinionCardData:
+		var card := minion.card_data as MinionCardData
+		if not card.on_death_effect_steps.is_empty():
+			return true
+		if not card.on_death_effect.is_empty():
+			return true
+	if not minion.granted_on_death_effects.is_empty():
+		return true
+	return false
+
+
+## Resolve on-death effects that were deferred for the icon VFX.
+func _resolve_deferred_on_death(minion: MinionInstance) -> void:
+	_pending_on_death_vfx.erase(minion)
+	if not is_inside_tree():
+		return
+	if _handlers:
+		_handlers._resolve_on_death(minion)
+
+## Fire death animations queued during freeze_visuals. Called by VfxController
+## after a damaging spell VFX finishes, and by _restore_slot_from_lunge after
+## a lunge completes. Captured positions are used so the ghost lines up with
+## the slot's original spot (not its post-lunge location).
+func _flush_deferred_deaths() -> void:
+	if _deferred_death_slots.is_empty():
+		return
+	var pending := _deferred_death_slots.duplicate()
+	_deferred_death_slots.clear()
+	for entry in pending:
+		_animate_minion_death(entry.slot, entry.pos, entry.get("minion"))
 
 func _clear_all_highlights() -> void:
 	for slot in player_slots:
@@ -5323,12 +3816,12 @@ func _clear_all_highlights() -> void:
 		slot.clear_highlight()
 	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_enemy_hero_spell_input):
 		_enemy_status_panel.gui_input.disconnect(_on_enemy_hero_spell_input)
-		_stop_hero_spell_pulse()
+		_enemy_hero_panel.stop_spell_pulse()
 	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_relic_target_hero_input):
 		_enemy_status_panel.gui_input.disconnect(_on_relic_target_hero_input)
-		_stop_hero_spell_pulse()
+		_enemy_hero_panel.stop_spell_pulse()
 	# Always stop the hero attack pulse when clearing highlights
-	_show_hero_button(false)
+	_enemy_hero_panel.show_attackable(false)
 	_pending_relic_target = ""
 
 func _find_slot_for(minion: MinionInstance) -> BoardSlot:
@@ -5337,6 +3830,16 @@ func _find_slot_for(minion: MinionInstance) -> BoardSlot:
 		if slot.minion == minion:
 			return slot
 	return null
+
+
+## Returns occupied BoardSlots belonging to the opponent of `owner_side`.
+func _get_opponent_occupied_slots(owner_side: String) -> Array:
+	var slots: Array[BoardSlot] = enemy_slots if owner_side == "player" else player_slots
+	var result: Array = []
+	for slot in slots:
+		if slot.minion != null:
+			result.append(slot)
+	return result
 
 # ---------------------------------------------------------------------------
 # Attack animation — lunge + flash + damage popup
@@ -5368,10 +3871,7 @@ func _restore_slot_from_lunge(slot: BoardSlot, orig_parent: Control, orig_index:
 	placeholder.queue_free()
 	slot.freeze_visuals = false
 	slot._refresh_visuals()
-	var pending := _deferred_death_slots.duplicate()
-	_deferred_death_slots.clear()
-	for entry in pending:
-		_animate_minion_death(entry.slot, entry.pos)
+	_flush_deferred_deaths()
 
 func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		attacker: MinionInstance = null, defender: MinionInstance = null) -> void:
@@ -5380,13 +3880,9 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 	var direction := (def_rect.get_center() - atk_rect.get_center()).normalized()
 	var lunge_pos := atk_rect.position + direction * 55.0
 
-	# Champion strike overlay — afterimage trail during lunge
+	# Champion strike detection
 	var is_champ_attack: bool = attacker != null and attacker.card_data != null \
 			and attacker.card_data is MinionCardData and (attacker.card_data as MinionCardData).is_champion
-	var champ_config: Dictionary = ChampionStrikeVFX.DEFAULT_CONFIG
-	if is_champ_attack:
-		champ_config = ChampionStrikeVFX.config_for((attacker.card_data as MinionCardData).id)
-		ChampionStrikeVFX.spawn_afterimage_trail($UI, atk_slot, lunge_pos, champ_config)
 
 	var lunge_info := _reparent_slot_for_lunge(atk_slot)
 	var orig_parent: Control = lunge_info[0]
@@ -5396,13 +3892,15 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 	var tw := create_tween()
 	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
 	tw.tween_callback(func() -> void:
-		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav", -10.0)
+		if is_champ_attack:
+			AudioManager.play_sfx("res://assets/audio/sfx/minions/champion_claw_slash.wav")
+			ChampionStrikeVFX.spawn_claw_mark(_vfx_layer, def_slot)
+			ChampionStrikeVFX.shake(def_slot, self)
+		else:
+			AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav", -10.0)
 		_flash_slot(def_slot)
 		if damage > 0:
 			_spawn_damage_popup(def_rect.get_center(), damage)
-		if is_champ_attack:
-			ChampionStrikeVFX.spawn_shockwave($UI, def_slot, champ_config)
-			ChampionStrikeVFX.mild_shake($UI, get_tree())
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
@@ -5419,13 +3917,9 @@ func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control, attacker: 
 	var direction  := (hero_rect.get_center() - atk_rect.get_center()).normalized()
 	var lunge_pos  := atk_rect.position + direction * 55.0
 
-	# Champion strike overlay — afterimage trail + shockwave on hero panel
+	# Champion strike detection
 	var is_champ_attack: bool = attacker != null and attacker.card_data != null \
 			and attacker.card_data is MinionCardData and (attacker.card_data as MinionCardData).is_champion
-	var champ_config: Dictionary = ChampionStrikeVFX.DEFAULT_CONFIG
-	if is_champ_attack:
-		champ_config = ChampionStrikeVFX.config_for((attacker.card_data as MinionCardData).id)
-		ChampionStrikeVFX.spawn_afterimage_trail($UI, atk_slot, lunge_pos, champ_config)
 
 	var lunge_info := _reparent_slot_for_lunge(atk_slot)
 	var orig_parent: Control = lunge_info[0]
@@ -5435,38 +3929,21 @@ func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control, attacker: 
 	var tw := create_tween()
 	tw.tween_property(atk_slot, "position", lunge_pos, 0.10)
 	tw.tween_callback(func() -> void:
-		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_attack_hero.wav")
+		if is_champ_attack:
+			AudioManager.play_sfx("res://assets/audio/sfx/minions/champion_claw_slash.wav")
+			ChampionStrikeVFX.spawn_claw_mark_on_panel(_vfx_layer, hero_panel)
+			ChampionStrikeVFX.shake(hero_panel, self)
+		else:
+			AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_attack_hero.wav")
 		var ftw := create_tween()
 		ftw.tween_property(hero_panel, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
 		ftw.tween_property(hero_panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
-		if is_champ_attack:
-			# Shockwave centered on the hero panel — reuse spawn_shockwave via a fake slot-sized rect
-			_champion_strike_hero_shockwave(hero_panel, champ_config)
-			ChampionStrikeVFX.mild_shake($UI, get_tree())
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
 		_restore_slot_from_lunge(atk_slot, orig_parent, orig_index, placeholder)
 	)
 
-## Hero-panel version of the shockwave (hero isn't a BoardSlot, so we can't reuse
-## spawn_shockwave directly — this mirrors its behavior using the panel rect).
-func _champion_strike_hero_shockwave(hero_panel: Control, config: Dictionary) -> void:
-	var color: Color = config.get("shockwave_color", Color.WHITE)
-	var end_scale: float = config.get("shockwave_scale", 2.3)
-	var ring := ColorRect.new()
-	ring.color = Color(color.r, color.g, color.b, 0.75)
-	ring.z_index = 4
-	ring.z_as_relative = false
-	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	$UI.add_child(ring)
-	ring.set_size(hero_panel.size)
-	ring.pivot_offset = hero_panel.size * 0.5
-	ring.global_position = hero_panel.global_position
-	var tw := ring.create_tween().set_parallel(true)
-	tw.tween_property(ring, "scale",      Vector2(end_scale, end_scale), 0.40).set_trans(Tween.TRANS_SINE)
-	tw.tween_property(ring, "modulate:a", 0.0,                           0.40).set_trans(Tween.TRANS_SINE)
-	tw.chain().tween_callback(ring.queue_free)
 
 func _flash_slot(slot: BoardSlot) -> void:
 	var tw := slot.create_tween()
@@ -5477,6 +3954,9 @@ func _flash_slot(slot: BoardSlot) -> void:
 ## Animates in → calls on_impact → holds → fades out.
 ## Pass Callable() for on_impact when there are no effects to delay.
 func _show_card_cast_anim(card: CardData, is_enemy: bool, on_impact: Callable) -> void:
+	# Spell-only casting windup glyph at the caster position.
+	if card is SpellCardData:
+		_spawn_casting_windup(is_enemy)
 	var cv: CardVisual = CARD_VISUAL_SCENE.instantiate() as CardVisual
 	cv.apply_size_mode("combat_preview")
 	cv.z_index = 100
@@ -5498,14 +3978,38 @@ func _show_card_cast_anim(card: CardData, is_enemy: bool, on_impact: Callable) -
 	tw.tween_property(cv, "scale", Vector2(1.0, 1.0), 0.22) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.set_parallel(false)
-	tw.tween_interval(0.08)
-	# Impact: resolve effects, flash, damage numbers
-	tw.tween_callback(on_impact)
 	# Hold so player can read the card
-	tw.tween_interval(0.55)
+	tw.tween_interval(0.63)
 	# Animate out
 	tw.tween_property(cv, "modulate:a", 0.0, 0.22)
 	tw.tween_callback(cv.queue_free)
+	# Impact (VFX + damage) fires after preview fades so it isn't covered
+	tw.tween_callback(on_impact)
+
+## Spawn the faction-themed casting windup glyph at the caster position.
+## Player: bottom-centre of the viewport, above the hand zone.
+## Enemy: centred on the enemy hero panel.
+func _spawn_casting_windup(is_enemy: bool) -> void:
+	var faction: String
+	var center: Vector2
+	if is_enemy:
+		# Faction by act — Act 1 feral, Act 2 corrupted, Act 3/4 abyss.
+		var act: int = GameManager.get_current_act() if GameManager else 3
+		match act:
+			1: faction = "feral"
+			2: faction = "corrupted"
+			_: faction = "abyss"
+		if _enemy_hero_panel and _enemy_hero_panel.is_inside_tree():
+			center = _enemy_hero_panel.global_position + _enemy_hero_panel.size * 0.5
+		else:
+			var vp := get_viewport().get_visible_rect().size
+			center = Vector2(vp.x * 0.5, 120.0)
+	else:
+		faction = "void"
+		var vp2 := get_viewport().get_visible_rect().size
+		center = Vector2(vp2.x * 0.5, vp2.y - 100.0)
+	var windup := CastingWindupVFX.create(faction, center, is_enemy)
+	vfx_controller.spawn(windup)
 
 ## Show a "COUNTERED!" animation: card appears, gets a red overlay + shake, then fizzles out.
 func _show_spell_countered_anim(card: CardData) -> void:
@@ -5764,7 +4268,7 @@ func _highlight_valid_attack_targets() -> void:
 		var valid := (not has_taunt) or slot.minion.has_guard()
 		slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET if valid else BoardSlot.HighlightMode.INVALID)
 	# Hero is valid only when no Guard minion blocks it AND attacker can attack hero (not Swift)
-	_show_hero_button(not has_taunt and selected_attacker.can_attack_hero())
+	_enemy_hero_panel.show_attackable(not has_taunt and selected_attacker.can_attack_hero())
 
 # ===========================================================================
 # TriggerManager setup

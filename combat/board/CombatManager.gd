@@ -218,7 +218,7 @@ func _post_crit(attacker: MinionInstance) -> void:
 	# void_precision: grant +200 ATK permanently after crit
 	var passives = scene.get("_active_enemy_passives")
 	if passives != null and "void_precision" in passives and attacker.owner == "enemy":
-		BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 200, "void_precision", false)
+		BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 200, "void_precision", false, false)
 	# Champion void_captain aura: on enemy crit consumed, deal 100 damage to
 	# each of 2 random player targets (minions or hero).
 	if attacker.owner == "enemy" and _champion_vc_is_alive():
