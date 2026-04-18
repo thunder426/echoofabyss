@@ -45,6 +45,13 @@ func is_alive() -> bool:
 func find_empty_slot() -> BoardSlot:
 	return _ai.find_empty_slot()
 
+func empty_slot_count() -> int:
+	var count := 0
+	for slot in _ai.enemy_slots:
+		if slot.is_empty():
+			count += 1
+	return count
+
 # ---------------------------------------------------------------------------
 # Actions
 # ---------------------------------------------------------------------------

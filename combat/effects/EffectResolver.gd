@@ -200,6 +200,10 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				scene._corrupt_minion(target)
 
 		EffectStep.EffectType.SACRIFICE:
+			SacrificeSystem.emit(target, ctx.source_card_id)
+			scene.combat_manager.kill_minion(target)
+
+		EffectStep.EffectType.KILL_MINION:
 			scene.combat_manager.kill_minion(target)
 
 		EffectStep.EffectType.GRANT_KEYWORD:

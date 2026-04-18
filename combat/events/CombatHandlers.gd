@@ -718,7 +718,7 @@ func on_enemy_attack_champion_rs(ctx: EventContext) -> void:
 	_scene._champion_rs_spark_dmg += dmg
 	var total: int = _scene._champion_rs_spark_dmg
 	var pips: int = mini(total / (_RS_THRESHOLD / _RS_PIPS), _RS_PIPS)
-	_scene._enemy_hero_panel.update_champion_progress(pips, _RS_PIPS)
+	_scene._update_champion_progress(pips, _RS_PIPS)
 	_log("  Champion progress: %d / %d spark damage." % [mini(total, _RS_THRESHOLD), _RS_THRESHOLD], _LOG_ENEMY)
 	if total >= _RS_THRESHOLD:
 		_summon_enemy_champion("champion_rift_stalker")
@@ -776,7 +776,7 @@ func on_spark_consumed_champion_va(ctx: EventContext) -> void:
 	_scene._champion_va_sparks_consumed += spark_val
 	var total: int = _scene._champion_va_sparks_consumed
 	var pips: int = mini(total, _VA_PIPS)
-	_scene._enemy_hero_panel.update_champion_progress(pips, _VA_PIPS)
+	_scene._update_champion_progress(pips, _VA_PIPS)
 	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
 	_log("  Champion progress: %d / %d sparks consumed." % [mini(total, _VA_THRESHOLD), _VA_THRESHOLD], side)
 	if total >= _VA_THRESHOLD:
@@ -813,7 +813,7 @@ func on_enemy_spark_card_champion_vh(ctx: EventContext) -> void:
 	_scene._champion_vh_spark_cards_played += 1
 	var total: int = _scene._champion_vh_spark_cards_played
 	var pips: int = mini(total, _VH_PIPS)
-	_scene._enemy_hero_panel.update_champion_progress(pips, _VH_PIPS)
+	_scene._update_champion_progress(pips, _VH_PIPS)
 	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
 	_log("  Champion progress: %d / %d spark-cost cards played." % [mini(total, _VH_THRESHOLD), _VH_THRESHOLD], side)
 	if total >= _VH_THRESHOLD:
@@ -850,7 +850,7 @@ func on_enemy_turn_end_champion_vs(ctx: EventContext) -> void:
 	if total <= 0:
 		return
 	var pips: int = mini(total, _VS_PIPS)
-	_scene._enemy_hero_panel.update_champion_progress(pips, _VS_PIPS)
+	_scene._update_champion_progress(pips, _VS_PIPS)
 	if total >= _VS_THRESHOLD and not _scene.get("_champion_vs_summoned"):
 		_log("  Champion progress: %d / %d crits consumed." % [_VS_THRESHOLD, _VS_THRESHOLD], _LOG_ENEMY)
 		_summon_enemy_champion("champion_void_scout")
@@ -912,7 +912,7 @@ func on_spark_consumed_champion_vw(ctx: EventContext) -> void:
 	_scene._champion_vw_spirits_consumed += 1
 	var total: int = _scene._champion_vw_spirits_consumed
 	var pips: int = mini(total, _VW_PIPS)
-	_scene._enemy_hero_panel.update_champion_progress(pips, _VW_PIPS)
+	_scene._update_champion_progress(pips, _VW_PIPS)
 	_log("  Champion progress: %d / %d Spirits consumed." % [mini(total, _VW_THRESHOLD), _VW_THRESHOLD], _LOG_ENEMY)
 	if total >= _VW_THRESHOLD:
 		_summon_enemy_champion("champion_void_warband")
@@ -974,7 +974,7 @@ func on_enemy_spell_champion_vc(ctx: EventContext) -> void:
 	_scene._champion_vc_tc_cast += 1
 	var total: int = _scene._champion_vc_tc_cast
 	var pips: int = mini(total, _VC_PIPS)
-	_scene._enemy_hero_panel.update_champion_progress(pips, _VC_PIPS)
+	_scene._update_champion_progress(pips, _VC_PIPS)
 	_log("  Champion progress: %d / %d Throne's Command cast." % [mini(total, _VC_THRESHOLD), _VC_THRESHOLD], _LOG_ENEMY)
 	if total >= _VC_THRESHOLD:
 		_summon_enemy_champion("champion_void_captain")
@@ -1143,7 +1143,7 @@ func on_enemy_attack_champion_rip(ctx: EventContext) -> void:
 		return
 	_scene._champion_rip_attack_ids.append(uid)
 	var count: int = _scene._champion_rip_attack_ids.size()
-	_scene._enemy_hero_panel.update_champion_progress(count, 4)
+	_scene._update_champion_progress(count, 4)
 	_log("  Champion progress: %d / 4 rabid imp attacks." % count, _LOG_ENEMY)
 	if count >= 4:
 		_summon_enemy_champion("champion_rogue_imp_pack")
@@ -1193,7 +1193,7 @@ func on_enemy_died_champion_cb(ctx: EventContext) -> void:
 		return
 	var count: int = _scene.get("_champion_cb_death_count") + 1
 	_scene.set("_champion_cb_death_count", count)
-	_scene._enemy_hero_panel.update_champion_progress(count, 3)
+	_scene._update_champion_progress(count, 3)
 	_log("  Champion progress: %d / 3 minion deaths." % count, _LOG_ENEMY)
 	if count >= 3:
 		_summon_enemy_champion("champion_corrupted_broodlings")
@@ -1217,7 +1217,7 @@ func on_enemy_spell_champion_im(ctx: EventContext) -> void:
 	# Track Pack Frenzy casts toward summon threshold
 	var count: int = _scene.get("_champion_im_frenzy_count") + 1
 	_scene.set("_champion_im_frenzy_count", count)
-	_scene._enemy_hero_panel.update_champion_progress(count, 2)
+	_scene._update_champion_progress(count, 2)
 	_log("  Champion progress: %d / 2 Pack Frenzy casts." % count, _LOG_ENEMY)
 	if count >= 2:
 		_summon_enemy_champion("champion_imp_matriarch")
@@ -1242,7 +1242,7 @@ func on_champion_acp_track_stacks(stacks: int) -> void:
 		return
 	var total: int = _scene._champion_acp_stacks_consumed + stacks
 	_scene._champion_acp_stacks_consumed = total
-	_scene._enemy_hero_panel.update_champion_progress(mini(total, 5), 5)
+	_scene._update_champion_progress(mini(total, 5), 5)
 	_log("  Champion progress: %d / 5 corruption stacks consumed." % mini(total, 5), _LOG_ENEMY)
 	if total >= 5:
 		_summon_enemy_champion("champion_abyss_cultist_patrol")
@@ -1286,7 +1286,7 @@ func on_enemy_summon_champion_vr(_ctx: EventContext) -> void:
 func on_ritual_sacrifice_champion_vr() -> void:
 	if _scene.get("_champion_vr_summoned"):
 		return
-	_scene._enemy_hero_panel.update_champion_progress(1, 1)
+	_scene._update_champion_progress(1, 1)
 	_log("  Champion progress: 1 / 1 ritual sacrifice triggered.", _LOG_ENEMY)
 	_summon_enemy_champion("champion_void_ritualist")
 
@@ -1313,7 +1313,7 @@ func on_enemy_summon_champion_ch_spark_buff(ctx: EventContext) -> void:
 		if not _scene.get("_champion_ch_summoned"):
 			_scene._champion_ch_spark_count += 1
 			var count: int = _scene._champion_ch_spark_count
-			_scene._enemy_hero_panel.update_champion_progress(mini(count, 3), 3)
+			_scene._update_champion_progress(mini(count, 3), 3)
 			_log("  Champion progress: %d / 3 void sparks created." % mini(count, 3), _LOG_ENEMY)
 			if count >= 3:
 				_summon_enemy_champion("champion_corrupted_handler")
@@ -1334,6 +1334,14 @@ func on_enemy_died_champion_ch(ctx: EventContext) -> void:
 ## ── Shared champion helpers ─────────────────────────────────────────────────
 
 func _summon_enemy_champion(card_id: String) -> void:
+	# If a minion death animation is in flight (e.g. this summon was triggered by
+	# the 3rd enemy death), wait for it to finish so the champion banner doesn't
+	# overlap the on-death VFX of the minion that triggered it.
+	var active: Variant = _scene.get("_active_death_anims")
+	if active is int and (active as int) > 0:
+		await _scene.death_anims_done
+		if not _scene.is_inside_tree():
+			return
 	match card_id:
 		"champion_rogue_imp_pack":
 			_scene.set("_champion_rip_summoned", true)
@@ -1369,7 +1377,7 @@ func _summon_enemy_champion(card_id: String) -> void:
 
 func _on_enemy_champion_killed() -> void:
 	_log("  ★ Champion slain!", _LOG_ENEMY)
-	_scene._enemy_hero_panel.on_champion_killed()
+	_scene._on_champion_killed()
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -1408,9 +1416,6 @@ func _count_void_imps(board: Array[MinionInstance]) -> int:
 ## Spawn shadow claw VFX over the opponent's hero panel.
 ## owner_side: "player" means the imp belongs to the player → claw hits enemy panel.
 func _spawn_void_imp_claw_vfx(minion: MinionInstance, owner_side: String) -> void:
-	var target_panel: Control = _scene._enemy_status_panel if owner_side == "player" else _scene._player_status_panel
-	if target_panel == null:
-		return
 	# Find source position from the minion's board slot
 	var source_pos := Vector2.ZERO
 	var slots: Array = _scene.player_slots if owner_side == "player" else _scene.enemy_slots
@@ -1418,5 +1423,22 @@ func _spawn_void_imp_claw_vfx(minion: MinionInstance, owner_side: String) -> voi
 		if (slot as BoardSlot).minion == minion:
 			source_pos = (slot as BoardSlot).global_position + (slot as BoardSlot).size / 2.0
 			break
-	var vfx := VoidImpClawVFX.create(target_panel, source_pos)
-	_scene.vfx_controller.spawn(vfx)
+	_scene._spawn_void_imp_claw_vfx_at(source_pos, owner_side)
+
+
+## Pack Frenzy card text is "+250 ATK and SWIFT this turn" — so the ATK buff
+## (and the Matriarch-variant LIFEDRAIN grant) must revert at the end of the
+## caster's turn, not at the start of their next turn (which is what global
+## TEMP_ATK cleanup does). Same handler registered on both turn-end events so
+## either side can cast it.
+func on_turn_end_pack_frenzy_revert(ctx: EventContext) -> void:
+	var board: Array = _scene.enemy_board if ctx.event_type == Enums.TriggerEvent.ON_ENEMY_TURN_END else _scene.player_board
+	for m: MinionInstance in board:
+		var had_frenzy: bool = false
+		for e: BuffEntry in m.buffs:
+			if e.source == "pack_frenzy":
+				had_frenzy = true
+				break
+		if had_frenzy:
+			BuffSystem.remove_source(m, "pack_frenzy")
+			_scene._refresh_slot_for(m)

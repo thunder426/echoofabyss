@@ -292,38 +292,44 @@ func _build_encounter(index: int) -> EnemyData:
 				"ENCOUNTER I",
 				"The Void Rift World — a place where reality has frayed. Rift Stalkers phase between dimensions, attacking from angles that shouldn't exist. Stay focused. Don't let it disorient you.",
 				"res://assets/art/progression/backgrounds/fight7_loading.png",
-				["void_rift", "void_empowerment", "champion_rift_stalker"], "rift_stalker")
+				["void_rift", "void_empowerment", "champion_rift_stalker"], "rift_stalker",
+				"res://assets/art/enemies/portraits/rift_stalker_portrait.png")
 		8:
 			return _make_encounter("Void Aberration", 3400, [],
 				"ENCOUNTER II",
 				"A Void Aberration — a creature that should not exist in any plane. It was assembled from the broken remnants of things consumed by the rift. It has no purpose except destruction.",
 				"res://assets/art/progression/backgrounds/fight8_loading.png",
-				["void_rift", "void_detonation_passive", "champion_void_aberration"], "void_aberration")
+				["void_rift", "void_detonation_passive", "champion_void_aberration"], "void_aberration",
+				"res://assets/art/enemies/portraits/void_aberration_portrait.png")
 		9:
 			return _make_encounter("Void Herald", 4000, [],
 				"VOID HERALD",
 				"The Void Herald speaks with the voice of the Abyss itself. It has crossed countless worlds before this one. It carries a message: the Abyss Sovereign is coming, and nothing will remain.",
 				"res://assets/art/progression/backgrounds/fight9_loading.png",
-				["void_rift", "void_mastery", "champion_void_herald"], "void_herald")
+				["void_rift", "void_mastery", "champion_void_herald"], "void_herald",
+				"res://assets/art/enemies/portraits/void_herald_portrait.png")
 		# -- Act 4: Void Castle --
 		10:
 			return _make_encounter("Void Scout", 5000, [],
 				"ENCOUNTER I",
 				"The Void Castle looms at the edge of existence. Void Scouts patrol its outer walls — swift, precise, and utterly loyal. The Sovereign's inner sanctum is somewhere beyond.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "void_precision", "champion_void_scout"], "void_scout")
+				["void_might", "void_precision", "champion_void_scout"], "void_scout",
+				"res://assets/art/enemies/portraits/void_scout_portrait.png")
 		11:
 			return _make_encounter("Void Warband", 5000, [],
 				"ENCOUNTER II",
 				"A full Void Warband stands between you and the castle's keep. These are the Sovereign's chosen soldiers — hardened by centuries of conquest across dying worlds.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "spirit_resonance", "champion_void_warband"], "void_warband")
+				["void_might", "spirit_resonance", "champion_void_warband"], "void_warband",
+				"res://assets/art/enemies/portraits/void_warband_portrait.png")
 		12:
 			return _make_encounter("Void Captain", 5000, [],
 				"VOID CAPTAIN",
 				"The Void Captain commands the castle's garrison. A veteran of a hundred conquests, she has never known defeat. She regards you with curiosity — a new species of prey.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "captain_orders", "champion_void_captain"], "void_captain")
+				["void_might", "captain_orders", "champion_void_captain"], "void_captain",
+				"res://assets/art/enemies/portraits/void_captain_portrait.png")
 		13:
 			return _make_encounter("Void Ritualist Prime", 7000, [],
 				"VOID RITUALIST PRIME",

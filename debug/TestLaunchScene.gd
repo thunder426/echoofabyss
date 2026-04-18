@@ -11,6 +11,8 @@ extends Control
 # Preset-carried state (not exposed as UI fields since rarely tweaked)
 var _preset_ai_profile:   String = ""
 var _preset_passives:     Array[String] = []
+var _preset_enemy_start_essence_max: int = 0
+var _preset_enemy_start_mana_max:    int = 0
 
 var _hand_input:          LineEdit
 var _player_deck_input:   LineEdit
@@ -153,6 +155,8 @@ func _on_preset_selected(index: int) -> void:
 	# Default: clear AI profile / passives; individual presets override as needed
 	_preset_ai_profile = ""
 	_preset_passives   = []
+	_preset_enemy_start_essence_max = 0
+	_preset_enemy_start_mana_max    = 0
 	match index:
 		0: _preset_card_test()
 		1: _preset_empty()
@@ -183,6 +187,8 @@ func _on_launch_pressed() -> void:
 	TestConfig.infinite_resources = _inf_res_check.button_pressed
 	TestConfig.enemy_ai_profile   = _preset_ai_profile
 	TestConfig.enemy_passives     = _preset_passives.duplicate()
+	TestConfig.enemy_start_essence_max = _preset_enemy_start_essence_max
+	TestConfig.enemy_start_mana_max    = _preset_enemy_start_mana_max
 
 	# Validate card IDs
 	var all_ids := TestConfig.hand_cards + TestConfig.player_deck_cards + TestConfig.player_board_cards + TestConfig.enemy_board_cards + TestConfig.enemy_hand_cards + TestConfig.player_traps + TestConfig.enemy_traps + TestConfig.enemy_deck
@@ -205,14 +211,16 @@ func _on_launch_pressed() -> void:
 func _preset_card_test() -> void:
 	_preset_ai_profile        = ""
 	_preset_passives          = []
-	_hand_input.text          = "dark_empowerment, dark_empowerment, dark_empowerment"
+	_hand_input.text          = "abyssal_sacrifice, abyssal_sacrifice, abyssal_sacrifice"
 	_player_deck_input.text   = ""
-	_player_board_input.text  = "abyssal_brute, shadow_hound"
+	_player_board_input.text  = "shadow_hound, abyssal_brute, shadow_hound"
 	_enemy_hand_input.text    = ""
 	_enemy_board_input.text   = "shadow_hound, abyssal_brute, void_stalker"
 	_player_traps_input.text  = ""
 	_enemy_traps_input.text   = ""
 	_enemy_deck_input.text    = ""
+	_preset_enemy_start_essence_max = 0
+	_preset_enemy_start_mana_max    = 0
 	_enemy_name_input.text    = "Card Test Dummy"
 	_player_hp_input.value    = 9999
 	_enemy_hp_input.value     = 9999

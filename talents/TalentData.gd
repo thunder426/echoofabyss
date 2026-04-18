@@ -24,6 +24,9 @@ var tier: int = 0
 ## ID of the talent that must be unlocked first ("" = no prerequisite)
 var requires: String = ""
 
+## Optional icon path shown in the talent selection UI.
+var icon_path: String = ""
+
 ## Optional 3-Rune Grand Ritual unlocked by this talent.
 ## Registered at combat start alongside other passive handlers.
 ## null = this talent does not grant a grand ritual.

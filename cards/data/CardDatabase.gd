@@ -801,7 +801,7 @@ func _register_wanderer_cards() -> void:
 	death_trap.cost         = 2
 	death_trap.description  = "TRAP: When enemy summons a minion, destroy that minion."
 	death_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-	death_trap.effect_steps = [{"type": "SACRIFICE", "scope": "TRIGGER_MINION"}]
+	death_trap.effect_steps = [{"type": "KILL_MINION", "scope": "TRIGGER_MINION"}]
 	death_trap.art_path     = "res://assets/art/traps/neutral/death_trap.png"
 	death_trap.faction      = "neutral"
 	all.append(death_trap)
@@ -1569,6 +1569,8 @@ func _register_wanderer_cards() -> void:
 	champion_rift_stalker.keywords     = [Enums.Keyword.CHAMPION]
 	champion_rift_stalker.is_champion  = true
 	champion_rift_stalker.minion_tags  = ["enemy_champion"]
+	champion_rift_stalker.art_path             = "res://assets/art/minions/abyss_order/champion_rift_stalker.png"
+	champion_rift_stalker.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_rift_stalker_small.png"
 	champion_rift_stalker.faction      = "abyss_order"
 	all.append(champion_rift_stalker)
 
@@ -1583,6 +1585,8 @@ func _register_wanderer_cards() -> void:
 	champion_void_aberration.keywords     = [Enums.Keyword.CHAMPION, Enums.Keyword.ETHEREAL]
 	champion_void_aberration.is_champion  = true
 	champion_void_aberration.minion_tags  = ["enemy_champion"]
+	champion_void_aberration.art_path             = "res://assets/art/minions/abyss_order/champion_void_aberration.png"
+	champion_void_aberration.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_aberration_small.png"
 	champion_void_aberration.faction      = "abyss_order"
 	all.append(champion_void_aberration)
 
@@ -1597,6 +1601,8 @@ func _register_wanderer_cards() -> void:
 	champion_void_herald.keywords     = [Enums.Keyword.CHAMPION]
 	champion_void_herald.is_champion  = true
 	champion_void_herald.minion_tags  = ["enemy_champion"]
+	champion_void_herald.art_path             = "res://assets/art/minions/abyss_order/champion_void_herald.png"
+	champion_void_herald.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_herald_small.png"
 	champion_void_herald.faction      = "abyss_order"
 	all.append(champion_void_herald)
 
@@ -1613,6 +1619,8 @@ func _register_wanderer_cards() -> void:
 	champion_void_scout.keywords     = [Enums.Keyword.CHAMPION]
 	champion_void_scout.is_champion  = true
 	champion_void_scout.minion_tags  = ["enemy_champion"]
+	champion_void_scout.art_path             = "res://assets/art/minions/abyss_order/champion_void_scout.png"
+	champion_void_scout.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_scout_small.png"
 	champion_void_scout.faction      = "abyss_order"
 	all.append(champion_void_scout)
 
@@ -1627,6 +1635,8 @@ func _register_wanderer_cards() -> void:
 	champion_void_warband.keywords     = [Enums.Keyword.CHAMPION]
 	champion_void_warband.is_champion  = true
 	champion_void_warband.minion_tags  = ["enemy_champion"]
+	champion_void_warband.art_path             = "res://assets/art/minions/abyss_order/champion_void_warband.png"
+	champion_void_warband.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_warband_small.png"
 	champion_void_warband.faction      = "abyss_order"
 	all.append(champion_void_warband)
 
@@ -1641,6 +1651,8 @@ func _register_wanderer_cards() -> void:
 	champion_void_captain.keywords     = [Enums.Keyword.CHAMPION]
 	champion_void_captain.is_champion  = true
 	champion_void_captain.minion_tags  = ["enemy_champion"]
+	champion_void_captain.art_path             = "res://assets/art/minions/abyss_order/champion_void_captain.png"
+	champion_void_captain.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_captain_small.png"
 	champion_void_captain.faction      = "abyss_order"
 	all.append(champion_void_captain)
 

@@ -307,6 +307,10 @@ func setup(
 	tm.register(Enums.TriggerEvent.ON_RUNE_PLACED,           h.on_player_minion_died_rune_warden,     5)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_turn_end_hollow_sentinel,          20)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_END,       h.on_turn_end_hollow_sentinel,          20)
+	# Pack Frenzy is "+250 ATK and SWIFT this turn" — revert on turn end
+	# (not next turn start) so the buff doesn't bleed into the opponent's turn.
+	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_turn_end_pack_frenzy_revert,       10)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_END,       h.on_turn_end_pack_frenzy_revert,       10)
 
 	# ── Conditional: registry-driven registration and stat overrides ──────────
 	for id in talents:       _apply(id, tm, h, scene)

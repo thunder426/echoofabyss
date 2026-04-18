@@ -443,6 +443,12 @@ func _update_champion_progress(_current: int, _total: int) -> void:
 func _on_champion_killed() -> void:
 	pass  # no UI in headless sim
 
+func _spawn_void_imp_claw_vfx_at(_source_pos: Vector2, _owner_side: String) -> void:
+	pass  # no VFX in headless sim
+
+func _find_slot_for(_minion) -> Variant:
+	return null  # no slots in headless sim; callers null-check
+
 func _opponent_of(owner: String) -> String:
 	return "enemy" if owner == "player" else "player"
 

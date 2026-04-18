@@ -426,6 +426,8 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	combat_manager.resolve_minion_attack(attacker, target)
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
+	if not is_inside_tree(): return false
+	await _wait_for_death_vfx()
 	return is_inside_tree()
 
 ## Execute a minion-vs-hero attack, handling cancel and Imp Barricade redirect.
@@ -445,10 +447,23 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 			combat_manager.resolve_minion_attack(attacker, barricade)
 		if not is_inside_tree(): return false
 		await get_tree().create_timer(ACTION_DELAY).timeout
+		if not is_inside_tree(): return false
+		await _wait_for_death_vfx()
 		return is_inside_tree()
 	if not enemy_board.has(attacker):
 		return false
 	combat_manager.resolve_minion_attack_hero(attacker, "player")
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
+	if not is_inside_tree(): return false
+	await _wait_for_death_vfx()
 	return is_inside_tree()
+
+## Block until all in-flight minion-death animations finish so consecutive
+## enemy actions don't overlap death / on-death VFX.
+func _wait_for_death_vfx() -> void:
+	if scene == null:
+		return
+	var active: Variant = scene.get("_active_death_anims")
+	if active is int and (active as int) > 0:
+		await scene.death_anims_done

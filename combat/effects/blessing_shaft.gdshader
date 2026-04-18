@@ -46,15 +46,24 @@ void fragment() {
 	vec2 uv = UV;  // 0..1 across the rect
 	float t = TIME + time_offset;
 
-	// ── Column mask: bell curve around x=0.5, width controlled by column_width.
+	// ── Column mask: soft gaussian-like bell around x=0.5. The falloff
+	// starts at the centerline so there is no flat plateau — only the very
+	// middle reaches full brightness, and the edges fade to zero well
+	// before the rect border. This reads as a beam, not a rectangle.
 	float dx = abs(uv.x - 0.5) / (column_width * 0.5);
-	float col = 1.0 - smoothstep(0.6, 1.0, dx);   // inside shaft
-	col *= 1.0 - smoothstep(0.0, 0.6, dx) * 0.35; // soft outside falloff
-	if (col <= 0.001) discard;
+	// exp(-k*dx^2) gives a smooth gaussian core with long soft tails.
+	float col = exp(-3.2 * dx * dx);
+	// Clamp the far tail to zero so we don't bleed to the rect edge.
+	col *= 1.0 - smoothstep(0.85, 1.25, dx);
+	if (col <= 0.002) discard;
 
-	// ── Vertical feather: fade top and bottom.
-	float feather_top = smoothstep(0.0, 0.18, uv.y);
-	float feather_bot = smoothstep(0.0, 0.20, 1.0 - uv.y);
+	// ── Vertical feather: generous fade at top and bottom so the beam
+	// tapers into nothing instead of ending on a visible horizontal line.
+	float feather_top = smoothstep(0.0, 0.35, uv.y);
+	float feather_bot = smoothstep(0.0, 0.30, 1.0 - uv.y);
+	// Pow eases the feather into a longer, softer tail.
+	feather_top = pow(feather_top, 1.4);
+	feather_bot = pow(feather_bot, 1.4);
 	float feather = feather_top * feather_bot;
 
 	// ── Upward-scrolling wisps (y decreases over time so the texture moves up).

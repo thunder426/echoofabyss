@@ -259,16 +259,7 @@ func _rift_stalker_growth(state: Object, turn: int) -> void:
 # ---------------------------------------------------------------------------
 
 func _empty_slot_count() -> int:
-	var slots: Array = []
-	if agent.get("enemy_slots") != null:
-		slots = agent.get("enemy_slots")
-	elif agent.get("sim") != null:
-		slots = agent.sim.enemy_slots
-	var count := 0
-	for slot in slots:
-		if slot.is_empty():
-			count += 1
-	return count
+	return agent.empty_slot_count()
 
 func _should_reserve_champion_slot() -> bool:
 	var spark_dmg: int = agent.scene.get("_champion_rs_spark_dmg") if agent.scene.get("_champion_rs_spark_dmg") != null else 0

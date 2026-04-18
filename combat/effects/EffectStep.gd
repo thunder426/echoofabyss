@@ -19,7 +19,8 @@ enum EffectType {
 	SUMMON,            # Summon token minion (card_id) for owner
 	DRAW,              # Draw amount cards
 	ADD_CARD,          # Add card_id to owner's hand
-	SACRIFICE,         # Kill target (not damage — bypasses shield)
+	SACRIFICE,         # Kill target ritually (emits SacrificeSystem signal → VFX); bypasses shield
+	KILL_MINION,       # Kill target without ritual connotation (e.g. Death Trap); bypasses shield
 	GRANT_MANA,        # Give owner amount Mana this turn
 	GRANT_ESSENCE,     # Give owner amount Essence this turn
 	GROW_MANA_MAX,     # Permanently raise owner's mana_max by 1 (capped by COMBINED_RESOURCE_CAP)

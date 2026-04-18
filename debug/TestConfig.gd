@@ -48,6 +48,12 @@ var start_essence_max: int = 6
 ## Starting mana max for test mode (0 = use combat default).
 var start_mana_max: int = 5
 
+## Enemy starting essence max for test mode (0 = use enemy AI default of 1).
+var enemy_start_essence_max: int = 0
+
+## Enemy starting mana max for test mode (0 = use enemy AI default of 1).
+var enemy_start_mana_max: int = 0
+
 ## Enemy AI profile key (e.g. "feral_pack", "default"). Empty = "default".
 var enemy_ai_profile: String = ""
 
@@ -72,6 +78,8 @@ func reset() -> void:
 	infinite_resources  = false
 	start_essence_max   = 6
 	start_mana_max      = 5
+	enemy_start_essence_max = 0
+	enemy_start_mana_max    = 0
 	enemy_ai_profile    = ""
 	enemy_passives      = []
 

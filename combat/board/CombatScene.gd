@@ -61,6 +61,12 @@ signal enemy_summon_reveal_done()
 var _enemy_spell_cast_active: bool = false
 signal enemy_spell_cast_done()
 
+## Count of death animations currently playing (_animate_minion_death in-flight).
+## EnemyAI and champion auto-summons await death_anims_done when this is > 0 so
+## player can parse what just died before the next action.
+var _active_death_anims: int = 0
+signal death_anims_done()
+
 # Enemy hero status panel
 var _enemy_hero_panel: EnemyHeroPanel = null
 var _enemy_status_panel: Control = null   ## alias → _enemy_hero_panel (backward-compat)
@@ -306,6 +312,7 @@ func _ready() -> void:
 	_find_nodes()
 	_connect_buff_signal()
 	_register_buff_preludes()
+	_connect_sacrifice_signal()
 	_load_combat_background()
 	_connect_turn_manager()
 	_connect_board_slots()
@@ -1305,12 +1312,12 @@ func _spawn_slot_ripple(slot: BoardSlot, total_cost: int = 0, is_champion: bool 
 		return
 
 	var t_norm: float = clampf(total_cost / 8.0, 0.0, 1.0)
-	var expand_px: float = lerp(22.0, 70.0, t_norm)
+	var expand_px: float = lerp(6.0, 14.0, t_norm)
 	var duration: float  = lerp(0.28, 0.44, t_norm)
 	var strength: float  = lerp(0.010, 0.020, t_norm)
 
 	var base_color: Color = Color(1.0, 0.78, 0.10) if is_champion else Color(1.0, 1.0, 1.0)
-	var tint: Color = Color(base_color.r, base_color.g, base_color.b, 0.22)
+	var tint: Color = Color(base_color.r, base_color.g, base_color.b, 0.0)
 
 	var fx_layer := CanvasLayer.new()
 	fx_layer.layer = 2
@@ -1334,8 +1341,10 @@ func _spawn_slot_ripple(slot: BoardSlot, total_cost: int = 0, is_champion: bool 
 	)
 	# Convert expand/thickness from pixels to UV (height-based so shader math lines up).
 	var expand_uv: float = expand_px / vp_size.y
-	var thickness_uv: float = 55.0 / vp_size.y
+	var thickness_uv: float = 90.0 / vp_size.y
 	var corner_uv: float = 14.0 / vp_size.y
+	# Start the band deep inside the card so the wave emerges from the center.
+	var band_start_inset_uv: float = (slot.size.y * 0.5) / vp_size.y
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://combat/effects/card_summon_wave.gdshader")
 	mat.set_shader_parameter("aspect", aspect)
@@ -1345,6 +1354,7 @@ func _spawn_slot_ripple(slot: BoardSlot, total_cost: int = 0, is_champion: bool 
 	mat.set_shader_parameter("expand_max", expand_uv)
 	mat.set_shader_parameter("thickness", thickness_uv)
 	mat.set_shader_parameter("corner_radius", corner_uv)
+	mat.set_shader_parameter("band_start_inset", band_start_inset_uv)
 	mat.set_shader_parameter("strength", strength)
 	mat.set_shader_parameter("progress", 0.0)
 	mat.set_shader_parameter("alpha_multiplier", 1.0)
@@ -1444,6 +1454,8 @@ func _spawn_pack_chain_vfx_for_new_imp(_new_imp: MinionInstance, side: String = 
 func _register_buff_preludes() -> void:
 	BuffVfxRegistry.register("dark_empowerment",
 			DarkEmpowermentPreludeVFX.prelude_factory)
+	BuffVfxRegistry.register("feral_surge",
+			FeralSurgePreludeVFX.prelude_factory)
 
 ## Subscribe to BuffSystem.bus() so every on-play / spell buff fires the
 ## generic BuffApplyVFX. Auras and setup grants pass emit_vfx=false at the
@@ -1461,6 +1473,109 @@ func _exit_tree() -> void:
 	var bus: Object = BuffSystem.bus()
 	if bus != null and bus.is_connected("buff_applied", _on_buff_applied):
 		bus.disconnect("buff_applied", _on_buff_applied)
+	var sac_bus: Object = SacrificeSystem.bus()
+	if sac_bus != null and sac_bus.is_connected("sacrifice_occurred", _on_sacrifice_occurred):
+		sac_bus.disconnect("sacrifice_occurred", _on_sacrifice_occurred)
+
+## Subscribe to SacrificeSystem.bus() so every ritual sacrifice (Abyssal
+## Sacrifice, Blood Pact, Soul Shatter, Void Devourer) fires the generic
+## SacrificeVFX. Plain deaths (combat, fatigue) never reach here — they go
+## through combat_manager.kill_minion directly without emitting.
+func _connect_sacrifice_signal() -> void:
+	var bus: Object = SacrificeSystem.bus()
+	if bus == null:
+		return
+	if not bus.is_connected("sacrifice_occurred", _on_sacrifice_occurred):
+		bus.connect("sacrifice_occurred", _on_sacrifice_occurred)
+
+## Minions currently mid-sacrifice — maps instance_id → delay in seconds
+## that _animate_minion_death should wait before starting its ghost rise.
+## Populated by _on_sacrifice_occurred right before kill_minion is called;
+## drained by _animate_minion_death_body when the death anim actually runs.
+## Keeping it as a plain Dictionary (not a Set) so the delay value can be
+## tuned per-source later if a prelude adds extra windup time.
+var _pending_sacrifice_ghost_delay: Dictionary = {}
+
+## Spawn a SacrificeVFX on the sacrificed minion's slot. No coalescing —
+## each sacrifice is its own distinct ritual event (Void Devourer emitting
+## twice spawns two parallel VFX on two slots, which is what we want).
+##
+## Freezes the slot's visual so the minion card stays on screen while the
+## dagger plunges into it. Once the dagger hits, we unfreeze and refresh
+## so the slot clears in time for the drain overlay to darken empty space.
+##
+## Also registers a delay so the subsequent soul-rise death animation
+## waits until the sacrifice's drain phase completes — the ghost should
+## leave during the shatter beat, not during the sigil bloom.
+func _on_sacrifice_occurred(minion: MinionInstance, source_tag: String) -> void:
+	if minion == null or not is_instance_valid(minion):
+		return
+	if vfx_controller == null:
+		return
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot == null:
+		return
+	# Delay = time from VFX start to when shatter spawns (dagger plunge,
+	# sigil bloom, and drain overlay must all resolve first). Ghost rises in
+	# sync with the shatter so the soul leaving reads as being freed by the
+	# ritual completing.
+	var delay: float = SacrificeVFX.DAGGER_DURATION \
+			+ SacrificeVFX.SIGIL_DURATION + SacrificeVFX.DRAIN_DURATION
+	_pending_sacrifice_ghost_delay[minion.get_instance_id()] = delay
+	# Keep the minion card rendered through the dagger approach + embedded
+	# hold — kill_minion fires immediately after this emit and _clear_slot_for
+	# would otherwise wipe the art before the blade even lands. Unfreeze when
+	# the blade starts fading, and fade the card out to match the drain beat.
+	slot.freeze_visuals = true
+	_schedule_sacrifice_unfreeze(slot, SacrificeVFX.MINION_VISIBLE_DURATION)
+	var prelude: Callable = SacrificeVfxRegistry.build_prelude(source_tag, slot, minion)
+	var vfx := SacrificeVFX.create(slot, prelude)
+	vfx_controller.spawn(vfx)
+
+## Unfreeze a slot's visuals and clear the now-null minion, coordinated
+## with a fade-out on the slot's art so the card dissolves into the drain
+## rather than popping off instantly.
+##
+## Runs at the end of the dagger's embedded hold — the blade is still in
+## the card when the fade starts, so the card "bleeds out" under the blade
+## before the blade itself fades and the sigil bloom takes over.
+##
+## If the slot's death animation was deferred (because freeze_visuals was
+## on when _on_minion_vanished fired), flush the queue so the ghost rise
+## path can run with its own scheduled delay.
+func _schedule_sacrifice_unfreeze(slot: BoardSlot, delay: float) -> void:
+	await get_tree().create_timer(delay).timeout
+	if not is_inside_tree() or slot == null or not is_instance_valid(slot):
+		return
+	# Fade the slot's art out before clearing so the minion dissolves into
+	# the drain overlay instead of snapping away.
+	var fade_t: float = SacrificeVFX.MINION_FADE_DURATION
+	var art: TextureRect = slot._art_rect
+	if art != null and is_instance_valid(art):
+		var tw := create_tween()
+		tw.tween_property(art, "modulate:a", 0.0, fade_t).set_trans(Tween.TRANS_SINE)
+	await get_tree().create_timer(fade_t).timeout
+	if not is_inside_tree() or slot == null or not is_instance_valid(slot):
+		return
+	slot.freeze_visuals = false
+	slot._refresh_visuals()
+	# Restore the art's alpha for the next minion that occupies this slot;
+	# _refresh_visuals hides it behind visible=false but modulate persists.
+	if art != null and is_instance_valid(art):
+		art.modulate.a = 1.0
+	# Trim the ghost-rise delay by the time we've already spent (visible
+	# duration + fade), since _animate_minion_death_body awaits the
+	# remaining time before starting the ghost rise.
+	var elapsed: float = delay + fade_t
+	for entry in _deferred_death_slots:
+		if entry.get("slot") == slot:
+			var dead_m: MinionInstance = entry.get("minion")
+			if dead_m != null:
+				var id: int = dead_m.get_instance_id()
+				if _pending_sacrifice_ghost_delay.has(id):
+					var remaining: float = float(_pending_sacrifice_ghost_delay[id]) - elapsed
+					_pending_sacrifice_ghost_delay[id] = maxf(remaining, 0.0)
+	_flush_deferred_deaths()
 
 ## Pending buff VFX to spawn — keyed by (minion, source_tag) so:
 ##   • Multiple steps from the same source on the same minion coalesce into
@@ -1477,6 +1592,9 @@ func _on_buff_applied(minion: MinionInstance, _buff_type: int,
 	if minion == null or not is_instance_valid(minion):
 		return
 	if vfx_controller == null:
+		return
+	# Pack Frenzy owns its full buff visual — skip the generic blessing surge.
+	if source_tag == "pack_frenzy":
 		return
 	var key: String = "%d|%s" % [minion.get_instance_id(), source_tag]
 	var agg: Dictionary = _pending_buff_vfx.get(key, {
@@ -1794,6 +1912,7 @@ func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = 
 	var count := to_sacrifice.size()
 	for m in to_sacrifice:
 		_log("  Void Devourer sacrifices %s!" % m.card_data.card_name, _LogType.PLAYER)
+		SacrificeSystem.emit(m, "void_devourer")
 		combat_manager.kill_minion(m)
 	if count > 0:
 		BuffSystem.apply(devourer, Enums.BuffType.ATK_BONUS, count * 300, "void_devourer", false, false)
@@ -1912,6 +2031,15 @@ func _apply_test_config() -> void:
 			turn_manager.essence, turn_manager.essence_max,
 			turn_manager.mana,    turn_manager.mana_max)
 		_refresh_end_turn_mode()
+
+	# Override enemy starting resources (so test-cast spells on turn 1)
+	if enemy_ai:
+		if TestConfig.enemy_start_essence_max > 0:
+			enemy_ai.essence_max = TestConfig.enemy_start_essence_max
+			enemy_ai.essence     = TestConfig.enemy_start_essence_max
+		if TestConfig.enemy_start_mana_max > 0:
+			enemy_ai.mana_max = TestConfig.enemy_start_mana_max
+			enemy_ai.mana     = TestConfig.enemy_start_mana_max
 
 	_log("[TEST] Test config applied.", _LogType.TURN)
 	TestConfig.enabled = false  # consumed — reset so normal navigation isn't affected
@@ -2080,6 +2208,121 @@ func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: Str
 ## Summon a 100/100 Void Spark into the first empty player slot.
 func _summon_void_spark() -> void:
 	_summon_token("void_spark", "player")
+
+## Spawn the Brood Call portal VFX at the first empty slot that will receive
+## the summoned imp. Awaits the full VFX (ramp → hold → collapse) so the token
+## is placed after the portal has closed.
+func _play_brood_call_vfx(owner: String) -> void:
+	if vfx_controller == null:
+		return
+	var slots: Array = player_slots if owner == "player" else enemy_slots
+	var target_slot: BoardSlot = null
+	for s: BoardSlot in slots:
+		if s.is_empty():
+			target_slot = s
+			break
+	if target_slot == null:
+		return
+	var vfx := BroodCallVFX.create(target_slot)
+	vfx_controller.spawn(vfx)
+	await vfx.finished
+
+## Spawn the Pack Frenzy warcry VFX from the caster's hero panel, sweeping
+## across the given friendly Feral Imp slots. Awaits `impact_hit` so the caller
+## can apply buffs synced to the first imp ignition. Returns after the wave
+## reaches the imps — lingering visuals continue in the background.
+func _play_pack_frenzy_vfx(owner: String, target_slots: Array,
+		is_matriarch: bool) -> void:
+	if vfx_controller == null or target_slots.is_empty():
+		return
+	var caster_panel: Control = _player_hero_panel if owner == "player" else _enemy_hero_panel
+	if caster_panel == null:
+		return
+	var vfx := PackFrenzyVFX.create(caster_panel, target_slots, is_matriarch)
+	vfx_controller.spawn(vfx)
+	# Track the live VFX so the enemy AI / turn flow can wait for it to finish
+	# before continuing (see VfxController._play_pack_frenzy).
+	_pack_frenzy_active_vfx = vfx
+	vfx.finished.connect(func() -> void:
+		if _pack_frenzy_active_vfx == vfx:
+			_pack_frenzy_active_vfx = null,
+		CONNECT_ONE_SHOT)
+	await vfx.impact_hit
+
+## The currently-playing Pack Frenzy VFX, or null. Read by VfxController so it
+## can await the full visual (including glyphs + linger sparks) before
+## returning from play_spell — otherwise the enemy's next action would start
+## mid-VFX.
+var _pack_frenzy_active_vfx: PackFrenzyVFX = null
+
+## Spawn an ATK buff chevron next to a minion's ATK label. Used by Pack Frenzy
+## since its VFX owns the full buff visual (the generic BuffApplyVFX — which
+## normally spawns the chevron — is filtered out for source="pack_frenzy").
+func _spawn_atk_chevron(minion: MinionInstance) -> void:
+	if minion == null or not is_instance_valid(minion):
+		return
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot == null or slot.minion != minion:
+		return
+	var lbl: Label = slot._atk_label
+	if lbl == null:
+		return
+	var chevron := preload("res://combat/effects/BuffChevronVFX.gd").new()
+	slot.add_child(chevron)
+	var chevron_size := Vector2(14, 16)
+	var font: Font = lbl.get_theme_font("font")
+	var font_size: int = lbl.get_theme_font_size("font_size")
+	var text_width: float = font.get_string_size(lbl.text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size).x
+	var text_left_x: float = lbl.position.x + (lbl.size.x - text_width) * 0.5
+	var text_right_x: float = text_left_x + text_width
+	var y_offset: float = lbl.size.y * 0.5 - chevron_size.y * 0.5
+	var gap: float = 2.0
+	chevron.position = Vector2(text_right_x + gap, lbl.position.y + y_offset)
+	chevron.set_size(chevron_size)
+	chevron.play()
+
+## Pulse the lifedrain icon on a minion's status bar to highlight the grant
+## from the Imp Matriarch's Ancient Frenzy aura. Fire-and-forget.
+func _pulse_lifedrain_icon(minion: MinionInstance) -> void:
+	if minion == null or not is_instance_valid(minion):
+		return
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot == null or slot.minion != minion:
+		return
+	var status_bar: Node = slot.get_node_or_null("_status_bar")
+	if status_bar == null:
+		# _status_bar is added directly to the slot but not named — find by type.
+		for child in slot.get_children():
+			if child is HBoxContainer:
+				status_bar = child
+				break
+	if status_bar == null:
+		return
+	# Find the lifedrain TextureRect by matching its texture's resource path.
+	var icon: TextureRect = null
+	for child in status_bar.get_children():
+		var tr := child as TextureRect
+		if tr == null or tr.texture == null:
+			continue
+		if String(tr.texture.resource_path).ends_with("icon_lifedrain.png"):
+			icon = tr
+			break
+	if icon == null:
+		return
+	icon.pivot_offset = icon.size * 0.5
+	var original_mod: Color = icon.modulate
+	var pulse_color := Color(1.6, 0.6, 0.5, 1.0)
+	var tw := icon.create_tween()
+	for _cycle in 3:
+		tw.tween_property(icon, "modulate", pulse_color, 0.14) \
+				.set_trans(Tween.TRANS_SINE)
+		tw.parallel().tween_property(icon, "scale", Vector2(1.35, 1.35), 0.14) \
+				.set_trans(Tween.TRANS_SINE)
+		tw.tween_property(icon, "modulate", original_mod, 0.18) \
+				.set_trans(Tween.TRANS_SINE)
+		tw.parallel().tween_property(icon, "scale", Vector2.ONE, 0.18) \
+				.set_trans(Tween.TRANS_SINE)
 
 ## Return the most recently placed non-Echo Rune from active_traps (or null).
 ## Used by Runic Echo and Echo Rune to copy the last placed Rune's effect.
@@ -2516,10 +2759,17 @@ func _has_valid_minion_on_play_targets(card: MinionCardData) -> bool:
 	return false
 
 ## Apply VALID_TARGET highlight to every slot in slots where filter returns true.
-func _highlight_slots(slots: Array, filter: Callable) -> void:
+## color_picker (optional) is called per slot and may return a non-default glow
+## color to telegraph per-target spell behavior (e.g. Dark Empowerment marking
+## Demons to signal its conditional HP bonus). Return Color(0,0,0,0) or skip
+## the argument to use the default green.
+func _highlight_slots(slots: Array, filter: Callable, color_picker: Callable = Callable()) -> void:
 	for slot in slots:
 		if filter.call(slot):
-			slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET)
+			var c: Color = Color(0, 0, 0, 0)
+			if color_picker.is_valid():
+				c = color_picker.call(slot)
+			slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET, c)
 
 ## Highlight valid target slots for a targeted minion on-play effect (battle cry).
 ## Step 1 of the two-click flow: player clicks card → sees valid targets highlighted.
@@ -2540,19 +2790,41 @@ func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String
 		"friendly_minion":        return true
 	return false
 
+## Per-spell color picker for the VALID_TARGET highlight. Returns a Callable
+## that maps a BoardSlot to a glow color (or Color(0,0,0,0) for the default
+## green). Used to telegraph spell-specific conditional behavior — e.g. Dark
+## Empowerment marks Demon targets in violet to hint at the bonus HP step.
+## Returns an empty Callable for spells with no special colorization.
+func _spell_highlight_color_picker(spell: SpellCardData) -> Callable:
+	match spell.id:
+		"dark_empowerment":
+			# Demons get the conditional HP bonus — flag them in violet so the
+			# player sees which targets unlock the second effect step.
+			var demon_color := Color(0.70, 0.30, 1.00, 1.0)
+			return func(s: BoardSlot) -> Color:
+				if s.minion != null and s.minion.card_data.minion_type == Enums.MinionType.DEMON:
+					return demon_color
+				return Color(0, 0, 0, 0)
+		_:
+			return Callable()
+
 ## Highlight player slots that have a minion matching the spell's target_type
 func _highlight_spell_targets(spell: SpellCardData) -> void:
 	_clear_all_highlights()
 	if spell.target_type == "trap_or_env":
 		_setup_trap_env_targeting()
 		return
-	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "any_minion"]
+	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "friendly_feral_imp", "any_minion"]
 	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion", "enemy_minion_or_hero"]
 	var hits_hero     := spell.target_type == "enemy_minion_or_hero"
+	var color_picker: Callable = _spell_highlight_color_picker(spell)
 	if hits_friendly:
-		_highlight_slots(player_slots, func(s): return not s.is_empty() and _is_valid_spell_target(s.minion, spell.target_type))
+		_highlight_slots(
+			player_slots,
+			func(s): return not s.is_empty() and _is_valid_spell_target(s.minion, spell.target_type),
+			color_picker)
 	if hits_enemy:
-		_highlight_slots(enemy_slots, func(s): return not s.is_empty())
+		_highlight_slots(enemy_slots, func(s): return not s.is_empty(), color_picker)
 	if hits_hero and _enemy_status_panel:
 		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 		_enemy_status_panel.gui_input.connect(_on_enemy_hero_spell_input)
@@ -2564,6 +2836,7 @@ func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool
 		"friendly_demon":    return minion.card_data.minion_type == Enums.MinionType.DEMON
 		"friendly_minion":   return true
 		"friendly_void_imp": return _minion_has_tag(minion, "void_imp")
+		"friendly_feral_imp": return _minion_has_tag(minion, "feral_imp")
 		"enemy_minion":           return true
 		"any_minion":             return true
 		"enemy_minion_or_hero":   return true
@@ -2733,14 +3006,16 @@ func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInsta
 		var slot_idx := traps.find(trap)
 		_flash_trap_slot_for(owner, slot_idx)
 		_log("⚡ %s%s triggered!" % [("Enemy " if owner == "enemy" else ""), trap.card_name], _LogType.TRAP)
+		# Consume non-reusable trap immediately so a subsequent trigger (e.g. the
+		# next enemy attack) during the ~1.1s cast animation doesn't re-fire it.
+		if not trap.reusable:
+			traps.erase(trap)
+			_update_trap_display_for(owner)
 		var effect_resolved := false
 		_show_card_cast_anim(trap, owner == "enemy", func() -> void:
 			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = triggering_minion
 			EffectResolver.run(trap.effect_steps, ctx)
-			if not trap.reusable:
-				traps.erase(trap)
-				_update_trap_display_for(owner)
 			effect_resolved = true
 		)
 		# Wait for the full card animation to finish (~1.1s)
@@ -3315,6 +3590,64 @@ func _build_hover_tooltip_scaffold(ui_root: Node, min_width: float, bg_color: Co
 	)
 	return {tip = tip, tip_vbox = tip_vbox}
 
+func _add_tooltip_icon_block(parent: VBoxContainer, title: String, body: String, icon_path: String,
+		title_color: Color, body_color: Color) -> void:
+	var outer := HBoxContainer.new()
+	outer.alignment = BoxContainer.ALIGNMENT_BEGIN
+	outer.add_theme_constant_override("separation", 10)
+	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(outer)
+
+	if icon_path != "" and ResourceLoader.exists(icon_path):
+		var icon_bg := PanelContainer.new()
+		icon_bg.custom_minimum_size = Vector2(44, 44)
+		icon_bg.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		icon_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var icon_style := StyleBoxFlat.new()
+		icon_style.bg_color = Color(0.12, 0.08, 0.18, 0.92)
+		icon_style.border_color = Color(0.48, 0.28, 0.72, 0.95)
+		icon_style.set_border_width_all(1)
+		icon_style.set_corner_radius_all(5)
+		icon_style.content_margin_left = 4.0
+		icon_style.content_margin_right = 4.0
+		icon_style.content_margin_top = 4.0
+		icon_style.content_margin_bottom = 4.0
+		icon_bg.add_theme_stylebox_override("panel", icon_style)
+		outer.add_child(icon_bg)
+
+		var icon := TextureRect.new()
+		icon.custom_minimum_size = Vector2(36, 36)
+		icon.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture = load(icon_path)
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_bg.add_child(icon)
+
+	var text_box := VBoxContainer.new()
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_box.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	text_box.add_theme_constant_override("separation", 3)
+	text_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outer.add_child(text_box)
+
+	if title != "":
+		var title_lbl := Label.new()
+		title_lbl.text = title
+		title_lbl.add_theme_font_size_override("font_size", 15)
+		title_lbl.add_theme_color_override("font_color", title_color)
+		title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		text_box.add_child(title_lbl)
+
+	var body_lbl := Label.new()
+	body_lbl.text = body
+	body_lbl.add_theme_font_size_override("font_size", 12)
+	body_lbl.add_theme_color_override("font_color", body_color)
+	body_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text_box.add_child(body_lbl)
+
 func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> void:
 	var icon_btn := Label.new()
 	icon_btn.text = "✦"
@@ -3345,18 +3678,14 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 		tip_vbox.add_child(passive_hdr)
 
 		for passive in hero_data.passives:
-			var row := VBoxContainer.new()
-			row.add_theme_constant_override("separation", 3)
-			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			tip_vbox.add_child(row)
-
-			var p_desc := Label.new()
-			p_desc.text = passive.description
-			p_desc.add_theme_font_size_override("font_size", 12)
-			p_desc.add_theme_color_override("font_color", Color(0.65, 0.82, 0.70, 1))
-			p_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			p_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-			row.add_child(p_desc)
+			_add_tooltip_icon_block(
+				tip_vbox,
+				"",
+				passive.description,
+				passive.icon_path,
+				Color(0.90, 0.90, 0.90, 1.0),
+				Color(0.65, 0.82, 0.70, 1.0)
+			)
 
 		var passive_sep := HSeparator.new()
 		passive_sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -3383,26 +3712,14 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 			var td: TalentData = TalentDatabase.get_talent(tid)
 			if td == null:
 				continue
-			var row := VBoxContainer.new()
-			row.add_theme_constant_override("separation", 3)
-			row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			tip_vbox.add_child(row)
-
-			var t_name := Label.new()
-			t_name.text = td.talent_name
-			t_name.add_theme_font_size_override("font_size", 15)
-			t_name.add_theme_color_override("font_color", Color(0.92, 0.85, 1.0, 1))
-			t_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			t_name.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-			row.add_child(t_name)
-
-			var t_desc := Label.new()
-			t_desc.text = td.description
-			t_desc.add_theme_font_size_override("font_size", 12)
-			t_desc.add_theme_color_override("font_color", Color(0.65, 0.62, 0.72, 1))
-			t_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			t_desc.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-			row.add_child(t_desc)
+			_add_tooltip_icon_block(
+				tip_vbox,
+				td.talent_name,
+				td.description,
+				td.icon_path,
+				Color(0.92, 0.85, 1.0, 1.0),
+				Color(0.65, 0.62, 0.72, 1.0)
+			)
 
 	icon_btn.mouse_entered.connect(func() -> void:
 		icon_btn.add_theme_color_override("font_color", Color(0.90, 0.70, 1.0, 1.0))
@@ -3429,15 +3746,15 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 		},
 		"champion_rogue_imp_pack": {
 			"name": "Champion: Rogue Imp Pack",
-			"desc": "Summoned after 4 Rabid Imps have attacked. SWIFT. AURA: All friendly FERAL IMP minions have +100 ATK. On death: Deal 20% of max HP to enemy hero."
+			"desc": "Summoned after 4 Rabid Imps have attacked. SWIFT. AURA: All friendly FERAL IMP minions have +100 ATK."
 		},
 		"champion_corrupted_broodlings": {
 			"name": "Champion: Corrupted Broodlings",
-			"desc": "Summoned after 3 friendly minions have died. On death: Summon a Void-Touched Imp and deal 20% of max HP to enemy hero."
+			"desc": "Summoned after 3 friendly minions have died. On death: Summon a Void-Touched Imp."
 		},
 		"champion_imp_matriarch": {
 			"name": "Champion: Imp Matriarch",
-			"desc": "Summoned after 2nd Pack Frenzy cast. GUARD. AURA: Pack Frenzy also gives all FERAL IMP minions +200 HP. On death: Deal 20% of max HP to enemy hero."
+			"desc": "Summoned after 2nd Pack Frenzy cast. GUARD. AURA: Pack Frenzy also gives all FERAL IMP minions +200 HP."
 		},
 		"champion_abyss_cultist_patrol": {
 			"name": "Champion: Abyss Cultist Patrol",
@@ -3690,6 +4007,21 @@ func _refresh_slot_for(minion: MinionInstance) -> void:
 			slot._refresh_visuals()
 			return
 
+func _update_champion_progress(current: int, total: int) -> void:
+	if _enemy_hero_panel != null:
+		_enemy_hero_panel.update_champion_progress(current, total)
+
+func _on_champion_killed() -> void:
+	if _enemy_hero_panel != null:
+		_enemy_hero_panel.on_champion_killed()
+
+func _spawn_void_imp_claw_vfx_at(source_pos: Vector2, owner_side: String) -> void:
+	var target_panel: Control = _enemy_status_panel if owner_side == "player" else _player_status_panel
+	if target_panel == null or vfx_controller == null:
+		return
+	var vfx := VoidImpClawVFX.create(target_panel, source_pos)
+	vfx_controller.spawn(vfx)
+
 func _clear_slot_for(minion: MinionInstance, slots: Array[BoardSlot]) -> void:
 	for slot in slots:
 		if slot.minion == minion:
@@ -3714,6 +4046,26 @@ func _sweep_dead_minions() -> void:
 ## pos must be passed explicitly — do NOT read slot.global_position here, as the slot
 ## may have just been reparented and layout recalculation is deferred to the next frame.
 func _animate_minion_death(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
+	_active_death_anims += 1
+	await _animate_minion_death_body(slot, pos, dead_minion)
+	_active_death_anims -= 1
+	if _active_death_anims <= 0:
+		_active_death_anims = 0
+		death_anims_done.emit()
+
+func _animate_minion_death_body(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
+	# If this death was a sacrifice, wait for the ritual VFX to reach its
+	# shatter beat before starting the ghost rise — the soul leaves with
+	# the motes, not while the sigil is still blooming.
+	if dead_minion != null:
+		var id: int = dead_minion.get_instance_id()
+		if _pending_sacrifice_ghost_delay.has(id):
+			var delay: float = float(_pending_sacrifice_ghost_delay[id])
+			_pending_sacrifice_ghost_delay.erase(id)
+			if delay > 0.0:
+				await get_tree().create_timer(delay).timeout
+				if not is_inside_tree():
+					return
 	var sz := slot.size
 	# White flash layer — briefly bright, then transitions to soft purple as it rises
 	var ghost := ColorRect.new()

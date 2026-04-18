@@ -114,6 +114,8 @@ func _play() -> void:
 
 	var slot_rect: Rect2 = Rect2(_slot.global_position, _slot.size)
 
+	AudioManager.play_sfx("res://assets/audio/sfx/buffs/buff_apply.wav", -6.0)
+
 	# ── Phase 1: Blessing surge ─────────────────────────────────────────
 	_spawn_surge(host, slot_rect)
 

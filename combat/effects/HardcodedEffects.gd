@@ -120,6 +120,7 @@ func _soul_shatter(ctx: EffectContext) -> void:
 	if demon == null:
 		return
 	var pre_hp: int = demon.current_health
+	SacrificeSystem.emit(demon, "soul_shatter")
 	_scene.combat_manager.kill_minion(demon)
 	var dmg := 300 if pre_hp >= 300 else 200
 	var ls := _log_side(ctx.owner)
@@ -344,20 +345,44 @@ func _void_screech(ctx: EffectContext) -> void:
 func _brood_call(ctx: EffectContext) -> void:
 	var feral_ids: Array[String] = ["rabid_imp", "brood_imp", "imp_brawler", "void_touched_imp", "frenzied_imp", "matriarchs_broodling", "rogue_imp_elder"]
 	var pick := feral_ids[randi() % feral_ids.size()]
+	# Play portal VFX fully before summoning (live scene only — sim skips).
+	if _scene.has_method("_play_brood_call_vfx"):
+		await _scene._play_brood_call_vfx(ctx.owner)
 	_scene._summon_token(pick, ctx.owner)
 	_log("  Brood Call: summoned %s." % pick, _log_side(ctx.owner))
 
 func _pack_frenzy(ctx: EffectContext) -> void:
 	var feral_board: Array = _scene._friendly_board(ctx.owner).duplicate()
 	var ancient_active: bool = "ancient_frenzy" in (_scene.get("_active_enemy_passives") if _scene.get("_active_enemy_passives") != null else [])
+
+	# Collect targets + their slots up front so the VFX can sweep from hero
+	# to each imp in a single synced wave.
+	var targets: Array = []
+	var target_slots: Array = []
 	for m in feral_board:
 		if _scene._minion_has_tag(m, "feral_imp"):
-			BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 250, "pack_frenzy")
-			if m.state == Enums.MinionState.EXHAUSTED and m.attack_count == 0:
-				m.state = Enums.MinionState.SWIFT
-			if ancient_active:
-				BuffSystem.apply(m, Enums.BuffType.GRANT_LIFEDRAIN, 1, "pack_frenzy", true)
-			_scene._refresh_slot_for(m)
+			targets.append(m)
+			var slot: BoardSlot = _scene._find_slot_for(m)
+			if slot != null:
+				target_slots.append(slot)
+
+	# Play the warcry and await impact before applying buffs — ATK pop lands
+	# synced to the first imp's ignition burst. VFX owns the full buff visual.
+	if not target_slots.is_empty() and _scene.has_method("_play_pack_frenzy_vfx"):
+		await _scene._play_pack_frenzy_vfx(ctx.owner, target_slots, ancient_active)
+
+	for m in targets:
+		BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 250, "pack_frenzy", true)
+		if m.state == Enums.MinionState.EXHAUSTED and m.attack_count == 0:
+			m.state = Enums.MinionState.SWIFT
+		if ancient_active:
+			BuffSystem.apply(m, Enums.BuffType.GRANT_LIFEDRAIN, 1, "pack_frenzy", true)
+		_scene._refresh_slot_for(m)
+		if _scene.has_method("_spawn_atk_chevron"):
+			_scene._spawn_atk_chevron(m)
+		if ancient_active and _scene.has_method("_pulse_lifedrain_icon"):
+			_scene._pulse_lifedrain_icon(m)
+
 	var frenzy_msg := "  Pack Frenzy: all Feral Imps +250 ATK and SWIFT"
 	if ancient_active:
 		frenzy_msg += " and LIFEDRAIN (Ancient Frenzy)"

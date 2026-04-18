@@ -11,3 +11,6 @@ var id: String = ""
 
 ## Human-readable description shown on the hero select card.
 var description: String = ""
+
+## Optional icon shown in passive tooltips and hero UI.
+var icon_path: String = ""

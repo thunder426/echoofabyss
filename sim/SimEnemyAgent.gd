@@ -81,6 +81,13 @@ func find_empty_slot() -> BoardSlot:
 			return slot
 	return null
 
+func empty_slot_count() -> int:
+	var count := 0
+	for slot in sim.enemy_slots:
+		if slot.is_empty():
+			count += 1
+	return count
+
 # ---------------------------------------------------------------------------
 # Actions — instant (no timers)
 # ---------------------------------------------------------------------------

@@ -85,7 +85,7 @@ func _register(t: TalentData) -> void:
 	_talents[t.id] = t
 
 func _make(id: String, hero: String, name: String, desc: String,
-		branch: String, tier: int, req: String) -> TalentData:
+		branch: String, tier: int, req: String, icon_path: String = "") -> TalentData:
 	var t := TalentData.new()
 	t.id          = id
 	t.hero_id     = hero
@@ -94,6 +94,7 @@ func _make(id: String, hero: String, name: String, desc: String,
 	t.branch      = branch
 	t.tier        = tier
 	t.requires    = req
+	t.icon_path   = icon_path
 	return t
 
 # ---------------------------------------------------------------------------
@@ -109,22 +110,22 @@ func _register_lord_vael_talents() -> void:
 	_register(_make(
 		"imp_evolution", "lord_vael", "Imp Evolution",
 		"When you summon a Void Imp, add a Senior Void Imp to your hand.\nTrigger limit: once per turn.",
-		"swarm", 0, ""))
+		"swarm", 0, "", "res://assets/art/talents/lord_vael/icon_imp_evolution.png"))
 
 	_register(_make(
 		"swarm_discipline", "lord_vael", "Swarm Discipline",
 		"VOID IMP CLAN minions gain +100 HP.",
-		"swarm", 1, "imp_evolution"))
+		"swarm", 1, "imp_evolution", "res://assets/art/talents/lord_vael/icon_swarm_discipline.png"))
 
 	_register(_make(
 		"imp_warband", "lord_vael", "Imp Warband",
 		"When you summon a Senior Void Imp, all other VOID IMP CLAN minions gain +50 ATK.",
-		"swarm", 2, "swarm_discipline"))
+		"swarm", 2, "swarm_discipline", "res://assets/art/talents/lord_vael/icon_imp_warband.png"))
 
 	_register(_make(
 		"void_echo", "lord_vael", "Void Echo",
 		"CAPSTONE: Once per turn, when you draw a Void Imp, add a free Void Imp copy to your hand.",
-		"swarm", 3, "imp_warband"))
+		"swarm", 3, "imp_warband", "res://assets/art/talents/lord_vael/icon_void_echo.png"))
 
 	# -----------------------------------------------------------------------
 	# Branch 2 — Rune Master (rune synergy & grand rituals)
@@ -133,22 +134,22 @@ func _register_lord_vael_talents() -> void:
 	_register(_make(
 		"rune_caller", "lord_vael", "Rune Caller",
 		"Playing a Void Imp from hand draws a random Rune from your deck. That Rune costs 1 less Mana this turn.",
-		"rune_master", 0, ""))
+		"rune_master", 0, "", "res://assets/art/talents/lord_vael/icon_rune_caller.png"))
 
 	_register(_make(
 		"runic_attunement", "lord_vael", "Runic Attunement",
 		"All Rune aura effects are doubled.",
-		"rune_master", 1, "rune_caller"))
+		"rune_master", 1, "rune_caller", "res://assets/art/talents/lord_vael/icon_runic_attunement.png"))
 
 	_register(_make(
 		"ritual_surge", "lord_vael", "Ritual Surge",
 		"When any ritual fires, summon a Void Imp.",
-		"rune_master", 2, "runic_attunement"))
+		"rune_master", 2, "runic_attunement", "res://assets/art/talents/lord_vael/icon_ritual_surge.png"))
 
 	var abyss_convergence := _make(
 		"abyss_convergence", "lord_vael", "Abyss Convergence",
 		"CAPSTONE: Grand Ritual — Blood, Dominion, and Shadow Runes on board simultaneously triggers Abyssal Dominion with no Environment required.\nConsumes all three Runes. Deals 300 damage to all enemy minions. Give all friendly Demons +200 ATK and +200 HP.",
-		"rune_master", 3, "ritual_surge")
+		"rune_master", 3, "ritual_surge", "res://assets/art/talents/lord_vael/icon_abyss_convergence.png")
 	var grand_r := RitualData.new()
 	grand_r.ritual_name  = "Abyssal Dominion"
 	grand_r.description  = "Grand Ritual: Blood + Dominion + Shadow Runes"
@@ -172,19 +173,19 @@ func _register_lord_vael_talents() -> void:
 	_register(_make(
 		"piercing_void", "lord_vael", "Piercing Void",
 		"On play, Void Imps deal 200 Void Bolt damage and apply 1 Void Mark.\nVoid Imps cost +1 Mana.",
-		"void_bolt", 0, ""))
+		"void_bolt", 0, "", "res://assets/art/talents/lord_vael/icon_piercing_void.png"))
 
 	_register(_make(
 		"deepened_curse", "lord_vael", "Deepened Curse",
 		"Void Mark bonus increases from +25 to +40 damage per stack.",
-		"void_bolt", 1, "piercing_void"))
+		"void_bolt", 1, "piercing_void", "res://assets/art/talents/lord_vael/icon_deepened_curse.png"))
 
 	_register(_make(
 		"death_bolt", "lord_vael", "Death Bolt",
 		"When a VOID IMP CLAN minion dies, deal 100 Void Bolt damage to enemy hero.",
-		"void_bolt", 2, "deepened_curse"))
+		"void_bolt", 2, "deepened_curse", "res://assets/art/talents/lord_vael/icon_death_bolt.png"))
 
 	_register(_make(
 		"void_manifestation", "lord_vael", "Void Manifestation",
 		"CAPSTONE: VOID IMP CLAN minions deal Void Bolt damage when attacking enemy hero.",
-		"void_bolt", 3, "death_bolt"))
+		"void_bolt", 3, "death_bolt", "res://assets/art/talents/lord_vael/icon_void_manifestation.png"))

@@ -68,6 +68,15 @@ func play_spell(spell_id: String, caster_side: String, target: Variant, resolve_
 			# Plague resolves damage per-minion internally (the callback per
 			# impact_hit), so the caller's resolve_damage is ignored.
 			await _play_abyssal_plague(caster_side)
+		"pack_frenzy":
+			# Pack Frenzy's VFX is spawned inside the hardcoded effect (it
+			# needs the list of feral imp targets). resolve_damage kicks off
+			# that effect chain; then we await the tracked VFX so the enemy
+			# AI's next move waits for the full visual to finish.
+			resolve_damage.call(0)
+			var vfx: PackFrenzyVFX = _combat._pack_frenzy_active_vfx
+			if vfx != null and is_instance_valid(vfx):
+				await vfx.finished
 		_:
 			resolve_damage.call(0)
 

@@ -36,6 +36,11 @@ enum HighlightMode { NONE, VALID_TARGET, SELECTED, INVALID, PLACEMENT }
 var _highlight_mode: HighlightMode = HighlightMode.NONE
 var _pulse_tween: Tween = null
 var _pulse_t: float = 0.0
+## Optional per-slot override for the VALID_TARGET glow color. When set
+## (alpha > 0), it replaces the default green so spells can flag specific
+## targets — e.g. Dark Empowerment marking Demons in violet to telegraph
+## the conditional HP bonus. Reset to Color(0,0,0,0) by clear_highlight().
+var _highlight_color_override: Color = Color(0, 0, 0, 0)
 
 # ===========================================================================
 # BATTLEFIELD TEXT CONFIG  (slot is 180 × 195 px)
@@ -265,13 +270,15 @@ func remove_minion() -> void:
 # Highlight
 # ---------------------------------------------------------------------------
 
-func set_highlight(mode: HighlightMode) -> void:
+func set_highlight(mode: HighlightMode, color_override: Color = Color(0, 0, 0, 0)) -> void:
 	if mode != HighlightMode.VALID_TARGET and mode != HighlightMode.PLACEMENT:
 		_stop_pulse()
 	_highlight_mode = mode
+	_highlight_color_override = color_override
 	_refresh_visuals()
 
 func clear_highlight() -> void:
+	_highlight_color_override = Color(0, 0, 0, 0)
 	set_highlight(HighlightMode.NONE)
 
 # ---------------------------------------------------------------------------
@@ -305,7 +312,7 @@ func _show_empty_state() -> void:
 
 	# Border glow overlay (same as occupied slots)
 	match _highlight_mode:
-		HighlightMode.VALID_TARGET: _set_overlay_glow(Color(0.20, 0.70, 0.25, 1))
+		HighlightMode.VALID_TARGET: _set_overlay_glow(_valid_target_color())
 		HighlightMode.SELECTED:     _set_overlay_glow(Color(0.85, 0.75, 0.10, 1))
 		HighlightMode.INVALID:      _set_overlay_glow(Color(0.70, 0.15, 0.15, 1))
 		HighlightMode.PLACEMENT:    _set_overlay_glow(Color(0.608, 0.349, 0.714, 1))  # violet
@@ -322,7 +329,7 @@ func _show_occupied_state() -> void:
 
 	# Highlight: border glow on the overlay Panel (no fill tint)
 	match _highlight_mode:
-		HighlightMode.VALID_TARGET: _set_overlay_glow(Color(0.20, 0.70, 0.25, 1))
+		HighlightMode.VALID_TARGET: _set_overlay_glow(_valid_target_color())
 		HighlightMode.SELECTED:     _set_overlay_glow(Color(0.85, 0.75, 0.10, 1))
 		HighlightMode.INVALID:      _set_overlay_glow(Color(0.70, 0.15, 0.15, 1))
 		HighlightMode.PLACEMENT:    _set_overlay_glow(Color(0.608, 0.349, 0.714, 1))  # violet
@@ -523,6 +530,14 @@ func _set_buff_glow(lbl: Label, mode: String) -> void:
 	tw.tween_property(lbl, "modulate", Color(1, 1, 1, 1), _BUFF_GLOW_PERIOD * 0.5).set_trans(Tween.TRANS_SINE)
 	_buff_glow_tweens[lbl] = tw
 	_buff_glow_tweens["%s_mode" % lbl.get_instance_id()] = mode
+
+## Resolve the VALID_TARGET glow color — caller-supplied override wins when
+## set, otherwise the default green. Override alpha doubles as the "is set"
+## flag (Color(0,0,0,0) = unset).
+func _valid_target_color() -> Color:
+	if _highlight_color_override.a > 0.0:
+		return _highlight_color_override
+	return Color(0.20, 0.70, 0.25, 1)
 
 func _set_overlay_glow(color: Color) -> void:
 	var border_w: float = 3.0 + _pulse_t * 2.5

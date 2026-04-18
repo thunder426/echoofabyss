@@ -28,6 +28,9 @@ uniform float aspect : hint_range(0.5, 3.0) = 1.777;
 uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 0.2);
 uniform float alpha_multiplier : hint_range(0.0, 1.0) = 1.0;
 uniform float corner_radius : hint_range(0.0, 0.2) = 0.02;
+// How far inside the card (negative SDF) the band starts. Larger magnitude =
+// ripple begins deeper toward the center. Default matches old behavior.
+uniform float band_start_inset : hint_range(0.0, 0.5) = 0.0;
 
 void fragment() {
 	// Aspect-correct offset from card center so the band reads uniform.
@@ -46,13 +49,16 @@ void fragment() {
 	// Current band center — starts one thickness inside the card (hidden by
 	// the inside clip) and walks outward. This makes the band *emerge* from
 	// the edge instead of starting as a fixed halo some distance away from it.
-	float band_center = mix(-thickness, expand_max + thickness, progress);
+	float band_start = -max(thickness, band_start_inset);
+	float band_center = mix(band_start, expand_max + thickness, progress);
 
 	// Band falloff from its center.
 	float band_dist = abs(sdf - band_center);
 	float band_falloff = 1.0 - smoothstep(0.0, thickness, band_dist);
-	// Only distort pixels outside the card — keeps the card art itself sharp.
-	if (sdf < 0.0) {
+	// When band_start_inset is 0 (legacy), keep the card art sharp by clipping
+	// displacement inside the card. When the caller explicitly asked the wave
+	// to start from inside, allow it to ripple across the card interior too.
+	if (sdf < 0.0 && band_start_inset <= 0.0001) {
 		band_falloff = 0.0;
 	}
 
@@ -63,6 +69,10 @@ void fragment() {
 		vec2 q = max(d, vec2(0.0));
 		// Sign puts the push outward on each axis.
 		grad = normalize(vec2(q.x * sign(p_aspect.x), q.y * sign(p_aspect.y)) + vec2(0.0001, 0.0));
+	} else {
+		// Inside the card: push radially outward from the card center so an
+		// interior-started ripple has a meaningful displacement direction.
+		grad = normalize(p_aspect + vec2(0.0001, 0.0));
 	}
 	// Undo aspect so the displacement is proper screen-space.
 	grad.x /= aspect;
