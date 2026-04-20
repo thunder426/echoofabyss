@@ -14,6 +14,11 @@ var owner: String = ""
 ## The primary minion involved — summoned, dying, attacking, etc.
 var minion: MinionInstance = null
 
+## The attacker that caused ctx.minion's death (ON_PLAYER_MINION_DIED / ON_ENEMY_MINION_DIED).
+## Populated from scene._last_attacker at fire time. Null if the death was not caused by a
+## minion attack (e.g. spell damage, self-sacrifice, environment effect).
+var attacker: MinionInstance = null
+
 ## The player-chosen target for targeted on-play effects (void_netter, soul_collector, etc.)
 ## Null for untargeted effects or enemy-owned plays.
 var target: MinionInstance = null

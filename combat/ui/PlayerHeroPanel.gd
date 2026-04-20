@@ -9,6 +9,10 @@ var _scene: Node2D = null
 ## The header row so CombatScene can inject talent hover icon after setup.
 var header_row: HBoxContainer = null
 
+# -- Hero-specific resource bar (Seris Flesh/Forge) -------------------------
+## Created only when the current hero has a matching passive/talent. May be null.
+var resource_bar: SerisResourceBar = null
+
 # -- HP bar -----------------------------------------------------------------
 var _hp_label: Label = null
 var _hp_bar_fill: TextureRect = null
@@ -114,6 +118,11 @@ func setup(scene: Node2D, ui_root: Node) -> void:
 	_hp_label.add_theme_color_override("font_color", Color(0.95, 0.40, 0.40, 1))
 	_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_hp_label)
+
+	# Hero-specific resource bar (Seris Flesh/Forge) — null for heroes without matching passives.
+	resource_bar = SerisResourceBar.maybe_create(_scene)
+	if resource_bar != null:
+		vbox.add_child(resource_bar)
 
 # ---------------------------------------------------------------------------
 # Update

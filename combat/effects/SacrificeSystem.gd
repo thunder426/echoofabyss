@@ -33,3 +33,14 @@ static func emit(minion: MinionInstance, source_tag: String) -> void:
 	if minion == null:
 		return
 	bus().emit_signal("sacrifice_occurred", minion, source_tag)
+
+## Preferred entry point. Emits the bus signal (for VFX) AND directly calls
+## scene._on_demon_sacrificed so headless sim contexts receive the hook too
+## (sim does not subscribe to the global bus). Use this over emit() for any
+## new sacrifice site.
+static func sacrifice(scene: Object, minion: MinionInstance, source_tag: String) -> void:
+	if minion == null:
+		return
+	bus().emit_signal("sacrifice_occurred", minion, source_tag)
+	if scene != null and scene.has_method("_on_demon_sacrificed"):
+		scene._on_demon_sacrificed(minion, source_tag)

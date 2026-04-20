@@ -181,18 +181,33 @@ func _make_hero_panel(hero: HeroData, theme: FactionTheme) -> PanelContainer:
 	vbox.add_theme_constant_override("separation", 7)
 	margin.add_child(vbox)
 
-	# Portrait
+	# Portrait — fixed-size window. The image is sized larger than the window
+	# (by hero.select_portrait_extra_height) and anchored at the bottom, so the
+	# extra pixels spill UPWARD past the window and get clipped. Lets landscape
+	# portraits show more of the head without resizing the window.
 	if hero.portrait_path != "" and ResourceLoader.exists(hero.portrait_path):
+		var portrait_window := Control.new()
+		portrait_window.custom_minimum_size = Vector2(0, 215)
+		portrait_window.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		portrait_window.clip_contents = true
+		vbox.add_child(portrait_window)
+
 		var portrait := TextureRect.new()
 		portrait.texture = load(hero.portrait_path)
 		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		portrait.custom_minimum_size = Vector2(0, 200)
-		portrait.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		portrait.clip_contents = true
-		vbox.add_child(portrait)
+		portrait.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		portrait.offset_bottom += hero.select_portrait_extra_height
+		portrait_window.add_child(portrait)
 
-	# Dark semi-transparent panel behind all text
+	# Dark semi-transparent panel behind all text — negative-margin wrapper
+	# pulls it up by 7px to close the VBox separation gap below the portrait.
+	var text_panel_wrap := MarginContainer.new()
+	text_panel_wrap.add_theme_constant_override("margin_top", -7)
+	text_panel_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_panel_wrap.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	vbox.add_child(text_panel_wrap)
+
 	var text_panel := PanelContainer.new()
 	text_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_panel.size_flags_vertical   = Control.SIZE_EXPAND_FILL
@@ -206,7 +221,7 @@ func _make_hero_panel(hero: HeroData, theme: FactionTheme) -> PanelContainer:
 	text_style.content_margin_top    = 8.0
 	text_style.content_margin_bottom = 8.0
 	text_panel.add_theme_stylebox_override("panel", text_style)
-	vbox.add_child(text_panel)
+	text_panel_wrap.add_child(text_panel)
 
 	var inner := VBoxContainer.new()
 	inner.add_theme_constant_override("separation", 7)

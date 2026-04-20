@@ -97,15 +97,15 @@ func _register_all_relics() -> void:
 		"Deal 500 damage to a target enemy.", 2, 1, 3, "relic_execute",
 		"res://assets/art/relics/blood_chalice.png"))
 
-	# ── Act 3 (powerful / game-swinging) ──────────────────────────────────
+	# ── Act 3 (sidegrades / late-run flexibility — roughly Act-2-equivalent power) ──────
 	_reg(_make("void_hourglass", "Void Hourglass",
-		"Take an extra turn after this one.", 3, 1, 5, "relic_extra_turn"))
+		"Gain +1 maximum Essence and +1 maximum Mana (respects combined cap).", 3, 1, 6, "relic_extra_turn"))
 
 	_reg(_make("oblivion_seal", "Oblivion Seal",
-		"Summon a 500/500 Void Demon with Lifedrain.", 3, 1, 5, "relic_summon_demon"))
+		"Place a random Rune on your battlefield and deal 200 damage to a random enemy.", 3, 1, 5, "relic_summon_demon"))
 
 	_reg(_make("nether_crown", "Nether Crown",
-		"All friendly minions gain +200 ATK this turn.", 3, 1, 4, "relic_mass_buff"))
+		"All friendly minions gain +100 ATK permanently.", 3, 1, 4, "relic_mass_buff"))
 
 	_reg(_make("phantom_deck", "Phantom Deck",
-		"Add a copy of your 3 highest-cost cards to your hand.", 3, 1, 4, "relic_copy_cards"))
+		"Copy 2 random cards from your hand.", 3, 1, 4, "relic_copy_cards"))

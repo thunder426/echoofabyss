@@ -33,6 +33,8 @@ var scene: Object = null
 var last_attack_damage: int = 0
 
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
+	if scene != null:
+		scene._last_attacker = attacker
 	var atk_damage := _apply_crit(attacker)
 
 	# ETHEREAL: defender takes 50% reduced physical damage from minion attacks
@@ -68,21 +70,32 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	if attacker.has_lifedrain() and atk_damage > 0:
 		hero_healed.emit(attacker.owner, atk_damage)
 
+	if attacker.has_siphon() and atk_damage > 0:
+		_siphon_self_heal(attacker, atk_damage)
+
 	attacker.attack_count += 1
 	attacker.state = Enums.MinionState.EXHAUSTED
 	_check_post_crit(attacker)
 	attack_resolved.emit(attacker, defender)
+	if scene != null:
+		scene._last_attacker = null
 
 ## Resolve a minion attacking the enemy hero directly.
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
+	if scene != null:
+		scene._last_attacker = attacker
 	var damage := _apply_crit(attacker)
 	if damage > 0:
 		hero_damaged.emit(target_owner, damage, Enums.DamageType.PHYSICAL)
 		if attacker.has_lifedrain():
 			hero_healed.emit(attacker.owner, damage)
+		if attacker.has_siphon():
+			_siphon_self_heal(attacker, damage)
 	attacker.attack_count += 1
 	_check_post_crit(attacker)
 	attacker.state = Enums.MinionState.EXHAUSTED
+	if scene != null:
+		scene._last_attacker = null
 
 # ---------------------------------------------------------------------------
 # Damage application
@@ -115,6 +128,12 @@ func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = 
 				BuffSystem.remove_type(minion, Enums.BuffType.GRANT_DEATHLESS)
 				minion.current_health = 50
 				return
+			# Pre-death save hook — talents like Seris's deathless_flesh consume a
+			# resource to prevent death. Scene returns true if the minion was saved
+			# (and must restore HP to a non-zero value). has_method guard keeps sim
+			# state safe when the hook isn't wired.
+			if scene != null and scene.has_method("_try_save_from_death") and scene._try_save_from_death(minion):
+				return
 			minion.current_health = 0
 			# F11 debug: track Behemoth/Bastion death cause
 			if scene != null and minion.owner == "enemy":
@@ -139,6 +158,8 @@ func apply_spell_damage(minion: MinionInstance, damage: int) -> void:
 ## Instantly kill a minion, bypassing shield and health checks.
 ## Fires minion_vanished so On Death effects and board cleanup happen normally.
 func kill_minion(minion: MinionInstance) -> void:
+	if scene != null and scene.has_method("_try_save_from_death") and scene._try_save_from_death(minion):
+		return
 	minion.current_health = 0
 	minion_vanished.emit(minion)
 
@@ -201,6 +222,20 @@ func _rift_warden_siphon(defender: MinionInstance, prevented: int) -> void:
 			var target_owner := "player" if defender.owner == "enemy" else "enemy"
 			hero_damaged.emit(target_owner, prevented, Enums.DamageType.SPELL)
 			return  # only one siphon per attack
+
+## Siphon keyword — heal the attacker by 50% of damage dealt, clamped to max HP.
+## Distinct from Lifedrain (which heals the hero). Damage dealt uses the post-Ethereal
+## atk_damage value — i.e. what actually landed, not the raw attack stat.
+func _siphon_self_heal(attacker: MinionInstance, damage_dealt: int) -> void:
+	var heal := damage_dealt / 2
+	if heal <= 0:
+		return
+	var hp_cap: int = attacker.card_data.health + BuffSystem.sum_type(attacker, Enums.BuffType.HP_BONUS)
+	var before := attacker.current_health
+	attacker.current_health = mini(attacker.current_health + heal, hp_cap)
+	var healed := attacker.current_health - before
+	if healed > 0 and scene != null and scene.has_method("_on_minion_siphon_healed"):
+		scene._on_minion_siphon_healed(attacker, healed)
 
 ## Check if the last attack consumed a crit and run post-crit processing.
 func _check_post_crit(attacker: MinionInstance) -> void:

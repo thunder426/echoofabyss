@@ -73,6 +73,35 @@ var enemy_active_traps: Array       = []   ## Array[TrapCardData] — enemy side
 var enemy_active_environment        = null ## EnvironmentCardData or null — enemy side
 var enemy_void_marks:   int         = 0
 
+## Seris — Flesh counter (per-combat, capped). Mirrors CombatScene.player_flesh.
+var player_flesh:     int = 0
+var player_flesh_max: int = 5
+
+## Seris — Fiendish Pact pending Mana discount. Mirrors CombatScene._fiendish_pact_pending.
+var _fiendish_pact_pending: int = 0
+
+## Seris — Forge Counter (Demon Forge branch). Mirrors CombatScene.forge_counter.
+var forge_counter:           int = 0
+var forge_counter_threshold: int = 3
+
+## Mirrors CombatScene._last_attacker — populated during attack resolution so death
+## triggers can read the killer via ctx.attacker.
+var _last_attacker: MinionInstance = null
+
+## Identifies which hero the player is running as, so profiles can branch on
+## hero-specific activated abilities (Seris's Forge / Corrupt buttons). Matches
+## HeroDatabase ids ("lord_vael", "seris"). Defaults to Vael for back-compat with
+## existing sim callers that don't pass it.
+var player_hero_id: String = "lord_vael"
+
+## Callable SimTriggerSetup registered on BuffSystem.bus() for corruption_removed.
+## Stored so teardown() can cleanly disconnect and avoid cross-sim leaks.
+var _buff_bus_callable: Callable = Callable()
+
+## Mirrors CombatScene._player_spell_damage_bonus — set on ON_PLAYER_SPELL_CAST start,
+## cleared after resolution. _spell_dmg adds it to every spell-damage target hit.
+var _player_spell_damage_bonus: int = 0
+
 ## Aura handlers registered for each active rune — Array[{rune_id, entries}]
 ## where entries is Array[{event, handler}].
 var _rune_aura_handlers: Array = []
@@ -319,8 +348,15 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 	if trigger_manager != null:
 		var event := Enums.TriggerEvent.ON_PLAYER_MINION_DIED if minion.owner == "player" \
 			else Enums.TriggerEvent.ON_ENEMY_MINION_DIED
+		var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
+		if pre_corruption > 0:
+			var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+			rm_ctx.minion = minion
+			rm_ctx.damage = pre_corruption
+			trigger_manager.fire(rm_ctx)
 		var ctx := EventContext.make(event, minion.owner)
 		ctx.minion = minion
+		ctx.attacker = _last_attacker
 		trigger_manager.fire(ctx)
 
 func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
@@ -366,8 +402,29 @@ func _count_type_on_board(type: Enums.MinionType, owner: String) -> int:
 func _opponent_board(owner: String) -> Array:
 	return enemy_board if owner == "player" else player_board
 
+func _friendly_hand(owner: String) -> Array:
+	return player_hand if owner == "player" else enemy_hand
+
+## Seris Starter — Fiendish Pact discount peek (mirror of CombatScene).
+func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
+	if _fiendish_pact_pending <= 0:
+		return 0
+	if mc == null or mc.minion_type != Enums.MinionType.DEMON:
+		return 0
+	return mini(_fiendish_pact_pending, mc.mana_cost)
+
+func _consume_fiendish_pact_discount() -> void:
+	if _fiendish_pact_pending <= 0:
+		return
+	_fiendish_pact_pending = 0
+	for inst in player_hand:
+		if inst == null or inst.card_data == null:
+			continue
+		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+			inst.cost_delta = 0
+
 func _spell_dmg(minion: MinionInstance, amount: int) -> void:
-	combat_manager.apply_spell_damage(minion, amount)
+	combat_manager.apply_spell_damage(minion, amount + _player_spell_damage_bonus)
 
 func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
 	var base := CardDatabase.get_card(card_id)
@@ -404,6 +461,207 @@ func _corrupt_minion(target: MinionInstance) -> void:
 
 func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
+
+## Seris — mirrors CombatScene._gain_flesh. No UI side effects in sim.
+func _gain_flesh(amount: int = 1) -> void:
+	if amount <= 0:
+		return
+	player_flesh = min(player_flesh + amount, player_flesh_max)
+
+func _spend_flesh(amount: int) -> bool:
+	if amount <= 0 or player_flesh < amount:
+		return false
+	player_flesh -= amount
+	_on_flesh_spent(amount)
+	return true
+
+## Mirror of CombatScene._on_flesh_spent — Flesh Bond aura draws a card per spend.
+func _on_flesh_spent(_amount: int) -> void:
+	var has_flesh_bond := false
+	for m in player_board:
+		if "flesh_bond" in m.aura_tags:
+			has_flesh_bond = true
+			break
+	if not has_flesh_bond:
+		return
+	_draw_player(1)
+
+func _forge_counter_tick(amount: int = 1) -> bool:
+	if amount <= 0:
+		return false
+	forge_counter += amount
+	return forge_counter >= forge_counter_threshold
+
+func _forge_counter_reset() -> void:
+	forge_counter = 0
+
+func _on_flesh_changed() -> void:
+	pass
+
+func _on_forge_changed() -> void:
+	pass
+
+## Seris — mirror of CombatScene._on_demon_sacrificed. Same mechanics, no UI/log.
+const _FORGED_DEMON_AURAS: Array[String] = ["void_growth", "void_pulse", "flesh_bond"]
+func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
+	if minion == null or minion.owner != "player":
+		return
+	if not (minion.card_data is MinionCardData):
+		return
+	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		return
+	if _has_talent("fiend_offering") and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags:
+		if _spend_flesh(2):
+			_summon_token("lesser_demon", "player")
+	if not _has_talent("soul_forge"):
+		return
+	if _forge_counter_tick(1):
+		_summon_token("forged_demon", "player")
+		var forged: MinionInstance = null
+		for i in range(player_board.size() - 1, -1, -1):
+			var m: MinionInstance = player_board[i]
+			if m.card_data.id == "forged_demon":
+				forged = m
+				break
+		if forged != null and _has_talent("abyssal_forge"):
+			if player_flesh >= 5 and _spend_flesh(5):
+				forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
+			else:
+				var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
+				forged.aura_tags = [roll]
+		_forge_counter_reset()
+
+## Seris — mirror of CombatScene._pre_player_spell_cast. Computes the Void
+## Amplification damage bonus from friendly-Demon Corruption stacks.
+var _spell_cast_depth: int = 0
+var _double_cast_in_progress: bool = false
+func _pre_player_spell_cast(_spell: SpellCardData) -> void:
+	_spell_cast_depth += 1
+	if _spell_cast_depth > 1:
+		return
+	if _has_talent("void_amplification"):
+		var total_stacks: int = 0
+		for m in player_board:
+			if (m.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+				total_stacks += BuffSystem.count_type(m, Enums.BuffType.CORRUPTION)
+		_player_spell_damage_bonus = total_stacks * 50
+	else:
+		_player_spell_damage_bonus = 0
+
+## Seris — mirror of CombatScene._post_player_spell_cast. Handles Void Resonance
+## double-cast at the outermost cast level only. No VFX side effects in sim.
+func _post_player_spell_cast(spell: SpellCardData, target) -> void:
+	if _spell_cast_depth == 1 \
+			and _has_talent("void_resonance_seris") \
+			and player_flesh >= 5 \
+			and not _double_cast_in_progress:
+		_double_cast_in_progress = true
+		if _spend_flesh(5):
+			var target_alive: bool = target == null or (target is MinionInstance and (target as MinionInstance).current_health > 0)
+			if target_alive:
+				_sim_resolve_spell(spell, target)
+		_double_cast_in_progress = false
+	_spell_cast_depth = maxi(0, _spell_cast_depth - 1)
+	if _spell_cast_depth == 0:
+		_player_spell_damage_bonus = 0
+
+## Sim-local re-resolve helper — runs the spell's effect steps a second time
+## for Void Resonance. Mirrors SimPlayerAgent._resolve_spell's effect-step path.
+func _sim_resolve_spell(spell: SpellCardData, target) -> void:
+	if spell.effect_steps.is_empty():
+		return
+	var ctx := EffectContext.make(self, "player")
+	ctx.chosen_target = target
+	ctx.source_card_id = spell.id
+	EffectResolver.run(spell.effect_steps, ctx)
+
+## Forwards BuffSystem.corruption_removed into this sim's TriggerManager so
+## Corrupt Detonation (and other ON_CORRUPTION_REMOVED listeners) fire during sims.
+func _on_corruption_removed_bus(minion: MinionInstance, stacks: int) -> void:
+	if trigger_manager == null or minion == null or stacks <= 0:
+		return
+	var ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+	ctx.minion = minion
+	ctx.damage = stacks
+	trigger_manager.fire(ctx)
+
+## Disconnect global-bus subscriptions and drop references so this sim instance
+## can be freed cleanly and its callbacks don't leak into the next sim run.
+func teardown() -> void:
+	var buff_bus: Object = BuffSystem.bus()
+	if buff_bus != null and _buff_bus_callable.is_valid():
+		if buff_bus.is_connected("corruption_removed", _buff_bus_callable):
+			buff_bus.disconnect("corruption_removed", _buff_bus_callable)
+	_buff_bus_callable = Callable()
+
+## Seris — button-press counters used by BalanceSim for behavior diagnostics.
+## Zeroed per combat (fresh SimState per run).
+var _debug_soul_forge_fires: int = 0
+var _debug_corrupt_flesh_fires: int = 0
+
+## Seris — Soul Forge activated-ability mirror. Called by SerisPlayerProfile.
+## Same checks and effects as CombatScene._soul_forge_activate: spend 3 Flesh,
+## summon Grafted Fiend. Returns true if the summon attempt was made (Flesh spent).
+func _soul_forge_activate() -> bool:
+	if not _has_talent("soul_forge"):
+		return false
+	if player_flesh < 3:
+		return false
+	# Check for empty slot before spending — active uses should not waste Flesh
+	var has_slot := false
+	for slot in player_slots:
+		if slot.minion == null:
+			has_slot = true
+			break
+	if not has_slot:
+		return false
+	if not _spend_flesh(3):
+		return false
+	_summon_token("grafted_fiend", "player")
+	_debug_soul_forge_fires += 1
+	return true
+
+## Seris — Corrupt Flesh activated-ability mirror. Targeted: caller selects
+## which friendly Demon to corrupt. 1/turn flag tracked here. Returns true if
+## Corruption was applied.
+var _seris_corrupt_used_this_turn: bool = false
+func _seris_corrupt_activate(target: MinionInstance) -> bool:
+	if not _has_talent("corrupt_flesh"):
+		return false
+	if _seris_corrupt_used_this_turn:
+		return false
+	if player_flesh < 1:
+		return false
+	if target == null or target.owner != "player":
+		return false
+	if (target.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		return false
+	if not _spend_flesh(1):
+		return false
+	var stacks: int = 2 if "grafted_fiend" in (target.card_data as MinionCardData).minion_tags else 1
+	for _i in stacks:
+		BuffSystem.apply(target, Enums.BuffType.CORRUPTION, 100, "corrupt_flesh", false, false)
+	_seris_corrupt_used_this_turn = true
+	_debug_corrupt_flesh_fires += 1
+	return true
+
+## Seris — reset the Corrupt Flesh 1/turn flag at player turn start.
+## Called by the corrupt_flesh registry trigger via CombatHandlers.on_turn_start_corrupt_flesh_reset.
+func _seris_corrupt_reset_turn() -> void:
+	_seris_corrupt_used_this_turn = false
+
+## Seris — mirror of CombatScene._try_save_from_death. Same rules, no UI/log side effects.
+func _try_save_from_death(minion: MinionInstance) -> bool:
+	if minion == null or minion.owner != "player":
+		return false
+	if _has_talent("deathless_flesh") \
+			and minion.card_data is MinionCardData \
+			and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags \
+			and player_flesh >= 2:
+		_spend_flesh(2)
+		minion.current_health = 50
+		return true
+	return false
 
 func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, _from_rune: bool = false) -> void:
 	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
@@ -738,6 +996,7 @@ func begin_player_turn(turn_number: int) -> void:
 	imp_evolution_used_this_turn = false
 	for inst in player_hand:
 		inst.cost_delta = 0
+	_fiendish_pact_pending = 0
 	if trigger_manager != null:
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
 	_draw_player(1)

@@ -9,6 +9,7 @@ var _heroes: Dictionary = {}
 
 func _ready() -> void:
 	_register_lord_vael()
+	_register_seris()
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -93,4 +94,39 @@ func _register_lord_vael() -> void:
 	]
 
 	h.flavor = "\"The Abyss does not consume - it remembers.\"\n- Lord Vael, at the Rift Convergence"
+	_register(h)
+
+# ---------------------------------------------------------------------------
+# Seris, the Fleshbinder
+# ---------------------------------------------------------------------------
+
+func _register_seris() -> void:
+	var h := HeroData.new()
+	h.id = "seris"
+	h.hero_name = "Seris"
+	h.title = "the Fleshbinder"
+	h.faction = "Abyss Order"
+	h.portrait_path = "res://assets/art/hero_selection/hero_portrait/seris_portrait.png"
+	h.select_portrait_extra_height = 50.0
+	h.combat_portrait_path = "res://assets/art/heroes/combat_portraits/seris_portrait_bf.png"
+	h.frame_path = "res://assets/art/hero_selection/abyss_order_hero_frame.png"
+
+	h.passives = [
+		_make_passive(
+			"fleshbind",
+			"- Whenever a friendly Demon dies, gain 1 Flesh.",
+			"res://assets/art/passives/seris/icon_fleshbind.png"
+		),
+		_make_passive(
+			"grafted_affinity",
+			"- You may include up to 4 copies of Grafted Fiend in your deck.",
+			"res://assets/art/passives/seris/icon_grafted_affinity.png"
+		),
+	]
+
+	h.talent_branch_ids = ["fleshcraft", "demon_forge", "corruption_engine"]
+
+	h.hero_reward_pool = []
+
+	h.flavor = "\"Flesh remembers what the soul forgets.\"\n- Seris, the Fleshbinder"
 	_register(h)

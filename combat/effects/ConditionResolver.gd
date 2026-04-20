@@ -55,6 +55,13 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 			return scene.enemy_void_marks >= 5
 		"has_void_marks":
 			return scene.enemy_void_marks > 0
+		# Seris — Flesh thresholds (player-only; enemy Seris is not currently supported)
+		"flesh_gte_3":
+			var f3 = scene.get("player_flesh") if ctx.owner == "player" else 0
+			return (f3 if f3 != null else 0) >= 3
+		"flesh_lt_3":
+			var f4 = scene.get("player_flesh") if ctx.owner == "player" else 0
+			return (f4 if f4 != null else 0) < 3
 
 		# --- Talent conditions ---
 		"no_piercing_void":

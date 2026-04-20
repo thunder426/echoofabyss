@@ -117,9 +117,11 @@ func _refill_resources() -> void:
 	essence = essence_max
 	mana = mana_max
 
-## Grow Essence maximum by 1 (called by CombatScene when player clicks End Turn + Essence)
-func grow_essence_max() -> void:
-	if essence_max + mana_max < COMBINED_RESOURCE_CAP:
+## Grow Essence maximum by amount (called by CombatScene on end-turn and by card/relic effects).
+func grow_essence_max(amount: int = 1) -> void:
+	for _i in amount:
+		if essence_max + mana_max >= COMBINED_RESOURCE_CAP:
+			break
 		essence_max += 1
 
 ## Grow Mana maximum by amount (called by CombatScene on end-turn and by card effects).

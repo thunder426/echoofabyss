@@ -12,6 +12,7 @@
 ##   --runs 200        Simulations per combination (default: 200)
 ##   --preset swarm    Run only one preset (default: all)
 ##   --variant 0       Run only a specific variant index (default: all)
+##   --hero seris      Run only presets for a specific hero (default: all)
 extends Node
 
 # ---------------------------------------------------------------------------
@@ -20,6 +21,7 @@ extends Node
 
 const _PRESET_CONFIG: Dictionary = {
 	"swarm": {
+		"hero": "lord_vael",
 		"profile": "swarm",
 		"hero_passives": ["void_imp_boost", "void_imp_extra_copy"],
 		"talents_by_act": {
@@ -30,6 +32,7 @@ const _PRESET_CONFIG: Dictionary = {
 		},
 	},
 	"voidbolt_burst": {
+		"hero": "lord_vael",
 		"profile": "spell_burn",
 		"hero_passives": ["void_imp_boost", "void_imp_extra_copy"],
 		"talents_by_act": {
@@ -40,6 +43,7 @@ const _PRESET_CONFIG: Dictionary = {
 		},
 	},
 	"death_circle": {
+		"hero": "lord_vael",
 		"profile": "rune_tempo",
 		"hero_passives": ["void_imp_boost", "void_imp_extra_copy"],
 		"talents_by_act": {
@@ -47,6 +51,40 @@ const _PRESET_CONFIG: Dictionary = {
 			2: ["rune_caller", "runic_attunement"],
 			3: ["rune_caller", "runic_attunement", "ritual_surge"],
 			4: ["rune_caller", "runic_attunement", "ritual_surge", "abyss_convergence"],
+		},
+	},
+	# ── Seris, the Fleshbinder ───────────────────────────────────────────────
+	"seris_fleshcraft": {
+		"hero": "seris",
+		"profile": "seris",
+		"hero_passives": ["fleshbind", "grafted_affinity"],
+		"talents_by_act": {
+			1: ["flesh_infusion"],
+			2: ["flesh_infusion", "grafted_constitution"],
+			3: ["flesh_infusion", "grafted_constitution", "predatory_surge"],
+			4: ["flesh_infusion", "grafted_constitution", "predatory_surge", "deathless_flesh"],
+		},
+	},
+	"seris_demon_forge": {
+		"hero": "seris",
+		"profile": "seris",
+		"hero_passives": ["fleshbind", "grafted_affinity"],
+		"talents_by_act": {
+			1: ["soul_forge"],
+			2: ["soul_forge", "fiend_offering"],
+			3: ["soul_forge", "fiend_offering", "forge_momentum"],
+			4: ["soul_forge", "fiend_offering", "forge_momentum", "abyssal_forge"],
+		},
+	},
+	"seris_corruption_engine": {
+		"hero": "seris",
+		"profile": "seris",
+		"hero_passives": ["fleshbind", "grafted_affinity"],
+		"talents_by_act": {
+			1: ["corrupt_flesh"],
+			2: ["corrupt_flesh", "corrupt_detonation"],
+			3: ["corrupt_flesh", "corrupt_detonation", "void_amplification"],
+			4: ["corrupt_flesh", "corrupt_detonation", "void_amplification", "void_resonance_seris"],
 		},
 	},
 }
@@ -89,6 +127,9 @@ const _PRESET_NAMES: Dictionary = {
 	"swarm": "Swarm",
 	"voidbolt_burst": "Voidbolt",
 	"death_circle": "DeathCircle",
+	"seris_fleshcraft": "S.Flesh",
+	"seris_demon_forge": "S.Forge",
+	"seris_corruption_engine": "S.Corr",
 }
 
 # Short display names for relics
@@ -122,6 +163,7 @@ func _run() -> void:
 	var preset_filter: String = args.preset
 	var fight_filter: int = args.fight
 	var variant_filter: int = args.variant  # -1 = all
+	var hero_filter: String = args.hero  # "" = all heroes
 
 	print("")
 	print("=== Echo of Abyss — Batch Balance Simulator ===")
@@ -132,6 +174,8 @@ func _run() -> void:
 		print("Acts: %s" % str(acts))
 	if not preset_filter.is_empty():
 		print("Preset filter: %s" % preset_filter)
+	if not hero_filter.is_empty():
+		print("Hero filter: %s" % hero_filter)
 	print("")
 
 	var sim := CombatSim.new()
@@ -166,6 +210,10 @@ func _run() -> void:
 
 			var config: Dictionary = _PRESET_CONFIG.get(preset_id, {})
 			if config.is_empty():
+				continue
+
+			var preset_hero: String = config.get("hero", "lord_vael")
+			if not hero_filter.is_empty() and preset_hero != hero_filter:
 				continue
 
 			var deck: Array[String] = PresetDecks.get_cards(preset_id)
@@ -248,12 +296,12 @@ func _run() -> void:
 								half_a, deck, enemy_profile, enemy_deck,
 								3000, enemy_hp, talents, profile_id,
 								hero_passives, relic_ids, bonus_a,
-								enemy_limited)
+								enemy_limited, preset_hero)
 							var s_b: Dictionary = await sim.run_many(
 								half_b, deck, enemy_profile, enemy_deck,
 								3000, enemy_hp, talents, profile_id,
 								hero_passives, relic_ids, bonus_b,
-								enemy_limited)
+								enemy_limited, preset_hero)
 							s = _merge_stats(s_a, s_b, half_a, half_b)
 						else:
 							var bonus_charges: Dictionary = {}
@@ -261,7 +309,7 @@ func _run() -> void:
 								runs, deck, enemy_profile, enemy_deck,
 								3000, enemy_hp, talents, profile_id,
 								hero_passives, relic_ids, bonus_charges,
-								enemy_limited)
+								enemy_limited, preset_hero)
 
 						_print_row(preset_name, relic_display, enc.enemy_name, fight_idx as int, s, deck_id)
 
@@ -382,6 +430,7 @@ func _parse_args() -> Dictionary:
 		"preset": "",
 		"fight": 0,
 		"variant": -1,
+		"hero": "",  # "" = all heroes, else filter to a specific hero id
 	}
 
 	var args := OS.get_cmdline_user_args()
@@ -407,6 +456,10 @@ func _parse_args() -> Dictionary:
 			"--variant":
 				if i + 1 < args.size():
 					result.variant = int(args[i + 1])
+					i += 1
+			"--hero":
+				if i + 1 < args.size():
+					result.hero = args[i + 1]
 					i += 1
 		i += 1
 

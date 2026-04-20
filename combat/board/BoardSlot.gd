@@ -294,7 +294,7 @@ func _refresh_visuals() -> void:
 	else:
 		_show_occupied_state()
 
-const _ABYSS_HEROES     := ["lord_vael"]
+const _ABYSS_HEROES     := ["lord_vael", "seris"]
 const _ABYSS_EMPTY_SLOT := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
 
 func _show_empty_state() -> void:

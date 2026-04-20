@@ -42,8 +42,10 @@ enum Keyword {
 	DEATHLESS,      # Prevents the next fatal damage once; sets HP to 50 and is consumed
 	ETHEREAL,       # Takes 50% reduced damage from minion attacks, 50% increased from spells
 	PIERCE,         # Excess kill damage on a minion carries through to the enemy hero
+	SIPHON,         # This minion heals itself for 50% of damage it deals (distinct from Lifedrain which heals the hero)
 	VOID_MARK,      # Display-only pseudo-keyword: shown in tooltip on cards that apply Void Marks
 	RITUAL,         # Display-only pseudo-keyword: shown in tooltip on environment cards that define rituals
+	SACRIFICE,      # Display-only pseudo-keyword: shown on cards whose effect destroys a friendly minion as cost
 }
 
 ## All game events that flow through TriggerManager.
@@ -90,6 +92,10 @@ enum TriggerEvent {
 	ON_RITUAL_FIRED,                   # A ritual has resolved (ctx.owner = "player").
 	ON_PLAYER_SPARK_CONSUMED,          # A player minion was consumed as spark cost (ctx.damage = spark_value).
 	ON_ENEMY_SPARK_CONSUMED,           # An enemy minion was consumed as spark cost (ctx.damage = spark_value).
+
+	# ---- Corruption ----
+	ON_CORRUPTION_REMOVED,      # Corruption stacks removed from a minion by any means — death, Purge, Cleanse, enemy effect.
+	                            # ctx.minion = the minion, ctx.owner = minion owner, ctx.damage = stacks removed.
 
 	# ---- Combat lifecycle ----
 	ON_COMBAT_START,            # Combat has begun
@@ -162,6 +168,7 @@ enum BuffType {
 	GRANT_GUARD,     # Grants Guard at runtime (e.g. Imp Overseer aura). Dispellable.
 	GRANT_LIFEDRAIN, # Grants Lifedrain at runtime (e.g. Abyssal Fury). Dispellable.
 	GRANT_DEATHLESS, # Grants Deathless at runtime. Consumed (removed) when it activates.
+	GRANT_SIPHON,    # Grants Siphon at runtime (minion heals itself for 50% damage dealt). Dispellable.
 	# ---- Combat grants ----
 	CRITICAL_STRIKE, # Stacking. Consumed 1 per attack; doubles effective_atk for that attack.
 	GRANT_SPELL_IMMUNE, # Grants Spell Immune at runtime. Dispellable.

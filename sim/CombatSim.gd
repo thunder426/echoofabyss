@@ -86,6 +86,7 @@ const _PLAYER_PROFILES: Dictionary = {
 	"spell_burn": preload("res://enemies/ai/profiles/SpellBurnPlayerProfile.gd"),
 	"rune_tempo": preload("res://enemies/ai/profiles/RuneTempoPlayerProfile.gd"),
 	"scored":     preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
+	"seris":      preload("res://enemies/ai/profiles/SerisPlayerProfile.gd"),
 }
 
 ## Maximum turns before declaring a draw — prevents infinite loops.
@@ -115,7 +116,8 @@ func run(
 		relic_bonus_charges: Dictionary = {},
 		dmg_log: bool = false,
 		debug: bool = false,
-		enemy_limited: Array[String] = []) -> Dictionary:
+		enemy_limited: Array[String] = [],
+		player_hero_id: String = "lord_vael") -> Dictionary:
 
 	var state := SimState.new()
 	state.dmg_log_enabled = dmg_log
@@ -125,6 +127,7 @@ func run(
 	state.enemy_hp_max = enemy_hp
 	state.talents = player_talents
 	state.hero_passives = player_hero_passives
+	state.player_hero_id = player_hero_id
 	state.enemy_passives.assign(_ENEMY_PASSIVES.get(enemy_profile_id, []))
 
 	# Build agents
@@ -246,6 +249,12 @@ func run(
 			state._vw_behemoth_lost["survived"] += 1
 		elif m.card_data.id == "bastion_colossus":
 			state._vw_bastion_lost["survived"] += 1
+	# Disconnect global-bus subscriptions so this sim's callable doesn't fire for the next run.
+	state.teardown()
+	# Also reset Seris globals so they don't bleed into the next sim invocation.
+	MinionInstance.corruption_inverts_on_friendly_demons = false
+	var _seris_sf: int = state._debug_soul_forge_fires
+	var _seris_cf: int = state._debug_corrupt_flesh_fires
 	return {
 		"winner":       state.winner if not state.winner.is_empty() else "draw",
 		"turns":        turn,
@@ -253,6 +262,8 @@ func run(
 		"enemy_hp":     state.enemy_hp,
 		"player_board": state.player_board.size(),
 		"enemy_board":  state.enemy_board.size(),
+		"seris_sf": _seris_sf,
+		"seris_cf": _seris_cf,
 		"vw_behemoth_lost": state._vw_behemoth_lost.duplicate(),
 		"vw_bastion_lost": state._vw_bastion_lost.duplicate(),
 		"ritual_sacrifice_count": state._ritual_sacrifice_count,
@@ -305,7 +316,8 @@ func run_many(
 		player_hero_passives: Array[String] = [],
 		player_relic_ids: Array[String] = [],
 		relic_bonus_charges: Dictionary = {},
-		enemy_limited: Array[String] = []) -> Dictionary:
+		enemy_limited: Array[String] = [],
+		player_hero_id: String = "lord_vael") -> Dictionary:
 
 	var wins   := 0
 	var losses := 0
@@ -351,7 +363,7 @@ func run_many(
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
 				enemy_deck_ids, player_hp, enemy_hp, player_talents, player_profile_id,
 				player_hero_passives, player_relic_ids, relic_bonus_charges, false, false,
-				enemy_limited)
+				enemy_limited, player_hero_id)
 		match r["winner"]:
 			"player": wins   += 1
 			"enemy":  losses += 1

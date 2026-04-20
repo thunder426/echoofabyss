@@ -43,7 +43,22 @@ static func bus() -> Object:
 			{"name": "hp_delta",   "type": TYPE_INT},
 			{"name": "source_tag", "type": TYPE_STRING},
 		])
+		# Fired when Corruption stacks are stripped from a minion by any means
+		# (Purge, Cleanse, targeted removal). Seris Corrupt Detonation listens here.
+		# Deaths are handled scene-side (snapshot on vanish).
+		_bus.add_user_signal("corruption_removed", [
+			{"name": "minion", "type": TYPE_OBJECT},
+			{"name": "stacks", "type": TYPE_INT},
+		])
 	return _bus
+
+## Helper — snapshot corruption stacks on a minion, emit corruption_removed if >0.
+## Callers pass the pre-removal stack count; post-removal check is their responsibility
+## (this only reports; it does not mutate the minion).
+static func _emit_corruption_removed(minion: MinionInstance, stacks_removed: int) -> void:
+	if stacks_removed <= 0 or minion == null:
+		return
+	bus().emit_signal("corruption_removed", minion, stacks_removed)
 
 # ---------------------------------------------------------------------------
 # Core API
@@ -98,23 +113,32 @@ static func apply_hp_gain(minion: MinionInstance, amount: int,
 ## Remove all buff entries that were applied by the named source.
 ## Used for aura cleanup (e.g. Dominion Rune removed from board).
 static func remove_source(minion: MinionInstance, source: String) -> void:
+	var pre_corruption: int = count_type(minion, Enums.BuffType.CORRUPTION)
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return e.source != source)
 	_clamp_shield(minion)
+	_emit_corruption_removed(minion, pre_corruption - count_type(minion, Enums.BuffType.CORRUPTION))
 
 ## Remove only the FIRST buff entry matching the named source.
 ## Used when one instance of a stackable aura is removed (e.g. one of two Dominion Runes
 ## consumed by a ritual) so other instances' buffs are preserved.
 static func remove_one_source(minion: MinionInstance, source: String) -> void:
+	var pre_corruption: int = count_type(minion, Enums.BuffType.CORRUPTION)
 	for i in minion.buffs.size():
 		if (minion.buffs[i] as BuffEntry).source == source:
 			minion.buffs.remove_at(i)
 			break
 	_clamp_shield(minion)
+	_emit_corruption_removed(minion, pre_corruption - count_type(minion, Enums.BuffType.CORRUPTION))
 
 ## Remove all entries of a specific buff type.
 static func remove_type(minion: MinionInstance, type: int) -> void:
+	var pre_corruption: int = 0
+	if type == Enums.BuffType.CORRUPTION:
+		pre_corruption = count_type(minion, Enums.BuffType.CORRUPTION)
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return e.type != type)
 	_clamp_shield(minion)
+	if type == Enums.BuffType.CORRUPTION:
+		_emit_corruption_removed(minion, pre_corruption)
 
 ## Remove all buff entries (non-debuffs) — used by Purge / Dispel spells.
 ## Debuff entries (CORRUPTION) are preserved.
@@ -125,12 +149,16 @@ static func dispel(minion: MinionInstance) -> void:
 ## Remove all debuff entries — used by Cleanse effects.
 ## Buff entries are preserved.
 static func cleanse(minion: MinionInstance) -> void:
+	var pre_corruption: int = count_type(minion, Enums.BuffType.CORRUPTION)
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return not (e.type in DEBUFF_TYPES))
+	_emit_corruption_removed(minion, pre_corruption)
 
 ## Remove all runtime buff and debuff entries except SHIELD_BONUS — used by Purge effects.
 ## Shield is treated as a base stat and is not stripped.
 static func purge_all(minion: MinionInstance) -> void:
+	var pre_corruption: int = count_type(minion, Enums.BuffType.CORRUPTION)
 	minion.buffs = minion.buffs.filter(func(e: BuffEntry) -> bool: return e.type == Enums.BuffType.SHIELD_BONUS)
+	_emit_corruption_removed(minion, pre_corruption)
 
 ## Expire all temporary buff entries — call at the start of the owner's turn.
 static func expire_temp(minion: MinionInstance) -> void:
@@ -147,6 +175,16 @@ static func sum_type(minion: MinionInstance, type: int) -> int:
 		if e.type == type:
 			total += e.amount
 	return total
+
+## Count of buff entries of a given type — useful for talents that care about
+## "how many stacks" rather than "total amount applied" (e.g. Seris's
+## corrupt_detonation / void_amplification which scale per-stack, not per-amount).
+static func count_type(minion: MinionInstance, type: int) -> int:
+	var count: int = 0
+	for e: BuffEntry in minion.buffs:
+		if e.type == type:
+			count += 1
+	return count
 
 ## True if the minion has at least one buff entry of the given type.
 static func has_type(minion: MinionInstance, type: int) -> bool:

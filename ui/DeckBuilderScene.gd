@@ -7,8 +7,36 @@ extends Node2D
 
 const MAX_DECK_SIZE  := 15
 const MAX_COPIES     := 2
-const MAX_COPIES_IMP  := 4  # Void Imp limit raised by Lord Vael Passive 2
+const MAX_COPIES_EXTRA := 4  # Raised limit granted by certain hero passives (e.g. Vael's void_imp_extra_copy, Seris's grafted_affinity)
 const MAX_COPIES_CHAMPION := 1
+
+## Extra-copy rules granted by hero passives. Each entry:
+##   passive_id: HeroDatabase passive id that must be active on the current hero
+##   match:      {kind = "card_id", id = "..."}  OR  {kind = "tag", tag = "..."}
+## When a card matches an active rule, its copy cap is MAX_COPIES_EXTRA (4) instead of MAX_COPIES (2).
+## Champions always stay at MAX_COPIES_CHAMPION regardless.
+const _EXTRA_COPY_RULES: Array = [
+	{"passive_id": "void_imp_extra_copy", "match": {"kind": "card_id", "id": "void_imp"}},
+	{"passive_id": "grafted_affinity",    "match": {"kind": "tag",     "tag": "grafted_fiend"}},
+]
+
+## Returns the max number of copies of `card` the current hero's passives allow in a deck.
+func _copy_limit_for(card: CardData) -> int:
+	if card is MinionCardData and (card as MinionCardData).is_champion:
+		return MAX_COPIES_CHAMPION
+	var hero_id: String = GameManager.current_hero
+	for rule in _EXTRA_COPY_RULES:
+		if not HeroDatabase.has_passive(hero_id, rule["passive_id"]):
+			continue
+		var m: Dictionary = rule["match"]
+		match m["kind"]:
+			"card_id":
+				if card.id == m["id"]:
+					return MAX_COPIES_EXTRA
+			"tag":
+				if card is MinionCardData and m["tag"] in (card as MinionCardData).minion_tags:
+					return MAX_COPIES_EXTRA
+	return MAX_COPIES
 
 ## Predefined starter decks — defined in PresetDecks (cards/data/PresetDecks.gd).
 const PREDEFINED_DECKS: Array = PresetDecks.DECKS
@@ -24,8 +52,23 @@ const CORE_FILL_POOL: Array[String] = [
 
 const CARD_VISUAL_SCENE := preload("res://combat/ui/CardVisual.tscn")
 
-## Pools whose cards appear in the deck builder inventory.
-const DECK_BUILDER_POOLS: Array[String] = ["abyss_core", "neutral_core"]
+## Pools whose cards appear in the deck builder inventory for all heroes.
+const DECK_BUILDER_POOLS_BASE: Array[String] = ["abyss_core", "neutral_core"]
+
+## Hero-specific pools layered on top of the base pools. Cards with one of these
+## pool ids are visible in the deck builder only when the matching hero is active.
+const DECK_BUILDER_POOLS_BY_HERO: Dictionary = {
+	"seris": ["seris_starter"],
+}
+
+## Pools visible in the deck builder for the current hero (base + hero-specific).
+func _deck_builder_pools() -> Array[String]:
+	var result: Array[String] = []
+	result.append_array(DECK_BUILDER_POOLS_BASE)
+	var extra: Array = DECK_BUILDER_POOLS_BY_HERO.get(GameManager.current_hero, [])
+	for p in extra:
+		result.append(p)
+	return result
 
 ## Preview card size shown on hover
 const PREVIEW_SIZE := Vector2(480, 720)
@@ -128,7 +171,12 @@ func _reposition_preview() -> void:
 func _setup_predefined_deck_row() -> void:
 	var row := $UI/DeckPanel/PresetRow
 	row.add_theme_constant_override("separation", 8)
+	var current_hero: String = GameManager.current_hero
 	for preset in PREDEFINED_DECKS:
+		# Presets are hero-specific. Only show buttons whose "hero" matches the
+		# run's current hero so a Seris run doesn't surface Vael decks and vice versa.
+		if preset.get("hero", "") != current_hero:
+			continue
 		var btn := Button.new()
 		btn.text = preset["name"]
 		btn.custom_minimum_size = Vector2(130, 38)
@@ -146,10 +194,9 @@ func _on_load_preset(preset_id: String) -> void:
 				if _built_deck.size() >= MAX_DECK_SIZE:
 					break
 				var preset_card := CardDatabase.get_card(card_id)
-				if preset_card == null or preset_card.pool not in DECK_BUILDER_POOLS:
+				if preset_card == null or preset_card.pool not in _deck_builder_pools():
 					continue
-				var limit := MAX_COPIES_IMP if card_id == "void_imp" \
-					else (MAX_COPIES_CHAMPION if preset_card is MinionCardData and (preset_card as MinionCardData).is_champion else MAX_COPIES)
+				var limit := _copy_limit_for(preset_card)
 				if _built_deck.count(card_id) < limit:
 					_built_deck.append(card_id)
 			# Fill remaining slots from the core pool
@@ -157,10 +204,9 @@ func _on_load_preset(preset_id: String) -> void:
 				if _built_deck.size() >= MAX_DECK_SIZE:
 					break
 				var fill_card := CardDatabase.get_card(fill_id)
-				if fill_card == null or fill_card.pool not in DECK_BUILDER_POOLS:
+				if fill_card == null or fill_card.pool not in _deck_builder_pools():
 					continue
-				var limit := MAX_COPIES_IMP if fill_id == "void_imp" \
-					else (MAX_COPIES_CHAMPION if fill_card is MinionCardData and (fill_card as MinionCardData).is_champion else MAX_COPIES)
+				var limit := _copy_limit_for(fill_card)
 				if _built_deck.count(fill_id) < limit:
 					_built_deck.append(fill_id)
 			_rebuild_inventory_ui()
@@ -247,10 +293,9 @@ func _on_load_saved_deck(deck_name: String) -> void:
 		if _built_deck.size() >= MAX_DECK_SIZE:
 			break
 		var card := CardDatabase.get_card(card_id)
-		if card == null or card.pool not in DECK_BUILDER_POOLS:
+		if card == null or card.pool not in _deck_builder_pools():
 			continue
-		var limit := MAX_COPIES_IMP if card_id == "void_imp" \
-			else (MAX_COPIES_CHAMPION if card is MinionCardData and (card as MinionCardData).is_champion else MAX_COPIES)
+		var limit := _copy_limit_for(card)
 		if _built_deck.count(card_id) < limit:
 			_built_deck.append(card_id)
 	_save_name_edit.text = deck_name
@@ -364,7 +409,7 @@ func _on_faction_filter_changed(faction_val: String) -> void:
 # ---------------------------------------------------------------------------
 
 func _load_inventory() -> void:
-	for card_id in CardDatabase.get_card_ids_in_pools(DECK_BUILDER_POOLS):
+	for card_id in CardDatabase.get_card_ids_in_pools(_deck_builder_pools()):
 		_inventory_ids.append(card_id)
 	_inventory_ids.sort()
 
@@ -427,7 +472,7 @@ func _rebuild_inventory_ui() -> void:
 		if not card:
 			continue
 		var count_in_deck := _built_deck.count(card_id)
-		var copy_limit    := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_CHAMPION if card is MinionCardData and (card as MinionCardData).is_champion else MAX_COPIES)
+		var copy_limit    := _copy_limit_for(card)
 		var maxed         := count_in_deck >= copy_limit
 
 		var btn := Button.new()
@@ -592,7 +637,7 @@ func _card_type_color(card: CardData) -> Color:
 
 func _on_add_card(card_id: String) -> void:
 	var add_card := CardDatabase.get_card(card_id)
-	var limit := MAX_COPIES_IMP if card_id == "void_imp" else (MAX_COPIES_CHAMPION if add_card is MinionCardData and (add_card as MinionCardData).is_champion else MAX_COPIES)
+	var limit := _copy_limit_for(add_card)
 	if _built_deck.count(card_id) >= limit or _built_deck.size() >= MAX_DECK_SIZE:
 		return
 	_built_deck.append(card_id)

@@ -19,6 +19,11 @@ var faction: String = ""
 ## Path to the portrait image used on the hero select screen
 var portrait_path: String = ""
 
+## Extra pixel height added (upward) to the hero-select portrait window.
+## Lets wide/landscape portraits show more of the head without cropping.
+## Default 0 = base 215px window.
+var select_portrait_extra_height: float = 0.0
+
 ## Path to the combat portrait shown as the player status panel background
 var combat_portrait_path: String = ""
 

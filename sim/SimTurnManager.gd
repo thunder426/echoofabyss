@@ -55,6 +55,15 @@ func grow_mana_max(amount: int = 1) -> void:
 			break
 		_sim.player_mana_max += 1
 
+## Grow Essence maximum by amount, respecting the combined resource cap. Sim mirror
+## of TurnManager.grow_essence_max. The live version takes no arg (+1 always); this
+## one matches grow_mana_max's signature for call-site consistency.
+func grow_essence_max(amount: int = 1) -> void:
+	for _i in amount:
+		if _sim.player_essence_max + _sim.player_mana_max >= SimState.COMBINED_RESOURCE_CAP:
+			break
+		_sim.player_essence_max += 1
+
 func gain_essence(amount: int) -> void:
 	_sim.player_essence += amount
 

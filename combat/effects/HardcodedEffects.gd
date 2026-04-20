@@ -38,6 +38,10 @@ func resolve(id: String, ctx: EffectContext) -> void:
 		# --- Spell effects ---
 		"soul_shatter":
 			_soul_shatter(ctx)
+		"grafted_butcher":
+			_grafted_butcher(ctx)
+		"fiendish_pact":
+			_fiendish_pact(ctx)
 		"void_devourer_sacrifice":
 			_scene._resolve_void_devourer_sacrifice(ctx.source, ctx.owner)
 		"void_detonation_effect":
@@ -120,13 +124,52 @@ func _soul_shatter(ctx: EffectContext) -> void:
 	if demon == null:
 		return
 	var pre_hp: int = demon.current_health
-	SacrificeSystem.emit(demon, "soul_shatter")
+	SacrificeSystem.sacrifice(_scene, demon, "soul_shatter")
 	_scene.combat_manager.kill_minion(demon)
 	var dmg := 300 if pre_hp >= 300 else 200
 	var ls := _log_side(ctx.owner)
 	_log("  Soul Shatter: sacrifice had %d HP — %d AoE to all %s minions." % [pre_hp, dmg, _scene._opponent_of(ctx.owner)], ls)
 	for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
 		_scene._spell_dmg(m, dmg)
+
+## Seris Starter — Grafted Butcher ON PLAY: sacrifice chosen friendly minion, then 200 AoE to opponent board.
+## chosen_target is the sac target (picked via on_play_target_type = "friendly_minion_other").
+func _grafted_butcher(ctx: EffectContext) -> void:
+	var sac := ctx.chosen_target
+	var ls := _log_side(ctx.owner)
+	if sac == null or sac == ctx.source:
+		_log("  Grafted Butcher: no sacrifice target — fizzle.", ls)
+		return
+	SacrificeSystem.sacrifice(_scene, sac, "grafted_butcher")
+	_scene.combat_manager.kill_minion(sac)
+	_log("  Grafted Butcher: sacrificed %s — 200 AoE to all %s minions." % [sac.card_data.card_name, _scene._opponent_of(ctx.owner)], ls)
+	for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
+		_scene._spell_dmg(m, 200)
+
+## Seris Starter — Fiendish Pact: arm a pending 2-Mana discount for the NEXT Demon played this turn.
+## The discount is consumed on the first Demon played (see CombatScene._consume_fiendish_pact_discount
+## / SimState._consume_fiendish_pact_discount). Display-only cost_delta on hand Demons reflects
+## the pending discount until consumed or turn end. Player-only — enemy Seris is not supported.
+func _fiendish_pact(ctx: EffectContext) -> void:
+	var ls := _log_side(ctx.owner)
+	if ctx.owner != "player":
+		return
+	_scene.set("_fiendish_pact_pending", 2)
+	# Display hint: mark every Demon in hand with cost_delta = -2 (cleared on consume or turn start).
+	var hand: Array = _scene._friendly_hand(ctx.owner)
+	var count := 0
+	for inst in hand:
+		if inst == null or inst.card_data == null:
+			continue
+		if not (inst.card_data is MinionCardData):
+			continue
+		if (inst.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+			continue
+		inst.cost_delta = mini(inst.cost_delta, -2)
+		count += 1
+	_log("  Fiendish Pact: next Demon costs 2 less this turn (%d in hand)." % count, ls)
+	if _scene.has_method("_refresh_hand_spell_costs"):
+		_scene._refresh_hand_spell_costs()
 
 ## #2 — destroy_random_enemy_trap: symmetric — destroys a random opponent trap
 func _destroy_random_enemy_trap(ctx: EffectContext) -> void:

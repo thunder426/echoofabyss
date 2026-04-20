@@ -292,6 +292,138 @@ func on_player_minion_died_death_bolt(ctx: EventContext) -> void:
 	_scene.set("_pending_dmg_source", "death_bolt")
 	_scene._deal_void_bolt_damage(100)
 
+## Seris — Fleshbind passive. When a friendly Demon dies (by any cause — combat,
+## sacrifice, enemy effect), gain 1 Flesh (scene-capped at player_flesh_max).
+## Mirror: the ctx.owner check lets the handler stay symmetric — Seris's side
+## gains Flesh regardless of whether she is the player or (future) enemy.
+func on_minion_died_fleshbind(ctx: EventContext) -> void:
+	if ctx.minion == null or not (ctx.minion.card_data is MinionCardData):
+		return
+	if (ctx.minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		return
+	_scene._gain_flesh(1)
+
+# ---------------------------------------------------------------------------
+# Seris — Fleshcraft branch
+# ---------------------------------------------------------------------------
+
+## flesh_infusion (T0) — When you play a Grafted Fiend, spend 1 Flesh to give it +200 ATK permanent.
+## Fires on ON_PLAYER_MINION_PLAYED (from hand), not ON_PLAYER_MINION_SUMMONED — Fiends
+## summoned by Soul Forge don't cost Flesh to buff (they cost Flesh to summon).
+func on_played_flesh_infusion(ctx: EventContext) -> void:
+	if ctx.minion == null or not _has_tag(ctx.minion, "grafted_fiend"):
+		return
+	if not _scene._spend_flesh(1):
+		return
+	BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 200, "flesh_infusion", false, false)
+	_log("  Flesh Infusion: %s gains +200 ATK." % ctx.minion.card_data.card_name, _LOG_PLAYER)
+
+## grafted_constitution (T1) — Grafted Fiend permanently gains +100/+100 when it kills an enemy minion.
+## Hooks into the enemy death event and checks ctx.attacker (populated by CombatScene when
+## firing death triggers during attack resolution). Also increments kill_stacks for Predatory Surge.
+func on_enemy_died_grafted_constitution(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.attacker
+	if attacker == null or not _has_tag(attacker, "grafted_fiend"):
+		return
+	attacker.kill_stacks += 1
+	BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 100, "grafted_constitution", false, false)
+	BuffSystem.apply_hp_gain(attacker, 100, "grafted_constitution", true)
+	_log("  Grafted Constitution: %s +100/+100 (kills: %d)." % [attacker.card_data.card_name, attacker.kill_stacks], _LOG_PLAYER)
+	# Predatory Surge: at 3 kill stacks, grant SIPHON.
+	if _scene._has_talent("predatory_surge") and attacker.kill_stacks >= 3 \
+			and not BuffSystem.has_type(attacker, Enums.BuffType.GRANT_SIPHON):
+		BuffSystem.apply(attacker, Enums.BuffType.GRANT_SIPHON, 1, "predatory_surge", false, false)
+		_log("  Predatory Surge: %s gains Siphon." % attacker.card_data.card_name, _LOG_PLAYER)
+	if _scene.has_method("_refresh_slot_for"):
+		_scene._refresh_slot_for(attacker)
+
+## predatory_surge (T2) — Grafted Fiends enter with Swift.
+## The "3 kill stacks → Siphon" half of this talent lives in on_enemy_died_grafted_constitution
+## because it needs the kill_stacks counter that handler maintains. Registry registers both entry
+## points; this one only handles the on-summon Swift grant.
+func on_summon_predatory_surge(ctx: EventContext) -> void:
+	if ctx.minion == null or not _has_tag(ctx.minion, "grafted_fiend"):
+		return
+	# SWIFT is a MinionState, not a buff — mirrors the base-keyword SWIFT behaviour in
+	# MinionInstance.create so the minion can attack minions on summon turn.
+	if ctx.minion.state == Enums.MinionState.EXHAUSTED:
+		ctx.minion.state = Enums.MinionState.SWIFT
+		_log("  Predatory Surge: %s enters with Swift." % ctx.minion.card_data.card_name, _LOG_PLAYER)
+
+# ---------------------------------------------------------------------------
+# Seris — Corruption Engine branch
+# ---------------------------------------------------------------------------
+
+## corrupt_detonation (T1) — whenever Corruption stacks are removed from a friendly
+## Demon, deal 100 damage per stack to a random enemy (minions + hero mixed pool).
+## Only friendly side: enemy corruption removal doesn't detonate on player.
+func on_corruption_removed_detonation(ctx: EventContext) -> void:
+	if ctx.minion == null or not (ctx.minion.card_data is MinionCardData):
+		return
+	if ctx.minion.owner != "player":
+		return
+	if (ctx.minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		return
+	var stacks: int = ctx.damage
+	if stacks <= 0:
+		return
+	var damage: int = 100 * stacks
+	# Pick one target from the mixed pool: all alive enemy minions + enemy hero.
+	# Each minion and the hero are one entry each (no weighting).
+	var pool: Array = []
+	for m: MinionInstance in _scene.enemy_board:
+		if m.current_health > 0:
+			pool.append(m)
+	pool.append("enemy_hero")
+	var pick = pool[randi() % pool.size()]
+	_log("  Corrupt Detonation: %d damage to random enemy (%d stacks)." % [damage, stacks], _LOG_PLAYER)
+	if pick is MinionInstance:
+		if _scene.has_method("_spell_dmg"):
+			_scene._spell_dmg(pick, damage)
+		else:
+			_scene.combat_manager.apply_spell_damage(pick, damage)
+	else:
+		_scene.combat_manager.apply_hero_damage("enemy", damage, Enums.DamageType.SPELL)
+
+## corrupt_flesh (T0) — reset the 1-per-turn activated-ability flag at the start of
+## the player's turn. The activation itself lives on CombatScene._seris_corrupt_activate.
+func on_turn_start_corrupt_flesh_reset(_ctx: EventContext) -> void:
+	if _scene.has_method("_seris_corrupt_reset_turn"):
+		_scene._seris_corrupt_reset_turn()
+
+## void_resonance_seris (T3 capstone), half 1 — any enemy death grants 1 Flesh.
+## Stacks with Fleshbind (friendly Demon death): a trade where a friendly Demon
+## kills an enemy and dies in the process grants +2 Flesh total (per design Q5).
+func on_enemy_died_void_resonance(_ctx: EventContext) -> void:
+	_scene._gain_flesh(1)
+
+# ---------------------------------------------------------------------------
+# Seris — Demon Forge branch (aura effects)
+# ---------------------------------------------------------------------------
+
+## Abyssal Forge — end of player turn, apply Void Growth and Void Pulse auras to any
+## minion on the player board that carries them. Flesh Bond (draw on flesh-spend) is
+## driven by scene._on_flesh_spent, not this handler. Iterates a snapshot so an aura
+## whose effect kills its own carrier doesn't corrupt the loop.
+func on_turn_end_forge_auras(_ctx: EventContext) -> void:
+	var snapshot: Array = (_scene.player_board as Array).duplicate()
+	for m: MinionInstance in snapshot:
+		if m.aura_tags.is_empty():
+			continue
+		if "void_growth" in m.aura_tags:
+			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "void_growth", false, false)
+			BuffSystem.apply_hp_gain(m, 100, "void_growth", true)
+			_log("  Void Growth: %s +100/+100." % m.card_data.card_name, _LOG_PLAYER)
+			if _scene.has_method("_refresh_slot_for"):
+				_scene._refresh_slot_for(m)
+		if "void_pulse" in m.aura_tags:
+			_log("  Void Pulse: 100 damage to all enemy minions.", _LOG_PLAYER)
+			for target: MinionInstance in (_scene.enemy_board as Array).duplicate():
+				if _scene.has_method("_spell_dmg"):
+					_scene._spell_dmg(target, 100)
+				else:
+					_scene.combat_manager.apply_spell_damage(target, 100)
+
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_PLAYED
 # ---------------------------------------------------------------------------

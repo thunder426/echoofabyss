@@ -7,6 +7,12 @@
 class_name MinionInstance
 extends RefCounted
 
+## Global Seris Corrupt Flesh flag — when true, Corruption stacks on friendly Demons
+## grant +ATK instead of -ATK. Set by CombatSetup / SimTriggerSetup when the corrupt_flesh
+## talent is active; reset to false at combat teardown. Kept as a static (not per-scene)
+## so effective_atk() can read it without a scene reference.
+static var corruption_inverts_on_friendly_demons: bool = false
+
 # Who owns this minion
 var owner: String = "player"  # "player" or "enemy"
 
@@ -25,6 +31,16 @@ var current_atk: int = 0
 # Current HP — reduced by damage, increased by heals and HP buffs.
 # HP changes are applied directly (not tracked in BuffSystem — not reversible).
 var current_health: int = 0
+
+## Seris — per-minion kill count used by Predatory Surge (Grafted Fiend gains SIPHON
+## at 3 kills). Incremented by the grafted_constitution handler on enemy minion deaths
+## where ctx.attacker == this minion.
+var kill_stacks: int = 0
+
+## Seris — per-minion aura tags granted by Abyssal Forge to Forged Demons.
+## Values: "void_growth", "void_pulse", "flesh_bond". End-of-player-turn / flesh-spend
+## handlers iterate the player board and apply effects based on these tags.
+var aura_tags: Array[String] = []
 
 # Current shield HP — absorbs damage before HP; regenerated each turn if regen keyword present.
 var current_shield: int = 0
@@ -82,7 +98,14 @@ func effective_atk() -> int:
 	var atk := current_atk
 	atk += BuffSystem.sum_type(self, Enums.BuffType.ATK_BONUS)
 	atk += BuffSystem.sum_type(self, Enums.BuffType.TEMP_ATK)
-	atk -= BuffSystem.sum_type(self, Enums.BuffType.CORRUPTION)
+	var corruption_stacks: int = BuffSystem.sum_type(self, Enums.BuffType.CORRUPTION)
+	# Seris Corrupt Flesh: friendly Demons treat Corruption as +ATK instead of -ATK.
+	if corruption_inverts_on_friendly_demons \
+			and owner == "player" \
+			and card_data.minion_type == Enums.MinionType.DEMON:
+		atk += corruption_stacks
+	else:
+		atk -= corruption_stacks
 	return maxi(0, atk)
 
 ## Maximum shield this minion can have (base + SHIELD_BONUS buffs).
@@ -111,6 +134,12 @@ func has_deathless() -> bool:
 func has_lifedrain() -> bool:
 	return BuffSystem.has_type(self, Enums.BuffType.GRANT_LIFEDRAIN) \
 		or Enums.Keyword.LIFEDRAIN in card_data.keywords
+
+## True if this minion has Siphon (base keyword or granted at runtime).
+## Siphon heals the minion itself for 50% of damage it deals.
+func has_siphon() -> bool:
+	return BuffSystem.has_type(self, Enums.BuffType.GRANT_SIPHON) \
+		or Enums.Keyword.SIPHON in card_data.keywords
 
 ## True if this minion has any shield capacity.
 func has_shield() -> bool:

@@ -56,6 +56,70 @@ const DECKS: Array = [
 			"abyssal_sacrifice",
 		],
 	},
+	# ── Seris, the Fleshbinder ─────────────────────────────────────────────
+	# Fleshcraft — Grafted Fiends snowball through kills. Defensive shell to keep
+	# them alive until they scale; removal to weaken enemies into kill range.
+	# Avoids sacrifice spells (those destroy your own engine).
+	{
+		"id":   "seris_fleshcraft",
+		"hero": "seris",
+		"name": "Fleshcraft",
+		"desc": "Four Grafted Fiends grow through kills. Defensive plays keep them alive; Deathless Flesh turns late-run Fiends into unkillable scalers.",
+		"cards": [
+			"grafted_fiend", "grafted_fiend", "grafted_fiend", "grafted_fiend",
+			"void_imp", "void_imp",
+			"shadow_hound",
+			"abyssal_brute",
+			"void_netter",
+			"caravan_guard", "caravan_guard",
+			"dark_empowerment",
+			"dominion_rune",
+			"flux_siphon",
+			"hidden_ambush",
+		],
+	},
+	# Demon Forge — sacrifice engine. Cheap Demon bodies to feed the Forge Counter;
+	# Abyssal Sacrifice is the key spell (destroy → draw 2 + Forge tick + Fleshbind).
+	# Void Spawner makes each sacrifice net-positive with a Spark replacement.
+	{
+		"id":   "seris_demon_forge",
+		"hero": "seris",
+		"name": "Demon Forge",
+		"desc": "Sacrifice cheap Demons to forge greater ones. Void Spawner replaces losses with Sparks; Abyssal Sacrifice draws into the next wave.",
+		"cards": [
+			"grafted_fiend", "grafted_fiend", "grafted_fiend", "grafted_fiend",
+			"void_imp", "void_imp", "void_imp",
+			"shadow_hound",
+			"void_spawner",
+			"void_devourer",
+			"abyssal_sacrifice", "abyssal_sacrifice",
+			"dominion_rune",
+			"flux_siphon",
+			"caravan_guard",
+		],
+	},
+	# Corruption Engine — spell-heavy. Grafted Fiends act as Corruption batteries
+	# for Void Amplification; spells double via Void Resonance at 5 Flesh.
+	# Shadow Rune debuffs enemies on entry (classic use — doesn't feed the engine).
+	{
+		"id":   "seris_corruption_engine",
+		"hero": "seris",
+		"name": "Corruption Engine",
+		"desc": "Corrupt your Fiends to pump them and amplify spells. Void Resonance double-casts at 5 Flesh; Corrupt Detonation turns lost Corruption into damage.",
+		"cards": [
+			"grafted_fiend", "grafted_fiend", "grafted_fiend", "grafted_fiend",
+			"abyss_cultist",
+			"void_imp",
+			"shadow_hound",
+			"corruption_weaver",
+			"void_bolt", "void_bolt",
+			"abyssal_plague",
+			"void_execution",
+			"dark_empowerment",
+			"shadow_rune",
+			"flux_siphon",
+		],
+	},
 ]
 
 ## Return the cards array for the given deck id, or [] if not found.

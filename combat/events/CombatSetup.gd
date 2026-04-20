@@ -65,10 +65,83 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_RITUAL_FIRED, "method": "on_ritual_fired_ritual_surge", "priority": 0 }],
 		"stats":    {}
 	},
+	# ── Seris — Fleshcraft branch ────────────────────────────────────────────
+	"flesh_infusion": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "method": "on_played_flesh_infusion", "priority": 30 }],
+		"stats":    {}
+	},
+	"grafted_constitution": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_grafted_constitution", "priority": 30 }],
+		"stats":    {}
+	},
+	"predatory_surge": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_predatory_surge", "priority": 30 }],
+		"stats":    {}
+	},
+	# deathless_flesh — no trigger; handled by CombatScene._try_save_from_death hook.
+	"deathless_flesh": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# ── Seris — Demon Forge branch ───────────────────────────────────────────
+	# soul_forge has no trigger — activation via SerisResourceBar button, sacrifice tick via _on_demon_sacrificed.
+	"soul_forge": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# fiend_offering — extension of _on_demon_sacrificed; no extra trigger needed.
+	"fiend_offering": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# forge_momentum — lowers the Forge Counter threshold from 3 to 2 via stat override.
+	"forge_momentum": {
+		"triggers": [],
+		"stats":    { "forge_counter_threshold": 2 }
+	},
+	# abyssal_forge — grants auras at Forged Demon summon (inside _summon_forged_demon);
+	# aura effects themselves fire on turn end / flesh spent (see on_turn_end_forge_auras / _on_flesh_spent).
+	"abyssal_forge": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_TURN_END, "method": "on_turn_end_forge_auras", "priority": 30 }],
+		"stats":    {}
+	},
+	# ── Seris — Corruption Engine branch ─────────────────────────────────────
+	# corrupt_flesh — the ATK inversion is a MinionInstance global flag; the activated
+	# ability (button → scene._seris_corrupt_activate) has no trigger. Turn-start reset
+	# of the 1/turn flag registers here.
+	"corrupt_flesh": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_TURN_START, "method": "on_turn_start_corrupt_flesh_reset", "priority": 5 }],
+		"stats":    {}
+	},
+	"corrupt_detonation": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_CORRUPTION_REMOVED, "method": "on_corruption_removed_detonation", "priority": 30 }],
+		"stats":    {}
+	},
+	# void_amplification — scene reads the talent inside _pre_player_spell_cast; no trigger needed.
+	"void_amplification": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# void_resonance_seris — capstone. Half 1: +1 Flesh on any enemy minion death (handler).
+	# Half 2: double-cast spell when Flesh>=5 (handled by scene._post_player_spell_cast).
+	"void_resonance_seris": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_void_resonance", "priority": 40 }],
+		"stats":    {}
+	},
 
 	# ── Hero passives ─────────────────────────────────────────────────────────
 	"void_imp_boost": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_passive_void_imp_boost", "priority": 0 }],
+		"stats":    {}
+	},
+	# Seris, the Fleshbinder — friendly Demon deaths grant 1 Flesh (capped).
+	"fleshbind": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_DIED, "method": "on_minion_died_fleshbind", "priority": 0 }],
+		"stats":    {}
+	},
+	# grafted_affinity — deck-builder concern only (copy cap); no combat-time triggers.
+	"grafted_affinity": {
+		"triggers": [],
 		"stats":    {}
 	},
 
@@ -311,6 +384,11 @@ func setup(
 	# (not next turn start) so the buff doesn't bleed into the opponent's turn.
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_turn_end_pack_frenzy_revert,       10)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_END,       h.on_turn_end_pack_frenzy_revert,       10)
+
+	# ── Global flags from talents ────────────────────────────────────────────
+	# Reset per-combat globals, then set from active talents. Resetting here is important
+	# for sim batches where CombatSetup is reused across many state instances.
+	MinionInstance.corruption_inverts_on_friendly_demons = "corrupt_flesh" in talents
 
 	# ── Conditional: registry-driven registration and stat overrides ──────────
 	for id in talents:       _apply(id, tm, h, scene)

@@ -28,6 +28,11 @@ func _get_opponent_hp() -> int: return sim.enemy_hp
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return maxi(0, spell.cost + sim.player_spell_cost_penalty)
 
+## Override: apply Fiendish Pact pending discount on top of the base (piercing_void) logic.
+func effective_minion_mana_cost(mc: MinionCardData) -> int:
+	var base: int = super(mc)
+	return maxi(0, base - sim._peek_fiendish_pact_discount(mc))
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -58,6 +63,9 @@ func empty_slot_count() -> int:
 
 func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
 	var mc := inst.card_data as MinionCardData
+	# Seris Starter — consume Fiendish Pact pending discount if this is a Demon
+	if mc.minion_type == Enums.MinionType.DEMON and sim._fiendish_pact_pending > 0:
+		sim._consume_fiendish_pact_discount()
 	var instance := MinionInstance.create(mc, "player")
 	instance.card_instance = inst
 	sim.player_board.append(instance)
@@ -95,7 +103,11 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		ctx.card = spell
 		sim.trigger_manager.fire(ctx)
+	if sim.has_method("_pre_player_spell_cast"):
+		sim._pre_player_spell_cast(spell)
 	_resolve_spell(spell, chosen_target)
+	if sim.has_method("_post_player_spell_cast"):
+		sim._post_player_spell_cast(spell, chosen_target)
 	return sim.winner.is_empty()
 
 func commit_play_trap(inst: CardInstance) -> bool:

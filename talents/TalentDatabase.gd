@@ -7,6 +7,7 @@ var _talents: Dictionary = {}
 
 func _ready() -> void:
 	_register_lord_vael_talents()
+	_register_seris_talents()
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -62,18 +63,24 @@ func get_talents_for_hero(hero_id: String) -> Array[TalentData]:
 ## Display name for a branch id. Falls back to the id itself if not mapped.
 func get_branch_display_name(branch_id: String) -> String:
 	const DISPLAY_NAMES: Dictionary = {
-		"swarm":       "Endless Tide",
-		"rune_master": "Rune Master",
-		"void_bolt":   "Void Resonance",
+		"swarm":             "Endless Tide",
+		"rune_master":       "Rune Master",
+		"void_bolt":         "Void Resonance",
+		"fleshcraft":        "Fleshcraft",
+		"demon_forge":       "Demon Forge",
+		"corruption_engine": "Corruption Engine",
 	}
 	return DISPLAY_NAMES.get(branch_id, branch_id)
 
 ## Short one-line description shown on the hero selection card.
 func get_branch_description(branch_id: String) -> String:
 	const DESCRIPTIONS: Dictionary = {
-		"swarm":       "Overwhelm the board with Void Imps.",
-		"rune_master": "Harness the Runes to unleash devastating grand rituals.",
-		"void_bolt":   "Strike with amplified Void energy.",
+		"swarm":             "Overwhelm the board with Void Imps.",
+		"rune_master":       "Harness the Runes to unleash devastating grand rituals.",
+		"void_bolt":         "Strike with amplified Void energy.",
+		"fleshcraft":        "Empower Grafted Fiends; grow them through kills.",
+		"demon_forge":       "Sacrifice Demons to forge greater ones.",
+		"corruption_engine": "Turn Corruption into power, detonate it for damage and Flesh.",
 	}
 	return DESCRIPTIONS.get(branch_id, "")
 
@@ -189,3 +196,81 @@ func _register_lord_vael_talents() -> void:
 		"void_manifestation", "lord_vael", "Void Manifestation",
 		"CAPSTONE: VOID IMP CLAN minions deal Void Bolt damage when attacking enemy hero.",
 		"void_bolt", 3, "death_bolt", "res://assets/art/talents/lord_vael/icon_void_manifestation.png"))
+
+# ---------------------------------------------------------------------------
+# Seris, the Fleshbinder — 12 talents across 3 branches
+# ---------------------------------------------------------------------------
+
+func _register_seris_talents() -> void:
+
+	# -----------------------------------------------------------------------
+	# Branch 1 — Fleshcraft (empower Fiends; grow through kills)
+	# -----------------------------------------------------------------------
+
+	_register(_make(
+		"flesh_infusion", "seris", "Flesh Infusion",
+		"When you play a Grafted Fiend, spend 1 Flesh to give it +200 ATK permanently.",
+		"fleshcraft", 0, "", "res://assets/art/talents/seris/icon_flesh_infusion.png"))
+
+	_register(_make(
+		"grafted_constitution", "seris", "Grafted Constitution",
+		"Grafted Fiend permanently gains +100/+100 whenever it kills an enemy minion.",
+		"fleshcraft", 1, "flesh_infusion", "res://assets/art/talents/seris/icon_grafted_constitution.png"))
+
+	_register(_make(
+		"predatory_surge", "seris", "Predatory Surge",
+		"Grafted Fiends enter with Swift. When a Grafted Fiend reaches 3 kill stacks, it permanently gains Siphon.",
+		"fleshcraft", 2, "grafted_constitution", "res://assets/art/talents/seris/icon_predatory_surge.png"))
+
+	_register(_make(
+		"deathless_flesh", "seris", "Deathless Flesh",
+		"CAPSTONE: When a Grafted Fiend would die, spend 2 Flesh instead. If fewer than 2 Flesh, it dies normally.",
+		"fleshcraft", 3, "predatory_surge", "res://assets/art/talents/seris/icon_deathless_flesh.png"))
+
+	# -----------------------------------------------------------------------
+	# Branch 2 — Demon Forge (sacrifice Demons to forge greater ones)
+	# -----------------------------------------------------------------------
+
+	_register(_make(
+		"soul_forge", "seris", "Soul Forge",
+		"Spend 3 Flesh: summon a Grafted Fiend from outside your deck. Sacrificing any Demon adds 1 to the Forge Counter; at 3, summon a 500/500 Forged Demon and reset the counter.",
+		"demon_forge", 0, "", "res://assets/art/talents/seris/icon_soul_forge.png"))
+
+	_register(_make(
+		"fiend_offering", "seris", "Fiend Offering",
+		"When a Grafted Fiend is sacrificed to the Forge Counter, you may spend 2 Flesh to summon a 400/400 Lesser Demon.",
+		"demon_forge", 1, "soul_forge", "res://assets/art/talents/seris/icon_fiend_offering.png"))
+
+	_register(_make(
+		"forge_momentum", "seris", "Forge Momentum",
+		"Forge Counter requirement reduced to 2.",
+		"demon_forge", 2, "fiend_offering", "res://assets/art/talents/seris/icon_forge_momentum.png"))
+
+	_register(_make(
+		"abyssal_forge", "seris", "Abyssal Forge",
+		"CAPSTONE: When a Forged Demon is summoned, it randomly gains one of Void Growth, Void Pulse, or Flesh Bond. Spend 5 Flesh to grant all three instead.",
+		"demon_forge", 3, "forge_momentum", "res://assets/art/talents/seris/icon_abyssal_forge.png"))
+
+	# -----------------------------------------------------------------------
+	# Branch 3 — Corruption Engine (weaponise Corruption, detonate for damage & Flesh)
+	# -----------------------------------------------------------------------
+
+	_register(_make(
+		"corrupt_flesh", "seris", "Corrupt Flesh",
+		"Corruption stacks on friendly Demons grant +100 ATK per stack instead of -100. Spend 1 Flesh: apply 1 Corruption stack to a chosen friendly Demon. If the target is a Grafted Fiend, apply 2 stacks instead.",
+		"corruption_engine", 0, "", "res://assets/art/talents/seris/icon_corrupt_flesh.png"))
+
+	_register(_make(
+		"corrupt_detonation", "seris", "Corrupt Detonation",
+		"Whenever Corruption stacks are removed from a friendly Demon by any means, deal 100 damage per stack to a random enemy.",
+		"corruption_engine", 1, "corrupt_flesh", "res://assets/art/talents/seris/icon_corrupt_detonation.png"))
+
+	_register(_make(
+		"void_amplification", "seris", "Void Amplification",
+		"Your spells deal +50 damage per Corruption stack across all friendly Demons.",
+		"corruption_engine", 2, "corrupt_detonation", "res://assets/art/talents/seris/icon_void_amplification.png"))
+
+	_register(_make(
+		"void_resonance_seris", "seris", "Void Resonance",
+		"CAPSTONE: When a friendly minion kills an enemy minion, gain 1 Flesh. When you cast a spell with 5 Flesh, consume all Flesh and cast the spell twice.",
+		"corruption_engine", 3, "void_amplification", "res://assets/art/talents/seris/icon_void_resonance.png"))

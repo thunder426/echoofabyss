@@ -912,7 +912,9 @@ func _keywords_string(keywords: Array, clan: String = "", data: CardData = null)
 			Enums.Keyword.DEATHLESS:      parts.append("Deathless")
 			Enums.Keyword.ETHEREAL:       parts.append("Ethereal")
 			Enums.Keyword.PIERCE:         parts.append("Pierce")
+			Enums.Keyword.SIPHON:         parts.append("Siphon")
 			Enums.Keyword.VOID_MARK:      pass  # display-only; not shown in keyword line
+			Enums.Keyword.SACRIFICE:      pass  # display-only; description highlights the verb instead
 	if data is MinionCardData and (data as MinionCardData).spark_value > 0:
 		parts.append("Spirit Fuel: %d" % (data as MinionCardData).spark_value)
 	if data != null and data.void_spark_cost > 0:
@@ -971,7 +973,9 @@ const _KEYWORD_TOOLTIP: Dictionary = {
 	Enums.Keyword.DEATHLESS:      ["Deathless",   "Prevents the next fatal hit once. Sets HP to 50 instead of dying. Consumed after use."],
 	Enums.Keyword.ETHEREAL:       ["Ethereal",    "Takes 50% less damage from minion attacks, 50% more from spell effects."],
 	Enums.Keyword.PIERCE:         ["Pierce",      "Excess damage from killing a minion carries through to the enemy hero."],
+	Enums.Keyword.SIPHON:         ["Siphon",      "This minion heals itself for 50% of the damage it deals."],
 	Enums.Keyword.VOID_MARK:      ["Void Mark",   "A debuff stack placed on the enemy hero. Void Bolt deals bonus damage per stack."],
+	Enums.Keyword.SACRIFICE:      ["Sacrifice",   "This effect destroys a friendly minion as part of its cost. Sacrificed minions trigger on-death and sacrifice-reactive passives."],
 	Enums.Keyword.RITUAL:         ["Ritual",      "A powerful effect triggered by consuming the required Runes on the field."],
 }
 
@@ -996,7 +1000,9 @@ const _KEYWORD_ICON: Dictionary = {
 	Enums.Keyword.DEATHLESS:      "res://assets/art/icons/icon_deathless.png",
 	Enums.Keyword.ETHEREAL:       "res://assets/art/icons/icon_ethereal.png",
 	Enums.Keyword.PIERCE:         "res://assets/art/icons/icon_pierce.png",
+	Enums.Keyword.SIPHON:         "res://assets/art/icons/icon_siphon.png",
 	Enums.Keyword.VOID_MARK:      "res://assets/art/icons/icon_voidmark.png",
+	Enums.Keyword.SACRIFICE:      "res://assets/art/icons/icon_sacrifice.png",
 	Enums.Keyword.RITUAL:         "res://assets/art/icons/icon_ritual.png",
 }
 
@@ -1024,6 +1030,9 @@ func enable_tooltip() -> void:
 	# Cards that grant or reference Deathless get the Deathless keyword tooltip entry
 	if ("DEATHLESS" in card_data.description) and not Enums.Keyword.DEATHLESS in keywords:
 		keywords.append(Enums.Keyword.DEATHLESS)
+	# Cards whose description uses the verb "SACRIFICE" get the Sacrifice tooltip entry
+	if ("SACRIFICE" in card_data.description) and not Enums.Keyword.SACRIFICE in keywords:
+		keywords.append(Enums.Keyword.SACRIFICE)
 
 	var has_rituals := card_data is EnvironmentCardData \
 		and (card_data as EnvironmentCardData).rituals.size() > 0

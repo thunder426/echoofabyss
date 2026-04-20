@@ -211,15 +211,15 @@ func _on_launch_pressed() -> void:
 func _preset_card_test() -> void:
 	_preset_ai_profile        = ""
 	_preset_passives          = []
-	_hand_input.text          = "abyssal_sacrifice, abyssal_sacrifice, abyssal_sacrifice"
+	_hand_input.text          = "arcane_strike, arcane_strike, arcane_strike, arcane_strike, arcane_strike, arcane_strike, arcane_strike"
 	_player_deck_input.text   = ""
-	_player_board_input.text  = "shadow_hound, abyssal_brute, shadow_hound"
-	_enemy_hand_input.text    = ""
-	_enemy_board_input.text   = "shadow_hound, abyssal_brute, void_stalker"
+	_player_board_input.text  = ""
+	_enemy_hand_input.text    = "brood_imp, brood_imp, brood_imp"
+	_enemy_board_input.text   = "brood_imp, brood_imp"
 	_player_traps_input.text  = ""
 	_enemy_traps_input.text   = ""
-	_enemy_deck_input.text    = ""
-	_preset_enemy_start_essence_max = 0
+	_enemy_deck_input.text    = "brood_imp, brood_imp, brood_imp, brood_imp, brood_imp, brood_imp"
+	_preset_enemy_start_essence_max = 2
 	_preset_enemy_start_mana_max    = 0
 	_enemy_name_input.text    = "Card Test Dummy"
 	_player_hp_input.value    = 9999

@@ -176,6 +176,33 @@ var _rune_aura_handlers: Array = []  # Array[{rune_id: String, entries: Array}]
 ## Void Mark stacks on the enemy hero (accumulate through the run)
 var enemy_void_marks: int = 0
 
+## Seris — active spell damage bonus from void_amplification, set at the start of a
+## player spell cast (sum of Corruption stacks across friendly Demons * 50) and
+## cleared after resolution. `_spell_dmg` adds it to every spell-damage target hit.
+var _player_spell_damage_bonus: int = 0
+
+## Seris — Corrupt Flesh activated ability. `_seris_corrupt_targeting` is true while
+## the player is picking a friendly Demon to corrupt; `_seris_corrupt_used_this_turn`
+## enforces the 1-per-turn cap. Reset to false on each ON_PLAYER_TURN_START.
+var _seris_corrupt_targeting: bool = false
+var _seris_corrupt_used_this_turn: bool = false
+
+## Seris — Flesh counter. Gains 1 per friendly Demon death (Fleshbind passive), capped at player_flesh_max.
+## Resets each combat (CombatScene is re-instantiated). Spent by Seris talent effects.
+var player_flesh:     int = 0
+var player_flesh_max: int = 5
+
+## Seris — Fiendish Pact pending Mana discount. Set by the Fiendish Pact spell,
+## consumed when the next Demon is played (capped at that card's mana_cost).
+## Cleared at player turn start along with cost_delta.
+var _fiendish_pact_pending: int = 0
+
+## Seris — Forge Counter (Demon Forge branch). Incremented when a Demon is sacrificed; at threshold
+## the Soul Forge talent auto-summons a Forged Demon and resets the counter.
+## Threshold is set by CombatSetup from the talent registry (forge_momentum reduces it from 3 to 2).
+var forge_counter:            int = 0
+var forge_counter_threshold:  int = 3
+
 ## Passive-configurable stats — set by CombatSetup from the registry at combat start.
 var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
 var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
@@ -245,6 +272,9 @@ var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
 var _enemy_crits_consumed: int = 0  ## Total enemy crits consumed (for champion tracking)
 var _player_crits_consumed: int = 0
 var _last_crit_attacker: MinionInstance = null  ## Set by _apply_crit for post-crit processing
+## Set by CombatManager.resolve_minion_attack / resolve_minion_attack_hero for the duration of
+## the attack; read by death-trigger firing so ctx.attacker can be populated. Cleared after.
+var _last_attacker: MinionInstance = null
 var _dark_channeling_active: bool = false
 var _dark_channeling_multiplier: float = 1.0
 
@@ -639,6 +669,7 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		_relic_cost_reduction = 0
 		for inst in turn_manager.player_hand:
 			inst.cost_delta = 0
+		_fiendish_pact_pending = 0
 		_refresh_hand_spell_costs()
 		if _relic_runtime:
 			_relic_runtime.on_turn_start()
@@ -829,8 +860,9 @@ func _start_pip_blink_for_card(card_data: CardData) -> void:
 	elif card_data is MinionCardData:
 		var mc := card_data as MinionCardData
 		var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
+		extra_mana -= _peek_fiendish_pact_discount(mc)
 		ess_spend = mc.essence_cost
-		mna_spend = mc.mana_cost + extra_mana
+		mna_spend = maxi(0, mc.mana_cost + extra_mana)
 	elif card_data is TrapCardData:
 		mna_spend = _effective_trap_cost(card_data as TrapCardData)
 	elif card_data is EnvironmentCardData:
@@ -864,7 +896,8 @@ func _begin_spell_select(spell: SpellCardData) -> void:
 func _begin_minion_select(mc: MinionCardData) -> void:
 	# Check affordability (Void Crystal relic bypasses cost for the first card)
 	var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
-	if not turn_manager.can_afford(mc.essence_cost, mc.mana_cost + extra_mana):
+	extra_mana -= _peek_fiendish_pact_discount(mc)
+	if not turn_manager.can_afford(mc.essence_cost, maxi(0, mc.mana_cost + extra_mana)):
 		_cancel_card_select()
 		return
 	if not _player_can_afford_sparks(mc.void_spark_cost):
@@ -923,12 +956,14 @@ func _try_play_spell(spell: SpellCardData) -> void:
 	# Show large card preview; resolve effects on impact so damage visuals sync
 	_show_card_cast_anim(spell, false, func() -> void:
 		var resolve_damage := func(_i: int) -> void:
+			_pre_player_spell_cast(spell)
 			if not spell.effect_steps.is_empty():
 				var ctx := EffectContext.make(self, "player")
 				ctx.source_card_id = spell.id
 				EffectResolver.run(spell.effect_steps, ctx)
 			else:
 				_resolve_spell_effect(spell.effect_id, null)
+			_post_player_spell_cast(spell, null)
 			var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 			spell_ctx.card = spell
 			trigger_manager.fire(spell_ctx)
@@ -1095,6 +1130,10 @@ func _on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if not turn_manager.is_player_turn:
 		return
+	# Seris — Corrupt Flesh activated ability targeting mode.
+	if _seris_corrupt_targeting:
+		_seris_corrupt_apply_target(minion)
+		return
 	# If a targeted spell is waiting for a target, apply it
 	if pending_play_card != null and pending_play_card.card_data is SpellCardData:
 		var spell := pending_play_card.card_data as SpellCardData
@@ -1170,8 +1209,13 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 		_player_pay_sparks(card.void_spark_cost)
 	# Talent: piercing_void — base Void Imp costs +1 Mana
 	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
-	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
+	var fp_discount := _peek_fiendish_pact_discount(card)
+	extra_mana -= fp_discount
+	if not _pay_card_cost(card.essence_cost, maxi(0, card.mana_cost + extra_mana)):
 		return
+	if fp_discount > 0:
+		_log("  Fiendish Pact: %s costs %d less Mana." % [card.card_name, fp_discount], _LogType.PLAYER)
+		_consume_fiendish_pact_discount()
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
 	instance.card_instance = inst
@@ -1211,8 +1255,13 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 	if card.void_spark_cost > 0:
 		_player_pay_sparks(card.void_spark_cost)
 	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
-	if not _pay_card_cost(card.essence_cost, card.mana_cost + extra_mana):
+	var fp_discount := _peek_fiendish_pact_discount(card)
+	extra_mana -= fp_discount
+	if not _pay_card_cost(card.essence_cost, maxi(0, card.mana_cost + extra_mana)):
 		return
+	if fp_discount > 0:
+		_log("  Fiendish Pact: %s costs %d less Mana." % [card.card_name, fp_discount], _LogType.PLAYER)
+		_consume_fiendish_pact_discount()
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
 	instance.card_instance = inst
@@ -1466,6 +1515,8 @@ func _connect_buff_signal() -> void:
 		return
 	if not bus.is_connected("buff_applied", _on_buff_applied):
 		bus.connect("buff_applied", _on_buff_applied)
+	if not bus.is_connected("corruption_removed", _on_corruption_removed):
+		bus.connect("corruption_removed", _on_corruption_removed)
 
 ## The signal bus is a static Object that outlives this scene, so the
 ## connection must be torn down or it'll point at a freed receiver next run.
@@ -1473,9 +1524,74 @@ func _exit_tree() -> void:
 	var bus: Object = BuffSystem.bus()
 	if bus != null and bus.is_connected("buff_applied", _on_buff_applied):
 		bus.disconnect("buff_applied", _on_buff_applied)
+	if bus != null and bus.is_connected("corruption_removed", _on_corruption_removed):
+		bus.disconnect("corruption_removed", _on_corruption_removed)
 	var sac_bus: Object = SacrificeSystem.bus()
 	if sac_bus != null and sac_bus.is_connected("sacrifice_occurred", _on_sacrifice_occurred):
 		sac_bus.disconnect("sacrifice_occurred", _on_sacrifice_occurred)
+	# Reset Seris Corrupt Flesh global — otherwise a non-Seris run after a Seris run
+	# would see inverted corruption on its Demons.
+	MinionInstance.corruption_inverts_on_friendly_demons = false
+
+## Seris — called before a player spell's effect resolves. Sets
+## _player_spell_damage_bonus from Void Amplification (sum of Corruption on
+## friendly Demons * 50). Cleared by _post_player_spell_cast after resolution.
+## Tracks re-entrancy via _spell_cast_depth so nested/recursive casts don't
+## re-compute from partial state.
+var _spell_cast_depth: int = 0
+func _pre_player_spell_cast(_spell: SpellCardData) -> void:
+	_spell_cast_depth += 1
+	if _spell_cast_depth > 1:
+		return  # nested cast (e.g. void_resonance recast) uses the outer bonus
+	if _has_talent("void_amplification"):
+		var total_stacks: int = 0
+		for m in player_board:
+			if (m.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+				total_stacks += BuffSystem.count_type(m, Enums.BuffType.CORRUPTION)
+		_player_spell_damage_bonus = total_stacks * 50
+	else:
+		_player_spell_damage_bonus = 0
+
+## Seris — called after a player spell's effect resolves. Handles the Void
+## Resonance (Seris capstone) double-cast: if the player still has ≥5 Flesh
+## AFTER any cost the spell itself deducted, consume all 5 and recursively
+## resolve the spell's effect once more targeting the same minion.
+func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> void:
+	# Only try double-cast at the outermost cast level, and only once per cast.
+	if _spell_cast_depth == 1 \
+			and _has_talent("void_resonance_seris") \
+			and player_flesh >= 5 \
+			and not _double_cast_in_progress:
+		_double_cast_in_progress = true
+		if _spend_flesh(5):
+			_log("  Void Resonance: recasting %s." % spell.card_name, _LogType.PLAYER)
+			# If the original target is dead / gone, per design the recast fizzles but Flesh is still spent.
+			if target == null or (is_instance_valid(target) and target.current_health > 0):
+				if not spell.effect_steps.is_empty():
+					var ctx := EffectContext.make(self, "player")
+					ctx.chosen_target = target
+					ctx.source_card_id = spell.id
+					EffectResolver.run(spell.effect_steps, ctx)
+				else:
+					_resolve_spell_effect(spell.effect_id, target)
+		_double_cast_in_progress = false
+	_spell_cast_depth = maxi(0, _spell_cast_depth - 1)
+	if _spell_cast_depth == 0:
+		_player_spell_damage_bonus = 0
+
+## Reentrancy guard so the recast doesn't itself trigger another recast.
+var _double_cast_in_progress: bool = false
+
+## Forward BuffSystem.corruption_removed into the TriggerManager as ON_CORRUPTION_REMOVED
+## so corrupt_detonation and future listeners can react uniformly. ctx.minion = the minion,
+## ctx.damage = stacks removed (overloaded field — see EventContext comments).
+func _on_corruption_removed(minion: MinionInstance, stacks: int) -> void:
+	if trigger_manager == null or minion == null or stacks <= 0:
+		return
+	var ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+	ctx.minion = minion
+	ctx.damage = stacks
+	trigger_manager.fire(ctx)
 
 ## Subscribe to SacrificeSystem.bus() so every ritual sacrifice (Abyssal
 ## Sacrifice, Blood Pact, Soul Shatter, Void Devourer) fires the generic
@@ -1860,6 +1976,38 @@ func _friendly_deck(owner: String) -> Array:
 	else:
 		return enemy_ai.deck if enemy_ai else []
 
+## Return the hand belonging to the given owner.
+func _friendly_hand(owner: String) -> Array:
+	if owner == "player":
+		return turn_manager.player_hand
+	else:
+		return enemy_ai.hand if enemy_ai else []
+
+## Seris Starter — Fiendish Pact discount for a single Demon play.
+## Returns the Mana discount to subtract from this play's cost (0 if not applicable).
+## Does NOT consume the pending yet — call _consume_fiendish_pact_discount after the pay succeeds.
+func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
+	if _fiendish_pact_pending <= 0:
+		return 0
+	if mc == null or mc.minion_type != Enums.MinionType.DEMON:
+		return 0
+	return mini(_fiendish_pact_pending, mc.mana_cost)
+
+## Consume the Fiendish Pact pending discount after a Demon is successfully played.
+## Also clears the display-only cost_delta on any remaining Demon cards in hand,
+## since the effect is spent.
+func _consume_fiendish_pact_discount() -> void:
+	if _fiendish_pact_pending <= 0:
+		return
+	_fiendish_pact_pending = 0
+	for inst in turn_manager.player_hand:
+		if inst == null or inst.card_data == null:
+			continue
+		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+			inst.cost_delta = 0
+	if has_method("_refresh_hand_spell_costs"):
+		_refresh_hand_spell_costs()
+
 ## Add a CardInstance to the given owner's hand.
 func _add_to_owner_hand(owner: String, inst: CardInstance) -> void:
 	if owner == "player":
@@ -1912,7 +2060,7 @@ func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = 
 	var count := to_sacrifice.size()
 	for m in to_sacrifice:
 		_log("  Void Devourer sacrifices %s!" % m.card_data.card_name, _LogType.PLAYER)
-		SacrificeSystem.emit(m, "void_devourer")
+		SacrificeSystem.sacrifice(self, m, "void_devourer")
 		combat_manager.kill_minion(m)
 	if count > 0:
 		BuffSystem.apply(devourer, Enums.BuffType.ATK_BONUS, count * 300, "void_devourer", false, false)
@@ -1949,6 +2097,13 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 			if data.is_champion:
 				_champion_summon_sequence(data, instance, slot)
 			else:
+				# Void Spark tokens get the spark summon sigil VFX (covers
+				# brood_imp on-death, soul_rune, and other spark sources).
+				# Reserve the slot synchronously (so back-to-back SUMMONs land
+				# in distinct slots) then reveal the minion after the sigil.
+				if card_id == "void_spark" and vfx_controller != null:
+					_summon_spark_with_sigil(instance, data, slot, owner)
+					return
 				slot.place_minion(instance)
 				_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
 				var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
@@ -1957,6 +2112,39 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 				ctx.card   = data
 				trigger_manager.fire(ctx)
 			return
+
+## Play SPARK sigil VFX, then reveal the summoned spark after the VFX ends.
+## The slot is reserved immediately (minion occupies it, visuals frozen) so
+## back-to-back SUMMON steps (e.g. Brood Imp's 2 sparks) land in distinct
+## slots. Each summon plays its own sigil in parallel.
+func _summon_spark_with_sigil(instance: MinionInstance, data: MinionCardData,
+		slot: BoardSlot, owner: String) -> void:
+	# Reserve the slot synchronously — is_empty() now returns false for it.
+	slot.freeze_visuals = true
+	slot.place_minion(instance)
+
+	# Spawn sigil and wait for it to finish before revealing the minion.
+	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.SPARK)
+	vfx_controller.spawn(sigil)
+	await sigil.finished
+	if not is_inside_tree():
+		return
+
+	# Reveal the minion — refresh visuals now that the sigil has collapsed,
+	# then fade the slot in so the spark materialises rather than popping.
+	slot.freeze_visuals = false
+	slot.modulate.a = 0.0
+	slot._refresh_visuals()
+	var fade := create_tween()
+	fade.tween_property(slot, "modulate:a", 1.0, 0.35) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
+	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	var ctx   := EventContext.make(event, owner)
+	ctx.minion = instance
+	ctx.card   = data
+	trigger_manager.fire(ctx)
+
 
 ## Count minions of a given type on the specified owner's board.
 func _count_type_on_board(type: Enums.MinionType, owner: String) -> int:
@@ -2223,7 +2411,7 @@ func _play_brood_call_vfx(owner: String) -> void:
 			break
 	if target_slot == null:
 		return
-	var vfx := BroodCallVFX.create(target_slot)
+	var vfx := SummonSigilVFX.create(target_slot, SummonSigilVFX.Flavor.BROOD)
 	vfx_controller.spawn(vfx)
 	await vfx.finished
 
@@ -2490,6 +2678,230 @@ func _apply_void_mark(stacks: int = 1) -> void:
 		var vfx := VoidMarkApplyVFX.create(_enemy_status_panel)
 		vfx_controller.spawn(vfx)
 
+## Seris — gain Flesh (clamped to player_flesh_max). Called by Fleshbind handler and related talents.
+func _gain_flesh(amount: int = 1) -> void:
+	if amount <= 0:
+		return
+	var before := player_flesh
+	player_flesh = min(player_flesh + amount, player_flesh_max)
+	if player_flesh == before:
+		return
+	_log("  Flesh +%d (%d/%d)" % [player_flesh - before, player_flesh, player_flesh_max], _LogType.PLAYER)
+	_on_flesh_changed()
+
+## Seris — try to spend Flesh. Returns true if successful. Handlers that call this
+## must check the return value — if false, the effect should not apply.
+func _spend_flesh(amount: int) -> bool:
+	if amount <= 0 or player_flesh < amount:
+		return false
+	player_flesh -= amount
+	_log("  Flesh -%d (%d/%d)" % [amount, player_flesh, player_flesh_max], _LogType.PLAYER)
+	_on_flesh_changed()
+	_on_flesh_spent(amount)
+	return true
+
+## Fired after a successful _spend_flesh. Flesh Bond aura (Abyssal Forge) draws
+## a card per spend here. Called per spend event, not per Flesh point — design
+## says "whenever you spend Flesh", so one draw per spend batch.
+func _on_flesh_spent(_amount: int) -> void:
+	var has_flesh_bond := false
+	for m in player_board:
+		if "flesh_bond" in m.aura_tags:
+			has_flesh_bond = true
+			break
+	if not has_flesh_bond:
+		return
+	if turn_manager:
+		turn_manager.draw_card()
+		_log("  Flesh Bond: drew a card.", _LogType.PLAYER)
+
+## Seris — Forge Counter tick. Called when a Demon is sacrificed (Soul Forge talent).
+## Returns true if the counter hit its threshold (caller summons the Forged Demon and resets).
+func _forge_counter_tick(amount: int = 1) -> bool:
+	if amount <= 0:
+		return false
+	forge_counter += amount
+	_log("  Forge Counter +%d (%d/%d)" % [amount, forge_counter, forge_counter_threshold], _LogType.PLAYER)
+	_on_forge_changed()
+	if forge_counter >= forge_counter_threshold:
+		return true
+	return false
+
+## Seris — reset the Forge Counter (after Forged Demon summon).
+func _forge_counter_reset() -> void:
+	forge_counter = 0
+	_on_forge_changed()
+
+## UI hook for Flesh/Forge counter changes. Handlers (e.g. Fleshbind) call the
+## scene's _gain_flesh / _spend_flesh / _forge_counter_tick which in turn call
+## these hooks. Keeping them as scene methods means sim handlers can reuse the
+## same call sites without needing UI references.
+func _on_flesh_changed() -> void:
+	if _player_hero_panel and _player_hero_panel.resource_bar:
+		_player_hero_panel.resource_bar.refresh()
+
+func _on_forge_changed() -> void:
+	if _player_hero_panel and _player_hero_panel.resource_bar:
+		_player_hero_panel.resource_bar.refresh()
+
+## Seris — fires for every friendly Demon SACRIFICE emit (not combat deaths).
+## Handles Forge Counter ticks, Fiend Offering, and the auto Forged Demon summon.
+## Silently no-ops for non-Seris runs (no soul_forge talent).
+##
+## Board-full rule: if an auto-summon would land but no slot is free, Flesh/
+## counter costs are still paid — the summon just fails silently. This matches
+## the user-facing "reduce flesh as well" decision so over-boarding isn't free.
+func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
+	if minion == null or minion.owner != "player":
+		return
+	if not (minion.card_data is MinionCardData):
+		return
+	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		return
+
+	# Fiend Offering — sacrificed a Grafted Fiend, spend 2 Flesh → Lesser Demon.
+	# Auto-spends when affordable (no opt-out UI yet); board-full still consumes Flesh.
+	if _has_talent("fiend_offering") and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags:
+		if _spend_flesh(2):
+			_log("  Fiend Offering: +1 Lesser Demon attempt.", _LogType.PLAYER)
+			_summon_token("lesser_demon", "player")
+
+	if not _has_talent("soul_forge"):
+		return
+
+	# Forge Counter ticks; at threshold auto-summon Forged Demon and reset.
+	if _forge_counter_tick(1):
+		_log("  Soul Forge: threshold reached.", _LogType.PLAYER)
+		_summon_forged_demon()
+		_forge_counter_reset()
+
+## Summon a Forged Demon and, if Abyssal Forge is active, grant a random aura
+## (or all three if the player opts to spend 5 Flesh).
+func _summon_forged_demon() -> void:
+	_summon_token("forged_demon", "player")
+	# Find the freshly summoned Forged Demon (last entry on the player board that matches).
+	var forged: MinionInstance = null
+	for i in range(player_board.size() - 1, -1, -1):
+		var m: MinionInstance = player_board[i]
+		if m.card_data.id == "forged_demon":
+			forged = m
+			break
+	if forged == null:
+		return  # board full; summon failed silently per design
+	if _has_talent("abyssal_forge"):
+		_grant_forged_demon_auras(forged)
+
+## Seris — Corrupt Flesh activated ability. Entry point from SerisResourceBar button.
+## Toggles targeting mode; player clicks a friendly Demon to apply Corruption.
+## Costs are consumed inside _seris_corrupt_apply_target after a valid click so
+## misclicks / cancels don't waste Flesh.
+func _seris_corrupt_activate() -> void:
+	if not _has_talent("corrupt_flesh"):
+		return
+	if _seris_corrupt_used_this_turn:
+		_log("  Corrupt Flesh already used this turn.", _LogType.PLAYER)
+		return
+	if player_flesh < 1:
+		return
+	# Check there's at least one valid target (friendly Demon) before entering target mode.
+	var has_target := false
+	for m in player_board:
+		if (m.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+			has_target = true
+			break
+	if not has_target:
+		_log("  Corrupt Flesh: no friendly Demon on board.", _LogType.PLAYER)
+		return
+	_seris_corrupt_targeting = true
+	_log("  Corrupt Flesh: pick a friendly Demon.", _LogType.PLAYER)
+
+## Applies Corrupt Flesh to the clicked minion. Called from _on_player_slot_clicked_occupied
+## when _seris_corrupt_targeting is active. Non-Demon picks cancel targeting.
+func _seris_corrupt_apply_target(minion: MinionInstance) -> void:
+	_seris_corrupt_targeting = false
+	if minion == null or minion.owner != "player":
+		return
+	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		_log("  Corrupt Flesh: target must be a friendly Demon.", _LogType.PLAYER)
+		return
+	if not _spend_flesh(1):
+		return
+	var stacks: int = 2 if "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags else 1
+	for _i in stacks:
+		BuffSystem.apply(minion, Enums.BuffType.CORRUPTION, 100, "corrupt_flesh", false, false)
+	_seris_corrupt_used_this_turn = true
+	_log("  Corrupt Flesh: %d Corruption stack(s) applied to %s." % [stacks, minion.card_data.card_name], _LogType.PLAYER)
+	_refresh_slot_for(minion)
+
+## Reset the 1/turn limit. Registered via CombatSetup for ON_PLAYER_TURN_START.
+func _seris_corrupt_reset_turn() -> void:
+	_seris_corrupt_used_this_turn = false
+
+## Seris — Soul Forge activated ability. Spend 3 Flesh → summon a Grafted Fiend.
+## Called from the SerisResourceBar's Forge button. Per design: no-op if the
+## talent isn't active, the player can't afford it, or the board is full
+## (board-full consumes nothing — contrast with sacrifice auto-summons where
+## Flesh is still spent).
+func _soul_forge_activate() -> void:
+	if not _has_talent("soul_forge"):
+		return
+	if player_flesh < 3:
+		return
+	# Check for an empty slot before spending — active clicks should not waste
+	# Flesh the way passive sacrifice auto-summons do.
+	var has_slot := false
+	for slot in player_slots:
+		if slot.is_empty():
+			has_slot = true
+			break
+	if not has_slot:
+		_log("  Soul Forge: board full — no fiend summoned.", _LogType.PLAYER)
+		return
+	if not _spend_flesh(3):
+		return
+	_log("  Soul Forge: summoning Grafted Fiend.", _LogType.PLAYER)
+	_summon_token("grafted_fiend", "player")
+
+## Abyssal Forge (capstone) — grant auras to a freshly summoned Forged Demon.
+## Default: one random aura. If the player has >=5 Flesh, spend all 5 and grant all three.
+const _FORGED_DEMON_AURAS: Array[String] = ["void_growth", "void_pulse", "flesh_bond"]
+func _grant_forged_demon_auras(forged: MinionInstance) -> void:
+	if player_flesh >= 5 and _spend_flesh(5):
+		forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
+		_log("  Abyssal Forge: Forged Demon granted all three auras.", _LogType.PLAYER)
+	else:
+		var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
+		forged.aura_tags = [roll]
+		_log("  Abyssal Forge: Forged Demon granted %s." % roll, _LogType.PLAYER)
+
+## Pre-death hook — CombatManager asks "can this minion be saved?" before applying
+## death. Return true and set minion.current_health to a non-zero value to save it.
+## Seris's deathless_flesh talent spends 2 Flesh to save any friendly Grafted Fiend.
+## New talents with similar "would die" effects should extend this method.
+func _try_save_from_death(minion: MinionInstance) -> bool:
+	if minion == null or minion.owner != "player":
+		return false
+	if _has_talent("deathless_flesh") \
+			and minion.card_data is MinionCardData \
+			and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags \
+			and player_flesh >= 2:
+		_spend_flesh(2)
+		minion.current_health = 50
+		_log("  Deathless Flesh: %s saved (2 Flesh spent)." % minion.card_data.card_name, _LogType.PLAYER)
+		return true
+	return false
+
+## Siphon self-heal callback — CombatManager pings us so we can refresh the
+## minion's HP display. Called from _siphon_self_heal after HP is updated.
+func _on_minion_siphon_healed(minion: MinionInstance, healed: int) -> void:
+	_log("  %s siphons %d HP" % [minion.card_data.card_name, healed], _LogType.PLAYER)
+	if minion.slot_index >= 0:
+		var board_slots: Array = player_slots if minion.owner == "player" else enemy_slots
+		if minion.slot_index < board_slots.size():
+			var slot: BoardSlot = board_slots[minion.slot_index]
+			if slot and is_instance_valid(slot):
+				slot._refresh_visuals()
+
 ## Deal Void Bolt damage to the enemy hero, scaled by current Void Marks.
 ## CONVENTION: ALL Void Bolt damage in the game must go through this function
 ## so that talents like deepened_curse and future modifiers apply automatically.
@@ -2683,11 +3095,22 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		_pending_on_death_vfx.append(minion)
 	# Fire death events — handlers in _setup_triggers() apply all passive/talent/deathrattle effects.
 	# on_minion_died_death_effect skips minions in _pending_on_death_vfx.
+	# Snapshot corruption stacks BEFORE firing death — Corrupt Detonation fires on
+	# any removal including death, and stacks are gone by the time death handlers
+	# return. Fire the removal event first so detonation damage resolves before
+	# downstream death effects see the now-stripped minion.
+	var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
+	if pre_corruption > 0:
+		var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+		rm_ctx.minion = minion
+		rm_ctx.damage = pre_corruption
+		trigger_manager.fire(rm_ctx)
 	var ctx := EventContext.make(
 		Enums.TriggerEvent.ON_PLAYER_MINION_DIED if minion.owner == "player"
 		else Enums.TriggerEvent.ON_ENEMY_MINION_DIED,
 		minion.owner)
 	ctx.minion = minion
+	ctx.attacker = _last_attacker
 	trigger_manager.fire(ctx)
 	_refresh_hand_spell_costs()
 	# Death animation — defer if lunge is in progress so ghost positions correctly.
@@ -2747,7 +3170,7 @@ func _on_hero_healed(target: String, amount: int) -> void:
 ## If false, the card skips targeting and goes straight to placement (effect fires but does nothing).
 func _has_valid_minion_on_play_targets(card: MinionCardData) -> bool:
 	var hits_enemy    := card.on_play_target_type in ["enemy_minion", "corrupted_enemy_minion"]
-	var hits_friendly := card.on_play_target_type in ["friendly_minion"]
+	var hits_friendly := card.on_play_target_type in ["friendly_minion", "friendly_minion_other"]
 	if hits_enemy:
 		for slot in enemy_slots:
 			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
@@ -2777,7 +3200,7 @@ func _highlight_slots(slots: Array, filter: Callable, color_picker: Callable = C
 func _highlight_minion_on_play_targets(card: MinionCardData) -> void:
 	_clear_all_highlights()
 	var hits_enemy    := card.on_play_target_type in ["enemy_minion", "corrupted_enemy_minion"]
-	var hits_friendly := card.on_play_target_type in ["friendly_minion"]
+	var hits_friendly := card.on_play_target_type in ["friendly_minion", "friendly_minion_other"]
 	if hits_enemy:
 		_highlight_slots(enemy_slots,  func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, card.on_play_target_type))
 	if hits_friendly:
@@ -2788,6 +3211,8 @@ func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String
 		"enemy_minion":           return true
 		"corrupted_enemy_minion": return BuffSystem.has_type(minion, Enums.BuffType.CORRUPTION)
 		"friendly_minion":        return true
+		# Seris Starter — Grafted Butcher: any friendly minion (the butcher itself isn't on board yet at target time)
+		"friendly_minion_other":  return true
 	return false
 
 ## Per-spell color picker for the VALID_TARGET highlight. Returns a Callable
@@ -2814,9 +3239,9 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 	if spell.target_type == "trap_or_env":
 		_setup_trap_env_targeting()
 		return
-	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "friendly_feral_imp", "any_minion"]
-	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion", "enemy_minion_or_hero"]
-	var hits_hero     := spell.target_type == "enemy_minion_or_hero"
+	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "friendly_feral_imp", "any_minion", "any_minion_or_enemy_hero"]
+	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion", "enemy_minion_or_hero", "any_minion_or_enemy_hero"]
+	var hits_hero     := spell.target_type in ["enemy_minion_or_hero", "any_minion_or_enemy_hero"]
 	var color_picker: Callable = _spell_highlight_color_picker(spell)
 	if hits_friendly:
 		_highlight_slots(
@@ -2840,6 +3265,7 @@ func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool
 		"enemy_minion":           return true
 		"any_minion":             return true
 		"enemy_minion_or_hero":   return true
+		"any_minion_or_enemy_hero": return true
 	return false
 
 ## Spend mana, resolve the effect on the target, then remove the card
@@ -2858,6 +3284,7 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 	var captured_target: MinionInstance = target
 	_show_card_cast_anim(spell, false, func() -> void:
 		var resolve_damage := func(_i: int) -> void:
+			_pre_player_spell_cast(spell)
 			if not spell.effect_steps.is_empty():
 				var ctx := EffectContext.make(self, "player")
 				ctx.chosen_target = captured_target
@@ -2865,6 +3292,7 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 				EffectResolver.run(spell.effect_steps, ctx)
 			else:
 				_resolve_spell_effect(spell.effect_id, captured_target)
+			_post_player_spell_cast(spell, captured_target)
 		await vfx_controller.play_spell(spell.id, "player", captured_target, resolve_damage)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
@@ -2891,6 +3319,7 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 	_clear_all_highlights()
 	_show_card_cast_anim(spell, false, func() -> void:
 		var resolve_damage := func(_i: int) -> void:
+			_pre_player_spell_cast(spell)
 			# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount
 			var base_dmg: int = 0
 			for step in spell.effect_steps:
@@ -2902,9 +3331,10 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 						if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
 							if ConditionResolver.check_all(s.bonus_conditions, ctx, null):
 								base_dmg += s.bonus_amount
-			var total: int = base_dmg
+			var total: int = base_dmg + _player_spell_damage_bonus
 			_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], _LogType.PLAYER)
 			combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.SPELL)
+			_post_player_spell_cast(spell, null)
 		await vfx_controller.play_spell(spell.id, "player", _enemy_status_panel, resolve_damage)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
@@ -3521,7 +3951,7 @@ func _apply_slot_style(panel: Panel, bg: Color, border: Color) -> void:
 	panel.add_theme_stylebox_override("panel", _create_stylebox(bg, border))
 
 const _ABYSS_EMPTY_SLOT_PATH := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
-const _ABYSS_HEROES_LIST     := ["lord_vael"]
+const _ABYSS_HEROES_LIST     := ["lord_vael", "seris"]
 
 ## Apply the abyss empty-slot image (or fallback dark style) to a plain Panel.
 ## Pass lbl=null if the panel has no text label to manage.
@@ -4457,7 +4887,7 @@ func _update_counter_warning() -> void:
 ## Wrapper: apply spell damage to a minion + show flash and damage popup.
 func _spell_dmg(target: MinionInstance, damage: int) -> void:
 	var slot := _find_slot_for(target)
-	combat_manager.apply_spell_damage(target, damage)
+	combat_manager.apply_spell_damage(target, damage + _player_spell_damage_bonus)
 	_refresh_slot_for(target)
 	if slot:
 		_flash_slot(slot)

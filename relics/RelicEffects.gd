@@ -76,46 +76,97 @@ func resolve(effect_id: String) -> bool:
 			return true
 
 		# ── Act 3 ────────────────────────────────────────────────────────────
+		# Rebalanced to roughly Act-2 power — these were previously game-swinging.
 		"relic_extra_turn":
-			_scene.set("_relic_extra_turn", true)
-			_log("  Relic: Void Hourglass — extra turn granted!")
+			# Void Hourglass — +1 max Essence and +1 max Mana, respecting the combined cap.
+			_scene.turn_manager.grow_essence_max(1)
+			_scene.turn_manager.grow_mana_max(1)
+			_log("  Relic: Void Hourglass — +1 max Essence and +1 max Mana.")
 			return true
 
 		"relic_summon_demon":
-			_scene._summon_token("void_demon", "player", 500, 500)
-			# Grant Lifedrain
-			var board: Array = _scene.player_board
-			if not board.is_empty():
-				var demon: MinionInstance = board[board.size() - 1]
-				BuffSystem.apply(demon, Enums.BuffType.GRANT_LIFEDRAIN, 1, "relic_demon", false, false)
-				_scene._refresh_slot_for(demon)
-			_log("  Relic: Oblivion Seal — summoned a 500/500 Void Demon with Lifedrain!")
+			# Oblivion Seal — place a random Rune on the battlefield AND deal 200 damage to a random enemy.
+			_relic_place_random_rune()
+			_relic_damage_random_enemy(200)
+			_log("  Relic: Oblivion Seal — rune placed; 200 damage to random enemy.")
 			return true
 
 		"relic_mass_buff":
+			# Nether Crown — permanent +100 ATK to all friendlies (was temporary +200).
 			for m in (_scene.player_board as Array):
-				BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 200, "relic_crown", false, false)
+				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "relic_crown", false, false)
 				_scene._refresh_slot_for(m)
-			_log("  Relic: Nether Crown — all friendly minions +200 ATK this turn!")
+			_log("  Relic: Nether Crown — all friendly minions +100 ATK permanently.")
 			return true
 
 		"relic_copy_cards":
-			# Add copies of 3 highest-cost cards from deck to hand
-			var deck: Array = _scene.turn_manager.player_deck.duplicate()
-			deck.sort_custom(func(a: CardInstance, b: CardInstance) -> bool:
-				var ac: int = a.card_data.cost if not (a.card_data is MinionCardData) else (a.card_data as MinionCardData).essence_cost + (a.card_data as MinionCardData).mana_cost
-				var bc: int = b.card_data.cost if not (b.card_data is MinionCardData) else (b.card_data as MinionCardData).essence_cost + (b.card_data as MinionCardData).mana_cost
-				return ac > bc)
+			# Phantom Deck — copy 2 random cards from hand back into hand.
+			var hand: Array = (_scene.turn_manager.player_hand as Array).duplicate()
+			if hand.is_empty():
+				_log("  Relic: Phantom Deck — hand empty, no copies.")
+				return true
+			hand.shuffle()
 			var added := 0
-			for inst in deck:
-				if added >= 3:
+			for inst in hand:
+				if added >= 2:
 					break
-				_scene.turn_manager.add_to_hand(inst.card_data)
+				_scene.turn_manager.add_to_hand((inst as CardInstance).card_data)
 				added += 1
-			_log("  Relic: Phantom Deck — added %d cards to hand." % added)
+			_log("  Relic: Phantom Deck — copied %d random cards from hand." % added)
 			return true
 
 	return false
+
+# ---------------------------------------------------------------------------
+# Act 3 helpers
+# ---------------------------------------------------------------------------
+
+## Pick a random player-available rune card id and place it on the player's trap slots.
+## Silently skips if trap slots are full. Works in both live and sim — live routes through
+## active_traps + _apply_rune_aura; sim uses the same field + sim-specific rune-aura path.
+const _RELIC_RUNE_POOL: Array[String] = ["void_rune", "blood_rune", "dominion_rune", "shadow_rune"]
+func _relic_place_random_rune() -> void:
+	var rune_id: String = _RELIC_RUNE_POOL[randi() % _RELIC_RUNE_POOL.size()]
+	var rune_card: CardData = CardDatabase.get_card(rune_id)
+	if rune_card == null or not (rune_card is TrapCardData):
+		return
+	var rune := rune_card as TrapCardData
+	var active: Array = _scene.active_traps
+	# Live scene enforces trap-slot cap via trap_slot_panels; sim uses a fixed cap too.
+	# Use scene.get to avoid a hard dependency on either shape.
+	var cap: int = 3
+	if _scene.get("trap_slot_panels") != null:
+		cap = (_scene.trap_slot_panels as Array).size()
+	if active.size() >= cap:
+		return
+	active.append(rune)
+	# Wire the rune's aura so it actually fires on its trigger event.
+	if _scene.has_method("_apply_rune_aura"):
+		_scene._apply_rune_aura(rune)
+	# Live scene has a UI refresh; sim no-ops.
+	if _scene.has_method("_update_trap_display"):
+		_scene._update_trap_display()
+	# Fire ON_RUNE_PLACED so ritual checks see the new rune.
+	if _scene.trigger_manager != null:
+		var rune_ctx := EventContext.make(Enums.TriggerEvent.ON_RUNE_PLACED, "player")
+		rune_ctx.card = rune
+		_scene.trigger_manager.fire(rune_ctx)
+
+## Damage a random enemy target (minion or hero, mixed pool).
+func _relic_damage_random_enemy(amount: int) -> void:
+	var pool: Array = []
+	for m in (_scene.enemy_board as Array):
+		if (m as MinionInstance).current_health > 0:
+			pool.append(m)
+	pool.append("enemy_hero")
+	var pick = pool[randi() % pool.size()]
+	if pick is MinionInstance:
+		if _scene.has_method("_spell_dmg"):
+			_scene._spell_dmg(pick, amount)
+		else:
+			_scene.combat_manager.apply_spell_damage(pick, amount)
+	else:
+		_scene.combat_manager.apply_hero_damage("enemy", amount, Enums.DamageType.SPELL)
 
 # ---------------------------------------------------------------------------
 # Helpers

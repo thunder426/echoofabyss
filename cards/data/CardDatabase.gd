@@ -18,6 +18,8 @@ var _cards: Dictionary = {}
 const _TOKEN_DEFS: Array[Dictionary] = [
 	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
 	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning.", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
+	{"id": "lesser_demon", "name": "Lesser Demon", "atk": 400, "hp": 400, "type": "DEMON", "faction": "abyss_order", "desc": "Summoned by Seris's Fiend Offering.", "tags": ["lesser_demon", "demon"], "art": "res://assets/art/minions/abyss_order/lesser_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/lesser_demon_small.png"},
+	{"id": "forged_demon", "name": "Forged Demon", "atk": 500, "hp": 500, "type": "DEMON", "faction": "abyss_order", "desc": "Forged by Seris's Soul Forge.",    "tags": ["forged_demon", "demon"], "art": "res://assets/art/minions/abyss_order/forged_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/forged_demon_small.png"},
 ]
 
 func _make_token(d: Dictionary) -> MinionCardData:
@@ -145,6 +147,81 @@ func _register_wanderer_cards() -> void:
 	runic_void_imp.battlefield_art_path  = "res://assets/art/minions/abyss_order/runic_void_imp_small.png"
 	all.append(runic_void_imp)
 
+	# Grafted Fiend — Seris core unit. Deck cap raised to 4 by Grafted Affinity passive.
+	var grafted_fiend := MinionCardData.new()
+	grafted_fiend.id             = "grafted_fiend"
+	grafted_fiend.card_name      = "Grafted Fiend"
+	grafted_fiend.essence_cost   = 3
+	grafted_fiend.description    = ""
+	grafted_fiend.atk            = 300
+	grafted_fiend.health         = 300
+	grafted_fiend.minion_type    = Enums.MinionType.DEMON
+	grafted_fiend.minion_tags    = ["grafted_fiend"]
+	grafted_fiend.faction        = "abyss_order"
+	grafted_fiend.art_path             = "res://assets/art/minions/abyss_order/grafted_fiend.png"
+	grafted_fiend.battlefield_art_path = "res://assets/art/minions/abyss_order/grafted_fiend_small.png"
+	all.append(grafted_fiend)
+
+	# --- Seris Starter Pool ---------------------------------------------------
+	# Hero-gated pool visible only when Seris is the active hero. Pool assignment
+	# lives in the _card_pools dict at the bottom of this file.
+
+	# Void Spawning — 1M, two 100/100 Void Demon tokens. Early board + Flesh fuel.
+	var void_spawning := SpellCardData.new()
+	void_spawning.id          = "void_spawning"
+	void_spawning.card_name   = "Void Spawning"
+	void_spawning.cost        = 1
+	void_spawning.description = "Summon two 100/100 Void Demons."
+	void_spawning.effect_steps = [
+		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
+		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
+	]
+	void_spawning.faction     = "abyss_order"
+	all.append(void_spawning)
+
+	# Fiendish Pact — 1M, draw + cheapen next Demon played this turn.
+	var fiendish_pact := SpellCardData.new()
+	fiendish_pact.id          = "fiendish_pact"
+	fiendish_pact.card_name   = "Fiendish Pact"
+	fiendish_pact.cost        = 1
+	fiendish_pact.description = "Draw a card. Your next Demon costs 2 less this turn."
+	fiendish_pact.effect_steps = [
+		{"type": "DRAW", "amount": 1},
+		{"type": "HARDCODED", "hardcoded_id": "fiendish_pact"},
+	]
+	fiendish_pact.faction     = "abyss_order"
+	all.append(fiendish_pact)
+
+	# Grafted Butcher — 2E minion. ON PLAY: sacrifice a friendly minion, then 200 AoE.
+	var grafted_butcher := MinionCardData.new()
+	grafted_butcher.id              = "grafted_butcher"
+	grafted_butcher.card_name       = "Grafted Butcher"
+	grafted_butcher.essence_cost    = 2
+	grafted_butcher.atk             = 200
+	grafted_butcher.health          = 100
+	grafted_butcher.minion_type     = Enums.MinionType.DEMON
+	grafted_butcher.description     = "ON PLAY: SACRIFICE another friendly minion. Deal 200 damage to all enemy minions."
+	grafted_butcher.on_play_target_type   = "friendly_minion_other"
+	grafted_butcher.on_play_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "grafted_butcher"}]
+	grafted_butcher.faction         = "abyss_order"
+	all.append(grafted_butcher)
+
+	# Flesh Rend — 2M, 300 damage, doubled at 3+ Flesh.
+	var flesh_rend := SpellCardData.new()
+	flesh_rend.id              = "flesh_rend"
+	flesh_rend.card_name       = "Flesh Rend"
+	flesh_rend.cost            = 2
+	flesh_rend.description     = "Deal 300 damage to a minion or enemy hero. If you have 3+ Flesh, deal 600 instead."
+	flesh_rend.requires_target = true
+	flesh_rend.target_type     = "any_minion_or_enemy_hero"
+	flesh_rend.effect_steps    = [
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300, "bonus_amount": 300, "bonus_conditions": ["flesh_gte_3"]},
+	]
+	flesh_rend.faction         = "abyss_order"
+	all.append(flesh_rend)
+
+	# --- end Seris Starter Pool -----------------------------------------------
+
 	# Void Imp Wizard — variant core unit; offered via special reward
 	var void_imp_wizard := MinionCardData.new()
 	void_imp_wizard.id           = "void_imp_wizard"
@@ -215,7 +292,7 @@ func _register_wanderer_cards() -> void:
 	abyssal_sacrifice.id             = "abyssal_sacrifice"
 	abyssal_sacrifice.card_name      = "Abyssal Sacrifice"
 	abyssal_sacrifice.cost           = 2
-	abyssal_sacrifice.description    = "Destroy a friendly minion. Draw 2 cards."
+	abyssal_sacrifice.description    = "SACRIFICE a friendly minion. Draw 2 cards."
 	abyssal_sacrifice.requires_target = true
 	abyssal_sacrifice.target_type    = "friendly_minion"
 
@@ -707,7 +784,7 @@ func _register_wanderer_cards() -> void:
 	void_devourer.id             = "void_devourer"
 	void_devourer.card_name      = "Void Devourer"
 	void_devourer.essence_cost   = 6
-	void_devourer.description    = "ON PLAY: Sacrifice adjacent friendly minions. Gain +300 ATK and +300 HP per sacrificed minion."
+	void_devourer.description    = "ON PLAY: SACRIFICE adjacent friendly minions. Gain +300 ATK and +300 HP per sacrificed minion."
 	void_devourer.atk            = 200
 	void_devourer.health         = 600
 	void_devourer.minion_type    = Enums.MinionType.DEMON
@@ -932,7 +1009,7 @@ func _register_wanderer_cards() -> void:
 	blood_pact.id          = "blood_pact"
 	blood_pact.card_name   = "Blood Pact"
 	blood_pact.cost        = 2
-	blood_pact.description    = "Sacrifice a friendly Human. Give all friendly Demons +200 ATK and +100 HP."
+	blood_pact.description    = "SACRIFICE a friendly Human. Give all friendly Demons +200 ATK and +100 HP."
 	blood_pact.requires_target = true
 	blood_pact.target_type     = "friendly_human"
 	blood_pact.effect_steps    = [
@@ -948,7 +1025,7 @@ func _register_wanderer_cards() -> void:
 	soul_shatter.id          = "soul_shatter"
 	soul_shatter.card_name   = "Soul Shatter"
 	soul_shatter.cost        = 3
-	soul_shatter.description    = "Sacrifice a friendly Demon. Deal 200 damage to all enemy minions. Deal 300 if the sacrifice had 300+ HP."
+	soul_shatter.description    = "SACRIFICE a friendly Demon. Deal 200 damage to all enemy minions. Deal 300 if the sacrifice had 300+ HP."
 	soul_shatter.requires_target = true
 	soul_shatter.target_type     = "friendly_demon"
 	soul_shatter.effect_steps    = [{"type": "HARDCODED", "hardcoded_id": "soul_shatter"}]
@@ -2090,6 +2167,12 @@ func _register_wanderer_cards() -> void:
 		"dark_covenant": "abyss_core",    "abyssal_summoning_circle": "abyss_core",
 		"void_rune": "abyss_core",        "blood_rune": "abyss_core",
 		"dominion_rune": "abyss_core",    "shadow_rune": "abyss_core",
+		"grafted_fiend": "abyss_core",
+		# Seris Starter Pool — visible only when Seris is the active hero (see DeckBuilderScene._deck_builder_pools_for_hero)
+		"void_spawning": "seris_starter",
+		"fiendish_pact": "seris_starter",
+		"grafted_butcher": "seris_starter",
+		"flesh_rend": "seris_starter",
 		# Neutral core (starter deck pool)
 		"roadside_drifter": "neutral_core",  "ashland_forager": "neutral_core",
 		"freelance_sellsword": "neutral_core","traveling_merchant": "neutral_core",
