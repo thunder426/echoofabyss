@@ -24,6 +24,14 @@ var _mna_col_tween: Tween = null
 # Previous values used to detect direction of change
 var _prev_essence: int = -1
 var _prev_mana:    int = -1
+# Flesh counter widget (Seris only) — icon + "N/5" label, left of essence column.
+var _flesh_root:     Control     = null
+var _flesh_icon:     TextureRect = null
+var _flesh_count_lbl: Label      = null
+var _flesh_caption:  Label       = null
+var _flesh_tween:    Tween       = null
+var _prev_flesh:     int         = -1
+var _flesh_tooltip:  Panel       = null
 # Card-cost blink — highlights which pips will be spent / gained when a card is selected
 var _pip_ess_blink:  int   = 0   # essence pips to fade (spend)
 var _pip_mna_blink:  int   = 0   # mana pips to fade (spend)
@@ -174,9 +182,14 @@ func setup(scene: Node2D, ui_root: Node, essence_label: Label, mana_label: Label
 				_pip_mana_panels.append(pip)
 				_pip_mana_rects.append(tr)
 
+	# --- Flesh counter widget (Seris) — built only if current hero has Fleshbind passive ---
+	if HeroDatabase.has_passive(GameManager.current_hero, "fleshbind"):
+		_build_flesh_widget(ui_root, RIGHT_MARGIN, COL_W, COL_GAP, COL_H, MARGIN_BOTTOM, LBL_H)
+
 	if _scene.turn_manager:
 		update(_scene.turn_manager.essence, _scene.turn_manager.essence_max,
 				_scene.turn_manager.mana, _scene.turn_manager.mana_max)
+	update_flesh()
 
 func update(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
 	const MAX_PIPS     := 10
@@ -397,3 +410,196 @@ func _create_stylebox(bg: Color, border: Color, corner_radius: int = 4, border_w
 	style.set_border_width_all(border_width)
 	style.set_corner_radius_all(corner_radius)
 	return style
+
+# ---------------------------------------------------------------------------
+# Flesh counter widget (Seris)
+# ---------------------------------------------------------------------------
+
+const _FLESH_ICON_PATH := "res://assets/art/icons/icon_flesh.png"
+const _FLESH_WIDGET_GAP := 14        # gap between essence col left-edge and flesh widget
+const _FLESH_ICON_SIZE  := 58
+const _FLESH_COUNT_W    := 52
+const _FLESH_CAPTION_H  := 16
+const _FLESH_TOOLTIP_TITLE := "FLESH"
+const _FLESH_TOOLTIP_BODY  := "Gained when a friendly Demon dies."
+
+## Build the flesh widget: icon + "N/5" + "FLESH" caption, anchored bottom-right,
+## sitting just left of the essence pip column. Only called when hero has Fleshbind.
+func _build_flesh_widget(ui_root: Node, right_margin: int, col_w: int,
+		col_gap: int, col_h: int, margin_bottom: int, lbl_h: int) -> void:
+	# Essence column's left edge distance from screen-right = right_margin + 2*col_w + col_gap.
+	var ess_col_left_from_right: int = right_margin + col_w + col_gap + col_w
+	var widget_w: int = _FLESH_ICON_SIZE + 6 + _FLESH_COUNT_W   # icon + small gap + count
+	var widget_right_from_right: int = ess_col_left_from_right + _FLESH_WIDGET_GAP
+	var widget_left_from_right: int  = widget_right_from_right + widget_w
+	# Align widget bottom with the ESSENCE/MANA label bottom so the "FLESH" caption
+	# sits on the same baseline as those resource labels.
+	var widget_h: int = _FLESH_ICON_SIZE + _FLESH_CAPTION_H + 2
+	var widget_bottom_from_bottom: float = float(margin_bottom - lbl_h)
+
+	var root := Control.new()
+	root.anchor_left     = 1.0
+	root.anchor_right    = 1.0
+	root.anchor_top      = 1.0
+	root.anchor_bottom   = 1.0
+	root.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	root.grow_vertical   = Control.GROW_DIRECTION_BEGIN
+	root.offset_right    = -float(widget_right_from_right)
+	root.offset_left     = -float(widget_left_from_right)
+	root.offset_bottom   = -widget_bottom_from_bottom
+	root.offset_top      = root.offset_bottom - float(widget_h)
+	root.mouse_filter    = Control.MOUSE_FILTER_STOP  # hover for tooltip
+	root.mouse_entered.connect(_on_flesh_hover_enter)
+	root.mouse_exited.connect(_on_flesh_hover_exit)
+	ui_root.add_child(root)
+	_flesh_root = root
+
+	# Icon (left side of widget)
+	var icon := TextureRect.new()
+	icon.anchor_left    = 0.0
+	icon.anchor_top     = 0.0
+	icon.offset_left    = 0.0
+	icon.offset_top     = 0.0
+	icon.offset_right   = float(_FLESH_ICON_SIZE)
+	icon.offset_bottom  = float(_FLESH_ICON_SIZE)
+	icon.expand_mode    = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode   = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter   = Control.MOUSE_FILTER_IGNORE
+	if ResourceLoader.exists(_FLESH_ICON_PATH):
+		icon.texture = load(_FLESH_ICON_PATH) as Texture2D
+	root.add_child(icon)
+	_flesh_icon = icon
+
+	# Count label "N/5" — right of icon, vertically centred on icon
+	var count := Label.new()
+	count.anchor_left    = 0.0
+	count.anchor_top     = 0.0
+	count.offset_left    = float(_FLESH_ICON_SIZE + 6)
+	count.offset_right   = float(_FLESH_ICON_SIZE + 6 + _FLESH_COUNT_W)
+	count.offset_top     = 6.0
+	count.offset_bottom  = float(_FLESH_ICON_SIZE)
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	count.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	count.add_theme_font_size_override("font_size", 28)
+	count.add_theme_color_override("font_color",           Color(0.92, 0.28, 0.30, 1.0))
+	count.add_theme_color_override("font_shadow_color",    Color(0, 0, 0, 0.85))
+	count.add_theme_constant_override("shadow_outline_size", 4)
+	count.add_theme_constant_override("shadow_offset_x",     0)
+	count.add_theme_constant_override("shadow_offset_y",     1)
+	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(count)
+	_flesh_count_lbl = count
+
+	# Caption "FLESH" below icon — always-on label so player learns the name.
+	var caption := Label.new()
+	caption.anchor_left   = 0.0
+	caption.anchor_right  = 0.0
+	caption.offset_left   = 0.0
+	caption.offset_right  = float(_FLESH_ICON_SIZE + 6 + _FLESH_COUNT_W)
+	caption.offset_top    = float(_FLESH_ICON_SIZE + 2)
+	caption.offset_bottom = float(_FLESH_ICON_SIZE + 2 + _FLESH_CAPTION_H)
+	caption.text          = "FLESH"
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.add_theme_font_size_override("font_size", 12)
+	caption.add_theme_color_override("font_color",        Color(0.85, 0.55, 0.55, 1.0))
+	caption.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.80))
+	caption.add_theme_constant_override("shadow_outline_size", 3)
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(caption)
+	_flesh_caption = caption
+
+## Refresh the flesh counter from scene state. Called whenever Flesh changes.
+## Pulses the icon + recolors the number when value crosses key thresholds (3, 5).
+func update_flesh() -> void:
+	if _flesh_root == null or _scene == null:
+		return
+	var flesh: int = int(_scene.get("player_flesh"))
+	var flesh_max: int = int(_scene.get("player_flesh_max"))
+	if flesh_max <= 0:
+		flesh_max = 5
+	_flesh_count_lbl.text = "%d/%d" % [flesh, flesh_max]
+
+	# Colour thresholds: 0 dim, 1-2 pale, 3-4 amber (Soul Forge ready), 5 hot red (capped).
+	var col: Color
+	if flesh <= 0:
+		col = Color(0.55, 0.50, 0.52, 1.0)
+	elif flesh <= 2:
+		col = Color(0.92, 0.80, 0.78, 1.0)
+	elif flesh < flesh_max:
+		col = Color(1.00, 0.72, 0.28, 1.0)
+	else:
+		col = Color(1.00, 0.30, 0.30, 1.0)
+	_flesh_count_lbl.add_theme_color_override("font_color", col)
+
+	# Pulse the icon on any change (gain or spend).
+	if _prev_flesh != -1 and flesh != _prev_flesh and _flesh_icon != null:
+		if _flesh_tween != null and _flesh_tween.is_valid():
+			_flesh_tween.kill()
+		_flesh_icon.pivot_offset = _flesh_icon.size * 0.5
+		_flesh_icon.scale = Vector2.ONE
+		_flesh_tween = create_tween()
+		var is_gain := flesh > _prev_flesh
+		var flash := Color(1.4, 1.2, 1.2, 1.0) if is_gain else Color(1.2, 0.8, 0.8, 1.0)
+		_flesh_tween.tween_property(_flesh_icon, "scale", Vector2(1.18, 1.18), 0.10).set_trans(Tween.TRANS_SINE)
+		_flesh_tween.parallel().tween_property(_flesh_icon, "modulate", flash, 0.10)
+		_flesh_tween.tween_property(_flesh_icon, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_SINE)
+		_flesh_tween.parallel().tween_property(_flesh_icon, "modulate", Color.WHITE, 0.18)
+	_prev_flesh = flesh
+
+## Flesh hover handlers — show a status-style tooltip (matches BoardSlot status tooltip look).
+func _on_flesh_hover_enter() -> void:
+	if _flesh_tooltip == null or not is_instance_valid(_flesh_tooltip):
+		_build_flesh_tooltip_panel()
+	var lbl := _flesh_tooltip.get_node_or_null("Label") as Label
+	if lbl:
+		lbl.text = _FLESH_TOOLTIP_TITLE + "\n" + _FLESH_TOOLTIP_BODY
+	# Size estimate — same formula as BoardSlot._show_status_tooltip.
+	var raw_lines := (_FLESH_TOOLTIP_TITLE + "\n" + _FLESH_TOOLTIP_BODY).split("\n")
+	var line_count: int = raw_lines.size()
+	for raw in raw_lines:
+		line_count += raw.length() / 22
+	var tip_h: int = 14 + line_count * 14
+	_flesh_tooltip.size = Vector2(190, tip_h)
+	# Anchor tooltip above the flesh widget.
+	if _flesh_root:
+		var r := _flesh_root.get_global_rect()
+		var vp := _flesh_root.get_viewport().get_visible_rect().size
+		var x: float = clamp(r.position.x, 8.0, vp.x - _flesh_tooltip.size.x - 8.0)
+		var y: float = r.position.y - _flesh_tooltip.size.y - 6.0
+		if y < 8.0:
+			y = r.position.y + r.size.y + 6.0
+		_flesh_tooltip.global_position = Vector2(x, y)
+	_flesh_tooltip.visible = true
+
+func _on_flesh_hover_exit() -> void:
+	if _flesh_tooltip != null and is_instance_valid(_flesh_tooltip):
+		_flesh_tooltip.visible = false
+
+func _build_flesh_tooltip_panel() -> void:
+	var p := Panel.new()
+	p.name = "FleshTooltip"
+	p.visible = false
+	p.z_index = 80
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.06, 0.04, 0.10, 0.93)
+	style.border_color = Color(0.55, 0.40, 0.75, 0.85)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	p.add_theme_stylebox_override("panel", style)
+	var lbl := Label.new()
+	lbl.name               = "Label"
+	lbl.position           = Vector2(7, 5)
+	lbl.size               = Vector2(176, 100)
+	lbl.autowrap_mode      = TextServer.AUTOWRAP_WORD_SMART
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.add_theme_color_override("font_color", Color(0.95, 0.90, 0.98, 1))
+	lbl.mouse_filter       = Control.MOUSE_FILTER_IGNORE
+	p.add_child(lbl)
+	# Attach tooltip to the same parent as the flesh widget so positioning uses the same space.
+	var parent: Node = _flesh_root.get_parent() if _flesh_root else null
+	if parent == null:
+		parent = _scene
+	parent.add_child(p)
+	_flesh_tooltip = p

@@ -209,18 +209,18 @@ func _register_seris_talents() -> void:
 
 	_register(_make(
 		"flesh_infusion", "seris", "Flesh Infusion",
-		"When you play a Grafted Fiend, spend 1 Flesh to give it +200 ATK permanently.",
+		"When you play a Grafted Fiend, spend 1 Flesh to give it +200 ATK permanently. Grafted Fiend permanently gains +100/+100 whenever it kills an enemy minion.",
 		"fleshcraft", 0, "", "res://assets/art/talents/seris/icon_flesh_infusion.png"))
 
 	_register(_make(
-		"grafted_constitution", "seris", "Grafted Constitution",
-		"Grafted Fiend permanently gains +100/+100 whenever it kills an enemy minion.",
+		"grafting_ritual", "seris", "Grafting Ritual",
+		"When you play a Grafted Fiend, you may transform a friendly Demon into a fresh 300/300 Grafted Fiend.",
 		"fleshcraft", 1, "flesh_infusion", "res://assets/art/talents/seris/icon_grafted_constitution.png"))
 
 	_register(_make(
 		"predatory_surge", "seris", "Predatory Surge",
 		"Grafted Fiends enter with Swift. When a Grafted Fiend reaches 3 kill stacks, it permanently gains Siphon.",
-		"fleshcraft", 2, "grafted_constitution", "res://assets/art/talents/seris/icon_predatory_surge.png"))
+		"fleshcraft", 2, "grafting_ritual", "res://assets/art/talents/seris/icon_predatory_surge.png"))
 
 	_register(_make(
 		"deathless_flesh", "seris", "Deathless Flesh",

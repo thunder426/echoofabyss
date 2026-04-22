@@ -32,6 +32,12 @@ var current_atk: int = 0
 # HP changes are applied directly (not tracked in BuffSystem — not reversible).
 var current_health: int = 0
 
+# Stats at the moment this minion arrived on the board — used by the hover
+# preview so tokens summoned with overridden stats (e.g. Void Summoning's
+# 300/300 Demon) show those stats instead of the template defaults.
+var spawn_atk: int = 0
+var spawn_health: int = 0
+
 ## Seris — per-minion kill count used by Predatory Surge (Grafted Fiend gains SIPHON
 ## at 3 kills). Incremented by the grafted_constitution handler on enemy minion deaths
 ## where ctx.attacker == this minion.
@@ -78,6 +84,8 @@ static func create(data: MinionCardData, owner_id: String) -> MinionInstance:
 	instance.current_atk    = data.atk
 	instance.current_health = data.health
 	instance.current_shield = data.shield_max
+	instance.spawn_atk      = data.atk
+	instance.spawn_health   = data.health
 	# Minions are exhausted (cannot attack) on the turn they are summoned
 	# unless they have the Swift keyword (can attack minions but not hero)
 	if Enums.Keyword.SWIFT in data.keywords:

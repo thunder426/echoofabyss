@@ -14,6 +14,8 @@ class_name AbyssalPlagueParticles
 extends Node
 
 const TEX_GLOW: Texture2D = preload("res://assets/art/fx/glow_soft.png")
+const TEX_SPARK_A: Texture2D = preload("res://assets/art/fx/plague_spark_a.png")
+const TEX_SPARK_B: Texture2D = preload("res://assets/art/fx/plague_spark_b.png")
 
 # Colours
 const COLOR_BRIGHT  : Color = Color(0.55, 1.00, 0.30, 1.00)  # lime-green droplet core
@@ -34,6 +36,25 @@ var _running: bool = false
 
 var _droplets: GPUParticles2D = null
 var _mist: GPUParticles2D = null
+var _sparks_green: GPUParticles2D = null
+var _sparks_black: GPUParticles2D = null
+
+static var _circle_tex: Texture2D = null
+
+static func _get_circle_tex() -> Texture2D:
+	if _circle_tex != null:
+		return _circle_tex
+	var size: int = 6
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var c: float = (size - 1) * 0.5
+	var r: float = c - 0.5
+	for y in size:
+		for x in size:
+			var d: float = Vector2(x - c, y - c).length()
+			var a: float = 1.0 if d <= r else clampf(1.0 - (d - r), 0.0, 1.0)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	_circle_tex = ImageTexture.create_from_image(img)
+	return _circle_tex
 
 
 static func spawn(ui: Node, origin_y_px: float, direction_y: float,
@@ -54,8 +75,7 @@ func _ready() -> void:
 	if _ui == null:
 		queue_free()
 		return
-	_build_droplets()
-	_build_mist()
+	_build_sparks()
 	_running = true
 
 
@@ -75,14 +95,18 @@ func _process(delta: float) -> void:
 	var vp_h: float = get_viewport().get_visible_rect().size.y
 	front_y_px = clampf(front_y_px, 0.0, vp_h)
 
-	_droplets.position = Vector2(band_center_x, front_y_px)
-	_mist.position = Vector2(band_center_x, front_y_px)
+	# Offset emission slightly ahead of the wave front (in travel direction)
+	# so sparks concentrate at the leading edge rather than the body
+	var lead_offset_px: float = 18.0
+	var lead_y: float = front_y_px + _direction_y * lead_offset_px
+	_sparks_green.position = Vector2(band_center_x, lead_y)
+	_sparks_black.position = Vector2(band_center_x, lead_y)
 
 	# Stop emitting in the last 15% of surge so particles die before the wave fades
 	var stop_at: float = _surge_duration * 0.85
-	if _elapsed >= stop_at and _droplets.emitting:
-		_droplets.emitting = false
-		_mist.emitting = false
+	if _elapsed >= stop_at and _sparks_green.emitting:
+		_sparks_green.emitting = false
+		_sparks_black.emitting = false
 
 	if _elapsed >= _surge_duration + 1.0:
 		_running = false
@@ -198,6 +222,78 @@ func _build_mist() -> void:
 
 	_mist.process_material = mat
 	_ui.add_child(_mist)
+
+
+func _build_sparks() -> void:
+	_sparks_green = _make_spark_layer(
+		TEX_SPARK_A,
+		Color(0.30, 0.70, 0.22, 1.0),
+		Color(0.08, 0.25, 0.06, 0.0),
+		140)
+	_sparks_black = _make_spark_layer(
+		TEX_SPARK_A,
+		Color(0.85, 0.30, 1.00, 1.0),
+		Color(0.20, 0.05, 0.35, 0.0),
+		120)
+
+
+func _make_spark_layer(tex: Texture2D, c_start: Color, c_end: Color, amount: int) -> GPUParticles2D:
+	var p := GPUParticles2D.new()
+	p.z_index = 18
+	p.z_as_relative = false
+	p.texture = tex
+	p.emitting = true
+	p.amount = amount
+	p.lifetime = 0.35
+	p.explosiveness = 0.0
+	p.randomness = 0.9
+	p.fixed_fps = 0
+	p.local_coords = false
+
+	var mat := ParticleProcessMaterial.new()
+	var band_width: float = _band_x_max_px - _band_x_min_px
+	mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	mat.emission_box_extents = Vector3(band_width * 0.5, 3.0, 0.0)
+
+	# Random direction in 2D — emit upward then full spread = omnidirectional
+	mat.direction = Vector3(0.0, -1.0, 0.0)
+	mat.spread = 180.0
+	mat.initial_velocity_min = 280.0
+	mat.initial_velocity_max = 650.0
+	mat.gravity = Vector3(0.0, 0.0, 0.0)
+	mat.damping_min = 500.0
+	mat.damping_max = 900.0
+
+	# Rotate sprite to face travel direction — these sparks are comet-shaped
+	mat.set_particle_flag(ParticleProcessMaterial.PARTICLE_FLAG_ALIGN_Y_TO_VELOCITY, true)
+
+	# Sprites are ~512px; scale small so they render at ~8-18px streaks
+	mat.scale_min = 0.015
+	mat.scale_max = 0.035
+	var size_curve := Curve.new()
+	size_curve.add_point(Vector2(0.0, 0.4))
+	size_curve.add_point(Vector2(0.15, 1.0))
+	size_curve.add_point(Vector2(1.0, 0.0))
+	var size_tex := CurveTexture.new()
+	size_tex.curve = size_curve
+	mat.scale_curve = size_tex
+
+	var grad := Gradient.new()
+	grad.colors = PackedColorArray([c_start, c_end])
+	grad.offsets = PackedFloat32Array([0.0, 1.0])
+	var grad_tex := GradientTexture1D.new()
+	grad_tex.gradient = grad
+	mat.color_ramp = grad_tex
+	mat.color = c_start
+
+	# Additive for both — sprite art is glow-on-black, additive cancels the black bg
+	var cmat := CanvasItemMaterial.new()
+	cmat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cmat
+
+	p.process_material = mat
+	_ui.add_child(p)
+	return p
 
 
 func _ease_out_cubic(x: float) -> float:

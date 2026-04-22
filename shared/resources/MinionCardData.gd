@@ -31,9 +31,20 @@ extends CardData
 ## If true, playing this card from hand requires the player to select a target first.
 @export var on_play_requires_target: bool = false
 
-## Valid target type when on_play_requires_target is true.
-## Mirrors SpellCardData.target_type — e.g. "enemy_minion", "corrupted_enemy_minion".
+## If true, the on-play target is OPTIONAL — the player may click a valid target
+## to resolve the effect, or click an empty board slot to summon without it.
+## Mutually exclusive with on_play_requires_target (optional wins if both set).
+@export var on_play_target_optional: bool = false
+
+## Valid target type when on_play_requires_target OR on_play_target_optional is true.
+## Mirrors SpellCardData.target_type — e.g. "enemy_minion", "corrupted_enemy_minion",
+## "friendly_minion", "friendly_minion_other", "friendly_demon".
 @export var on_play_target_type: String = ""
+
+## Alert text shown at the top of the screen during target selection. If empty,
+## no alert is shown. Use short, action-oriented phrasing — e.g.
+## "Click a Demon to transform, or click a slot to summon without effect."
+@export var on_play_target_prompt: String = ""
 
 ## Declarative effect steps fired when this minion is played from hand (On Play).
 ## Uses EffectResolver. Does NOT fire when summoned by a spell, trap, or other effect.

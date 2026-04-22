@@ -28,8 +28,8 @@ func _get_opponent_hp() -> int: return sim.enemy_hp
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return maxi(0, spell.cost + sim.player_spell_cost_penalty)
 
-## Override: apply Fiendish Pact pending discount on top of the base (piercing_void) logic.
-func effective_minion_mana_cost(mc: MinionCardData) -> int:
+## Override: apply Fiendish Pact pending Essence discount on top of the base logic.
+func effective_minion_essence_cost(mc: MinionCardData) -> int:
 	var base: int = super(mc)
 	return maxi(0, base - sim._peek_fiendish_pact_discount(mc))
 

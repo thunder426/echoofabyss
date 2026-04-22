@@ -438,14 +438,15 @@ func _get_branch_pool() -> Array[String]:
 	var pool: Array[String] = []
 	var seen: Dictionary = {}
 	var branch_pool_names: Array[String] = []
-	if GameManager.has_talent("piercing_void"):
-		branch_pool_names.append("vael_piercing_void")
-	if GameManager.has_talent("imp_evolution"):
-		branch_pool_names.append("vael_endless_tide")
-	if GameManager.has_talent("rune_caller"):
-		branch_pool_names.append("vael_rune_master")
-	if branch_pool_names.is_empty():
-		branch_pool_names.append("vael_common")
+	if GameManager.current_hero == "lord_vael":
+		if GameManager.has_talent("piercing_void"):
+			branch_pool_names.append("vael_piercing_void")
+		if GameManager.has_talent("imp_evolution"):
+			branch_pool_names.append("vael_endless_tide")
+		if GameManager.has_talent("rune_caller"):
+			branch_pool_names.append("vael_rune_master")
+		if branch_pool_names.is_empty():
+			branch_pool_names.append("vael_common")
 	for card_id in CardDatabase.get_card_ids_in_pools(branch_pool_names):
 		if card_id in GameManager.permanent_unlocks and card_id not in VARIANT_CORE_UNITS and card_id not in seen:
 			pool.append(card_id)
@@ -465,12 +466,13 @@ func _get_full_pool() -> Array[String]:
 
 	# Talent branch support pools — require permanent unlock
 	var talent_pools: Array[String] = []
-	if GameManager.has_talent("piercing_void"):
-		talent_pools.append("vael_piercing_void")
-	if GameManager.has_talent("imp_evolution"):
-		talent_pools.append("vael_endless_tide")
-	if GameManager.has_talent("rune_caller"):
-		talent_pools.append("vael_rune_master")
+	if GameManager.current_hero == "lord_vael":
+		if GameManager.has_talent("piercing_void"):
+			talent_pools.append("vael_piercing_void")
+		if GameManager.has_talent("imp_evolution"):
+			talent_pools.append("vael_endless_tide")
+		if GameManager.has_talent("rune_caller"):
+			talent_pools.append("vael_rune_master")
 
 	for pool_name in talent_pools:
 		for card_id in CardDatabase.get_card_ids_in_pools([pool_name]):

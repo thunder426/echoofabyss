@@ -202,7 +202,9 @@ func _play_spark_spells() -> void:
 				continue
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
+			# mana_for_spark passive (F14): pay extra Mana for any spark shortfall.
+			var extra_mana := _mana_for_spark_shortfall(sc)
+			agent.mana -= agent.effective_spell_cost(spell) + extra_mana
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true

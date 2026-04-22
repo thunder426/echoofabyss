@@ -41,6 +41,7 @@ const _ENEMY_PROFILES: Dictionary = {
 	"void_ritualist_prime": preload("res://enemies/ai/profiles/VoidRitualistPrimeProfile.gd"),
 	"void_champion":        preload("res://enemies/ai/profiles/VoidChampionProfile.gd"),
 	"abyss_sovereign":      preload("res://enemies/ai/profiles/AbyssSovereignProfile.gd"),
+	"abyss_sovereign_p2":   preload("res://enemies/ai/profiles/AbyssSovereignPhase2Profile.gd"),
 	# Scored variants
 	"scored":               preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
 	"scored_feral_pack":    preload("res://enemies/ai/profiles/ScoredFeralPackProfile.gd"),
@@ -70,9 +71,9 @@ const _ENEMY_PASSIVES: Dictionary = {
 	"void_scout":           ["void_might", "void_precision", "champion_void_scout"],
 	"void_warband":         ["void_might", "spirit_resonance", "champion_void_warband"],
 	"void_captain":         ["void_might", "captain_orders", "champion_void_captain"],
-	"void_ritualist_prime": ["void_might", "dark_channeling"],
-	"void_champion":        ["void_might", "champion_duel"],
-	"abyss_sovereign":      ["void_might", "void_precision", "dark_channeling"],
+	"void_ritualist_prime": ["void_might", "dark_channeling", "ritualist_spark_free", "champion_void_ritualist_prime"],
+	"void_champion":        ["void_might", "mana_for_spark", "champion_void_champion"],
+	"abyss_sovereign":      ["void_might", "abyssal_mandate", "dark_channeling"],
 	# Scored variants
 	"scored":               [],
 	"scored_feral_pack":    ["pack_instinct", "champion_rogue_imp_pack"],
@@ -87,10 +88,14 @@ const _PLAYER_PROFILES: Dictionary = {
 	"rune_tempo": preload("res://enemies/ai/profiles/RuneTempoPlayerProfile.gd"),
 	"scored":     preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
 	"seris":      preload("res://enemies/ai/profiles/SerisPlayerProfile.gd"),
+	"fleshcraft": preload("res://enemies/ai/profiles/FleshcraftPlayerProfile.gd"),
 }
 
 ## Maximum turns before declaring a draw — prevents infinite loops.
 const MAX_TURNS := 60
+
+## Optional per-turn snapshot callback forwarded to SimState. Set before run().
+var turn_snapshot_callback: Callable = Callable()
 
 # ---------------------------------------------------------------------------
 # Run a single simulation
@@ -121,6 +126,8 @@ func run(
 
 	var state := SimState.new()
 	state.dmg_log_enabled = dmg_log
+	if turn_snapshot_callback.is_valid():
+		state.turn_snapshot_callback = turn_snapshot_callback
 	state.debug_log_enabled = debug
 	state.enemy_limited_cards = enemy_limited
 	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
@@ -129,6 +136,7 @@ func run(
 	state.hero_passives = player_hero_passives
 	state.player_hero_id = player_hero_id
 	state.enemy_passives.assign(_ENEMY_PASSIVES.get(enemy_profile_id, []))
+	state.enemy_ai_profile = enemy_profile_id
 
 	# Build agents
 	var p_agent := SimPlayerAgent.new()
@@ -151,6 +159,9 @@ func run(
 	var e_profile: CombatProfile = e_profile_script.new()
 	e_profile.setup(e_agent)
 	e_profile.setup_resource_growth(state)
+	# Store on state so the F15 phase-transition can swap it mid-run.
+	state._e_profile = e_profile
+	state._e_profile_factory = _make_profile_factory(e_agent, state)
 
 	# Relic system
 	var relic_rt: RelicRuntime = null
@@ -231,6 +242,7 @@ func run(
 		state.begin_enemy_turn(turn)
 		if state.debug_log_enabled:
 			print("  -- Enemy play phase --")
+		e_profile = state._e_profile
 		await e_profile.play_phase()
 		if not state.winner.is_empty(): break
 		if state.debug_log_enabled:
@@ -238,10 +250,13 @@ func run(
 			for m in state.enemy_board: e_cards_post.append("%s(%d/%d)" % [m.card_data.card_name, m.effective_atk(), m.current_health])
 			print("  E_Board after play: %s" % ", ".join(e_cards_post) if not e_cards_post.is_empty() else "  E_Board after play: (empty)")
 			print("  -- Enemy attack phase --")
+		e_profile = state._e_profile
 		await e_profile.attack_phase()
 		if state.debug_log_enabled:
 			print("  P_HP after attacks: %d  E_HP: %d" % [state.player_hp, state.enemy_hp])
 		state.end_enemy_turn()
+		if state.turn_snapshot_callback.is_valid():
+			state.turn_snapshot_callback.call(state, turn)
 
 	# Count Behemoth/Bastion still alive on enemy board as "survived"
 	for m: MinionInstance in state.enemy_board:
@@ -292,10 +307,15 @@ func run(
 		"immune_dmg_prevented": state._immune_dmg_prevented,
 		"rift_lord_plays": state._rift_lord_plays,
 		"enemy_crits_consumed": state._enemy_crits_consumed,
+		"dc_amp_count": state._dark_channeling_amp_count,
+		"dc_amp_by_spell": state._dark_channeling_amp_by_spell.duplicate(),
+		"dc_dmg_by_spell": state._dark_channeling_dmg_by_spell.duplicate(),
 		"rift_collapse_casts": state._rift_collapse_casts,
 		"rift_collapse_kills": state._rift_collapse_kills,
 		"dmg_log": state.dmg_log,
 		"relic_activations": relic_rt.total_activations if relic_rt else 0,
+		"sovereign_phase_reached":   state._sovereign_phase,
+		"sovereign_transition_turn": state._sovereign_transition_turn,
 	}
 
 # ---------------------------------------------------------------------------
@@ -358,6 +378,16 @@ func run_many(
 	var rift_lord_wins := 0
 	var rift_lord_games := 0
 	var total_crits_consumed := 0
+	var total_dc_amp := 0
+	var total_dc_amp_by_spell: Dictionary = {}
+	var total_dc_dmg_by_spell: Dictionary = {}
+	# F15 phase-transition metrics
+	var p2_reached_count := 0       # number of runs where the Sovereign entered P2
+	var total_transition_turn := 0  # sum of turn numbers at transition (for avg)
+	var p1_wins := 0                # player wins that never transitioned
+	var p2_wins := 0                # player wins after transitioning to P2
+	var p1_losses := 0              # player losses before transition (died in P1)
+	var p2_losses := 0              # player losses after transition (died in P2)
 
 	for _i in count:
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
@@ -405,12 +435,34 @@ func run_many(
 		total_collapse_casts += r.get("rift_collapse_casts", 0)
 		total_collapse_kills += r.get("rift_collapse_kills", 0)
 		total_crits_consumed += r.get("enemy_crits_consumed", 0)
+		total_dc_amp += r.get("dc_amp_count", 0)
+		var run_by_spell: Dictionary = r.get("dc_amp_by_spell", {})
+		for sid in run_by_spell.keys():
+			total_dc_amp_by_spell[sid] = int(total_dc_amp_by_spell.get(sid, 0)) + int(run_by_spell[sid])
+		var run_dmg: Dictionary = r.get("dc_dmg_by_spell", {})
+		for sid in run_dmg.keys():
+			total_dc_dmg_by_spell[sid] = int(total_dc_dmg_by_spell.get(sid, 0)) + int(run_dmg[sid])
 		var rl: int = r.get("rift_lord_plays", 0)
 		total_rift_lord_plays += rl
 		if rl > 0:
 			rift_lord_games += 1
 			if r["winner"] == "player":
 				rift_lord_wins += 1
+		# F15 phase-transition tracking
+		var phase_reached: int = r.get("sovereign_phase_reached", 1)
+		var trans_turn: int    = r.get("sovereign_transition_turn", 0)
+		if phase_reached == 2:
+			p2_reached_count += 1
+			total_transition_turn += trans_turn
+			if r["winner"] == "player":
+				p2_wins += 1
+			elif r["winner"] == "enemy":
+				p2_losses += 1
+		else:
+			if r["winner"] == "player":
+				p1_wins += 1
+			elif r["winner"] == "enemy":
+				p1_losses += 1
 
 	return {
 		"count":          count,
@@ -451,9 +503,19 @@ func run_many(
 		"avg_collapse_casts": float(total_collapse_casts) / count,
 		"avg_collapse_kills": float(total_collapse_kills) / count,
 		"avg_crits_consumed": float(total_crits_consumed) / count,
+		"avg_dc_amp": float(total_dc_amp) / count,
+		"dc_amp_by_spell_total": total_dc_amp_by_spell,
+		"dc_dmg_by_spell_total": total_dc_dmg_by_spell,
 		"avg_rift_lord_plays": float(total_rift_lord_plays) / count,
 		"rift_lord_games": rift_lord_games,
 		"rift_lord_win_rate": float(rift_lord_wins) / rift_lord_games if rift_lord_games > 0 else 0.0,
+		# F15 phase-transition
+		"p2_reached_rate":    float(p2_reached_count) / count,
+		"avg_transition_turn": float(total_transition_turn) / p2_reached_count if p2_reached_count > 0 else 0.0,
+		"p1_wins":            p1_wins,
+		"p2_wins":            p2_wins,
+		"p1_losses":          p1_losses,
+		"p2_losses":          p2_losses,
 	}
 
 # ---------------------------------------------------------------------------
@@ -561,3 +623,13 @@ static func _count_clogged_slots(state: SimState) -> int:
 		if m.effective_atk() <= 0:
 			count += 1
 	return count
+
+## Build a factory callable the F15 phase transition can invoke to instantiate
+## a new enemy CombatProfile by id. Bound to the current sim's e_agent + state.
+func _make_profile_factory(e_agent: Object, state: SimState) -> Callable:
+	return func(profile_id: String) -> CombatProfile:
+		var script = _ENEMY_PROFILES.get(profile_id, _ENEMY_PROFILES["default"])
+		var p: CombatProfile = script.new()
+		p.setup(e_agent)
+		p.setup_resource_growth(state)
+		return p

@@ -140,9 +140,17 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 	if sac == null or sac == ctx.source:
 		_log("  Grafted Butcher: no sacrifice target — fizzle.", ls)
 		return
+	# Capture the sac slot centre BEFORE kill — needed by the graft tendril VFX.
+	var sac_center: Vector2 = Vector2.ZERO
+	var sac_slot: Variant = _scene._find_slot_for(sac)
+	if sac_slot != null and is_instance_valid(sac_slot):
+		sac_center = sac_slot.global_position + sac_slot.size * 0.5
 	SacrificeSystem.sacrifice(_scene, sac, "grafted_butcher")
 	_scene.combat_manager.kill_minion(sac)
 	_log("  Grafted Butcher: sacrificed %s — 200 AoE to all %s minions." % [sac.card_data.card_name, _scene._opponent_of(ctx.owner)], ls)
+	# Play the VFX (skip in sim) and sync the AoE damage with its impact beat.
+	if _scene.has_method("_play_grafted_butcher_vfx"):
+		await _scene._play_grafted_butcher_vfx(ctx.source, sac_center, ctx.owner)
 	for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
 		_scene._spell_dmg(m, 200)
 
@@ -369,11 +377,20 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 			feral_count += 1
 	var dmg := 100 + 100 * feral_count
 	var frenzied_target: MinionInstance = _scene._find_random_minion(_scene._opponent_board(ctx.owner))
-	if frenzied_target:
-		_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _log_side(ctx.owner))
-		_scene._spell_dmg(frenzied_target, dmg)
-	else:
+	if frenzied_target == null:
 		_log("  Frenzied Imp: no target.", _log_side(ctx.owner))
+		return
+	_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _log_side(ctx.owner))
+	var target_ref: MinionInstance = frenzied_target
+	var apply_damage := func() -> void:
+		if target_ref == null or not is_instance_valid(target_ref) or target_ref.current_health <= 0:
+			return
+		_scene._spell_dmg(target_ref, dmg)
+	# Live scene plays VFX (with impact-synced damage). Sim skips and applies immediately.
+	if _scene.has_method("_play_frenzied_imp_vfx"):
+		await _scene._play_frenzied_imp_vfx(ctx.source, frenzied_target, feral_count, apply_damage)
+	else:
+		apply_damage.call()
 
 func _void_screech(ctx: EffectContext) -> void:
 	var owner_board: Array = _scene._friendly_board(ctx.owner)

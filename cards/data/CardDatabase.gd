@@ -17,7 +17,7 @@ var _cards: Dictionary = {}
 # ---------------------------------------------------------------------------
 const _TOKEN_DEFS: Array[Dictionary] = [
 	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
-	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "Summoned by Void Summoning.", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
+	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
 	{"id": "lesser_demon", "name": "Lesser Demon", "atk": 400, "hp": 400, "type": "DEMON", "faction": "abyss_order", "desc": "Summoned by Seris's Fiend Offering.", "tags": ["lesser_demon", "demon"], "art": "res://assets/art/minions/abyss_order/lesser_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/lesser_demon_small.png"},
 	{"id": "forged_demon", "name": "Forged Demon", "atk": 500, "hp": 500, "type": "DEMON", "faction": "abyss_order", "desc": "Forged by Seris's Soul Forge.",    "tags": ["forged_demon", "demon"], "art": "res://assets/art/minions/abyss_order/forged_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/forged_demon_small.png"},
 ]
@@ -138,8 +138,9 @@ func _register_wanderer_cards() -> void:
 	runic_void_imp.health                = 300
 	runic_void_imp.minion_type           = Enums.MinionType.DEMON
 	runic_void_imp.on_play_effect_steps  = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300}]
-	runic_void_imp.on_play_requires_target = true
-	runic_void_imp.on_play_target_type   = "enemy_minion"
+	runic_void_imp.on_play_target_optional = true
+	runic_void_imp.on_play_target_type     = "enemy_minion"
+	runic_void_imp.on_play_target_prompt   = "Click an enemy minion to deal 300 damage, or click a slot to summon without effect."
 	runic_void_imp.minion_tags           = ["void_imp", "runic_void_imp"]
 	runic_void_imp.faction               = "abyss_order"
 	runic_void_imp.clan                  = "Void Imp"
@@ -176,6 +177,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
 		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
 	]
+	void_spawning.art_path    = "res://assets/art/spells/abyss_order/void_spawning.png"
 	void_spawning.faction     = "abyss_order"
 	all.append(void_spawning)
 
@@ -184,11 +186,12 @@ func _register_wanderer_cards() -> void:
 	fiendish_pact.id          = "fiendish_pact"
 	fiendish_pact.card_name   = "Fiendish Pact"
 	fiendish_pact.cost        = 1
-	fiendish_pact.description = "Draw a card. Your next Demon costs 2 less this turn."
+	fiendish_pact.description = "Draw a card. Your next Demon costs 2 less Essence this turn."
 	fiendish_pact.effect_steps = [
 		{"type": "DRAW", "amount": 1},
 		{"type": "HARDCODED", "hardcoded_id": "fiendish_pact"},
 	]
+	fiendish_pact.art_path    = "res://assets/art/spells/abyss_order/fiendish_pact.png"
 	fiendish_pact.faction     = "abyss_order"
 	all.append(fiendish_pact)
 
@@ -201,8 +204,12 @@ func _register_wanderer_cards() -> void:
 	grafted_butcher.health          = 100
 	grafted_butcher.minion_type     = Enums.MinionType.DEMON
 	grafted_butcher.description     = "ON PLAY: SACRIFICE another friendly minion. Deal 200 damage to all enemy minions."
+	grafted_butcher.on_play_requires_target = true
 	grafted_butcher.on_play_target_type   = "friendly_minion_other"
+	grafted_butcher.on_play_target_prompt = "Click a friendly minion to sacrifice."
 	grafted_butcher.on_play_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "grafted_butcher"}]
+	grafted_butcher.art_path        = "res://assets/art/minions/abyss_order/grafted_butcher.png"
+	grafted_butcher.battlefield_art_path = "res://assets/art/minions/abyss_order/grafted_butcher_small.png"
 	grafted_butcher.faction         = "abyss_order"
 	all.append(grafted_butcher)
 
@@ -217,6 +224,7 @@ func _register_wanderer_cards() -> void:
 	flesh_rend.effect_steps    = [
 		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300, "bonus_amount": 300, "bonus_conditions": ["flesh_gte_3"]},
 	]
+	flesh_rend.art_path        = "res://assets/art/spells/abyss_order/flesh_rend.png"
 	flesh_rend.faction         = "abyss_order"
 	all.append(flesh_rend)
 
@@ -694,8 +702,9 @@ func _register_wanderer_cards() -> void:
 	void_netter.health                  = 300
 	void_netter.minion_type             = Enums.MinionType.HUMAN
 	void_netter.on_play_effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 200}]
-	void_netter.on_play_requires_target = true
+	void_netter.on_play_target_optional = true
 	void_netter.on_play_target_type     = "enemy_minion"
+	void_netter.on_play_target_prompt   = "Click an enemy minion to deal 200 damage, or click a slot to summon without effect."
 	void_netter.faction        = "abyss_order"
 	void_netter.art_path             = "res://assets/art/minions/abyss_order/void_netter.png"
 	void_netter.battlefield_art_path = "res://assets/art/minions/abyss_order/void_netter_small.png"
@@ -724,8 +733,9 @@ func _register_wanderer_cards() -> void:
 	soul_collector.health                  = 700
 	soul_collector.minion_type             = Enums.MinionType.HUMAN
 	soul_collector.on_play_effect_steps    = [{"type": "DESTROY", "scope": "SINGLE_CHOSEN", "filter": "CORRUPTED"}]
-	soul_collector.on_play_requires_target = true
+	soul_collector.on_play_target_optional = true
 	soul_collector.on_play_target_type     = "corrupted_enemy_minion"
+	soul_collector.on_play_target_prompt   = "Click a Corrupted enemy minion to destroy it, or click a slot to summon without effect."
 	soul_collector.faction        = "abyss_order"
 	soul_collector.art_path             = "res://assets/art/minions/abyss_order/soul_collector.png"
 	soul_collector.battlefield_art_path = "res://assets/art/minions/abyss_order/soul_collector_small.png"
@@ -1733,6 +1743,34 @@ func _register_wanderer_cards() -> void:
 	champion_void_captain.faction      = "abyss_order"
 	all.append(champion_void_captain)
 
+	var champion_void_champion := MinionCardData.new()
+	champion_void_champion.id           = "champion_void_champion"
+	champion_void_champion.card_name    = "Void Champion"
+	champion_void_champion.essence_cost = 0
+	champion_void_champion.description  = "Summoned after 3 enemy minions killed by Critical Strike.\nOn summon: gains 3 Critical Strike.\nAURA: At end of enemy turn, gain +1 max Mana and +1 max Essence."
+	champion_void_champion.atk          = 500
+	champion_void_champion.health       = 600
+	champion_void_champion.minion_type  = Enums.MinionType.SPIRIT
+	champion_void_champion.keywords     = [Enums.Keyword.CHAMPION]
+	champion_void_champion.is_champion  = true
+	champion_void_champion.minion_tags  = ["enemy_champion"]
+	champion_void_champion.faction      = "abyss_order"
+	all.append(champion_void_champion)
+
+	var champion_void_ritualist_prime := MinionCardData.new()
+	champion_void_ritualist_prime.id           = "champion_void_ritualist_prime"
+	champion_void_ritualist_prime.card_name    = "Void Ritualist Prime"
+	champion_void_ritualist_prime.essence_cost = 0
+	champion_void_ritualist_prime.description  = "Summoned after 5 enemy spells cast.\nOn summon: gains 2 Critical Strike.\nAURA: Friendly spells cost 1 less Mana."
+	champion_void_ritualist_prime.atk          = 100
+	champion_void_ritualist_prime.health       = 500
+	champion_void_ritualist_prime.minion_type  = Enums.MinionType.SPIRIT
+	champion_void_ritualist_prime.keywords     = [Enums.Keyword.CHAMPION]
+	champion_void_ritualist_prime.is_champion  = true
+	champion_void_ritualist_prime.minion_tags  = ["enemy_champion"]
+	champion_void_ritualist_prime.faction      = "abyss_order"
+	all.append(champion_void_ritualist_prime)
+
 	# --- Void Rift World — Act 3 enemy-only cards (dual cost: mana/essence + Void Sparks) ---
 
 	var void_pulse := SpellCardData.new()
@@ -1803,10 +1841,9 @@ func _register_wanderer_cards() -> void:
 	dimensional_breach.id              = "dimensional_breach"
 	dimensional_breach.card_name       = "Dimensional Breach"
 	dimensional_breach.cost            = 1
-	dimensional_breach.void_spark_cost = 2
-	dimensional_breach.description     = "Consume 2 Void Sparks. Summon 3 Void Sparks."
+	dimensional_breach.void_spark_cost = 0
+	dimensional_breach.description     = "Summon 2 Void Sparks."
 	dimensional_breach.effect_steps    = [
-		{"type": "SUMMON", "card_id": "void_spark"},
 		{"type": "SUMMON", "card_id": "void_spark"},
 		{"type": "SUMMON", "card_id": "void_spark"},
 	]
@@ -1835,16 +1872,16 @@ func _register_wanderer_cards() -> void:
 	void_shatter.id          = "void_shatter"
 	void_shatter.card_name   = "Void Shatter"
 	void_shatter.cost        = 3
-	void_shatter.description = "Deal 100 damage to a random enemy minion 8 times."
+	void_shatter.description = "Deal 100 damage to a random enemy 8 times."
 	void_shatter.effect_steps = [
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
 	]
 	void_shatter.requires_target = false
 	void_shatter.art_path    = "res://assets/art/spells/abyss_order/void_shatter.png"
@@ -2004,8 +2041,9 @@ func _register_wanderer_cards() -> void:
 	sovereigns_herald.atk                      = 200
 	sovereigns_herald.health                   = 200
 	sovereigns_herald.minion_type              = Enums.MinionType.SPIRIT
-	sovereigns_herald.on_play_requires_target  = true
+	sovereigns_herald.on_play_target_optional  = true
 	sovereigns_herald.on_play_target_type      = "friendly_minion"
+	sovereigns_herald.on_play_target_prompt    = "Click a friendly minion to buff, or click a slot to summon without effect."
 	sovereigns_herald.on_play_effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 1}]
 	sovereigns_herald.faction                  = "abyss_order"
 	sovereigns_herald.art_path                 = "res://assets/art/minions/abyss_order/sovereigns_herald.png"
@@ -2092,7 +2130,7 @@ func _register_wanderer_cards() -> void:
 	var void_architect := MinionCardData.new()
 	void_architect.id              = "void_architect"
 	void_architect.card_name       = "Void Architect"
-	void_architect.essence_cost    = 4
+	void_architect.essence_cost    = 3
 	void_architect.description     = "ON PLAY: Increase max Mana by 1."
 	void_architect.atk             = 250
 	void_architect.health          = 400

@@ -211,6 +211,12 @@ func _play() -> void:
 		layer_rects.append(rect)
 		layer_mats.append(mat)
 
+	# Spark/droplet particles riding the wave front
+	var particles := AbyssalPlagueParticles.spawn(
+		host, origin_y_px, direction_y,
+		min_x_px, max_x_px, max_reach_px, SURGE_DURATION)
+	host.add_child(particles)
+
 	# Schedule per-minion damage callbacks
 	if _per_minion_cb.is_valid():
 		for s in _occupied_slots:

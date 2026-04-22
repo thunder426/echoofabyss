@@ -451,3 +451,6 @@ mouse_filter = 2
 
 [node name="VfxController" type="Node" parent="." unique_id=200000003]
 script = ExtResource("6_vfxctrl")
+
+[node name="PopupLayer" type="CanvasLayer" parent="." unique_id=200000004]
+layer = 3

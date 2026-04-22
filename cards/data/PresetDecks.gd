@@ -57,25 +57,25 @@ const DECKS: Array = [
 		],
 	},
 	# ── Seris, the Fleshbinder ─────────────────────────────────────────────
-	# Fleshcraft — Grafted Fiends snowball through kills. Defensive shell to keep
-	# them alive until they scale; removal to weaken enemies into kill range.
-	# Avoids sacrifice spells (those destroy your own engine).
+	# Fleshcraft — Grafted Fiends snowball through kills, backed by a steady
+	# stream of cheap Demon bodies (Imps, Spawning tokens, Butcher sacs) that
+	# feed Flesh. Fiendish Pact chains big Fiend turns; Deathless Flesh spends
+	# the banked Flesh to keep late-game Fiends alive.
 	{
 		"id":   "seris_fleshcraft",
 		"hero": "seris",
 		"name": "Fleshcraft",
-		"desc": "Four Grafted Fiends grow through kills. Defensive plays keep them alive; Deathless Flesh turns late-run Fiends into unkillable scalers.",
+		"desc": "Cheap Demon bodies die to bank Flesh while Grafted Fiends grow through kills. Fiendish Pact discounts Fiend turns; Deathless Flesh spends banked Flesh to save them late.",
 		"cards": [
 			"grafted_fiend", "grafted_fiend", "grafted_fiend", "grafted_fiend",
 			"void_imp", "void_imp",
+			"grafted_butcher",
 			"shadow_hound",
 			"abyssal_brute",
-			"void_netter",
-			"caravan_guard", "caravan_guard",
+			"fiendish_pact", "fiendish_pact",
+			"void_spawning", "void_spawning",
 			"dark_empowerment",
 			"dominion_rune",
-			"flux_siphon",
-			"hidden_ambush",
 		],
 	},
 	# Demon Forge — sacrifice engine. Cheap Demon bodies to feed the Forge Counter;

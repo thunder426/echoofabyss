@@ -671,6 +671,21 @@ func apply_relic_cost_preview(ess_reduction: int, mana_reduction: int) -> void:
 		var c := "4dff4d" if ess_reduction > 0 and base_ess > 0 else "ffffff"
 		frame_cost_label.text = "[center][color=#%s]%d[/color][/center]" % [c, eff_ess]
 
+## Override the displayed ATK/HP on a minion preview — used by the board hover
+## preview so tokens summoned with custom stats (e.g. Void Summoning's 300/300
+## Demon) show their spawn stats instead of the card template's defaults.
+func override_stat_display(atk: int, hp: int) -> void:
+	if card_data == null or not (card_data is MinionCardData):
+		return
+	if frame_atk_label and frame_atk_label.visible:
+		frame_atk_label.text = str(atk)
+	elif atk_label:
+		atk_label.text = str(atk)
+	if frame_hp_label and frame_hp_label.visible:
+		frame_hp_label.text = str(hp)
+	elif hp_label:
+		hp_label.text = str(hp)
+
 ## Updates displayed stats, cost, and description based on currently unlocked talents.
 ## Only meaningful during combat; DeckBuilder previews call setup() before talents exist.
 func apply_talent_overlay() -> void:
@@ -879,7 +894,7 @@ func _apply_font_scale() -> void:
 const _TRIGGER_TERMS: Array[String] = [
 	"ON PLAY", "ON DEATH", "ON SUMMON", "ON ATTACK", "ON DAMAGE", "ON HEAL",
 	"ON TURN START", "ON TURN END", "ON DRAW", "ON DISCARD",
-	"PASSIVE", "AURA", "RITUAL", "RUNE", "CORRUPTION", "CORRUPT",
+	"PASSIVE", "AURA", "RITUAL", "RUNE", "CORRUPTION", "CORRUPT", "SACRIFICE",
 	"VOID MARKS", "VOID MARK", "DEATHLESS",
 	"VOID IMP CLAN",    # clan name highlight (minion/minions left unhighlighted)
 	"FERAL IMPS", "FERAL IMP", # clan name — plural before singular to avoid partial match

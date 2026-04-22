@@ -147,13 +147,18 @@ func sort_by_total_cost(a: CardInstance, b: CardInstance) -> bool:
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return spell.cost
 
-## Effective essence cost of a minion. Accounts for essence_cost_discounts on subclasses.
+## Effective essence cost of a minion. Accounts for essence_cost_discounts on
+## subclasses, plus minion_essence_cost_aura (flat aura discount, e.g. F15
+## Abyssal Mandate after the player grew Essence last turn).
 func effective_minion_essence_cost(mc: MinionCardData) -> int:
+	var cost: int = mc.essence_cost
 	var discounts = get("essence_cost_discounts")
 	if discounts is Dictionary and not discounts.is_empty():
-		var discount: int = (discounts.get(mc.id, 0) as int)
-		return maxi(0, mc.essence_cost - discount)
-	return mc.essence_cost
+		cost -= (discounts.get(mc.id, 0) as int)
+	var aura = get("minion_essence_cost_aura")
+	if aura is int:
+		cost += aura as int
+	return maxi(0, cost)
 
 ## Effective mana cost of a minion. Accounts for piercing_void (+1 Mana on base Void Imp).
 ## Override in subclasses for additional modifiers.

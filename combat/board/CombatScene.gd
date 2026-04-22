@@ -13,6 +13,22 @@ const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
 
 var turn_manager: TurnManager
 var enemy_ai: EnemyAI
+
+## Most recent player resource-growth choice ("" | "essence" | "mana").
+## Set by the end-turn buttons; read by F15 abyssal_mandate passive.
+var last_player_growth: String = ""
+
+## F15 Abyss Sovereign phase marker (1 = P1, 2 = P2). Flips to 2 via
+## PhaseTransition when P1 HP hits 0. Non-F15 fights leave this at 1.
+var _sovereign_phase: int = 1
+## Turn number at which the P1→P2 transition fired. 0 = never transitioned.
+var _sovereign_transition_turn: int = 0
+
+## Stub hook for the Phase 2 transition VFX (screen darken, banner, portrait
+## swap, etc.). Called by PhaseTransition after state has been reset. Leave
+## empty until polish pass — transition still functions without VFX.
+func _play_phase2_vfx() -> void:
+	_log("THE SOVEREIGN REAWAKENS — Phase 2 begins.", _LogType.ENEMY)
 var player_slots: Array[BoardSlot] = []
 var enemy_slots: Array[BoardSlot] = []
 
@@ -60,6 +76,12 @@ signal enemy_summon_reveal_done()
 ## so consecutive enemy spells don't overlap their VFX.
 var _enemy_spell_cast_active: bool = false
 signal enemy_spell_cast_done()
+
+## True while a minion on-play VFX is playing (e.g. Frenzied Imp's hurl). EnemyAI
+## and consecutive actions await on_play_vfx_done before continuing so the full
+## visual plays out before the next card/attack.
+var _on_play_vfx_active: bool = false
+signal on_play_vfx_done()
 
 ## Count of death animations currently playing (_animate_minion_death in-flight).
 ## EnemyAI and champion auto-summons await death_anims_done when this is > 0 so
@@ -242,6 +264,11 @@ var _enemy_spell_counter: int = 0
 ## Persistent warning label shown when the player's next spell will be countered.
 var _counter_warning_label: Label = null
 
+## Transient prompt label shown during on-play target selection (required or
+## optional). Text comes from MinionCardData.on_play_target_prompt. Shared
+## across all targeted-play cards.
+var _target_prompt_label: Label = null
+
 ## Prevents Soul Rune from firing more than once per enemy turn.
 var _soul_rune_fires_this_turn: int = 0
 
@@ -272,11 +299,15 @@ var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
 var _enemy_crits_consumed: int = 0  ## Total enemy crits consumed (for champion tracking)
 var _player_crits_consumed: int = 0
 var _last_crit_attacker: MinionInstance = null  ## Set by _apply_crit for post-crit processing
+var _last_attack_was_crit: bool = false  ## Transient: true if the most recent attack consumed a crit
 ## Set by CombatManager.resolve_minion_attack / resolve_minion_attack_hero for the duration of
 ## the attack; read by death-trigger firing so ctx.attacker can be populated. Cleared after.
 var _last_attacker: MinionInstance = null
 var _dark_channeling_active: bool = false
 var _dark_channeling_multiplier: float = 1.0
+var _dark_channeling_amp_count: int = 0
+var _dark_channeling_amp_by_spell: Dictionary = {}  ## spell_id -> count
+var _dark_channeling_dmg_by_spell: Dictionary = {}  ## spell_id -> extra damage from amp
 
 ## Enemy champion state — set dynamically by CombatSetup via scene.set().
 var _champion_summon_count: int = 0
@@ -326,6 +357,10 @@ var _vw_bastion_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "su
 ## Act 4 champion: Void Captain
 var _champion_vc_tc_cast: int = 0
 var _champion_vc_summoned: bool = false
+
+## Act 4 champion: Void Champion (F14)
+var _champion_vch_crit_kills: int = 0
+var _champion_vch_summoned: bool = false
 
 ## Act 3 champion: Void Herald
 var _champion_vh_spark_cards_played: int = 0
@@ -529,6 +564,24 @@ func _find_nodes() -> void:
 	_counter_warning_label.z_index = 90
 	_counter_warning_label.visible = false
 	$UI.add_child(_counter_warning_label)
+	# On-play target-selection prompt (hidden by default). Same anchor style as
+	# the counter warning but offset below it and tinted white/amber instead of red.
+	_target_prompt_label = Label.new()
+	_target_prompt_label.text = ""
+	_target_prompt_label.add_theme_font_override("font", DAMAGE_FONT)
+	_target_prompt_label.add_theme_font_size_override("font_size", 18)
+	_target_prompt_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55, 1.0))
+	_target_prompt_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.85))
+	_target_prompt_label.add_theme_constant_override("shadow_offset_x", 2)
+	_target_prompt_label.add_theme_constant_override("shadow_offset_y", 2)
+	_target_prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_target_prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_target_prompt_label.anchors_preset = Control.PRESET_CENTER_TOP
+	_target_prompt_label.position = Vector2(960 - 400, 500)
+	_target_prompt_label.size = Vector2(800, 50)
+	_target_prompt_label.z_index = 90
+	_target_prompt_label.visible = false
+	$UI.add_child(_target_prompt_label)
 
 # ---------------------------------------------------------------------------
 # Signal wiring
@@ -770,10 +823,12 @@ func _on_card_anim_finished() -> void:
 
 func _on_end_turn_essence_pressed() -> void:
 	turn_manager.grow_essence_max()
+	last_player_growth = "essence"
 	_do_end_turn()
 
 func _on_end_turn_mana_pressed() -> void:
 	turn_manager.grow_mana_max()
+	last_player_growth = "mana"
 	_do_end_turn()
 
 func _do_end_turn() -> void:
@@ -860,8 +915,7 @@ func _start_pip_blink_for_card(card_data: CardData) -> void:
 	elif card_data is MinionCardData:
 		var mc := card_data as MinionCardData
 		var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
-		extra_mana -= _peek_fiendish_pact_discount(mc)
-		ess_spend = mc.essence_cost
+		ess_spend = maxi(0, mc.essence_cost - _peek_fiendish_pact_discount(mc))
 		mna_spend = maxi(0, mc.mana_cost + extra_mana)
 	elif card_data is TrapCardData:
 		mna_spend = _effective_trap_cost(card_data as TrapCardData)
@@ -896,8 +950,8 @@ func _begin_spell_select(spell: SpellCardData) -> void:
 func _begin_minion_select(mc: MinionCardData) -> void:
 	# Check affordability (Void Crystal relic bypasses cost for the first card)
 	var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
-	extra_mana -= _peek_fiendish_pact_discount(mc)
-	if not turn_manager.can_afford(mc.essence_cost, maxi(0, mc.mana_cost + extra_mana)):
+	var ess_cost := maxi(0, mc.essence_cost - _peek_fiendish_pact_discount(mc))
+	if not turn_manager.can_afford(ess_cost, maxi(0, mc.mana_cost + extra_mana)):
 		_cancel_card_select()
 		return
 	if not _player_can_afford_sparks(mc.void_spark_cost):
@@ -908,9 +962,33 @@ func _begin_minion_select(mc: MinionCardData) -> void:
 		_cancel_card_select()
 		return
 	_start_pip_blink_for_card(mc)   # ensure blink runs even if card wasn't hovered
-	if mc.on_play_requires_target and _has_valid_minion_on_play_targets(mc):
+	var has_targets: bool = _has_valid_minion_on_play_targets_for(_effective_target_type(mc))
+	var is_optional: bool = _effective_target_optional(mc)
+	var is_required: bool = mc.on_play_requires_target and not is_optional
+	if is_required and has_targets:
+		# Mandatory target — targets only; player must pick one before placement.
 		_awaiting_minion_target = true
 		_highlight_minion_on_play_targets(mc)
+		_show_target_prompt(_effective_target_prompt(mc))
+	elif is_optional and has_targets:
+		# Optional target — highlight targets (yellow) AND empty slots (green).
+		# Click a target to resolve effect + show placement; click a slot to
+		# summon without the effect.
+		_awaiting_minion_target = true
+		_clear_all_highlights()
+		var t_type: String = _effective_target_type(mc)
+		var yellow := Color(1.0, 0.9, 0.2, 1.0)
+		var yellow_picker := func(_s: BoardSlot) -> Color: return yellow
+		if t_type in ["enemy_minion", "corrupted_enemy_minion"]:
+			_highlight_slots(enemy_slots,
+				func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, t_type),
+				yellow_picker)
+		if t_type in ["friendly_minion", "friendly_minion_other", "friendly_demon"]:
+			_highlight_slots(player_slots,
+				func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, t_type),
+				yellow_picker)
+		_highlight_slots(player_slots, func(s): return s.is_empty())
+		_show_target_prompt(_effective_target_prompt(mc))
 	else:
 		# No valid targets (or card doesn't need one) — go straight to placement.
 		# Effect will fire but resolve with null target (logs "no targets" and skips).
@@ -922,6 +1000,7 @@ func _on_hand_card_deselected() -> void:
 	pending_play_card = null
 	pending_minion_target = null
 	_awaiting_minion_target = false
+	_hide_target_prompt()
 	_tear_down_trap_env_targeting()
 	_clear_all_highlights()
 
@@ -1116,14 +1195,18 @@ func _on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 	# For targeted cards, pending_minion_target holds the player's chosen target
 	# (set when they clicked a valid target slot before choosing placement).
 	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
-		# Still waiting for player to click a valid target — ignore slot clicks until then
-		if _awaiting_minion_target:
+		var mc := pending_play_card.card_data as MinionCardData
+		# Still waiting for a target? — slot clicks are blocked UNLESS the card's
+		# target is optional, in which case the slot click bypasses targeting and
+		# the minion summons without the effect resolving.
+		if _awaiting_minion_target and not _effective_target_optional(mc):
 			return
 		var inst_to_play := pending_play_card
 		var on_play_target := pending_minion_target
 		pending_minion_target = null
 		pending_play_card = null
 		_awaiting_minion_target = false
+		_hide_target_prompt()
 		_clear_all_highlights()
 		_try_play_minion_animated(inst_to_play, slot, on_play_target)
 
@@ -1145,10 +1228,12 @@ func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) 
 	# selection so clicking an occupied slot doesn't accidentally select an attacker.
 	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
 		var mc := pending_play_card.card_data as MinionCardData
-		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, mc.on_play_target_type):
+		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, _effective_target_type(mc)):
 			pending_minion_target = minion
 			_awaiting_minion_target = false
 			_highlight_empty_player_slots()
+			_mark_selected_target(minion)
+			_show_target_prompt("Target selected. Choose a slot.")
 		return  # swallow the click — don't fall through to attacker selection
 	# Select this minion as the attacker if it can attack
 	if minion.can_attack():
@@ -1174,10 +1259,12 @@ func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	# If a targeted minion card is waiting for an enemy target, store it and show placement slots
 	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
 		var mc := pending_play_card.card_data as MinionCardData
-		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, mc.on_play_target_type):
+		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, _effective_target_type(mc)):
 			pending_minion_target = minion
 			_awaiting_minion_target = false
 			_highlight_empty_player_slots()
+			_mark_selected_target(minion)
+			_show_target_prompt("Target selected. Choose a slot.")
 			return
 	if selected_attacker == null:
 		return
@@ -1210,11 +1297,10 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 	# Talent: piercing_void — base Void Imp costs +1 Mana
 	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
 	var fp_discount := _peek_fiendish_pact_discount(card)
-	extra_mana -= fp_discount
-	if not _pay_card_cost(card.essence_cost, maxi(0, card.mana_cost + extra_mana)):
+	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost + extra_mana)):
 		return
 	if fp_discount > 0:
-		_log("  Fiendish Pact: %s costs %d less Mana." % [card.card_name, fp_discount], _LogType.PLAYER)
+		_log("  Fiendish Pact: %s costs %d less Essence." % [card.card_name, fp_discount], _LogType.PLAYER)
 		_consume_fiendish_pact_discount()
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
@@ -1240,6 +1326,7 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 	summon_ctx.minion = instance
 	summon_ctx.card   = card
 	trigger_manager.fire(summon_ctx)
+	_maybe_spawn_aura_pulse(card, slot)
 	_refresh_hand_spell_costs()
 
 
@@ -1256,11 +1343,10 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 		_player_pay_sparks(card.void_spark_cost)
 	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
 	var fp_discount := _peek_fiendish_pact_discount(card)
-	extra_mana -= fp_discount
-	if not _pay_card_cost(card.essence_cost, maxi(0, card.mana_cost + extra_mana)):
+	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost + extra_mana)):
 		return
 	if fp_discount > 0:
-		_log("  Fiendish Pact: %s costs %d less Mana." % [card.card_name, fp_discount], _LogType.PLAYER)
+		_log("  Fiendish Pact: %s costs %d less Essence." % [card.card_name, fp_discount], _LogType.PLAYER)
 		_consume_fiendish_pact_discount()
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
@@ -1289,6 +1375,7 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 		summon_ctx.minion = instance
 		summon_ctx.card   = card
 		trigger_manager.fire(summon_ctx)
+		_maybe_spawn_aura_pulse(card, slot)
 		_refresh_hand_spell_costs()
 	_animate_card_to_slot(flying_visual, slot, hand_index, total_cost, is_champion, on_landing)
 
@@ -1984,14 +2071,14 @@ func _friendly_hand(owner: String) -> Array:
 		return enemy_ai.hand if enemy_ai else []
 
 ## Seris Starter — Fiendish Pact discount for a single Demon play.
-## Returns the Mana discount to subtract from this play's cost (0 if not applicable).
+## Returns the Essence discount to subtract from this play's cost (0 if not applicable).
 ## Does NOT consume the pending yet — call _consume_fiendish_pact_discount after the pay succeeds.
 func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
 	if _fiendish_pact_pending <= 0:
 		return 0
 	if mc == null or mc.minion_type != Enums.MinionType.DEMON:
 		return 0
-	return mini(_fiendish_pact_pending, mc.mana_cost)
+	return mini(_fiendish_pact_pending, mc.essence_cost)
 
 ## Consume the Fiendish Pact pending discount after a Demon is successfully played.
 ## Also clears the display-only cost_delta on any remaining Demon cards in hand,
@@ -2087,8 +2174,12 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 	for slot in slots:
 		if slot.is_empty():
 			var instance := MinionInstance.create(data, owner)
-			if token_atk    > 0: instance.current_atk    = token_atk
-			if token_hp     > 0: instance.current_health = token_hp
+			if token_atk    > 0:
+				instance.current_atk  = token_atk
+				instance.spawn_atk    = token_atk
+			if token_hp     > 0:
+				instance.current_health = token_hp
+				instance.spawn_health   = token_hp
 			if token_shield > 0:
 				instance.current_shield = token_shield
 				BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token", false, false)
@@ -2103,6 +2194,16 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 				# in distinct slots) then reveal the minion after the sigil.
 				if card_id == "void_spark" and vfx_controller != null:
 					_summon_spark_with_sigil(instance, data, slot, owner)
+					return
+				# Void Demon tokens (Void Spawning, Fleshcraft Ritual) get the
+				# purple ARCANE sigil + inward spark burst on reveal.
+				if card_id == "void_demon" and vfx_controller != null:
+					_summon_demon_with_sigil(instance, data, slot, owner)
+					return
+				# Brood Imp tokens (Matriarch's Broodling on-death) get the
+				# dark-green BROOD_DARK sigil + green/black inward spark burst.
+				if card_id == "brood_imp" and vfx_controller != null:
+					_summon_brood_imp_with_sigil(instance, data, slot, owner)
 					return
 				slot.place_minion(instance)
 				_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
@@ -2144,6 +2245,89 @@ func _summon_spark_with_sigil(instance: MinionInstance, data: MinionCardData,
 	ctx.minion = instance
 	ctx.card   = data
 	trigger_manager.fire(ctx)
+
+
+## Play purple ARCANE sigil VFX for a Void Demon token, then a short inward
+## spark burst while the slot fades in. Mirrors _summon_spark_with_sigil but
+## uses the Void Spawning visual language (purple rings + violet sparks).
+func _summon_demon_with_sigil(instance: MinionInstance, data: MinionCardData,
+		slot: BoardSlot, owner: String) -> void:
+	slot.freeze_visuals = true
+	slot.place_minion(instance)
+
+	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.ARCANE_PURPLE)
+	vfx_controller.spawn(sigil)
+	await sigil.finished
+	if not is_inside_tree():
+		return
+
+	# Spark burst plays over an EMPTY-looking slot — sparks stream in from
+	# all edges and converge to center. Demon fades in only after the last
+	# spark has landed and disappeared.
+	var burst := VoidDemonSparkBurstVFX.create(slot)
+	vfx_controller.spawn(burst)
+	await burst.finished
+	if not is_inside_tree():
+		return
+
+	slot.freeze_visuals = false
+	slot.modulate.a = 0.0
+	slot._refresh_visuals()
+	var fade := create_tween()
+	fade.tween_property(slot, "modulate:a", 1.0, 0.35) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
+	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	var ctx   := EventContext.make(event, owner)
+	ctx.minion = instance
+	ctx.card   = data
+	trigger_manager.fire(ctx)
+
+
+## Play dark-green BROOD_DARK sigil VFX for a Brood Imp token summoned from
+## Matriarch's Broodling on-death, then a green/black inward spark burst while
+## the slot fades in. Mirrors _summon_demon_with_sigil.
+func _summon_brood_imp_with_sigil(instance: MinionInstance, data: MinionCardData,
+		slot: BoardSlot, owner: String) -> void:
+	slot.freeze_visuals = true
+	slot.place_minion(instance)
+
+	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.BROOD_DARK)
+	vfx_controller.spawn(sigil)
+	await sigil.finished
+	if not is_inside_tree():
+		return
+
+	var burst := BroodImpSparkBurstVFX.create(slot)
+	vfx_controller.spawn(burst)
+	await burst.finished
+	if not is_inside_tree():
+		return
+
+	slot.freeze_visuals = false
+	slot.modulate.a = 0.0
+	slot._refresh_visuals()
+	var fade := create_tween()
+	fade.tween_property(slot, "modulate:a", 1.0, 0.35) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
+	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	var ctx   := EventContext.make(event, owner)
+	ctx.minion = instance
+	ctx.card   = data
+	trigger_manager.fire(ctx)
+
+
+## Aura-source minions play a one-shot breathing halo on their own summon to
+## advertise "I project an aura" without the noise of a persistent effect.
+## Strictly on-summon: never fires on aura refresh or when another source of
+## the same aura enters play. Card-id gated (only minions listed here).
+func _maybe_spawn_aura_pulse(card: CardData, slot: BoardSlot) -> void:
+	if card == null or slot == null or vfx_controller == null:
+		return
+	if card.id != "rogue_imp_elder":
+		return
+	vfx_controller.spawn(AuraBreathingPulseVFX.create(slot))
 
 
 ## Count minions of a given type on the specified owner's board.
@@ -2369,6 +2553,9 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F12:
 			_cheat.toggle()
+		elif event.keycode == KEY_ESCAPE and _cheat.visible:
+			_cheat.toggle()
+			get_viewport().set_input_as_handled()
 	# Right-click cancels relic targeting, spell targeting, or minion placement
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		if _pending_relic_target != "":
@@ -2414,6 +2601,23 @@ func _play_brood_call_vfx(owner: String) -> void:
 	var vfx := SummonSigilVFX.create(target_slot, SummonSigilVFX.Flavor.BROOD)
 	vfx_controller.spawn(vfx)
 	await vfx.finished
+
+## Spawn the Grafted Butcher ON PLAY VFX — graft tether from the sacrificed
+## minion's slot into the Butcher, engorge flash, then a crimson cleaver wave
+## sweeps across the enemy board. Awaits `impact_hit` so the caller can apply
+## 200 AoE damage synced to the wave's peak. Awaits `finished` so the visual
+## settles before returning.
+func _play_grafted_butcher_vfx(butcher: MinionInstance,
+		sac_center: Vector2, butcher_owner: String) -> void:
+	if vfx_controller == null:
+		return
+	var butcher_slot: BoardSlot = _find_slot_for(butcher) if butcher else null
+	var butcher_panel: Control = butcher_slot
+	var target_board: Control = $UI/EnemyBoard if butcher_owner == "player" else $UI/PlayerBoard
+	var target_slots: Array = _get_opponent_occupied_slots(butcher_owner)
+	var vfx := GraftedButcherVFX.create(butcher_panel, sac_center, target_board, target_slots)
+	vfx_controller.spawn(vfx)
+	await vfx.impact_hit
 
 ## Spawn the Pack Frenzy warcry VFX from the caster's hero panel, sweeping
 ## across the given friendly Feral Imp slots. Awaits `impact_hit` so the caller
@@ -2737,6 +2941,8 @@ func _forge_counter_reset() -> void:
 ## these hooks. Keeping them as scene methods means sim handlers can reuse the
 ## same call sites without needing UI references.
 func _on_flesh_changed() -> void:
+	if _pip_bar:
+		_pip_bar.update_flesh()
 	if _player_hero_panel and _player_hero_panel.resource_bar:
 		_player_hero_panel.resource_bar.refresh()
 
@@ -3144,6 +3350,12 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], _LogType.DAMAGE)
 		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 		if enemy_hp <= 0:
+			# F15 Abyss Sovereign: intercept P1 death and transition to P2.
+			var pt = preload("res://combat/board/PhaseTransition.gd")
+			if pt.attempt(self):
+				_flash_hero("enemy", amount, Callable(), type)
+				_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+				return
 			_flash_hero("enemy", amount, _on_victory, type)
 		else:
 			_flash_hero("enemy", amount, Callable(), type)
@@ -3168,18 +3380,9 @@ func _on_hero_healed(target: String, amount: int) -> void:
 
 ## Returns true if at least one valid target exists for this card's on-play target type.
 ## If false, the card skips targeting and goes straight to placement (effect fires but does nothing).
+## Uses the card's raw target type — for talent-gated overrides see _has_valid_minion_on_play_targets_for.
 func _has_valid_minion_on_play_targets(card: MinionCardData) -> bool:
-	var hits_enemy    := card.on_play_target_type in ["enemy_minion", "corrupted_enemy_minion"]
-	var hits_friendly := card.on_play_target_type in ["friendly_minion", "friendly_minion_other"]
-	if hits_enemy:
-		for slot in enemy_slots:
-			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
-				return true
-	if hits_friendly:
-		for slot in player_slots:
-			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, card.on_play_target_type):
-				return true
-	return false
+	return _has_valid_minion_on_play_targets_for(card.on_play_target_type)
 
 ## Apply VALID_TARGET highlight to every slot in slots where filter returns true.
 ## color_picker (optional) is called per slot and may return a non-default glow
@@ -3199,12 +3402,91 @@ func _highlight_slots(slots: Array, filter: Callable, color_picker: Callable = C
 ## Step 2: player clicks a valid target → pending_minion_target set → placement slots shown.
 func _highlight_minion_on_play_targets(card: MinionCardData) -> void:
 	_clear_all_highlights()
-	var hits_enemy    := card.on_play_target_type in ["enemy_minion", "corrupted_enemy_minion"]
-	var hits_friendly := card.on_play_target_type in ["friendly_minion", "friendly_minion_other"]
+	var target_type: String = _effective_target_type(card)
+	var hits_enemy    := target_type in ["enemy_minion", "corrupted_enemy_minion"]
+	var hits_friendly := target_type in ["friendly_minion", "friendly_minion_other", "friendly_demon"]
 	if hits_enemy:
-		_highlight_slots(enemy_slots,  func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, card.on_play_target_type))
+		_highlight_slots(enemy_slots,  func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, target_type))
 	if hits_friendly:
-		_highlight_slots(player_slots, func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, card.on_play_target_type))
+		_highlight_slots(player_slots, func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, target_type))
+
+## Effective on-play target type for this card — falls back to mc.on_play_target_type
+## but may be overridden by talents (e.g. Grafting Ritual sets "friendly_demon" for
+## Grafted Fiend). Centralises talent-gated targeting rules in one place.
+func _effective_target_type(mc: MinionCardData) -> String:
+	if mc == null:
+		return ""
+	if mc.id == "grafted_fiend" and _has_talent("grafting_ritual"):
+		return "friendly_demon"
+	return mc.on_play_target_type
+
+## Effective optional-target flag — talent-gated cards (Grafting Ritual on
+## Grafted Fiend) become optional even if mc.on_play_target_optional is false.
+func _effective_target_optional(mc: MinionCardData) -> bool:
+	if mc == null:
+		return false
+	if mc.id == "grafted_fiend" and _has_talent("grafting_ritual"):
+		return true
+	return mc.on_play_target_optional
+
+## Effective prompt text — card field by default, with talent-gated overrides.
+func _effective_target_prompt(mc: MinionCardData) -> String:
+	if mc == null:
+		return ""
+	if mc.id == "grafted_fiend" and _has_talent("grafting_ritual"):
+		return "Click a Demon to transform into a Grafted Fiend, or click a slot to summon without effect."
+	return mc.on_play_target_prompt
+
+## Apply the SELECTED highlight to the slot holding this minion. Used by the
+## optional-target flow after a target is clicked — gives the target a strong
+## amber frame while empty slots stay green, so the player sees both the locked-in
+## target and their placement options at once.
+func _mark_selected_target(minion: MinionInstance) -> void:
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot != null:
+		slot.set_highlight(BoardSlot.HighlightMode.SELECTED)
+
+## Fade-in the target prompt with the given text. Safe to call with "" — hides.
+## If the prompt is already visible, just swap the text (no flicker).
+func _show_target_prompt(text: String) -> void:
+	if _target_prompt_label == null:
+		return
+	if text.is_empty():
+		_hide_target_prompt()
+		return
+	_target_prompt_label.text = text
+	if _target_prompt_label.visible and _target_prompt_label.modulate.a > 0.9:
+		return
+	_target_prompt_label.visible = true
+	_target_prompt_label.modulate = Color(1, 1, 1, 0)
+	var tw := create_tween()
+	tw.tween_property(_target_prompt_label, "modulate:a", 1.0, 0.2)
+
+func _hide_target_prompt() -> void:
+	if _target_prompt_label == null or not _target_prompt_label.visible:
+		return
+	var tw := create_tween()
+	tw.tween_property(_target_prompt_label, "modulate:a", 0.0, 0.15)
+	tw.tween_callback(func() -> void: _target_prompt_label.visible = false)
+
+## Generic variant of _has_valid_minion_on_play_targets that accepts a target
+## type string directly — used by the optional-target branch where the type
+## may come from _effective_target_type (talent-gated) rather than the raw
+## card field.
+func _has_valid_minion_on_play_targets_for(target_type: String) -> bool:
+	if target_type.is_empty():
+		return false
+	var hits_enemy    := target_type in ["enemy_minion", "corrupted_enemy_minion"]
+	var hits_friendly := target_type in ["friendly_minion", "friendly_minion_other", "friendly_demon"]
+	if hits_enemy:
+		for slot in enemy_slots:
+			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, target_type):
+				return true
+	if hits_friendly:
+		for slot in player_slots:
+			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, target_type):
+				return true
+	return false
 
 func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
@@ -3213,6 +3495,11 @@ func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String
 		"friendly_minion":        return true
 		# Seris Starter — Grafted Butcher: any friendly minion (the butcher itself isn't on board yet at target time)
 		"friendly_minion_other":  return true
+		# Seris Fleshcraft — Grafting Ritual: any friendly Demon. AI avoids
+		# Grafted Fiends (wasteful transform); player may cleanse via reroll.
+		"friendly_demon":
+			return minion != null and minion.card_data is MinionCardData \
+				and (minion.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON
 	return false
 
 ## Per-spell color picker for the VALID_TARGET highlight. Returns a Callable
@@ -3506,6 +3793,7 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 	ctx.minion = minion
 	ctx.card = minion.card_data
 	trigger_manager.fire(ctx)
+	_maybe_spawn_aura_pulse(minion.card_data, slot)
 	# Signal AFTER place_minion — guarantees AI continues only after the slot is occupied.
 	enemy_summon_reveal_done.emit()
 	if not is_inside_tree(): return
@@ -4326,6 +4614,8 @@ func _hide_large_preview() -> void:
 func _on_board_slot_hover_enter(slot: BoardSlot) -> void:
 	if slot.minion and slot.minion.card_data:
 		_show_large_preview(slot.minion.card_data)
+		if _large_preview:
+			_large_preview.override_stat_display(slot.minion.spawn_atk, slot.minion.spawn_health)
 
 func _on_enemy_hero_button_pressed() -> void:
 	if not turn_manager.is_player_turn or selected_attacker == null:
@@ -4451,6 +4741,56 @@ func _spawn_void_imp_claw_vfx_at(source_pos: Vector2, owner_side: String) -> voi
 		return
 	var vfx := VoidImpClawVFX.create(target_panel, source_pos)
 	vfx_controller.spawn(vfx)
+
+func _play_void_netter_on_play_vfx(source_minion: MinionInstance, target: MinionInstance, owner_side: String) -> void:
+	if source_minion == null or target == null:
+		return
+	var source_slot: BoardSlot = _find_slot_for(source_minion)
+	var target_slot: BoardSlot = _find_slot_for(target)
+	var apply_damage := func() -> void:
+		if target == null or not is_instance_valid(target) or target.current_health <= 0:
+			return
+		if owner_side == "player":
+			_spell_dmg(target, 200)
+			return
+		var slot_now := _find_slot_for(target)
+		combat_manager.apply_spell_damage(target, 200)
+		_refresh_slot_for(target)
+		if slot_now != null:
+			_flash_slot(slot_now)
+			_spawn_damage_popup(slot_now.get_global_rect().get_center(), 200)
+	if vfx_controller == null or source_slot == null or target_slot == null:
+		apply_damage.call()
+		return
+	var vfx := VoidNetterVFX.create(source_slot, target_slot, apply_damage)
+	vfx_controller.spawn(vfx)
+
+func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstance, feral_count: int, apply_damage: Callable) -> void:
+	if source_minion == null or target == null or vfx_controller == null:
+		if apply_damage.is_valid():
+			apply_damage.call()
+		return
+	var source_slot: BoardSlot = _find_slot_for(source_minion)
+	var target_slot: BoardSlot = _find_slot_for(target)
+	if source_slot == null or target_slot == null:
+		if apply_damage.is_valid():
+			apply_damage.call()
+		return
+	var source_pos: Vector2 = source_slot.get_global_rect().get_center()
+	var target_pos: Vector2 = target_slot.get_global_rect().get_center()
+	var vfx := FrenziedImpHurlVFX.create(source_pos, target_pos, feral_count, target_slot, target_slot)
+	var fired: Array[bool] = [false]
+	vfx.impact_hit.connect(func(_idx: int) -> void:
+		if fired[0]:
+			return
+		fired[0] = true
+		if apply_damage.is_valid():
+			apply_damage.call())
+	_on_play_vfx_active = true
+	vfx_controller.spawn(vfx)
+	await vfx.finished
+	_on_play_vfx_active = false
+	on_play_vfx_done.emit()
 
 func _clear_slot_for(minion: MinionInstance, slots: Array[BoardSlot]) -> void:
 	for slot in slots:
@@ -4951,7 +5291,10 @@ func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color) -
 	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_font_override("font", DAMAGE_FONT)
 	lbl.z_index = 200
-	$UI.add_child(lbl)
+	var popup_parent: Node = get_node_or_null("PopupLayer")
+	if popup_parent == null:
+		popup_parent = $UI
+	popup_parent.add_child(lbl)
 	lbl.position = screen_center - Vector2(18, 18) + Vector2(randf_range(-12.0, 12.0), 0.0)
 	var tw := create_tween()
 	tw.set_parallel(true)

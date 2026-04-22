@@ -903,6 +903,9 @@ func _effective_spark_cost(card: CardData) -> int:
 				return 0
 	var cost: int = base
 	var passives = agent.scene.get("_active_enemy_passives")
+	# ritualist_spark_free (F13 Void Ritualist Prime): all spark costs become 0 for spells.
+	if passives != null and "ritualist_spark_free" in passives and card is SpellCardData:
+		return 0
 	# captain_orders: Throne's Command costs 1 less spark
 	if passives != null and "captain_orders" in passives and card.id == "thrones_command":
 		cost = maxi(cost - 1, 0)
@@ -916,17 +919,33 @@ func _can_afford_spark_card(card: CardData) -> bool:
 	if card.void_spark_cost <= 0:
 		return false
 	var spark_cost: int = _effective_spark_cost(card)
+	# mana_for_spark passive (F14): spark shortfall can be paid 1 extra Mana each.
+	var extra_mana_for_sparks := _mana_for_spark_shortfall(spark_cost)
 	# spark_cost can be 0 if Void Herald aura is active — that's affordable
-	if spark_cost > 0 and not _can_afford_sparks(spark_cost):
+	if spark_cost > 0 and extra_mana_for_sparks == 0 and not _can_afford_sparks(spark_cost):
 		return false
 	if card is SpellCardData:
 		var spell := card as SpellCardData
-		return agent.effective_spell_cost(spell) <= agent.mana
+		return agent.effective_spell_cost(spell) + extra_mana_for_sparks <= agent.mana
 	elif card is MinionCardData:
 		var mc := card as MinionCardData
-		var mana_cost: int = agent.effective_minion_mana_cost(mc)
+		var mana_cost: int = agent.effective_minion_mana_cost(mc) + extra_mana_for_sparks
 		return agent.effective_minion_essence_cost(mc) <= agent.essence and mana_cost <= agent.mana
 	return false
+
+## With mana_for_spark passive: returns extra mana needed to cover spark shortfall.
+## Returns 0 if passive inactive OR board already has enough sparks.
+## Returns -1 when passive inactive and board is short (caller should treat as unaffordable).
+func _mana_for_spark_shortfall(spark_cost: int) -> int:
+	if spark_cost <= 0:
+		return 0
+	var available: int = _available_sparks()
+	if available >= spark_cost:
+		return 0
+	var passives = agent.scene.get("_active_enemy_passives")
+	if passives != null and "mana_for_spark" in passives:
+		return spark_cost - available
+	return 0  # Caller will fail the spark check separately
 
 ## Total spark value available on the friendly board.
 ## Uses effective_spark_value which respects spirit_resonance passive.
@@ -972,6 +991,11 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 		remaining -= m.effective_spark_value(agent.scene)
 
 	if remaining > 0:
+		# mana_for_spark passive: shortfall is paid in extra Mana, not fuel.
+		# Return whatever plan we have — caller reads _mana_for_spark_shortfall to pay extra.
+		var passives = agent.scene.get("_active_enemy_passives")
+		if passives != null and "mana_for_spark" in passives:
+			return plan
 		return []  # Can't afford
 	return plan
 

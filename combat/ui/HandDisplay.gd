@@ -273,11 +273,13 @@ func _card_has_active_condition(card: CardData, ctx: EffectContext) -> bool:
 	return false
 
 ## Apply Dark Mirror relic cost preview to all minion cards in hand.
+## Also folds the per-instance cost_delta (e.g. Fiendish Pact -2 on Demons) into the essence side.
 func refresh_relic_cost_preview(ess_reduction: int, mana_reduction: int) -> void:
 	for visual in _card_visuals:
 		if visual.card_inst == null:
 			continue
-		visual.apply_relic_cost_preview(ess_reduction, mana_reduction)
+		var inst_ess_bonus: int = -visual.card_inst.cost_delta  # negative delta = reduction
+		visual.apply_relic_cost_preview(ess_reduction + inst_ess_bonus, mana_reduction)
 
 ## Update which cards appear greyed out based on available resources.
 ## Uses each card's effective_cost() which accounts for per-copy cost_delta.
@@ -292,7 +294,9 @@ func refresh_playability(essence: int, mana: int, relic_ess_reduction: int = 0, 
 		if inst.card_data is MinionCardData:
 			var md := inst.card_data as MinionCardData
 			var extra_mana := 1 if (md.id == "void_imp" and piercing_void_active) else 0
-			var eff_ess := maxi(0, md.essence_cost - relic_ess_reduction)
+			# cost_delta is negative for a discount (e.g. Fiendish Pact = -2 on Demons in hand).
+			var inst_ess_bonus: int = -inst.cost_delta
+			var eff_ess := maxi(0, md.essence_cost - relic_ess_reduction - inst_ess_bonus)
 			var eff_mana := maxi(0, md.mana_cost + extra_mana - relic_mana_reduction)
 			affordable = essence >= eff_ess and mana >= eff_mana
 		else:

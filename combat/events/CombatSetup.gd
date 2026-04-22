@@ -67,11 +67,17 @@ const _REGISTRY: Dictionary = {
 	},
 	# ── Seris — Fleshcraft branch ────────────────────────────────────────────
 	"flesh_infusion": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "method": "on_played_flesh_infusion", "priority": 30 }],
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "method": "on_played_flesh_infusion", "priority": 30 },
+			# Grafted Constitution (formerly T1) was merged into Flesh Infusion; the +100/+100-on-kill
+			# trigger is now part of T0. Predatory Surge's "3 kill stacks → Siphon" still reads
+			# kill_stacks maintained by this handler.
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_grafted_constitution", "priority": 30 },
+		],
 		"stats":    {}
 	},
-	"grafted_constitution": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_grafted_constitution", "priority": 30 }],
+	"grafting_ritual": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "method": "on_played_grafting_ritual", "priority": 20 }],
 		"stats":    {}
 	},
 	"predatory_surge": {
@@ -289,6 +295,21 @@ const _REGISTRY: Dictionary = {
 		],
 		"stats": { "_champion_vc_tc_cast": 0, "_champion_vc_summoned": false }
 	},
+	"champion_void_champion": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_DIED, "method": "on_player_died_champion_vch", "priority": 91 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,  "method": "on_enemy_died_champion_vch",  "priority": 95 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_END,     "method": "on_enemy_turn_end_champion_vch_aura", "priority": 10 },
+		],
+		"stats": { "_champion_vch_crit_kills": 0, "_champion_vch_summoned": false }
+	},
+	"champion_void_ritualist_prime": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,  "method": "on_enemy_spell_champion_vrp", "priority": 92 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_champion_vrp",  "priority": 96 },
+		],
+		"stats": { "_champion_vrp_spells_cast": 0, "_champion_vrp_summoned": false }
+	},
 	# ── Act 3 enemy passives ──────────────────────────────────────────────────
 	"void_rift": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_void_rift", "priority": 3 }],
@@ -304,6 +325,18 @@ const _REGISTRY: Dictionary = {
 	},
 	# void_mastery: no triggers — AI profile checks for this passive to halve spark costs
 	"void_mastery": {
+		"triggers": [],
+		"stats":    {}
+	},
+	"ritualist_spark_free": {
+		# F13 Void Ritualist Prime: all enemy spell spark costs become 0.
+		# Checked in CombatProfile._effective_spark_cost via _active_enemy_passives.
+		"triggers": [],
+		"stats":    {}
+	},
+	"mana_for_spark": {
+		# F14 Void Champion: if enemy lacks sparks, each missing spark costs 1 extra Mana.
+		# Checked in CombatProfile._can_afford_spark_card / payment logic.
 		"triggers": [],
 		"stats":    {}
 	},
@@ -348,6 +381,16 @@ const _REGISTRY: Dictionary = {
 		"triggers": [
 			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_champion_duel_refresh",  "priority": 10 },
 			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK,     "method": "on_enemy_attack_champion_duel_refresh", "priority": 98 },
+		],
+		"stats":    {}
+	},
+	# F15 Phase 1 — Abyssal Mandate: the player's resource growth choice is
+	# echoed back as an enemy-turn discount. Grow Essence → enemy minions cost
+	# -2 Essence next turn; grow Mana → enemy spells cost -2 Mana next turn.
+	"abyssal_mandate": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_start_abyssal_mandate", "priority": 8 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_END,   "method": "on_enemy_turn_end_abyssal_mandate",   "priority": 8 },
 		],
 		"stats":    {}
 	},
@@ -424,3 +467,22 @@ func _apply(id: String, tm: TriggerManager, h: CombatHandlers, scene: Object) ->
 		tm.register(t["event"], Callable(h, t["method"]), t["priority"])
 	for stat in entry["stats"]:
 		scene.set(stat, entry["stats"][stat])
+
+## Public entrypoint for dynamic passive (un)registration — used by the F15
+## phase transition to swap passives mid-combat without tearing down the whole
+## trigger system.
+static func apply_passive(id: String, tm: TriggerManager, h: CombatHandlers, scene: Object) -> void:
+	if not _REGISTRY.has(id):
+		return
+	var entry: Dictionary = _REGISTRY[id]
+	for t in entry["triggers"]:
+		tm.register(t["event"], Callable(h, t["method"]), t["priority"])
+	for stat in entry["stats"]:
+		scene.set(stat, entry["stats"][stat])
+
+static func unapply_passive(id: String, tm: TriggerManager, h: CombatHandlers) -> void:
+	if not _REGISTRY.has(id):
+		return
+	var entry: Dictionary = _REGISTRY[id]
+	for t in entry["triggers"]:
+		tm.unregister(t["event"], Callable(h, t["method"]))

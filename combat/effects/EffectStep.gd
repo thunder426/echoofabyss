@@ -43,6 +43,7 @@ enum TargetScope {
 	SINGLE_CHOSEN,          # Player-chosen enemy target; falls back to random if null (AI path)
 	SINGLE_CHOSEN_FRIENDLY, # Player-chosen friendly target; falls back to random friendly if null
 	SINGLE_RANDOM,         # One random minion from the base pool
+	SINGLE_RANDOM_ANY,     # One random target from enemy minions + enemy hero (hero included as "enemy_hero" sentinel)
 	FILTERED_RANDOM,       # One random minion from the filtered pool
 	ALL_ENEMY,             # All opposing board minions
 	ALL_FRIENDLY,          # All friendly board minions

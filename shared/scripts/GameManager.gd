@@ -331,23 +331,24 @@ func _build_encounter(index: int) -> EnemyData:
 				["void_might", "captain_orders", "champion_void_captain"], "void_captain",
 				"res://assets/art/enemies/portraits/void_captain_portrait.png")
 		13:
-			return _make_encounter("Void Ritualist Prime", 7000, [],
+			return _make_encounter("Void Ritualist Prime", 5000, [],
 				"VOID RITUALIST PRIME",
 				"The Ritualist Prime is the Sovereign's high priest. He has spent his eternal life weaving void energy into a prison for the soul. He will try to do the same to you.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "dark_channeling"], "void_ritualist_prime")
+				["void_might", "dark_channeling", "ritualist_spark_free", "champion_void_ritualist_prime"], "void_ritualist_prime",
+				"res://assets/art/enemies/portraits/void_ritualist_portrait.png")
 		14:
-			return _make_encounter("Void Champion", 7800, [],
+			return _make_encounter("Void Champion", 5000, [],
 				"VOID CHAMPION",
 				"The last guardian before the throne. The Void Champion was forged from pure abyss energy — no flesh, no weakness, no mercy. Beyond him, the Sovereign waits.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "champion_duel"], "void_champion")
+				["void_might", "mana_for_spark", "champion_void_champion"], "void_champion")
 		15:
-			return _make_encounter("Abyss Sovereign", 10000, [],
+			return _make_encounter("Abyss Sovereign", 3000, [],
 				"ABYSS SOVEREIGN",
 				"At last. The Abyss Sovereign — the source of all corruption, the end of all things. It has devoured worlds without count. Today, it faces something it has never encountered: defiance.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "void_precision", "dark_channeling"], "abyss_sovereign")
+				["void_might", "abyssal_mandate", "dark_channeling"], "abyss_sovereign")
 	return null
 
 func _make_encounter(ename: String, ehp: int, pool: Array[String],

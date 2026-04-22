@@ -41,9 +41,22 @@ var enemy_hp:  int = 2000
 # ---------------------------------------------------------------------------
 
 var player_essence:     int = 0
-var player_essence_max: int = 0
+## Direct writes by profiles record the growth choice for F15 abyssal_mandate.
+var _player_essence_max: int = 0
+var player_essence_max: int:
+	get: return _player_essence_max
+	set(v):
+		if v > _player_essence_max:
+			last_player_growth = "essence"
+		_player_essence_max = v
 var player_mana:        int = 0
-var player_mana_max:    int = 0
+var _player_mana_max: int = 0
+var player_mana_max: int:
+	get: return _player_mana_max
+	set(v):
+		if v > _player_mana_max:
+			last_player_growth = "mana"
+		_player_mana_max = v
 
 var enemy_essence:      int = 0
 var enemy_essence_max:  int = 0
@@ -114,8 +127,14 @@ var _env_ritual_handlers: Array = []
 # ---------------------------------------------------------------------------
 
 var enemy_spell_cost_penalty:   int        = 0
+## Persistent flat mana-cost adjustment from an active aura (e.g. Void Ritualist
+## Prime champion reduces by 1). Negative = discount. Not reset per turn.
+var enemy_spell_cost_aura:      int        = 0
 var enemy_spell_cost_discounts: Dictionary = {}
 var enemy_essence_cost_discounts: Dictionary = {}
+## Flat enemy minion essence-cost aura (F15 Abyssal Mandate). Negative = cheaper.
+## Set when the player grows Essence; cleared at end of the following enemy turn.
+var enemy_minion_essence_cost_aura: int = 0
 
 ## Pending spell tax applied at next turn start (set by Spell Taxer effect).
 var _spell_tax_for_enemy_turn:  int = 0
@@ -153,12 +172,34 @@ var _void_bolt_spell_casts: int = 0   ## Void Bolt spell casts (not rune procs)
 var _void_bolt_total_dmg: int = 0     ## Total void bolt damage (spells + runes)
 var _void_imp_dmg: int = 0            ## Total damage from Void Imp on-play
 
+## Optional per-turn snapshot hook. Called at end of enemy turn with (state, turn).
+var turn_snapshot_callback: Callable = Callable()
+
 ## Verbose damage log — populated when dmg_log_enabled = true.
 ## Each entry: { turn: int, amount: int, source: String }
 var dmg_log_enabled: bool = false
 var dmg_log: Array = []
 var _current_turn: int = 0
 var _pending_dmg_source: String = ""
+
+## Most recent player resource-growth choice ("" | "essence" | "mana").
+## Written by _grow_player_resources; read by abyssal_mandate handler.
+var last_player_growth: String = ""
+
+## F15 Abyss Sovereign phase marker (1 = P1, 2 = P2). Always starts at 1; the
+## phase-transition helper flips it to 2. Non-F15 fights leave this alone.
+var _sovereign_phase: int = 1
+## Turn number at which the P1→P2 transition fired. 0 = never transitioned.
+var _sovereign_transition_turn: int = 0
+
+## Active enemy CombatProfile reference — CombatSim re-reads this each turn so
+## the F15 phase transition can swap profiles mid-run.
+var _e_profile: CombatProfile = null
+## Factory callable (profile_id: String) -> CombatProfile. Bound by CombatSim.
+var _e_profile_factory: Callable = Callable()
+
+## AI profile id currently driving the enemy (sim mirror of EnemyAI.ai_profile).
+var enemy_ai_profile: String = ""
 
 ## Once-per-turn gate for feral_reinforcement passive.
 var _imp_caller_fired: bool = false
@@ -201,8 +242,12 @@ var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
 var _enemy_crits_consumed: int = 0
 var _player_crits_consumed: int = 0
 var _last_crit_attacker: MinionInstance = null
+var _last_attack_was_crit: bool = false
 var _dark_channeling_active: bool = false
 var _dark_channeling_multiplier: float = 1.0
+var _dark_channeling_amp_count: int = 0
+var _dark_channeling_amp_by_spell: Dictionary = {}  ## spell_id -> count
+var _dark_channeling_dmg_by_spell: Dictionary = {}  ## spell_id -> extra damage dealt by amp
 
 ## Enemy champion state — set dynamically by CombatSetup via scene.set().
 var enemy_hp_max: int = 0
@@ -234,6 +279,12 @@ var _champion_vs_summoned: bool = false
 # Act 4 champion: Void Captain
 var _champion_vc_tc_cast: int = 0
 var _champion_vc_summoned: bool = false
+# Act 4 champion: Void Champion
+var _champion_vch_crit_kills: int = 0
+var _champion_vch_summoned: bool = false
+# Act 4 champion: Void Ritualist Prime
+var _champion_vrp_spells_cast: int = 0
+var _champion_vrp_summoned: bool = false
 # Act 4 champion: Void Warband
 var _champion_vw_spirits_consumed: int = 0
 var _champion_vw_summoned: bool = false
@@ -377,6 +428,11 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 				dmg_log.append({turn = _current_turn, amount = amount, source = source})
 			_pending_dmg_source = ""
 		if enemy_hp <= 0 and winner.is_empty():
+			# F15 Abyss Sovereign: intercept P1 death and transition to P2
+			# instead of ending the fight.
+			var pt = preload("res://combat/board/PhaseTransition.gd")
+			if pt.attempt(self):
+				return
 			winner = "player"
 
 func _on_hero_healed(target: String, amount: int) -> void:
@@ -411,7 +467,7 @@ func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
 		return 0
 	if mc == null or mc.minion_type != Enums.MinionType.DEMON:
 		return 0
-	return mini(_fiendish_pact_pending, mc.mana_cost)
+	return mini(_fiendish_pact_pending, mc.essence_cost)
 
 func _consume_fiendish_pact_discount() -> void:
 	if _fiendish_pact_pending <= 0:
@@ -958,6 +1014,19 @@ func _draw_player(count: int) -> void:
 			ctx.card = inst.card_data
 			trigger_manager.fire(ctx)
 
+## Rebuild the enemy deck/hand/discard from a fresh card-id list. Used by the
+## F15 phase transition to swap the Sovereign's deck between P1 and P2.
+func setup_enemy_deck(card_ids: Array[String]) -> void:
+	enemy_deck.clear()
+	enemy_hand.clear()
+	enemy_discard.clear()
+	for id in card_ids:
+		var card := CardDatabase.get_card(id)
+		if card:
+			enemy_deck.append(CardInstance.create(card))
+	enemy_deck.shuffle()
+	_draw_enemy(5)
+
 func _draw_enemy(count: int) -> void:
 	for _i in count:
 		if enemy_hand.size() >= ENEMY_HAND_MAX: break
@@ -1033,8 +1102,10 @@ func _grow_player_resources(turn_number: int) -> void:
 	if player_essence_max + player_mana_max >= COMBINED_RESOURCE_CAP: return
 	if player_mana_max < player_essence_max - 2:
 		player_mana_max += 1
+		last_player_growth = "mana"
 	else:
 		player_essence_max += 1
+		last_player_growth = "essence"
 
 func _grow_enemy_resources(turn_number: int) -> void:
 	if turn_number <= 1: return

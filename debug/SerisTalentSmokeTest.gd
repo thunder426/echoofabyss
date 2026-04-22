@@ -124,7 +124,9 @@ func _test_flesh_infusion() -> void:
 	state.teardown()
 
 func _test_grafted_constitution() -> void:
-	var state := _build_state(["grafted_constitution"])
+	# Grafted Constitution was merged into Flesh Infusion (T0). Test still runs under
+	# the new talent ID so we catch regressions on the +100/+100-on-kill + kill_stacks path.
+	var state := _build_state(["flesh_infusion"])
 	var fiend := _spawn_friendly_demon(state, "grafted_fiend")
 	var enemy := _spawn_enemy(state, "rabid_imp")
 	var before_atk: int = fiend.effective_atk()
@@ -161,7 +163,7 @@ func _test_predatory_surge_swift() -> void:
 	state.teardown()
 
 func _test_predatory_surge_siphon() -> void:
-	var state := _build_state(["grafted_constitution", "predatory_surge"])
+	var state := _build_state(["flesh_infusion", "predatory_surge"])
 	var fiend := _spawn_friendly_demon(state, "grafted_fiend")
 	# Rack up 3 kills
 	for i in 3:

@@ -57,9 +57,19 @@ var active_environment:
 var spell_cost_discounts: Dictionary:
 	get: return sim.enemy_spell_cost_discounts
 
+## Duck-type spell_cost_aura so champion-aura handlers can toggle it.
+var spell_cost_aura: int:
+	get: return sim.enemy_spell_cost_aura
+	set(v): sim.enemy_spell_cost_aura = v
+
 ## Duck-type essence_cost_discounts so CombatSetup can write minion essence discounts.
 var essence_cost_discounts: Dictionary:
 	get: return sim.enemy_essence_cost_discounts
+
+## Duck-type minion_essence_cost_aura so the F15 Abyssal Mandate handler can toggle it.
+var minion_essence_cost_aura: int:
+	get: return sim.enemy_minion_essence_cost_aura
+	set(v): sim.enemy_minion_essence_cost_aura = v
 
 ## Duck-type attack_cancelled so Smoke Veil can cancel attacks.
 var attack_cancelled: bool = false
@@ -100,6 +110,11 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	slot.place_minion(instance)
 	sim.enemy_hand.erase(inst)
 	sim.enemy_discard.append(inst)
+	# Track per-fight big-body plays
+	if mc.id == "bastion_colossus":
+		sim._vw_bastion_plays += 1
+	elif mc.id == "void_behemoth":
+		sim._vw_behemoth_plays += 1
 	# Set target so on_enemy_minion_played_effect (always-on handler) can read it.
 	minion_play_chosen_target = chosen_target
 	if sim.trigger_manager != null:
@@ -206,7 +221,7 @@ func consume_minion(minion: MinionInstance) -> void:
 # ---------------------------------------------------------------------------
 
 func effective_spell_cost(spell: SpellCardData) -> int:
-	return max(0, spell.cost + sim.enemy_spell_cost_penalty \
+	return max(0, spell.cost + sim.enemy_spell_cost_penalty + sim.enemy_spell_cost_aura \
 		- (sim.enemy_spell_cost_discounts.get(spell.id, 0) as int))
 
 func opponent_has_rune_or_environment() -> bool:
@@ -243,6 +258,7 @@ func _resolve_on_play(mc: MinionCardData, instance: MinionInstance, chosen_targe
 
 func _resolve_spell(spell: SpellCardData, chosen_target) -> void:
 	var ctx := _make_ctx("enemy", null, chosen_target)
+	ctx.source_card_id = spell.id
 	EffectResolver.run(spell.effect_steps, ctx)
 
 func _make_ctx(owner: String, source: MinionInstance, chosen_target) -> EffectContext:

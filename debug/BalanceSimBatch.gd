@@ -56,13 +56,13 @@ const _PRESET_CONFIG: Dictionary = {
 	# ── Seris, the Fleshbinder ───────────────────────────────────────────────
 	"seris_fleshcraft": {
 		"hero": "seris",
-		"profile": "seris",
+		"profile": "fleshcraft",
 		"hero_passives": ["fleshbind", "grafted_affinity"],
 		"talents_by_act": {
 			1: ["flesh_infusion"],
-			2: ["flesh_infusion", "grafted_constitution"],
-			3: ["flesh_infusion", "grafted_constitution", "predatory_surge"],
-			4: ["flesh_infusion", "grafted_constitution", "predatory_surge", "deathless_flesh"],
+			2: ["flesh_infusion", "grafting_ritual"],
+			3: ["flesh_infusion", "grafting_ritual", "predatory_surge"],
+			4: ["flesh_infusion", "grafting_ritual", "predatory_surge", "deathless_flesh"],
 		},
 	},
 	"seris_demon_forge": {
@@ -93,7 +93,7 @@ const _ACT_FIGHTS: Dictionary = {
 	1: [1, 2, 3],
 	2: [4, 5, 6],
 	3: [7, 8, 9],
-	4: [10, 11, 12],
+	4: [10, 11, 12, 13, 14, 15],
 }
 
 const _ACT_RELICS: Dictionary = {
@@ -400,6 +400,18 @@ func _print_row(preset: String, relic: String, fight_name: String, fight_idx: in
 	if rc_c > 0: extras.append("RC:%.1fx/%.1fk" % [rc_c, rc_k])
 	var crt: float = s.get("avg_crits_consumed", 0.0)
 	if crt > 0: extras.append("Crt:%.1f" % crt)
+	var dc_amp: float = s.get("avg_dc_amp", 0.0)
+	if dc_amp > 0:
+		var by_spell: Dictionary = s.get("dc_amp_by_spell_total", {})
+		var dmg_by_spell: Dictionary = s.get("dc_dmg_by_spell_total", {})
+		var parts_dc: Array[String] = []
+		var keys := by_spell.keys()
+		keys.sort_custom(func(a, b): return int(by_spell[a]) > int(by_spell[b]))
+		for sid in keys:
+			var cnt: int = int(by_spell[sid])
+			var dmg: int = int(dmg_by_spell.get(sid, 0))
+			parts_dc.append("%s:%dx/+%d" % [sid, cnt, dmg])
+		extras.append("DC:%.1f(%s)" % [dc_amp, ",".join(parts_dc)])
 	if rl_p > 0: extras.append("RL:%.1fx(%d g,%.0f%%wr)" % [rl_p, rl_g, rl_wr * 100.0])
 	var vw_beh: float = s.get("avg_vw_behemoth", 0.0)
 	var vw_bas: float = s.get("avg_vw_bastion", 0.0)
@@ -415,6 +427,17 @@ func _print_row(preset: String, relic: String, fight_name: String, fight_idx: in
 		extras.append("BehL:c%d/d%d/b%d/s%d" % [beh_lost["consumed"], beh_lost["damage"], beh_lost["combat"], beh_lost["survived"]])
 	if bas_lost.size() > 0 and (int(bas_lost["consumed"]) + int(bas_lost["damage"]) + int(bas_lost["combat"]) + int(bas_lost["survived"])) > 0:
 		extras.append("BasL:c%d/d%d/b%d/s%d" % [bas_lost["consumed"], bas_lost["damage"], bas_lost["combat"], bas_lost["survived"]])
+
+	# F15 phase-transition line (only prints for fights that actually transitioned)
+	var p2_rate: float = s.get("p2_reached_rate", 0.0)
+	if p2_rate > 0:
+		var p2_avg_turn: float = s.get("avg_transition_turn", 0.0)
+		var p1w: int = s.get("p1_wins", 0)
+		var p2w: int = s.get("p2_wins", 0)
+		var p1l: int = s.get("p1_losses", 0)
+		var p2l: int = s.get("p2_losses", 0)
+		extras.append("P2:%.0f%%@T%.1f" % [p2_rate * 100.0, p2_avg_turn])
+		extras.append("P1w/P1l/P2w/P2l:%d/%d/%d/%d" % [p1w, p1l, p2w, p2l])
 
 	if not extras.is_empty():
 		print("             %s" % " | ".join(extras))

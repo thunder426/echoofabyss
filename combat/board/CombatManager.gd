@@ -79,6 +79,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	attack_resolved.emit(attacker, defender)
 	if scene != null:
 		scene._last_attacker = null
+		scene.set("_last_attack_was_crit", false)
 
 ## Resolve a minion attacking the enemy hero directly.
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
@@ -96,6 +97,7 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 	attacker.state = Enums.MinionState.EXHAUSTED
 	if scene != null:
 		scene._last_attacker = null
+		scene.set("_last_attack_was_crit", false)
 
 # ---------------------------------------------------------------------------
 # Damage application
@@ -183,6 +185,9 @@ func _apply_crit(attacker: MinionInstance) -> int:
 			scene.set(key, (cur as int) + 1)
 		# Store attacker for post-crit processing
 		scene.set("_last_crit_attacker", attacker)
+		# Flag this attack as a crit so death handlers can detect crit-kills.
+		# Cleared by the death handler (or next attack if no kill occurred).
+		scene.set("_last_attack_was_crit", true)
 	var multiplier: float = 2.0
 	if scene != null:
 		# Check per-side multiplier first, fall back to global

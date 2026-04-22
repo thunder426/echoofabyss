@@ -82,16 +82,19 @@ func _is_champion(card_id: String) -> bool:
 	var card: CardData = CardDatabase.get_card(card_id)
 	return card is MinionCardData and card.is_champion
 
-## Returns card IDs from all support pools active in this run (based on talents taken).
+## Returns card IDs from all support pools active in this run (based on hero + talents taken).
 func _get_active_support_pool_ids() -> Array[String]:
 	var ids: Array[String] = []
-	ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_common"]))
-	if GameManager.has_talent("piercing_void"):
-		ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_piercing_void"]))
-	if GameManager.has_talent("imp_evolution"):
-		ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_endless_tide"]))
-	if GameManager.has_talent("rune_caller"):
-		ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_rune_master"]))
+	if GameManager.current_hero == "lord_vael":
+		ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_common"]))
+		if GameManager.has_talent("piercing_void"):
+			ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_piercing_void"]))
+		if GameManager.has_talent("imp_evolution"):
+			ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_endless_tide"]))
+		if GameManager.has_talent("rune_caller"):
+			ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_rune_master"]))
+	elif GameManager.current_hero == "seris":
+		ids.append_array(CardDatabase.get_card_ids_in_pools(["seris_starter"]))
 	return ids
 
 func _build_card_phase_ui() -> void:

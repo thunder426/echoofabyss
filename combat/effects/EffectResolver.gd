@@ -89,12 +89,20 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				var amt := maxi(1, step.amount)
 				if ctx.owner == "player":
 					ctx.scene.turn_manager.grow_mana_max(amt)
+					ctx.scene.last_player_growth = "mana"
 				else:
+					# Real combat: enemy_ai owns the caps. Sim: scene (SimState) owns them.
 					var ai = ctx.scene.enemy_ai
-					for _i in amt:
-						if ai.essence_max + ai.mana_max >= ai.COMBINED_RESOURCE_CAP:
-							break
-						ai.mana_max += 1
+					if ai != null and ai.get("mana_max") != null and ai.get("COMBINED_RESOURCE_CAP") != null:
+						for _i in amt:
+							if ai.essence_max + ai.mana_max >= ai.COMBINED_RESOURCE_CAP:
+								break
+							ai.mana_max += 1
+					else:
+						for _i in amt:
+							if ctx.scene.enemy_essence_max + ctx.scene.enemy_mana_max >= 11:
+								break
+							ctx.scene.enemy_mana_max += 1
 			return
 
 		EffectStep.EffectType.VOID_MARK:
@@ -181,7 +189,11 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 	var scene = ctx.scene
 	match step.effect_type:
 		EffectStep.EffectType.DAMAGE_MINION:
-			scene._spell_dmg(target, _dark_channeling_dmg(amount, ctx))
+			var dmg: int = _dark_channeling_dmg(amount, ctx)
+			if target is String and target == "enemy_hero":
+				scene.combat_manager.apply_hero_damage(scene._opponent_of(ctx.owner), dmg, Enums.DamageType.SPELL)
+			else:
+				scene._spell_dmg(target, dmg)
 
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
@@ -301,4 +313,11 @@ static func _dark_channeling_dmg(base: int, ctx: EffectContext) -> int:
 	var mult: float = ctx.scene.get("_dark_channeling_multiplier")
 	if mult == null:
 		mult = 1.5
-	return int(base * mult)
+	var amplified: int = int(base * mult)
+	# Telemetry: track extra damage dealt by dark_channeling per spell id.
+	var extra: int = amplified - base
+	if extra > 0 and ctx.source_card_id != "":
+		var dmg_map: Dictionary = ctx.scene.get("_dark_channeling_dmg_by_spell")
+		if dmg_map != null:
+			dmg_map[ctx.source_card_id] = int(dmg_map.get(ctx.source_card_id, 0)) + extra
+	return amplified

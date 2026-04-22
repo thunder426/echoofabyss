@@ -73,12 +73,8 @@ func _build(has_flesh: bool, has_forge: bool, has_corrupt: bool) -> void:
 	add_theme_constant_override("separation", 2)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	if has_flesh:
-		_flesh_row = _build_pip_row("Flesh")
-		_flesh_label = _flesh_row.get_node("Label") as Label
-		var cap: int = int(_scene.get("player_flesh_max")) if _scene.get("player_flesh_max") != null else 5
-		_flesh_pips = _spawn_pips(_flesh_row, cap, _PIP_ICON_EMPTY)
-		add_child(_flesh_row)
+	# Flesh row moved to PipBar (big icon + count next to essence/mana columns).
+	# SerisResourceBar still keeps the Forge row + skill buttons below.
 
 	if has_forge:
 		_forge_row = _build_pip_row("Forge")
@@ -289,12 +285,6 @@ func _spawn_pips(row: HBoxContainer, count: int, empty_icon: String) -> Array[Te
 func refresh() -> void:
 	if _scene == null:
 		return
-	if _flesh_row != null:
-		var flesh: int    = int(_scene.get("player_flesh"))
-		var flesh_cap: int = int(_scene.get("player_flesh_max"))
-		_set_pips(_flesh_pips, flesh, flesh_cap, _PIP_ICON_FILLED, _PIP_ICON_EMPTY)
-		if _flesh_label:
-			_flesh_label.text = "Flesh %d/%d" % [flesh, flesh_cap]
 	if _forge_row != null:
 		var fc: int        = int(_scene.get("forge_counter"))
 		var forge_cap: int = int(_scene.get("forge_counter_threshold"))

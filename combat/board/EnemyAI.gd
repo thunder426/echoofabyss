@@ -35,6 +35,7 @@ const _PROFILES: Dictionary = {
 	"void_ritualist_prime": preload("res://enemies/ai/profiles/VoidRitualistPrimeProfile.gd"),
 	"void_champion":       preload("res://enemies/ai/profiles/VoidChampionProfile.gd"),
 	"abyss_sovereign":     preload("res://enemies/ai/profiles/AbyssSovereignProfile.gd"),
+	"abyss_sovereign_p2":  preload("res://enemies/ai/profiles/AbyssSovereignPhase2Profile.gd"),
 }
 
 var _active_profile: CombatProfile = null
@@ -101,11 +102,20 @@ const COMBINED_RESOURCE_CAP := 11
 ## Extra mana cost added to enemy spells this turn (from Spell Taxer).
 var spell_cost_penalty: int = 0
 
+## Persistent flat mana-cost adjustment from an active aura (e.g. Void Ritualist
+## Prime champion reduces by 1). Negative = discount. Not reset per turn.
+var spell_cost_aura: int = 0
+
 ## Per-card mana cost discounts keyed by card ID (e.g. {"pack_frenzy": 1}).
 var spell_cost_discounts: Dictionary = {}
 
 ## Per-card essence cost discounts keyed by card ID (e.g. {"void_touched_imp": 1}).
 var essence_cost_discounts: Dictionary = {}
+
+## Flat essence-cost discount applied to every enemy minion this turn (e.g. F15
+## Abyssal Mandate grants -2 after the player grows Essence). Negative = cheaper.
+## Reset by whichever system sets it (mandate clears at end of enemy turn).
+var minion_essence_cost_aura: int = 0
 
 ## Set to true by Smoke Veil trap to cancel the current attack.
 var attack_cancelled: bool = false
@@ -335,7 +345,7 @@ func player_has_rune_or_environment() -> bool:
 
 ## Effective mana cost of a spell after penalty and discounts.
 func effective_spell_cost(spell: SpellCardData) -> int:
-	return max(0, spell.cost + spell_cost_penalty - (spell_cost_discounts.get(spell.id, 0) as int))
+	return max(0, spell.cost + spell_cost_penalty + spell_cost_aura - (spell_cost_discounts.get(spell.id, 0) as int))
 
 # ---------------------------------------------------------------------------
 # Public helpers — async actions for profiles
@@ -360,6 +370,10 @@ func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	# Wait for the card reveal animation to finish before the next AI action
 	if scene != null and scene.get("_enemy_summon_reveal_active") == true:
 		await scene.enemy_summon_reveal_done
+	# Also wait for any on-play VFX (e.g. Frenzied Imp hurl) to finish so the
+	# full animation plays before the next enemy action.
+	if scene != null and scene.get("_on_play_vfx_active") == true:
+		await scene.on_play_vfx_done
 	return is_inside_tree()
 
 ## Cast a spell (resources already deducted).

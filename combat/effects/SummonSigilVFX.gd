@@ -22,7 +22,7 @@ extends BaseVfx
 
 ## Flavor presets — pick at call site to match the summon source.
 ## Each flavor selects its own textures, palette, and particle style.
-enum Flavor { VOID_GREEN, EMBER_RED, HOLY_GOLD, FROST_BLUE, ARCANE_PURPLE, BROOD, SPARK }
+enum Flavor { VOID_GREEN, EMBER_RED, HOLY_GOLD, FROST_BLUE, ARCANE_PURPLE, BROOD, SPARK, BROOD_DARK }
 
 # Default/generic summon sigil art.
 const TEX_SUMMON_OUTER: Texture2D = preload("res://assets/art/fx/casting_glyphs/summon_sigil/summon_outer_ring.png")
@@ -55,6 +55,9 @@ const _FLAVOR_TABLE: Dictionary = {
 	# Spark: bright cyan-white rings + violet halo (primary tints rings; halo
 	# uses a 2-stop white→purple gradient built separately in _play).
 	Flavor.SPARK:         [Color(0.85, 0.95, 1.00, 1.0), Color(0.55, 0.30, 0.95, 1.0)],
+	# Brood Dark: acid-green rings + near-black halo (Matriarch's Broodling
+	# death-summon read — distinct from BROOD's bloody flesh-rite).
+	Flavor.BROOD_DARK:    [Color(0.55, 1.00, 0.45, 1.0), Color(0.03, 0.08, 0.03, 1.0)],
 }
 
 # ── Sizing (fits within a board slot) ───────────────────────────────────────
@@ -115,15 +118,14 @@ func _play() -> void:
 	var tex_inner: Texture2D = textures[1]
 	var tex_glyph: Texture2D = textures[2]
 
-	# SFX per flavor. SPARK is silent — the sigil is purely visual (the
-	# triggering card/death already plays its own sound).
+	# SFX per flavor. Everything else rides on the portal-open drone.
 	match _flavor:
 		Flavor.BROOD:
 			AudioManager.play_sfx("res://assets/audio/sfx/spells/brood_call.wav", -8.0)
 		Flavor.SPARK:
 			AudioManager.play_sfx("res://assets/audio/sfx/minions/spark_summon.wav", -10.0)
 		_:
-			AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -10.0)
+			AudioManager.play_sfx("res://assets/audio/sfx/spells/portal_open.wav", -8.0)
 
 	# ── Layer 1: Ground shadow ──────────────────────────────────────────────
 	var shadow := Sprite2D.new()
@@ -227,6 +229,8 @@ func _play() -> void:
 	match _flavor:
 		Flavor.BROOD:
 			particles = _spawn_blood_drip_particles(primary, secondary)
+		Flavor.BROOD_DARK:
+			particles = _spawn_spark_inward_particles(primary, secondary)
 		Flavor.SPARK:
 			particles = _spawn_spark_inward_particles(primary, secondary)
 		_:
@@ -310,6 +314,7 @@ func _process(delta: float) -> void:
 func _textures_for(flavor: int) -> Array:
 	match flavor:
 		Flavor.BROOD: return [TEX_BROOD_OUTER, TEX_BROOD_INNER, TEX_BROOD_GLYPH]
+		Flavor.BROOD_DARK: return [TEX_BROOD_OUTER, TEX_BROOD_INNER, TEX_BROOD_GLYPH]
 		Flavor.SPARK: return [TEX_SPARK_OUTER, TEX_SPARK_INNER, TEX_SPARK_GLYPH]
 		_: return [TEX_SUMMON_OUTER, TEX_SUMMON_INNER, TEX_SUMMON_GLYPH]
 

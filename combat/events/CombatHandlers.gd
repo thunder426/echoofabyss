@@ -337,6 +337,42 @@ func on_enemy_died_grafted_constitution(ctx: EventContext) -> void:
 	if _scene.has_method("_refresh_slot_for"):
 		_scene._refresh_slot_for(attacker)
 
+## grafting_ritual (T1) — When you play a Grafted Fiend, optionally transform a
+## friendly Demon (ctx.target) into a fresh 300/300 Grafted Fiend. Resets stats,
+## buffs, kill_stacks, corruption, state. Player may play without a target — the
+## Fiend is still summoned normally. Transform preserves the target's slot.
+func on_played_grafting_ritual(ctx: EventContext) -> void:
+	if ctx.minion == null or not _has_tag(ctx.minion, "grafted_fiend"):
+		return
+	var target: MinionInstance = ctx.target as MinionInstance
+	if target == null:
+		return
+	# Validate: must be a friendly Demon, must not be the just-played Fiend itself.
+	if target == ctx.minion:
+		return
+	if target.owner != ctx.minion.owner:
+		return
+	var tc := target.card_data as MinionCardData
+	if tc == null or tc.minion_type != Enums.MinionType.DEMON:
+		return
+	# Transform in place — swap card_data and reset runtime state.
+	var fiend_data: MinionCardData = CardDatabase.get_card("grafted_fiend") as MinionCardData
+	if fiend_data == null:
+		return
+	target.card_data       = fiend_data
+	target.current_atk     = fiend_data.atk
+	target.current_health  = fiend_data.health
+	target.current_shield  = fiend_data.shield_max
+	target.buffs           = []
+	target.kill_stacks     = 0
+	target.aura_tags       = []
+	target.granted_on_death_effects = []
+	target.state           = Enums.MinionState.EXHAUSTED
+	# Grafted Fiend's base keywords (none by default) — no DEATHLESS re-apply needed.
+	_log("  Grafting Ritual: %s transformed into Grafted Fiend." % tc.card_name, _LOG_PLAYER)
+	if _scene.has_method("_refresh_slot_for"):
+		_scene._refresh_slot_for(target)
+
 ## predatory_surge (T2) — Grafted Fiends enter with Swift.
 ## The "3 kill stacks → Siphon" half of this talent lives in on_enemy_died_grafted_constitution
 ## because it needs the kill_stacks counter that handler maintains. Registry registers both entry
@@ -438,9 +474,14 @@ func on_player_minion_played_effect(ctx: EventContext) -> void:
 	var _show_claw: bool = (_card_has_tag(mc, "base_void_imp") and not _scene._has_talent("piercing_void")) or _card_has_tag(mc, "senior_void_imp")
 	if _show_claw:
 		_spawn_void_imp_claw_vfx(minion, "player")
+	if mc.id == "void_netter" and ctx.target is MinionInstance:
+		if _scene.has_method("_play_void_netter_on_play_vfx"):
+			_scene._play_void_netter_on_play_vfx(minion, ctx.target, "player")
+			return
 	if not mc.on_play_effect_steps.is_empty():
 		var ectx           := EffectContext.make(_scene, "player")
 		ectx.source        = minion
+		ectx.source_card_id = mc.id
 		ectx.chosen_target = ctx.target
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
 
@@ -453,14 +494,19 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
 	var mc := minion.card_data as MinionCardData
+	var chosen = _scene.enemy_ai.minion_play_chosen_target
+	_scene.enemy_ai.minion_play_chosen_target = null
 	# Symmetric: shadow claw VFX for base & senior Void Imp only.
 	if _card_has_tag(mc, "base_void_imp") or _card_has_tag(mc, "senior_void_imp"):
 		_spawn_void_imp_claw_vfx(minion, "enemy")
+	if mc.id == "void_netter" and chosen is MinionInstance:
+		if _scene.has_method("_play_void_netter_on_play_vfx"):
+			_scene._play_void_netter_on_play_vfx(minion, chosen, "enemy")
+			return
 	if not mc.on_play_effect_steps.is_empty():
-		var chosen                       = _scene.enemy_ai.minion_play_chosen_target
-		_scene.enemy_ai.minion_play_chosen_target = null
 		var ectx                         := EffectContext.make(_scene, "enemy")
 		ectx.source                      = minion
+		ectx.source_card_id              = mc.id
 		if chosen is MinionInstance:
 			ectx.chosen_target = chosen
 		else:
@@ -1131,6 +1177,106 @@ func _champion_vc_is_alive() -> bool:
 	return false
 
 # ---------------------------------------------------------------------------
+# Fight 13 — Void Ritualist Prime champion
+#
+# Summon: after 5 enemy spells cast.
+# On summon: gains 2 Critical Strike.
+# Aura: friendly spells cost 1 less Mana (applied via spell_cost_aura = -1,
+#       cleared when the champion dies).
+# ---------------------------------------------------------------------------
+
+const _VRP_THRESHOLD := 5
+const _VRP_PIPS := 5
+
+func on_enemy_spell_champion_vrp(_ctx: EventContext) -> void:
+	if _scene.get("_champion_vrp_summoned"):
+		return
+	_scene._champion_vrp_spells_cast += 1
+	var total: int = _scene._champion_vrp_spells_cast
+	var pips: int = mini(total, _VRP_PIPS)
+	_scene._update_champion_progress(pips, _VRP_PIPS)
+	_log("  Champion progress: %d / %d spells cast." % [mini(total, _VRP_THRESHOLD), _VRP_THRESHOLD], _LOG_ENEMY)
+	if total >= _VRP_THRESHOLD:
+		_summon_enemy_champion("champion_void_ritualist_prime")
+		# Grant 2 Critical Strike on summon and activate aura
+		for m: MinionInstance in _scene.enemy_board:
+			if m.card_data.id == "champion_void_ritualist_prime":
+				BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 2, "critical_strike", false, false)
+				_scene._refresh_slot_for(m)
+				break
+		_scene.enemy_ai.spell_cost_aura = -1
+		_log("  Void Ritualist Prime's aura: enemy spells cost 1 less Mana.", _LOG_ENEMY)
+
+func on_enemy_died_champion_vrp(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_ritualist_prime":
+		_scene.enemy_ai.spell_cost_aura = 0
+		_on_enemy_champion_killed()
+
+## ── Champion: Void Champion (F14) ─────────────────────────────────────────
+## Summon condition: 3 player minions killed by an enemy Critical Strike attack.
+## On summon: gains 3 Critical Strike.
+
+const _VCH_THRESHOLD := 3
+const _VCH_PIPS := 3
+
+func on_player_died_champion_vch(ctx: EventContext) -> void:
+	if _scene.get("_champion_vch_summoned"):
+		return
+	# Only count kills by an enemy attacker that consumed a crit on the killing hit.
+	var attacker: MinionInstance = ctx.attacker
+	if attacker == null or attacker.owner != "enemy":
+		return
+	if _scene.get("_last_attack_was_crit") != true:
+		return
+	_scene._champion_vch_crit_kills += 1
+	var total: int = _scene._champion_vch_crit_kills
+	var pips: int = mini(total, _VCH_PIPS)
+	_scene._update_champion_progress(pips, _VCH_PIPS)
+	_log("  Champion progress: %d / %d crit kills." % [mini(total, _VCH_THRESHOLD), _VCH_THRESHOLD], _LOG_ENEMY)
+	if total >= _VCH_THRESHOLD:
+		_summon_enemy_champion("champion_void_champion")
+		for m: MinionInstance in _scene.enemy_board:
+			if m.card_data.id == "champion_void_champion":
+				BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 3, "critical_strike", false, false)
+				_scene._refresh_slot_for(m)
+				break
+
+func on_enemy_died_champion_vch(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_void_champion":
+		_on_enemy_champion_killed()
+
+## Aura: while Void Champion is alive, at end of enemy turn gain +1 max Mana and +1 max Essence.
+func on_enemy_turn_end_champion_vch_aura(_ctx: EventContext) -> void:
+	if _scene.get("_champion_vch_summoned") != true:
+		return
+	var alive := false
+	for m: MinionInstance in _scene.enemy_board:
+		if m.card_data.id == "champion_void_champion":
+			alive = true
+			break
+	if not alive:
+		return
+	# Real combat path (CombatScene.enemy_ai) vs sim path (SimState.enemy_mana_max).
+	var ai = _scene.get("enemy_ai")
+	if ai != null and ai.get("mana_max") != null and ai.get("COMBINED_RESOURCE_CAP") != null:
+		if ai.essence_max + ai.mana_max < ai.COMBINED_RESOURCE_CAP:
+			ai.mana_max += 1
+		if ai.essence_max + ai.mana_max < ai.COMBINED_RESOURCE_CAP:
+			ai.essence_max += 1
+	else:
+		if _scene.enemy_mana_max + _scene.enemy_essence_max < 11:
+			_scene.enemy_mana_max += 1
+		if _scene.enemy_mana_max + _scene.enemy_essence_max < 11:
+			_scene.enemy_essence_max += 1
+	_log("  Void Champion aura: enemy gains +1 max Mana and +1 max Essence.", _LOG_ENEMY)
+
+# ---------------------------------------------------------------------------
 # Act 4 — Void Castle passive handlers
 # ---------------------------------------------------------------------------
 
@@ -1152,6 +1298,29 @@ func on_enemy_turn_abyss_awakened(_ctx: EventContext) -> void:
 		_scene._refresh_slot_for(m)
 	if not _scene.enemy_board.is_empty():
 		_log("  Abyss Awakened: all enemy minions gain Critical Strike.", _LOG_ENEMY)
+
+## abyssal_mandate (Abyss Sovereign Phase 1): the player's resource growth choice
+## from the previous turn grants a matching discount to the Sovereign this turn.
+##   - last_player_growth == "essence" → enemy minions cost -2 Essence this turn
+##   - last_player_growth == "mana"    → enemy spells cost -2 Mana this turn
+## The discount is cleared at ON_ENEMY_TURN_END so it lasts exactly one enemy turn.
+const _ABYSSAL_MANDATE_AMOUNT: int = 2
+
+func on_enemy_turn_start_abyssal_mandate(_ctx: EventContext) -> void:
+	var choice: String = _scene.last_player_growth as String
+	if choice == "essence":
+		_scene.enemy_ai.minion_essence_cost_aura = -_ABYSSAL_MANDATE_AMOUNT
+		_log("  Abyssal Mandate: enemy minions cost %d less Essence this turn." % _ABYSSAL_MANDATE_AMOUNT, _LOG_ENEMY)
+	elif choice == "mana":
+		_scene.enemy_ai.spell_cost_aura = -_ABYSSAL_MANDATE_AMOUNT
+		_log("  Abyssal Mandate: enemy spells cost %d less Mana this turn." % _ABYSSAL_MANDATE_AMOUNT, _LOG_ENEMY)
+	# No growth yet (turn 1, or player never grew) → no discount.
+
+func on_enemy_turn_end_abyssal_mandate(_ctx: EventContext) -> void:
+	if _scene.enemy_ai.minion_essence_cost_aura < 0:
+		_scene.enemy_ai.minion_essence_cost_aura = 0
+	if _scene.enemy_ai.spell_cost_aura < 0:
+		_scene.enemy_ai.spell_cost_aura = 0
 
 ## void_precision (Fight 10 — Void Scout): after an enemy minion deals crit
 ## damage (attack resolves), grant it +200 ATK permanently.
@@ -1219,6 +1388,10 @@ func on_enemy_turn_end_captain_orders(_ctx: EventContext) -> void:
 func on_enemy_spell_dark_channeling(ctx: EventContext) -> void:
 	if _scene.enemy_board.is_empty():
 		return
+	# Only trigger on damage-dealing spells (utility like void_pulse should not consume crits)
+	var spell := ctx.card as SpellCardData if ctx.card is SpellCardData else null
+	if spell == null or not _spell_deals_damage(spell):
+		return
 	# Find a minion with crit stacks
 	var candidates: Array[MinionInstance] = []
 	for m: MinionInstance in _scene.enemy_board:
@@ -1231,7 +1404,25 @@ func on_enemy_spell_dark_channeling(ctx: EventContext) -> void:
 	_scene._refresh_slot_for(donor)
 	_scene.set("_dark_channeling_active", true)
 	_scene.set("_dark_channeling_multiplier", 1.5)
+	var amp_count: int = _scene._dark_channeling_amp_count + 1
+	_scene.set("_dark_channeling_amp_count", amp_count)
+	var by_spell: Dictionary = _scene._dark_channeling_amp_by_spell
+	by_spell[spell.id] = int(by_spell.get(spell.id, 0)) + 1
 	_log("  Dark Channeling: %s channels crit energy into the spell (1.5x)." % donor.card_data.card_name, _LOG_ENEMY)
+
+## Returns true if the spell has any DAMAGE_HERO or DAMAGE_MINION effect step.
+## Used by dark_channeling so utility spells (draw, buff, etc.) don't consume crits.
+func _spell_deals_damage(spell: SpellCardData) -> bool:
+	for step in spell.effect_steps:
+		if step is Dictionary:
+			var t: String = step.get("type", "")
+			if t == "DAMAGE_HERO" or t == "DAMAGE_MINION":
+				return true
+		elif step is EffectStep:
+			var et = (step as EffectStep).effect_type
+			if et == EffectStep.EffectType.DAMAGE_HERO or et == EffectStep.EffectType.DAMAGE_MINION:
+				return true
+	return false
 
 ## champion_duel (Fight 14 — Void Champion): enemy minions with Critical Strike
 ## have SPELL_IMMUNE. We check on crit grant and crit consumption.
@@ -1499,6 +1690,8 @@ func _summon_enemy_champion(card_id: String) -> void:
 			_scene.set("_champion_vw_summoned", true)
 		"champion_void_captain":
 			_scene.set("_champion_vc_summoned", true)
+		"champion_void_ritualist_prime":
+			_scene.set("_champion_vrp_summoned", true)
 	var count: int = _scene.get("_champion_summon_count")
 	_scene.set("_champion_summon_count", count + 1)
 	_scene._summon_token(card_id, "enemy")

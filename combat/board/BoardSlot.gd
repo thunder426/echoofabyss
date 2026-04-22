@@ -264,6 +264,10 @@ func place_minion(m: MinionInstance) -> void:
 
 func remove_minion() -> void:
 	minion = null
+	# Force-clear even if mid-lunge/sacrifice — the minion is gone, so the
+	# freeze (meant to hide transient empty-state flashes) would otherwise
+	# leave stale art on a now-dead slot. Death VFX renders in $UI, not here.
+	freeze_visuals = false
 	_refresh_visuals()
 
 # ---------------------------------------------------------------------------
