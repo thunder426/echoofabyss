@@ -16,7 +16,7 @@ var _cards: Dictionary = {}
 #         shield (optional, default 0), tags (optional), art (optional)
 # ---------------------------------------------------------------------------
 const _TOKEN_DEFS: Array[Dictionary] = [
-	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "A Spirit token.", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
+	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
 	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
 	{"id": "lesser_demon", "name": "Lesser Demon", "atk": 400, "hp": 400, "type": "DEMON", "faction": "abyss_order", "desc": "Summoned by Seris's Fiend Offering.", "tags": ["lesser_demon", "demon"], "art": "res://assets/art/minions/abyss_order/lesser_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/lesser_demon_small.png"},
 	{"id": "forged_demon", "name": "Forged Demon", "atk": 500, "hp": 500, "type": "DEMON", "faction": "abyss_order", "desc": "Forged by Seris's Soul Forge.",    "tags": ["forged_demon", "demon"], "art": "res://assets/art/minions/abyss_order/forged_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/forged_demon_small.png"},

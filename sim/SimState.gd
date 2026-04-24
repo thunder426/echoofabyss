@@ -736,6 +736,16 @@ func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = n
 	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
 	_void_bolt_total_dmg += total
 
+func _deal_enemy_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null) -> void:
+	var base_source: String = _pending_dmg_source
+	if base_source.is_empty():
+		base_source = "enemy_void_bolt"
+	_pending_dmg_source = base_source
+	if dmg_log_enabled:
+		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
+		_pending_dmg_source = "__logged__"
+	combat_manager.apply_hero_damage("player", base_damage, Enums.DamageType.VOID_BOLT)
+
 func _void_mark_damage_per_stack() -> int:
 	return void_mark_damage_per_stack
 

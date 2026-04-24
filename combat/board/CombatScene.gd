@@ -29,6 +29,27 @@ var _sovereign_transition_turn: int = 0
 ## empty until polish pass — transition still functions without VFX.
 func _play_phase2_vfx() -> void:
 	_log("THE SOVEREIGN REAWAKENS — Phase 2 begins.", _LogType.ENEMY)
+
+## Deferred by _on_hero_damaged after a P1→P2 transition. Runs next frame so
+## the current damage/attack resolution can finish before we yank player
+## control. Ends the player turn and lets the normal enemy-turn pipeline fire.
+func _force_end_player_turn_for_phase_transition() -> void:
+	if _combat_ended:
+		return
+	if not turn_manager.is_player_turn:
+		return  # already flipped (double-defer safety)
+	# Cancel any in-flight player-side selection so no stale state bleeds
+	# into the enemy turn or P2.
+	selected_attacker = null
+	pending_play_card = null
+	pending_minion_target = null
+	_awaiting_minion_target = false
+	if hand_display:
+		hand_display.deselect_current()
+	_clear_all_highlights()
+	# End the turn — turn_manager will emit turn_ended(true) then turn_started(false),
+	# which routes through _on_turn_started and kicks off enemy_ai.run_turn().
+	turn_manager.end_player_turn()
 var player_slots: Array[BoardSlot] = []
 var enemy_slots: Array[BoardSlot] = []
 
@@ -422,6 +443,7 @@ func _ready() -> void:
 		ui_root.add_child(_player_hero_panel)
 	_player_status_panel = _player_hero_panel
 	_player_hero_panel.update(player_hp, GameManager.player_hp_max)
+	_setup_second_wind_indicator(ui_root)
 	_pip_bar = PipBar.new()
 	_pip_bar.setup(self, ui_root, essence_label, mana_label)
 	_setup_large_preview()
@@ -3167,6 +3189,44 @@ func _fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune:
 	vfx_controller.spawn(bolt)
 	return bolt
 
+## Enemy-cast Void Bolt — fires a projectile from the enemy minion's slot (or
+## enemy hero area) to the player hero panel, then applies damage on impact.
+## Does not participate in Void Marks (those only apply to the enemy hero).
+func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null) -> void:
+	_log("  Void Bolt: %d damage." % base_damage, _LogType.ENEMY)
+	var bolt := _fire_enemy_void_bolt_projectile(source_minion)
+	if bolt != null and is_inside_tree():
+		await bolt.impact_hit
+	combat_manager.apply_hero_damage("player", base_damage, Enums.DamageType.VOID_BOLT)
+
+## Spawn a void bolt projectile flying from enemy side down to the player hero.
+func _fire_enemy_void_bolt_projectile(source_minion: MinionInstance = null) -> VoidBoltProjectile:
+	if not is_inside_tree():
+		return null
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	var from_pos: Vector2
+	if source_minion != null:
+		var found := false
+		for slot in enemy_slots:
+			if (slot as BoardSlot).minion == source_minion:
+				from_pos = (slot as BoardSlot).global_position + (slot as BoardSlot).size / 2.0
+				found = true
+				break
+		if not found:
+			from_pos = Vector2(vp_size.x / 2.0, 200)
+	elif _enemy_hero_panel:
+		from_pos = _enemy_hero_panel.global_position + _enemy_hero_panel.size / 2.0
+	else:
+		from_pos = Vector2(vp_size.x / 2.0, 200)
+	var to_pos: Vector2
+	if _player_status_panel:
+		to_pos = _player_status_panel.global_position + _player_status_panel.size / 2.0
+	else:
+		to_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
+	var bolt := VoidBoltProjectile.create(from_pos, to_pos)
+	vfx_controller.spawn(bolt)
+	return bolt
+
 ## Cycles through void rune slots so multiple runes alternate firing.
 var _void_rune_fire_index: int = 0
 
@@ -3261,6 +3321,8 @@ func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 
 func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> void:
 	var damage: int = combat_manager.last_attack_damage
+	var counter: int = combat_manager.last_counter_damage
+	var is_crit: bool = _last_attack_was_crit
 	_anim_pre_hp = 0
 	var a := _anim_atk_slot
 	var d := _anim_def_slot
@@ -3268,7 +3330,7 @@ func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> 
 	_anim_def_slot = null
 	if a and d:
 		# Refresh happens inside _play_attack_anim after the lunge completes
-		_play_attack_anim(a, d, damage, attacker, defender)
+		_play_attack_anim(a, d, damage, attacker, defender, is_crit, counter)
 	else:
 		_refresh_slot_for(attacker)
 		_refresh_slot_for(defender)
@@ -3285,15 +3347,21 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 			dead_slot = s
 			break
 
-	# Remove from the appropriate board array and clear its slot
+	# Locate the slot first so we can honour freeze_visuals — clearing a frozen
+	# (mid-lunge) slot wipes the attacker's art mid-flight, which looks wrong.
+	# If frozen, the clear is deferred to _restore_slot_from_lunge via the
+	# death animation path below.
+	var slot_is_frozen := dead_slot != null and dead_slot.freeze_visuals
 	if minion.owner == "player":
 		player_board.erase(minion)
-		_clear_slot_for(minion, player_slots)
+		if not slot_is_frozen:
+			_clear_slot_for(minion, player_slots)
 		if hand_display:
 			hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	else:
 		enemy_board.erase(minion)
-		_clear_slot_for(minion, enemy_slots)
+		if not slot_is_frozen:
+			_clear_slot_for(minion, enemy_slots)
 	_log("  %s died" % minion.card_data.card_name, _LogType.DEATH)
 	# If the minion has on-death effects, defer their resolution until after the
 	# death animation + on-death icon VFX so damage/summons play at the right time.
@@ -3330,6 +3398,7 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
 	if _combat_ended:
 		return
+	var is_crit: bool = _last_attack_was_crit
 	if target == "player":
 		# Bone Shield relic — hero immune this turn
 		if _relic_hero_immune:
@@ -3339,9 +3408,9 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 		_player_hero_panel.update(player_hp, GameManager.player_hp_max)
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
 		if player_hp <= 0:
-			_flash_hero("player", amount, _on_defeat, type)
+			_flash_hero("player", amount, _on_defeat, type, is_crit)
 		else:
-			_flash_hero("player", amount, Callable(), type)
+			_flash_hero("player", amount, Callable(), type, is_crit)
 			var _ctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
 			_ctx.damage = amount
 			trigger_manager.fire(_ctx)
@@ -3351,14 +3420,18 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 		if enemy_hp <= 0:
 			# F15 Abyss Sovereign: intercept P1 death and transition to P2.
+			# Transition mutates board/deck/passives synchronously, then we
+			# defer a forced end-of-player-turn so the current damage/attack
+			# resolution can unwind cleanly before control flips to enemy.
 			var pt = preload("res://combat/board/PhaseTransition.gd")
 			if pt.attempt(self):
-				_flash_hero("enemy", amount, Callable(), type)
+				_flash_hero("enemy", amount, Callable(), type, is_crit)
 				_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+				call_deferred("_force_end_player_turn_for_phase_transition")
 				return
-			_flash_hero("enemy", amount, _on_victory, type)
+			_flash_hero("enemy", amount, _on_victory, type, is_crit)
 		else:
-			_flash_hero("enemy", amount, Callable(), type)
+			_flash_hero("enemy", amount, Callable(), type, is_crit)
 			if type == Enums.DamageType.VOID_BOLT and _handlers:
 				_handlers._apply_void_bolt_passives()
 
@@ -4683,9 +4756,10 @@ func _on_defeat() -> void:
 	if GameManager.has_revive:
 		# Offer revive option — restart the same fight
 		if game_over_label:
-			game_over_label.text = "DEFEATED\nSoul Anchor activates!"
+			game_over_label.text = "DEFEATED\nSecond Wind activates!"
 		if restart_button:
 			restart_button.text = "Revive & Retry"
+			restart_button.disabled = false
 		_pending_revive = true
 	else:
 		GameManager.end_run(false)
@@ -4697,6 +4771,22 @@ func _on_defeat() -> void:
 		game_over_panel.visible = true
 
 var _pending_revive: bool = false
+var _second_wind_indicator: Label = null
+
+func _setup_second_wind_indicator(ui_root: Node) -> void:
+	if ui_root == null or not GameManager.has_revive:
+		return
+	_second_wind_indicator = Label.new()
+	_second_wind_indicator.text = "✦ Second Wind"
+	_second_wind_indicator.add_theme_font_size_override("font_size", 16)
+	_second_wind_indicator.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0, 1.0))
+	_second_wind_indicator.add_theme_color_override("font_outline_color", Color(0.05, 0.10, 0.25, 1.0))
+	_second_wind_indicator.add_theme_constant_override("outline_size", 3)
+	_second_wind_indicator.tooltip_text = "Second Wind\nIf you are defeated this fight, you will revive at full HP and restart the same combat. Consumed on use."
+	_second_wind_indicator.mouse_filter = Control.MOUSE_FILTER_STOP
+	_second_wind_indicator.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	_second_wind_indicator.position = Vector2(20, 20)
+	ui_root.add_child(_second_wind_indicator)
 
 func _disable_combat_buttons() -> void:
 	if end_turn_essence_button:
@@ -4929,7 +5019,12 @@ func _flush_deferred_deaths() -> void:
 	var pending := _deferred_death_slots.duplicate()
 	_deferred_death_slots.clear()
 	for entry in pending:
-		_animate_minion_death(entry.slot, entry.pos, entry.get("minion"))
+		var slot: BoardSlot = entry.slot
+		# Slot visuals were held during the lunge freeze — now that the attacker
+		# has returned to origin, clear the art so the ghost rises from an empty slot.
+		if slot != null and slot.minion != null:
+			slot.remove_minion()
+		_animate_minion_death(slot, entry.pos, entry.get("minion"))
 
 func _clear_all_highlights() -> void:
 	for slot in player_slots:
@@ -4996,7 +5091,8 @@ func _restore_slot_from_lunge(slot: BoardSlot, orig_parent: Control, orig_index:
 	_flush_deferred_deaths()
 
 func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
-		attacker: MinionInstance = null, defender: MinionInstance = null) -> void:
+		attacker: MinionInstance = null, defender: MinionInstance = null,
+		is_crit: bool = false, counter_damage: int = 0) -> void:
 	var atk_rect  := atk_slot.get_global_rect()
 	var def_rect  := def_slot.get_global_rect()
 	var direction := (def_rect.get_center() - atk_rect.get_center()).normalized()
@@ -5022,7 +5118,10 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 			AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav", -10.0)
 		_flash_slot(def_slot)
 		if damage > 0:
-			_spawn_damage_popup(def_rect.get_center(), damage)
+			_spawn_damage_popup(def_rect.get_center(), damage, Enums.DamageType.PHYSICAL, is_crit)
+		if counter_damage > 0:
+			_flash_slot(atk_slot)
+			_spawn_damage_popup(atk_slot.get_global_rect().get_center(), counter_damage)
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
@@ -5235,7 +5334,7 @@ func _spell_dmg(target: MinionInstance, damage: int) -> void:
 
 ## Flash a hero status panel and show a damage number.
 ## on_done (optional) is called after the flash animation completes.
-func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
+func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL, is_crit: bool = false) -> void:
 	var panel := _player_status_panel if target == "player" else _enemy_status_panel
 	if panel == null:
 		if on_done.is_valid():
@@ -5251,7 +5350,8 @@ func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), dm
 	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
 	if on_done.is_valid():
 		tw.tween_callback(on_done)
-	_spawn_popup(panel.get_global_rect().get_center(), "-%d" % amount, _dmg_color(dmg_type))
+	var txt := "-%d!" % amount if is_crit else "-%d" % amount
+	_spawn_popup(panel.get_global_rect().get_center(), txt, _dmg_color(dmg_type), is_crit)
 
 func _flash_hero_heal(target: String, amount: int) -> void:
 	var panel := _player_status_panel if target == "player" else _enemy_status_panel
@@ -5269,7 +5369,7 @@ func _dmg_color(dmg_type: Enums.DamageType) -> Color:
 
 ## Spawn a popup immediately. If another popup is near the same position,
 ## offset this one downward so they don't overlap.
-func _spawn_popup(center: Vector2, text: String, color: Color) -> void:
+func _spawn_popup(center: Vector2, text: String, color: Color, is_crit: bool = false) -> void:
 	# Clean up expired entries
 	var now := Time.get_ticks_msec() / 1000.0
 	_recent_popups = _recent_popups.filter(func(e: Dictionary) -> bool:
@@ -5282,32 +5382,62 @@ func _spawn_popup(center: Vector2, text: String, color: Color) -> void:
 	_recent_popups.append({"center": center, "time": now})
 	# Offset position downward for stacked popups
 	var offset_center := center + Vector2(0, stack_count * _POPUP_STACK_OFFSET)
-	_spawn_floating_popup(offset_center, text, color)
+	_spawn_floating_popup(offset_center, text, color, is_crit)
 
-func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color) -> void:
+func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color, is_crit: bool = false) -> void:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", 28)
+	var font_size: int = 44 if is_crit else 28
+	lbl.add_theme_font_size_override("font_size", font_size)
 	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_font_override("font", DAMAGE_FONT)
+	if is_crit:
+		lbl.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+		lbl.add_theme_constant_override("shadow_offset_x", 3)
+		lbl.add_theme_constant_override("shadow_offset_y", 3)
 	lbl.z_index = 200
 	var popup_parent: Node = get_node_or_null("PopupLayer")
 	if popup_parent == null:
 		popup_parent = $UI
 	popup_parent.add_child(lbl)
-	lbl.position = screen_center - Vector2(18, 18) + Vector2(randf_range(-12.0, 12.0), 0.0)
-	var tw := create_tween()
-	tw.set_parallel(true)
-	var rise_end_y := maxf(lbl.position.y - 90.0, 16.0)
-	tw.tween_property(lbl, "position:y", rise_end_y, 1.6) \
-		.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
-	tw.tween_property(lbl, "modulate:a", 1.0, 0.9)
-	tw.chain().tween_property(lbl, "modulate:a", 0.0, 0.7)
-	tw.chain().tween_callback(lbl.queue_free)
+	# Pivot around text centre so pulse scales in-place.
+	var text_size: Vector2 = lbl.get_minimum_size()
+	lbl.size = text_size
+	lbl.pivot_offset = text_size * 0.5
+	lbl.position = screen_center - text_size * 0.5 + Vector2(randf_range(-12.0, 12.0), 0.0)
+	if is_crit:
+		# Crit: rise slower, linger longer, with a pulsing scale.
+		var rise_end_y_c := maxf(lbl.position.y - 60.0, 16.0)
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(lbl, "position:y", rise_end_y_c, 2.6) \
+			.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+		tw.tween_property(lbl, "modulate:a", 1.0, 0.4)
+		# Single pop-in pulse for crit.
+		var pop := create_tween()
+		pop.tween_property(lbl, "scale", Vector2(1.5, 1.5), 0.12) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		pop.tween_property(lbl, "scale", Vector2(1.0, 1.0), 0.18) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		# Hold + fade out (extra linger for crits).
+		var fade := create_tween()
+		fade.tween_interval(2.2)
+		fade.tween_property(lbl, "modulate:a", 0.0, 0.9)
+		fade.tween_callback(lbl.queue_free)
+	else:
+		var tw := create_tween()
+		tw.set_parallel(true)
+		var rise_end_y := maxf(lbl.position.y - 90.0, 16.0)
+		tw.tween_property(lbl, "position:y", rise_end_y, 1.6) \
+			.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+		tw.tween_property(lbl, "modulate:a", 1.0, 0.9)
+		tw.chain().tween_property(lbl, "modulate:a", 0.0, 0.7)
+		tw.chain().tween_callback(lbl.queue_free)
 
 ## Minion damage popups.
-func _spawn_damage_popup(screen_center: Vector2, damage: int, _dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
-	_spawn_popup(screen_center, "-%d" % damage, Color(1.0, 0.22, 0.22, 1.0))
+func _spawn_damage_popup(screen_center: Vector2, damage: int, _dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL, is_crit: bool = false) -> void:
+	var txt := "-%d!" % damage if is_crit else "-%d" % damage
+	_spawn_popup(screen_center, txt, Color(1.0, 0.22, 0.22, 1.0), is_crit)
 
 # ---------------------------------------------------------------------------
 # Enemy attack visuals

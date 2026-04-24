@@ -29,7 +29,7 @@ const CORE_POOL_NAMES: Array[String] = ["abyss_core", "neutral_core"]
 
 ## All possible services: id, display name, description, shard cost, available in first shop.
 const ALL_SERVICES: Array = [
-	{id="revive",            name="Soul Anchor",           desc="If defeated, revive and restart the same fight.",        cost=4, first_shop=true },
+	{id="revive",            name="Second Wind",           desc="If defeated, revive and restart the same fight at full HP.", cost=4, first_shop=true },
 	{id="refresh_shop",      name="Refresh Shop",          desc="Reroll all card and service slots.",                    cost=1, first_shop=true },
 	{id="random_card",       name="Random Card",           desc="Add a random card from any available pool to deck.",    cost=1, first_shop=true },
 	{id="card_removal",      name="Card Removal",          desc="Remove one card from your deck permanently.",           cost=3, first_shop=false},

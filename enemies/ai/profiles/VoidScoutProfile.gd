@@ -29,10 +29,13 @@ func play_phase() -> void:
 	# Phase 3: Spark-cost spells (Rift Collapse) — consume non-crit fuel
 	await _play_spark_spells()
 	if not agent.is_alive(): return
-	# Phase 4: Void Wind — only against runes
+	# Phase 4: Spark-cost minions (Void Behemoth / Bastion Colossus / Rift Lord)
+	await _play_spark_minions()
+	if not agent.is_alive(): return
+	# Phase 5: Void Wind — only against runes
 	await _try_void_wind()
 	if not agent.is_alive(): return
-	# Phase 5: Mana-only spells
+	# Phase 6: Mana-only spells
 	await _play_spells_pass()
 
 func _is_tempo() -> bool:
@@ -169,12 +172,13 @@ func _play_heralds() -> void:
 			if inst.card_data.id != "sovereigns_herald":
 				continue
 			var mc := inst.card_data as MinionCardData
-			if mc.essence_cost > agent.essence:
+			var ess_cost: int = agent.effective_minion_essence_cost(mc)
+			if ess_cost > agent.essence:
 				continue
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
+			agent.essence -= ess_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -210,8 +214,43 @@ func _play_spark_spells() -> void:
 			cast = true
 			break
 
+## Play spark-cost minions. Checks sparks (+ mana_for_spark shortfall substitution
+## when the F14 passive is active), pays via non-crit fuel preferred, then plays.
 func _play_spark_minions() -> void:
-	pass
+	var placed := true
+	while placed:
+		placed = false
+		for inst in agent.hand.duplicate():
+			if not (inst.card_data is MinionCardData):
+				continue
+			var mc := inst.card_data as MinionCardData
+			if mc.void_spark_cost <= 0:
+				continue
+			var ess_cost: int = agent.effective_minion_essence_cost(mc)
+			if ess_cost > agent.essence:
+				continue
+			var body_mana: int = agent.effective_minion_mana_cost(mc)
+			var sparks: int = _available_sparks()
+			var shortfall: int = maxi(0, mc.void_spark_cost - sparks)
+			if shortfall > 0 and _mana_for_spark_shortfall(mc.void_spark_cost) == 0:
+				continue
+			if body_mana + shortfall > agent.mana:
+				continue
+			var slot: BoardSlot = agent.find_empty_slot()
+			if slot == null:
+				return
+			var spark_to_pay: int = mini(sparks, mc.void_spark_cost)
+			if spark_to_pay > 0:
+				var plan := _plan_spark_payment_no_crit(spark_to_pay)
+				if not plan.is_empty():
+					await _pay_sparks_smart(plan, DeckType.AGGRO)
+					if not agent.is_alive(): return
+			agent.essence -= ess_cost
+			agent.mana -= body_mana + shortfall
+			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
+				return
+			placed = true
+			break
 
 ## Plan spark payment preferring non-crit minions. Falls back to base if needed.
 func _plan_spark_payment_no_crit(cost: int) -> Array[MinionInstance]:
@@ -245,18 +284,19 @@ func _play_regular_minions() -> void:
 		placed = false
 		var minion_hand: Array[CardInstance] = []
 		for inst in agent.hand:
-			if inst.card_data is MinionCardData and inst.card_data.id != "sovereigns_herald":
+			if inst.card_data is MinionCardData and inst.card_data.id != "sovereigns_herald" and inst.card_data.void_spark_cost <= 0:
 				minion_hand.append(inst)
 		minion_hand.sort_custom(agent.sort_by_total_cost)
 		for inst in minion_hand:
 			var mc := inst.card_data as MinionCardData
+			var ess_cost: int = agent.effective_minion_essence_cost(mc)
 			var mana_cost: int = agent.effective_minion_mana_cost(mc)
-			if mc.essence_cost > agent.essence or mana_cost > agent.mana:
+			if ess_cost > agent.essence or mana_cost > agent.mana:
 				continue
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
+			agent.essence -= ess_cost
 			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return

@@ -31,6 +31,8 @@ var scene: Object = null
 ## Resolve a full attack between two minions (simultaneous damage).
 ## The actual HP damage dealt to the defender in the last attack (before death triggers).
 var last_attack_damage: int = 0
+## The actual HP damage dealt to the attacker by the defender's counter-attack.
+var last_counter_damage: int = 0
 
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	if scene != null:
@@ -65,7 +67,10 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	var counter_damage := defender.effective_atk()
 	if attacker.has_ethereal():
 		counter_damage -= counter_damage / 2
+	var attacker_pre_hp := attacker.current_health
+	var attacker_pre_shield := attacker.current_shield
 	_deal_damage(attacker, counter_damage, Enums.DamageType.PHYSICAL)
+	last_counter_damage = maxi(0, (attacker_pre_hp + attacker_pre_shield) - (attacker.current_health + attacker.current_shield))
 
 	if attacker.has_lifedrain() and atk_damage > 0:
 		hero_healed.emit(attacker.owner, atk_damage)

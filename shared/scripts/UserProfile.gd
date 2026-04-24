@@ -25,6 +25,7 @@ func save() -> void:
 			"player_hp_max":    GameManager.player_hp_max,
 			"player_hp":        GameManager.player_hp,
 			"core_unit_limit":  GameManager.core_unit_limit,
+			"has_revive":       GameManager.has_revive,
 			"talent_points":    GameManager.talent_points,
 			"unlocked_talents": GameManager.unlocked_talents,
 			"deck_built":       GameManager.deck_built,
@@ -69,6 +70,7 @@ func load_profile() -> bool:
 		GameManager.player_hp_max   = int(run.get("player_hp_max", 3000))
 		GameManager.player_hp       = int(run.get("player_hp", GameManager.player_hp_max))
 		GameManager.core_unit_limit = int(run.get("core_unit_limit", 4))
+		GameManager.has_revive      = bool(run.get("has_revive", false))
 		GameManager.talent_points   = int(run.get("talent_points", 0))
 		GameManager.deck_built      = bool(run.get("deck_built", false))
 		GameManager.player_deck.assign(run.get("player_deck", []))
