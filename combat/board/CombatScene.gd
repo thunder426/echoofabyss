@@ -242,6 +242,10 @@ var forge_counter_threshold:  int = 3
 var flesh: Flesh = null
 var forge: Forge = null
 
+## Targeting helper — owns the on-play prompt label, target validation, and
+## slot highlighting. CombatScene keeps thin facades for play-card flow.
+var targeting: Targeting = null
+
 ## Passive-configurable stats — set by CombatSetup from the registry at combat start.
 var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
 var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
@@ -284,7 +288,7 @@ var _counter_warning_label: Label = null
 ## Transient prompt label shown during on-play target selection (required or
 ## optional). Text comes from MinionCardData.on_play_target_prompt. Shared
 ## across all targeted-play cards.
-var _target_prompt_label: Label = null
+# _target_prompt_label moved into Targeting.gd (targeting.prompt_label)
 
 ## Prevents Soul Rune from firing more than once per enemy turn.
 var _soul_rune_fires_this_turn: int = 0
@@ -390,6 +394,7 @@ func _ready() -> void:
 	_hardcoded.setup(self)
 	flesh = Flesh.new(self)
 	forge = Forge.new(self)
+	targeting = Targeting.new(self)
 	_find_nodes()
 	_connect_buff_signal()
 	_register_buff_preludes()
@@ -528,24 +533,8 @@ func _find_nodes() -> void:
 	_counter_warning_label.z_index = 90
 	_counter_warning_label.visible = false
 	$UI.add_child(_counter_warning_label)
-	# On-play target-selection prompt (hidden by default). Same anchor style as
-	# the counter warning but offset below it and tinted white/amber instead of red.
-	_target_prompt_label = Label.new()
-	_target_prompt_label.text = ""
-	_target_prompt_label.add_theme_font_override("font", DAMAGE_FONT)
-	_target_prompt_label.add_theme_font_size_override("font_size", 18)
-	_target_prompt_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55, 1.0))
-	_target_prompt_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.85))
-	_target_prompt_label.add_theme_constant_override("shadow_offset_x", 2)
-	_target_prompt_label.add_theme_constant_override("shadow_offset_y", 2)
-	_target_prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_target_prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_target_prompt_label.anchors_preset = Control.PRESET_CENTER_TOP
-	_target_prompt_label.position = Vector2(960 - 400, 500)
-	_target_prompt_label.size = Vector2(800, 50)
-	_target_prompt_label.z_index = 90
-	_target_prompt_label.visible = false
-	$UI.add_child(_target_prompt_label)
+	# On-play target-selection prompt — owned by Targeting helper.
+	targeting.setup()
 
 # ---------------------------------------------------------------------------
 # Signal wiring
@@ -3755,176 +3744,49 @@ func _on_hero_healed(target: String, amount: int) -> void:
 ## Returns true if at least one valid target exists for this card's on-play target type.
 ## If false, the card skips targeting and goes straight to placement (effect fires but does nothing).
 ## Uses the card's raw target type — for talent-gated overrides see _has_valid_minion_on_play_targets_for.
+# Targeting facades — delegate to Targeting helper. Kept on scene so the
+# play-card flow doesn't need to prefix every call with `targeting.`.
 func _has_valid_minion_on_play_targets(card: MinionCardData) -> bool:
-	return _has_valid_minion_on_play_targets_for(card.on_play_target_type)
+	return targeting.has_valid_minion_on_play_targets(card)
 
-## Apply VALID_TARGET highlight to every slot in slots where filter returns true.
-## color_picker (optional) is called per slot and may return a non-default glow
-## color to telegraph per-target spell behavior (e.g. Dark Empowerment marking
-## Demons to signal its conditional HP bonus). Return Color(0,0,0,0) or skip
-## the argument to use the default green.
 func _highlight_slots(slots: Array, filter: Callable, color_picker: Callable = Callable()) -> void:
-	for slot in slots:
-		if filter.call(slot):
-			var c: Color = Color(0, 0, 0, 0)
-			if color_picker.is_valid():
-				c = color_picker.call(slot)
-			slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET, c)
+	targeting.highlight_slots(slots, filter, color_picker)
 
-## Highlight valid target slots for a targeted minion on-play effect (battle cry).
-## Step 1 of the two-click flow: player clicks card → sees valid targets highlighted.
-## Step 2: player clicks a valid target → pending_minion_target set → placement slots shown.
 func _highlight_minion_on_play_targets(card: MinionCardData) -> void:
-	_clear_all_highlights()
-	var target_type: String = _effective_target_type(card)
-	var hits_enemy    := target_type in ["enemy_minion", "corrupted_enemy_minion"]
-	var hits_friendly := target_type in ["friendly_minion", "friendly_minion_other", "friendly_demon"]
-	if hits_enemy:
-		_highlight_slots(enemy_slots,  func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, target_type))
-	if hits_friendly:
-		_highlight_slots(player_slots, func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, target_type))
+	targeting.highlight_minion_on_play_targets(card)
 
-## Effective on-play target type for this card — falls back to mc.on_play_target_type
-## but may be overridden by talents (e.g. Grafting Ritual sets "friendly_demon" for
-## Grafted Fiend). Centralises talent-gated targeting rules in one place.
 func _effective_target_type(mc: MinionCardData) -> String:
-	if mc == null:
-		return ""
-	if mc.id == "grafted_fiend" and _has_talent("grafting_ritual"):
-		return "friendly_demon"
-	return mc.on_play_target_type
+	return targeting.effective_target_type(mc)
 
-## Effective optional-target flag — talent-gated cards (Grafting Ritual on
-## Grafted Fiend) become optional even if mc.on_play_target_optional is false.
 func _effective_target_optional(mc: MinionCardData) -> bool:
-	if mc == null:
-		return false
-	if mc.id == "grafted_fiend" and _has_talent("grafting_ritual"):
-		return true
-	return mc.on_play_target_optional
+	return targeting.effective_target_optional(mc)
 
-## Effective prompt text — card field by default, with talent-gated overrides.
 func _effective_target_prompt(mc: MinionCardData) -> String:
-	if mc == null:
-		return ""
-	if mc.id == "grafted_fiend" and _has_talent("grafting_ritual"):
-		return "Click a Demon to transform into a Grafted Fiend, or click a slot to summon without effect."
-	return mc.on_play_target_prompt
+	return targeting.effective_target_prompt(mc)
 
-## Apply the SELECTED highlight to the slot holding this minion. Used by the
-## optional-target flow after a target is clicked — gives the target a strong
-## amber frame while empty slots stay green, so the player sees both the locked-in
-## target and their placement options at once.
 func _mark_selected_target(minion: MinionInstance) -> void:
-	var slot: BoardSlot = _find_slot_for(minion)
-	if slot != null:
-		slot.set_highlight(BoardSlot.HighlightMode.SELECTED)
+	targeting.mark_selected_target(minion)
 
-## Fade-in the target prompt with the given text. Safe to call with "" — hides.
-## If the prompt is already visible, just swap the text (no flicker).
 func _show_target_prompt(text: String) -> void:
-	if _target_prompt_label == null:
-		return
-	if text.is_empty():
-		_hide_target_prompt()
-		return
-	_target_prompt_label.text = text
-	if _target_prompt_label.visible and _target_prompt_label.modulate.a > 0.9:
-		return
-	_target_prompt_label.visible = true
-	_target_prompt_label.modulate = Color(1, 1, 1, 0)
-	var tw := create_tween()
-	tw.tween_property(_target_prompt_label, "modulate:a", 1.0, 0.2)
+	targeting.show_prompt(text)
 
 func _hide_target_prompt() -> void:
-	if _target_prompt_label == null or not _target_prompt_label.visible:
-		return
-	var tw := create_tween()
-	tw.tween_property(_target_prompt_label, "modulate:a", 0.0, 0.15)
-	tw.tween_callback(func() -> void: _target_prompt_label.visible = false)
+	targeting.hide_prompt()
 
-## Generic variant of _has_valid_minion_on_play_targets that accepts a target
-## type string directly — used by the optional-target branch where the type
-## may come from _effective_target_type (talent-gated) rather than the raw
-## card field.
 func _has_valid_minion_on_play_targets_for(target_type: String) -> bool:
-	if target_type.is_empty():
-		return false
-	var hits_enemy    := target_type in ["enemy_minion", "corrupted_enemy_minion"]
-	var hits_friendly := target_type in ["friendly_minion", "friendly_minion_other", "friendly_demon"]
-	if hits_enemy:
-		for slot in enemy_slots:
-			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, target_type):
-				return true
-	if hits_friendly:
-		for slot in player_slots:
-			if not slot.is_empty() and _is_valid_minion_on_play_target(slot.minion, target_type):
-				return true
-	return false
+	return targeting.has_valid_minion_on_play_targets_for(target_type)
 
 func _is_valid_minion_on_play_target(minion: MinionInstance, target_type: String) -> bool:
-	match target_type:
-		"enemy_minion":           return true
-		"corrupted_enemy_minion": return BuffSystem.has_type(minion, Enums.BuffType.CORRUPTION)
-		"friendly_minion":        return true
-		# Seris Starter — Grafted Butcher: any friendly minion (the butcher itself isn't on board yet at target time)
-		"friendly_minion_other":  return true
-		# Seris Fleshcraft — Grafting Ritual: any friendly Demon. AI avoids
-		# Grafted Fiends (wasteful transform); player may cleanse via reroll.
-		"friendly_demon":
-			return minion != null and minion.card_data is MinionCardData \
-				and (minion.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON
-	return false
+	return targeting.is_valid_minion_on_play_target(minion, target_type)
 
-## Per-spell color picker for the VALID_TARGET highlight. Returns a Callable
-## that maps a BoardSlot to a glow color (or Color(0,0,0,0) for the default
-## green). Used to telegraph spell-specific conditional behavior — e.g. Dark
-## Empowerment marks Demon targets in violet to hint at the bonus HP step.
-## Returns an empty Callable for spells with no special colorization.
 func _spell_highlight_color_picker(spell: SpellCardData) -> Callable:
-	match spell.id:
-		"dark_empowerment":
-			# Demons get the conditional HP bonus — flag them in violet so the
-			# player sees which targets unlock the second effect step.
-			var demon_color := Color(0.70, 0.30, 1.00, 1.0)
-			return func(s: BoardSlot) -> Color:
-				if s.minion != null and s.minion.card_data.minion_type == Enums.MinionType.DEMON:
-					return demon_color
-				return Color(0, 0, 0, 0)
-		_:
-			return Callable()
+	return targeting.spell_highlight_color_picker(spell)
 
-## Highlight player slots that have a minion matching the spell's target_type
 func _highlight_spell_targets(spell: SpellCardData) -> void:
-	_clear_all_highlights()
-	if spell.target_type == "trap_or_env":
-		_setup_trap_env_targeting()
-		return
-	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "friendly_feral_imp", "any_minion", "any_minion_or_enemy_hero"]
-	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion", "enemy_minion_or_hero", "any_minion_or_enemy_hero"]
-	var hits_hero     := spell.target_type in ["enemy_minion_or_hero", "any_minion_or_enemy_hero"]
-	var color_picker: Callable = _spell_highlight_color_picker(spell)
-	if hits_friendly:
-		_highlight_slots(
-			player_slots,
-			func(s): return not s.is_empty() and _is_valid_spell_target(s.minion, spell.target_type),
-			color_picker)
-	if hits_enemy:
-		_highlight_slots(enemy_slots, func(s): return not s.is_empty(), color_picker)
-	if hits_hero and _enemy_status_panel:
-		_enemy_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-		_enemy_status_panel.gui_input.connect(_on_enemy_hero_spell_input)
-		_enemy_hero_panel.start_spell_pulse()
+	targeting.highlight_spell_targets(spell)
 
 func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
-	match target_type:
-		"friendly_human":    return minion.card_data.minion_type == Enums.MinionType.HUMAN
-		"friendly_demon":    return minion.card_data.minion_type == Enums.MinionType.DEMON
-		"friendly_minion":   return true
-		"friendly_void_imp": return _minion_has_tag(minion, "void_imp")
-		"friendly_feral_imp": return _minion_has_tag(minion, "feral_imp")
-		"enemy_minion":           return true
-		"any_minion":             return true
+	return targeting.is_valid_spell_target(minion, target_type)
 		"enemy_minion_or_hero":   return true
 		"any_minion_or_enemy_hero": return true
 	return false
@@ -5219,18 +5081,7 @@ func _flush_deferred_deaths() -> void:
 		_animate_minion_death(slot, entry.pos, entry.get("minion"))
 
 func _clear_all_highlights() -> void:
-	for slot in player_slots:
-		slot.clear_highlight()
-	for slot in enemy_slots:
-		slot.clear_highlight()
-	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_enemy_hero_spell_input):
-		_enemy_status_panel.gui_input.disconnect(_on_enemy_hero_spell_input)
-		_enemy_hero_panel.stop_spell_pulse()
-	if _enemy_status_panel and _enemy_status_panel.gui_input.is_connected(_on_relic_target_hero_input):
-		_enemy_status_panel.gui_input.disconnect(_on_relic_target_hero_input)
-		_enemy_hero_panel.stop_spell_pulse()
-	# Always stop the hero attack pulse when clearing highlights
-	_enemy_hero_panel.show_attackable(false)
+	targeting.clear_all_highlights()
 	_pending_relic_target = ""
 
 func _find_slot_for(minion: MinionInstance) -> BoardSlot:
@@ -5682,26 +5533,10 @@ func _log(msg: String, type: int = CombatLog.LogType.PLAYER) -> void:
 	combat_log.write(msg, type)
 
 func _highlight_empty_player_slots() -> void:
-	_clear_all_highlights()
-	_highlight_slots(player_slots, func(s): return s.is_empty())
+	targeting.highlight_empty_player_slots()
 
 func _highlight_valid_attack_targets() -> void:
-	_clear_all_highlights()
-	if selected_attacker == null:
-		return
-	# Highlight the selected attacker's own slot
-	for slot in player_slots:
-		if slot.minion == selected_attacker:
-			slot.set_highlight(BoardSlot.HighlightMode.SELECTED)
-			break
-	var has_taunt := CombatManager.board_has_taunt(enemy_board)
-	for slot in enemy_slots:
-		if slot.is_empty():
-			continue
-		var valid := (not has_taunt) or slot.minion.has_guard()
-		slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET if valid else BoardSlot.HighlightMode.INVALID)
-	# Hero is valid only when no Guard minion blocks it AND attacker can attack hero (not Swift)
-	_enemy_hero_panel.show_attackable(not has_taunt and selected_attacker.can_attack_hero())
+	targeting.highlight_valid_attack_targets()
 
 # ===========================================================================
 # TriggerManager setup
