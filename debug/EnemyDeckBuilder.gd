@@ -368,11 +368,14 @@ func _rebuild_card_list() -> void:
 	var last_pool := ""
 
 	for card in cards:
-		# Pool divider
-		if card.pool != last_pool:
-			last_pool = card.pool
+		# Pool divider — group by the card's first pool (sort key). Dual-pool cards
+		# show a comma-joined label so it's clear they live in multiple pools.
+		var primary_pool: String = card.pools[0] if not card.pools.is_empty() else ""
+		if primary_pool != last_pool:
+			last_pool = primary_pool
 			var div := Label.new()
-			div.text = "  — %s —" % (card.pool if card.pool != "" else "token")
+			var pool_label: String = ", ".join(card.pools) if not card.pools.is_empty() else "token"
+			div.text = "  — %s —" % pool_label
 			div.add_theme_color_override("font_color", _C_GOLD)
 			div.add_theme_font_size_override("font_size", 11)
 			_card_list_vbox.add_child(div)
@@ -397,11 +400,20 @@ func _get_filtered_cards() -> Array[CardData]:
 		var card: CardData = CardDatabase.get_card(id)
 		if card == null:
 			continue
-		if pools.is_empty() or card.pool in pools:
+		# Empty filter = show all. Otherwise card is included if any of its pools matches.
+		if pools.is_empty():
 			result.append(card)
+		else:
+			for p in card.pools:
+				if p in pools:
+					result.append(card)
+					break
+	# Sort by first pool entry then by name (stable, matches CollectionScene).
 	result.sort_custom(func(a: CardData, b: CardData) -> bool:
-		if a.pool != b.pool:
-			return a.pool < b.pool
+		var ap: String = a.pools[0] if not a.pools.is_empty() else ""
+		var bp: String = b.pools[0] if not b.pools.is_empty() else ""
+		if ap != bp:
+			return ap < bp
 		return a.card_name < b.card_name)
 	return result
 

@@ -617,6 +617,14 @@ func blink_corruption_status() -> void:
 	_blink_node(icon)
 	_blink_node(count)
 
+## Returns the live corruption icon node on the status bar, or null if there
+## isn't one. Used by CorruptionDetonationVFX to pulse the real on-card icon
+## before the slot is refreshed + stacks consumed.
+func get_corruption_icon_node() -> Control:
+	if _status_bar == null:
+		return null
+	return _status_bar.get_node_or_null("corruption_icon") as Control
+
 func _blink_node(node: CanvasItem) -> void:
 	if node == null or not is_instance_valid(node):
 		return

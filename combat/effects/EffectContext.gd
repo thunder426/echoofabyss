@@ -38,6 +38,16 @@ var from_rune: bool = false
 ## buff steps that don't specify one, so BuffVfxRegistry can route per-card preludes.
 var source_card_id: String = ""
 
+## The rune that owns this effect run (set by _apply_rune_aura). Null for non-rune effects.
+## Allows SOURCE_RUNE-scoped DESTROY steps to remove the rune that's firing (e.g. Flesh Rune
+## self-destruct when upkeep Flesh is unavailable).
+var source_rune: TrapCardData = null
+
+## Seris — Flesh spent by the current effect run. Reset at the start of each EffectResolver.run().
+## SPEND_FLESH and SPEND_FLESH_UP_TO steps accumulate into this; later steps read it via
+## the "flesh_spent_this_cast" condition or the "flesh_spent" multiplier_key.
+var flesh_spent_this_cast: int = 0
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------

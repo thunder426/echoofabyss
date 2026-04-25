@@ -309,9 +309,6 @@ var _hovered_hand_visual: CardVisual = null
 ## Active passive IDs for the current encounter.
 var _active_enemy_passives: Array[String] = []
 
-## True after Feral Instinct has been granted this enemy turn (resets at ON_ENEMY_TURN_START).
-var feral_instinct_granted_this_turn: bool = false
-
 ## Act 4 passive stats — set dynamically by CombatSetup via scene.set().
 var _vp_pre_crit_stacks: int = 0
 var _spirit_conscription_fired: bool = false
@@ -1614,6 +1611,10 @@ func _register_buff_preludes() -> void:
 			DarkEmpowermentPreludeVFX.prelude_factory)
 	BuffVfxRegistry.register("feral_surge",
 			FeralSurgePreludeVFX.prelude_factory)
+	BuffVfxRegistry.register("dark_command",
+			DarkCommandPreludeVFX.prelude_factory)
+	BuffVfxRegistry.register_palette("dark_command",
+			DarkCommandPreludeVFX.PALETTE)
 
 ## Subscribe to BuffSystem.bus() so every on-play / spell buff fires the
 ## generic BuffApplyVFX. Auras and setup grants pass emit_vfx=false at the
@@ -1849,9 +1850,10 @@ func _flush_buff_vfx() -> void:
 		var hp_d:  int = int(agg["hp"])
 		if atk_d == 0 and hp_d == 0:
 			continue
-		var src:     String   = String(agg["source"])
-		var prelude: Callable = BuffVfxRegistry.build_prelude(src, slot, atk_d, hp_d)
-		var vfx := BuffApplyVFX.create(slot, atk_d, hp_d, prelude)
+		var src:     String     = String(agg["source"])
+		var prelude: Callable   = BuffVfxRegistry.build_prelude(src, slot, atk_d, hp_d)
+		var palette: Dictionary = BuffVfxRegistry.get_palette(src)
+		var vfx := BuffApplyVFX.create(slot, atk_d, hp_d, prelude, palette)
 		vfx_controller.spawn(vfx)
 
 ## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
@@ -2054,6 +2056,289 @@ func _corrupt_minion(minion: MinionInstance) -> void:
 		slot.blink_corruption_status()
 		slot.flash_atk_debuff()
 
+## Pulse the Abyss Cultist Patrol champion's slot with an emerald corruption
+## aura (rim glow + smoke wisps + sonic shimmer). Fires each time the aura
+## triggers an instant detonation, so the player learns the visual link
+## "champion pulses -> my corrupted minion blows up."
+func _play_champion_acp_aura_pulse() -> void:
+	var champion: MinionInstance = null
+	for m in enemy_board:
+		if (m as MinionInstance).card_data.id == "champion_abyss_cultist_patrol":
+			champion = m
+			break
+	if champion == null:
+		return
+	var slot: BoardSlot = _find_slot_for(champion)
+	if slot == null:
+		return
+	vfx_controller.spawn(ChampionAuraCorruptionPulseVFX.create(slot))
+
+## Detonate Corruption on a list of minions in parallel. Each target spawns a
+## CorruptionDetonationVFX; on impact_hit, `on_impact.call(minion, stacks)` runs
+## so the caller can remove stacks + refresh the slot + apply damage synced to
+## the visible burst. Missing slots fall back to immediate application.
+##
+## Freezes each target slot's visuals so lethal damage keeps the card card
+## parked under the burst — any deaths queue into _deferred_death_slots and
+## flush once the last VFX finishes.
+##
+## Gates enemy actions: sets `_on_play_vfx_active` while detonations play and
+## emits `on_play_vfx_done` when the last one finishes, so EnemyAI.commit_*
+## awaits the full animation before the next enemy action.
+##
+## targets: Array of Dictionary { "minion": MinionInstance, "stacks": int }.
+## on_impact: Callable(minion: MinionInstance, stacks: int) -> void.
+func _play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
+	var spawnable: Array = []
+	for t in targets:
+		var m: MinionInstance = t["minion"]
+		var stacks: int = t["stacks"]
+		var slot: BoardSlot = _find_slot_for(m)
+		if slot == null:
+			on_impact.call(m, stacks)
+		else:
+			spawnable.append({"minion": m, "stacks": stacks, "slot": slot})
+	if spawnable.is_empty():
+		return
+
+	_on_play_vfx_active = true
+	var remaining_ref: Array = [spawnable.size()]
+
+	for s in spawnable:
+		var m: MinionInstance = s["minion"]
+		var stacks: int = s["stacks"]
+		var slot: BoardSlot = s["slot"]
+		slot.freeze_visuals = true
+		var vfx := CorruptionDetonationVFX.create(slot, stacks)
+		vfx.impact_hit.connect(func(_i: int) -> void:
+			on_impact.call(m, stacks)
+		, CONNECT_ONE_SHOT)
+		vfx.finished.connect(func() -> void:
+			if is_instance_valid(slot):
+				slot.freeze_visuals = false
+				slot._refresh_visuals()
+			remaining_ref[0] -= 1
+			if remaining_ref[0] <= 0:
+				_flush_deferred_deaths()
+				_on_play_vfx_active = false
+				on_play_vfx_done.emit()
+		, CONNECT_ONE_SHOT)
+		vfx_controller.spawn(vfx)
+
+## Feral Reinforcement (Act 2 passive) — a radiant violet halo erupts from
+## the summoned Human's slot, then a face-down card arcs toward the enemy hero
+## panel's hand indicator and lands with a pulse on the hand count.
+## The card identity stays hidden (face-down) — the player shouldn't know which
+## Feral Imp the enemy drew.
+## Blocking: sets `_on_play_vfx_active` and emits `on_play_vfx_done` when the
+## full animation finishes, so the EnemyAI awaits it before its next action
+## (same pattern as Frenzied Imp Hurl in _play_frenzied_imp_hurl_vfx).
+func _play_feral_reinforcement_vfx(source: MinionInstance, _imp_card: CardData) -> void:
+	if source == null:
+		return
+	var slot: BoardSlot = _find_slot_for(source)
+	if slot == null or _enemy_hero_panel == null:
+		return
+	var ui_root: Node = get_node_or_null("UI")
+	if ui_root == null:
+		return
+	_on_play_vfx_active = true
+
+	var start_pos: Vector2 = slot.global_position + slot.size * 0.5
+	var end_pos: Vector2   = _enemy_hero_panel.global_position + _enemy_hero_panel.size * 0.5
+
+	# 1) Origin halo: soft radial gradient at the source slot, additive-blended,
+	#    violet tint. Same procedural softcircle pattern CastingWindupVFX uses
+	#    for its charge-up glow — no geometry, just diffuse outward light.
+	const HALO_TINT := Color(0.90, 0.35, 1.00, 1.0)  # violet
+	var origin_halo := _make_radial_halo(320.0, HALO_TINT)
+	origin_halo.position = start_pos - origin_halo.size * 0.5
+	origin_halo.z_index  = 17
+	origin_halo.z_as_relative = false
+	ui_root.add_child(origin_halo)
+	origin_halo.modulate.a = 0.0
+	var oh_tw := create_tween().set_trans(Tween.TRANS_SINE)
+	oh_tw.tween_property(origin_halo, "modulate:a", 0.85, 0.36).set_ease(Tween.EASE_OUT)
+	oh_tw.tween_property(origin_halo, "modulate:a", 0.0, 1.10).set_ease(Tween.EASE_IN)
+	oh_tw.tween_callback(origin_halo.queue_free)
+
+	# 2) Feral surge mark scorch on the slot (brief, tinted red).
+	const TEX_SURGE: Texture2D = preload("res://assets/art/fx/feral_surge_mark.png")
+	var mark := TextureRect.new()
+	mark.texture       = TEX_SURGE
+	mark.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+	mark.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	mark.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	mark.z_index       = 17
+	mark.z_as_relative = false
+	mark.modulate      = Color(1.0, 0.35, 0.45, 0.0)
+	var mark_size := slot.size * 0.9
+	mark.size          = mark_size
+	mark.position      = slot.global_position + (slot.size - mark_size) * 0.5
+	mark.pivot_offset  = mark_size * 0.5
+	mark.rotation      = randf_range(-0.25, 0.25)
+	mark.scale         = Vector2(0.7, 0.7)
+	ui_root.add_child(mark)
+	var mark_tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
+	mark_tw.tween_property(mark, "modulate:a", 0.7, 0.24).set_ease(Tween.EASE_OUT)
+	mark_tw.tween_property(mark, "scale", Vector2(1.05, 1.05), 0.50).set_ease(Tween.EASE_OUT)
+	mark_tw.chain()
+	mark_tw.tween_property(mark, "modulate:a", 0.0, 1.0).set_ease(Tween.EASE_IN)
+	mark_tw.tween_callback(mark.queue_free)
+
+	# 3) Face-down card fly-in — identity hidden so the player doesn't see which
+	#    Feral Imp was drawn. Procedural card back (dark panel + violet border +
+	#    glyph), arcs on a parabolic path toward the enemy hero panel. A soft
+	#    additive halo rides behind the card, emitting outward light as it flies.
+	var card_back := _make_feral_card_back()
+	card_back.mouse_filter   = Control.MOUSE_FILTER_IGNORE
+	card_back.z_index        = 22
+	card_back.z_as_relative  = false
+	ui_root.add_child(card_back)
+	card_back.pivot_offset   = card_back.size * 0.5
+	var start_scale := Vector2(0.55, 0.55)
+	var end_scale   := Vector2(0.22, 0.22)
+	card_back.scale          = start_scale
+	card_back.modulate       = Color(1.0, 1.0, 1.0, 0.0)
+	# pivot_offset = size/2, so visual center stays at position + size/2 regardless of scale.
+	card_back.position       = start_pos - card_back.size * 0.5
+
+	var card_halo := _make_radial_halo(280.0, HALO_TINT)
+	card_halo.z_index        = 21  # behind the card (22), above board
+	card_halo.z_as_relative  = false
+	card_halo.mouse_filter   = Control.MOUSE_FILTER_IGNORE
+	card_halo.modulate.a     = 0.0
+	ui_root.add_child(card_halo)
+
+	# Arc path: parabolic midpoint lifted above the straight line.
+	var mid_pos: Vector2 = start_pos.lerp(end_pos, 0.5)
+	mid_pos.y += -140.0
+
+	var fly_duration: float = 1.10
+	var t := create_tween().set_parallel(true)
+	t.tween_property(card_back, "modulate:a", 1.0, 0.24).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_property(card_halo, "modulate:a", 0.75, 0.30).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_property(card_back, "scale", end_scale, fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_property(card_halo, "scale", Vector2(0.45, 0.45), fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_property(card_back, "rotation", randf_range(-0.35, 0.35), fly_duration * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(card_back, "rotation", 0.0, fly_duration * 0.5).set_delay(fly_duration * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	card_halo.scale = Vector2.ONE
+	var arc_callable := func(p: float) -> void:
+		if not is_instance_valid(card_back): return
+		var a: Vector2 = start_pos.lerp(mid_pos, p)
+		var b: Vector2 = mid_pos.lerp(end_pos, p)
+		var pt: Vector2 = a.lerp(b, p)
+		card_back.position = pt - card_back.size * 0.5
+		if is_instance_valid(card_halo):
+			card_halo.position = pt - card_halo.size * 0.5
+	t.tween_method(arc_callable, 0.0, 1.0, fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.chain().tween_property(card_back, "modulate:a", 0.0, 0.30).set_ease(Tween.EASE_IN)
+	t.parallel().tween_property(card_halo, "modulate:a", 0.0, 0.36).set_ease(Tween.EASE_IN)
+	t.tween_callback(card_back.queue_free)
+	t.tween_callback(card_halo.queue_free)
+	t.tween_callback(func() -> void:
+		if _enemy_hero_panel and is_instance_valid(_enemy_hero_panel):
+			_pulse_enemy_hand_indicator()
+	)
+	await t.finished
+	_on_play_vfx_active = false
+	on_play_vfx_done.emit()
+
+## Procedural face-down card back used by Feral Reinforcement (and reusable for
+## any "hidden card goes to enemy hand" effect). Dark panel + violet border +
+## centered claw/imp glyph.
+func _make_feral_card_back() -> Control:
+	var root := Control.new()
+	root.custom_minimum_size = Vector2(160, 240)
+	root.size = Vector2(160, 240)
+
+	var bg := Panel.new()
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var bg_style := StyleBoxFlat.new()
+	bg_style.bg_color     = Color(0.08, 0.03, 0.10, 1.0)
+	bg_style.border_color = Color(0.75, 0.25, 0.95, 1.0)
+	bg_style.set_border_width_all(3)
+	bg_style.set_corner_radius_all(8)
+	bg_style.shadow_color = Color(0.60, 0.20, 0.90, 0.55)
+	bg_style.shadow_size  = 10
+	bg.add_theme_stylebox_override("panel", bg_style)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(bg)
+
+	var inner := Panel.new()
+	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	inner.offset_left = 8; inner.offset_right = -8
+	inner.offset_top  = 8; inner.offset_bottom = -8
+	var inner_style := StyleBoxFlat.new()
+	inner_style.bg_color     = Color(0.14, 0.05, 0.18, 1.0)
+	inner_style.border_color = Color(0.45, 0.15, 0.60, 0.9)
+	inner_style.set_border_width_all(1)
+	inner_style.set_corner_radius_all(5)
+	inner.add_theme_stylebox_override("panel", inner_style)
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.add_child(inner)
+
+	var glyph := Label.new()
+	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	glyph.text = "✦"
+	glyph.add_theme_font_size_override("font_size", 96)
+	glyph.add_theme_color_override("font_color", Color(0.95, 0.65, 1.0, 1.0))
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner.add_child(glyph)
+	return root
+
+## Soft radial-gradient halo — additive-blended, tinted. Used behind the
+## face-down card in Feral Reinforcement so it emits diffuse outward light
+## (same procedural softcircle pattern as CastingWindupVFX's glow halo).
+## `diameter` is the on-screen halo size in pixels.
+func _make_radial_halo(diameter: float, tint: Color) -> TextureRect:
+	var tr := TextureRect.new()
+	tr.texture        = _get_radial_halo_texture()
+	tr.expand_mode    = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode   = TextureRect.STRETCH_SCALE
+	tr.mouse_filter   = Control.MOUSE_FILTER_IGNORE
+	tr.size           = Vector2(diameter, diameter)
+	tr.pivot_offset   = tr.size * 0.5
+	tr.modulate       = tint
+	var mat := CanvasItemMaterial.new()
+	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	tr.material       = mat
+	return tr
+
+## Cached procedural softcircle texture — white RGB, smoothstep-biased alpha
+## falloff from bright center to 0 at the edge. Reused across all halo calls.
+static var _radial_halo_tex: ImageTexture = null
+
+static func _get_radial_halo_texture() -> ImageTexture:
+	if _radial_halo_tex != null:
+		return _radial_halo_tex
+	const SIZE := 256
+	var img := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
+	var centre: float = float(SIZE) * 0.5
+	for y in SIZE:
+		for x in SIZE:
+			var dx: float = (float(x) - centre) / centre
+			var dy: float = (float(y) - centre) / centre
+			var r: float  = sqrt(dx * dx + dy * dy)
+			var a: float  = clampf(1.0 - r, 0.0, 1.0)
+			a = a * a * (3.0 - 2.0 * a)  # smoothstep
+			a = a * a  # bias further toward bright-centre / soft-outer
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+	_radial_halo_tex = ImageTexture.create_from_image(img)
+	return _radial_halo_tex
+
+## Brief gold pulse on the enemy hand count label — used when a card is added
+## to the enemy hand by a passive (Feral Reinforcement and similar).
+func _pulse_enemy_hand_indicator() -> void:
+	if _enemy_hero_panel == null:
+		return
+	_enemy_hero_panel.pivot_offset = _enemy_hero_panel.size * 0.5
+	var tw := create_tween().set_trans(Tween.TRANS_BACK)
+	tw.tween_property(_enemy_hero_panel, "modulate", Color(1.6, 1.3, 0.6, 1.0), 0.10).set_ease(Tween.EASE_OUT)
+	tw.tween_property(_enemy_hero_panel, "modulate", Color.WHITE, 0.35).set_ease(Tween.EASE_IN_OUT)
+
 ## Return a random living enemy minion, or null if the board is empty.
 func _find_random_enemy_minion() -> MinionInstance:
 	return _find_random_minion(enemy_board)
@@ -2139,6 +2424,14 @@ func _friendly_traps(owner: String) -> Array:
 func _opponent_traps(owner: String) -> Array:
 	return _friendly_traps(_opponent_of(owner))
 
+## Return the unified card graveyard belonging to the given owner.
+## Each entry is a CardInstance with `resolved_on_turn` stamped at play time.
+func _friendly_graveyard(owner: String) -> Array:
+	if owner == "player":
+		return turn_manager.player_graveyard
+	else:
+		return enemy_ai.graveyard if enemy_ai else []
+
 ## Return a random minion from the given board array, or null if empty.
 func _find_random_minion(board: Array[MinionInstance]) -> MinionInstance:
 	if board.is_empty():
@@ -2170,7 +2463,6 @@ func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = 
 	for m in to_sacrifice:
 		_log("  Void Devourer sacrifices %s!" % m.card_data.card_name, _LogType.PLAYER)
 		SacrificeSystem.sacrifice(self, m, "void_devourer")
-		combat_manager.kill_minion(m)
 	if count > 0:
 		BuffSystem.apply(devourer, Enums.BuffType.ATK_BONUS, count * 300, "void_devourer", false, false)
 		devourer.current_health += count * 300
@@ -2347,9 +2639,13 @@ func _summon_brood_imp_with_sigil(instance: MinionInstance, data: MinionCardData
 func _maybe_spawn_aura_pulse(card: CardData, slot: BoardSlot) -> void:
 	if card == null or slot == null or vfx_controller == null:
 		return
-	if card.id != "rogue_imp_elder":
-		return
-	vfx_controller.spawn(AuraBreathingPulseVFX.create(slot))
+	match card.id:
+		"rogue_imp_elder":
+			vfx_controller.spawn(AuraBreathingPulseVFX.create(slot))
+		"champion_abyss_cultist_patrol":
+			# Same VFX used when the aura triggers on-detonation — playing it
+			# on summon teaches the player what to watch for before the first trigger.
+			vfx_controller.spawn(ChampionAuraCorruptionPulseVFX.create(slot))
 
 
 ## Count minions of a given type on the specified owner's board.
@@ -2535,7 +2831,8 @@ func _resolve_relic_target_minion(minion: MinionInstance) -> void:
 	_clear_all_highlights()
 	match effect:
 		"relic_execute":
-			_spell_dmg(minion, 500)
+			_spell_dmg(minion, 500,
+					CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
 			_log("  Relic: Blood Chalice — dealt 500 damage to %s." % minion.card_data.card_name, _LogType.PLAYER)
 
 ## Resolve a relic effect on the enemy hero.
@@ -2546,7 +2843,8 @@ func _resolve_relic_target_hero() -> void:
 	_clear_all_highlights()
 	match effect:
 		"relic_execute":
-			combat_manager.apply_hero_damage("enemy", 500, Enums.DamageType.SPELL)
+			combat_manager.apply_hero_damage("enemy",
+					CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
 			_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.", _LogType.PLAYER)
 
 ## Cancel relic targeting — refund the charge and reset state.
@@ -2958,6 +3256,25 @@ func _forge_counter_reset() -> void:
 	forge_counter = 0
 	_on_forge_changed()
 
+## Seris — public Forge Counter gain for declarative GAIN_FORGE_COUNTER steps and
+## any future passive sources. Wraps tick + auto-summon + reset so callers don't have
+## to repeat the threshold logic. No-op if Soul Forge is not active (Demon Forge
+## branch gate). Returns true if a Forged Demon was summoned.
+func _gain_forge_counter(amount: int = 1) -> bool:
+	if amount <= 0 or not _has_talent("soul_forge"):
+		return false
+	var summoned := false
+	# Loop in case amount > threshold (e.g. Forgeborn Tyrant's +3 with threshold 2 → multi-summon).
+	while amount > 0:
+		var step := mini(amount, forge_counter_threshold)
+		amount -= step
+		if _forge_counter_tick(step):
+			_log("  Soul Forge: threshold reached.", _LogType.PLAYER)
+			_summon_forged_demon()
+			_forge_counter_reset()
+			summoned = true
+	return summoned
+
 ## UI hook for Flesh/Forge counter changes. Handlers (e.g. Fleshbind) call the
 ## scene's _gain_flesh / _spend_flesh / _forge_counter_tick which in turn call
 ## these hooks. Keeping them as scene methods means sim handlers can reuse the
@@ -3130,6 +3447,115 @@ func _on_minion_siphon_healed(minion: MinionInstance, healed: int) -> void:
 			if slot and is_instance_valid(slot):
 				slot._refresh_visuals()
 
+## Generic minion heal — restores HP up to the minion's effective max (base + HP_BONUS buffs).
+## Used by HEAL_MINION EffectStep. No-op if amount ≤ 0 or minion is already at full HP.
+func _heal_minion(minion: MinionInstance, amount: int) -> void:
+	if minion == null or amount <= 0 or minion.current_health <= 0:
+		return
+	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
+	var before := minion.current_health
+	minion.current_health = mini(minion.current_health + amount, hp_cap)
+	var healed := minion.current_health - before
+	if healed <= 0:
+		return
+	_log("  %s healed for %d HP" % [minion.card_data.card_name, healed], _LogType.PLAYER if minion.owner == "player" else _LogType.ENEMY)
+	_refresh_slot_for(minion)
+
+## Restore a minion to full HP (effective max = base + HP_BONUS buffs). Used by HEAL_MINION_FULL.
+func _heal_minion_full(minion: MinionInstance) -> void:
+	if minion == null or minion.current_health <= 0:
+		return
+	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
+	if minion.current_health >= hp_cap:
+		return
+	var healed: int = hp_cap - minion.current_health
+	minion.current_health = hp_cap
+	_log("  %s healed to full (+%d HP)" % [minion.card_data.card_name, healed], _LogType.PLAYER if minion.owner == "player" else _LogType.ENEMY)
+	_refresh_slot_for(minion)
+
+## Sacrifice flow (strict rule: sacrifice is NOT death — does not fire ON DEATH).
+##
+## Order:
+##   1. Run the minion's on_leave_effect_steps (declarative, source = minion).
+##   2. Fire ON_*_MINION_SACRIFICED so board-wide listeners (Fleshbind, Blood/Soul Rune,
+##      Soul Forge talent etc.) can react.
+##   3. Fire ON_CORRUPTION_REMOVED if the sacrificed minion had Corruption stacks.
+##   4. Erase from board and clear slot. Death animation is reused for visuals.
+##
+## Skips: ON_*_MINION_DIED, on_death_effect_steps, on-death icon VFX, granted_on_death_effects.
+func _sacrifice_minion(minion: MinionInstance) -> void:
+	if minion == null:
+		return
+	# Capture slot for the death animation BEFORE we touch the board.
+	var dead_slot: BoardSlot = null
+	var search_slots := player_slots if minion.owner == "player" else enemy_slots
+	for s in search_slots:
+		if s.minion == minion:
+			dead_slot = s
+			break
+	# Step 1 — declarative ON LEAVE steps run while the minion is still on its slot.
+	var card_data := minion.card_data as MinionCardData
+	if card_data != null and not card_data.on_leave_effect_steps.is_empty():
+		var leave_ctx := EffectContext.make(self, minion.owner)
+		leave_ctx.source         = minion
+		leave_ctx.source_card_id = card_data.id
+		EffectResolver.run(card_data.on_leave_effect_steps, leave_ctx)
+	# Step 2 — corruption removal still fires (Corrupt Detonation reads "by any means").
+	var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
+	if pre_corruption > 0:
+		var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+		rm_ctx.minion = minion
+		rm_ctx.damage = pre_corruption
+		trigger_manager.fire(rm_ctx)
+	# Step 3 — fire the sacrifice event for board-wide listeners.
+	var sac_event := Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED if minion.owner == "player" \
+		else Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED
+	var sac_ctx := EventContext.make(sac_event, minion.owner)
+	sac_ctx.minion = minion
+	trigger_manager.fire(sac_ctx)
+	# Step 4 — remove from board and play death animation. We do NOT fire ON_*_MINION_DIED.
+	var slot_is_frozen := dead_slot != null and dead_slot.freeze_visuals
+	if minion.owner == "player":
+		player_board.erase(minion)
+		if not slot_is_frozen:
+			_clear_slot_for(minion, player_slots)
+		if hand_display:
+			hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
+	else:
+		enemy_board.erase(minion)
+		if not slot_is_frozen:
+			_clear_slot_for(minion, enemy_slots)
+	_log("  %s was sacrificed" % minion.card_data.card_name, _LogType.DEATH)
+	_refresh_hand_spell_costs()
+	if dead_slot:
+		if dead_slot.freeze_visuals:
+			_deferred_death_slots.append({slot = dead_slot, pos = dead_slot.global_position, minion = minion})
+		else:
+			_animate_minion_death(dead_slot, dead_slot.global_position, minion)
+
+## Seris — add kill stacks to a minion. Single entry point so both organic kills
+## (via on_enemy_died_grafted_constitution) and direct grants (Flesh Sacrament) run
+## the Fleshcraft talent reactions uniformly:
+##   • flesh_infusion active → +100 ATK / +100 HP per stack added
+##   • predatory_surge active and kill_stacks crosses 3 → grant SIPHON once
+func _add_kill_stacks(minion: MinionInstance, count: int = 1) -> void:
+	if minion == null or count <= 0:
+		return
+	minion.kill_stacks += count
+	# flesh_infusion gates the kill-stack → stats conversion. The talent id is
+	# "flesh_infusion" (the Fleshcraft T0 / branch unlock); the old grafted_constitution
+	# talent id was merged into it. Buff source_tag stays "grafted_constitution" so UI
+	# and tests that filter by that tag keep working.
+	if _has_talent("flesh_infusion"):
+		BuffSystem.apply(minion, Enums.BuffType.ATK_BONUS, 100 * count, "grafted_constitution", false, false)
+		BuffSystem.apply_hp_gain(minion, 100 * count, "grafted_constitution", true)
+		_log("  Grafted Constitution: %s +%d/+%d (kills: %d)." % [minion.card_data.card_name, 100 * count, 100 * count, minion.kill_stacks], _LogType.PLAYER)
+	if _has_talent("predatory_surge") and minion.kill_stacks >= 3 \
+			and not BuffSystem.has_type(minion, Enums.BuffType.GRANT_SIPHON):
+		BuffSystem.apply(minion, Enums.BuffType.GRANT_SIPHON, 1, "predatory_surge", false, false)
+		_log("  Predatory Surge: %s gains Siphon." % minion.card_data.card_name, _LogType.PLAYER)
+	_refresh_slot_for(minion)
+
 ## Deal Void Bolt damage to the enemy hero, scaled by current Void Marks.
 ## CONVENTION: ALL Void Bolt damage in the game must go through this function
 ## so that talents like deepened_curse and future modifiers apply automatically.
@@ -3137,7 +3563,10 @@ func _on_minion_siphon_healed(minion: MinionInstance, healed: int) -> void:
 ## source_minion: if provided, projectile fires from that minion's board slot.
 ## If null, auto-detects: checks for active void rune (fires from rune slot),
 ## otherwise fires from center-bottom (player hero area).
-func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false) -> void:
+## is_minion_emitted: caller asserts this Void Bolt is a minion attack/effect (e.g.
+## void_manifestation talent retag of basic attack, piercing_void retag of on-play).
+## Default false → SPELL source for spell-cast / triggered-passive paths.
+func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
 	var bonus := enemy_void_marks * _void_mark_damage_per_stack()
 	var total := base_damage + bonus
 	if bonus > 0:
@@ -3149,7 +3578,9 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 	var bolt := _fire_void_bolt_projectile(source_minion, from_rune)
 	if bolt != null and is_inside_tree():
 		await bolt.impact_hit
-	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
+	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
+	combat_manager.apply_hero_damage("enemy",
+			CombatManager.make_damage_info(total, src, Enums.DamageSchool.VOID_BOLT, source_minion, "void_bolt"))
 
 ## Spawn and fly a void bolt projectile to the enemy hero panel.
 ## Returns the bolt node (or null if not spawned) so caller can await impact_hit.
@@ -3192,12 +3623,15 @@ func _fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune:
 ## Enemy-cast Void Bolt — fires a projectile from the enemy minion's slot (or
 ## enemy hero area) to the player hero panel, then applies damage on impact.
 ## Does not participate in Void Marks (those only apply to the enemy hero).
-func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null) -> void:
+## is_minion_emitted: see _deal_void_bolt_damage. Default false (SPELL source).
+func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
 	_log("  Void Bolt: %d damage." % base_damage, _LogType.ENEMY)
 	var bolt := _fire_enemy_void_bolt_projectile(source_minion)
 	if bolt != null and is_inside_tree():
 		await bolt.impact_hit
-	combat_manager.apply_hero_damage("player", base_damage, Enums.DamageType.VOID_BOLT)
+	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
+	combat_manager.apply_hero_damage("player",
+			CombatManager.make_damage_info(base_damage, src, Enums.DamageSchool.VOID_BOLT, source_minion, "void_bolt"))
 
 ## Spawn a void bolt projectile flying from enemy side down to the player hero.
 func _fire_enemy_void_bolt_projectile(source_minion: MinionInstance = null) -> VoidBoltProjectile:
@@ -3395,9 +3829,11 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		else:
 			_animate_minion_death(dead_slot, dead_slot.global_position, minion)
 
-func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
+func _on_hero_damaged(target: String, info: Dictionary) -> void:
 	if _combat_ended:
 		return
+	var amount: int = info.get("amount", 0)
+	var school: int = info.get("school", Enums.DamageSchool.NONE)
 	var is_crit: bool = _last_attack_was_crit
 	if target == "player":
 		# Bone Shield relic — hero immune this turn
@@ -3408,11 +3844,12 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 		_player_hero_panel.update(player_hp, GameManager.player_hp_max)
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
 		if player_hp <= 0:
-			_flash_hero("player", amount, _on_defeat, type, is_crit)
+			_flash_hero("player", amount, _on_defeat, school, is_crit)
 		else:
-			_flash_hero("player", amount, Callable(), type, is_crit)
+			_flash_hero("player", amount, Callable(), school, is_crit)
 			var _ctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
 			_ctx.damage = amount
+			_ctx.damage_info = info
 			trigger_manager.fire(_ctx)
 	else:
 		enemy_hp -= amount
@@ -3425,14 +3862,23 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 			# resolution can unwind cleanly before control flips to enemy.
 			var pt = preload("res://combat/board/PhaseTransition.gd")
 			if pt.attempt(self):
-				_flash_hero("enemy", amount, Callable(), type, is_crit)
+				_flash_hero("enemy", amount, Callable(), school, is_crit)
 				_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 				call_deferred("_force_end_player_turn_for_phase_transition")
 				return
-			_flash_hero("enemy", amount, _on_victory, type, is_crit)
+			_flash_hero("enemy", amount, _on_victory, school, is_crit)
 		else:
-			_flash_hero("enemy", amount, Callable(), type, is_crit)
-			if type == Enums.DamageType.VOID_BOLT and _handlers:
+			_flash_hero("enemy", amount, Callable(), school, is_crit)
+			# Symmetric counterpart to the ON_HERO_DAMAGED fire in the player branch.
+			# Enables cards/passives to react to "enemy hero takes damage" events;
+			# carries the same damage_info shape so handlers can branch on school/source.
+			var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
+			_ectx.damage = amount
+			_ectx.damage_info = info
+			trigger_manager.fire(_ectx)
+			# Void Bolt passive trigger — keyed off school via lineage so any future
+			# VOID_BOLT-derived sub-school still triggers it.
+			if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT) and _handlers:
 				_handlers._apply_void_bolt_passives()
 
 func _on_hero_healed(target: String, amount: int) -> void:
@@ -3680,8 +4126,11 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 	_show_card_cast_anim(spell, false, func() -> void:
 		var resolve_damage := func(_i: int) -> void:
 			_pre_player_spell_cast(spell)
-			# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount
+			# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount.
+			# Pick up damage_school from the step too — this hero-targeted path bypasses
+			# EffectResolver entirely, so the school must be re-read here or it's lost.
 			var base_dmg: int = 0
+			var school: int = Enums.DamageSchool.NONE
 			for step in spell.effect_steps:
 				var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
 				if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
@@ -3691,9 +4140,15 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 						if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
 							if ConditionResolver.check_all(s.bonus_conditions, ctx, null):
 								base_dmg += s.bonus_amount
+						# First contributing damage step's school wins. (All damage steps
+						# on a spell typically share a school; if not, that's a card design
+						# question, not a plumbing concern.)
+						if school == Enums.DamageSchool.NONE:
+							school = s.damage_school
 			var total: int = base_dmg + _player_spell_damage_bonus
 			_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], _LogType.PLAYER)
-			combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.SPELL)
+			combat_manager.apply_hero_damage("enemy",
+					CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, school, null, spell.id))
 			_post_player_spell_cast(spell, null)
 		await vfx_controller.play_spell(spell.id, "player", _enemy_status_panel, resolve_damage)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
@@ -3892,11 +4347,16 @@ func _show_enemy_summon_reveal(card: CardData) -> void:
 	visual.setup(card)
 	# Centre on screen
 	var vp := get_viewport().get_visible_rect().size
-	visual.position = vp / 2.0 - visual.size / 2.0
+	visual.position     = vp / 2.0 - visual.size / 2.0
+	visual.pivot_offset = visual.size * 0.5
+	visual.scale        = Vector2(0.65, 0.65)
 
-	# Fade in
-	var t1 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t1.tween_property(visual, "modulate:a", 1.0, 0.18)
+	# Fade in + scale-pop (parallel), matching spell preview feel.
+	var t1 := create_tween().set_parallel(true)
+	t1.tween_property(visual, "modulate:a", 1.0, 0.22) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t1.tween_property(visual, "scale", Vector2(1.0, 1.0), 0.22) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	await t1.finished
 	if not is_inside_tree(): visual.queue_free(); _enemy_summon_reveal_active = false; enemy_summon_reveal_done.emit(); return
 
@@ -4155,9 +4615,17 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.from_rune = true
+			ctx.source_rune = rune
 			EffectResolver.run(rune.aura_effect_steps, ctx)
 		trigger_manager.register(trigger, h, 20)
 		entries.append({event = trigger, handler = h})
+
+		# Extra handler — same effect_steps, fires on a second event (e.g. sacrifice in
+		# addition to death so Blood/Soul Rune react to ON LEAVE removals).
+		if rune.aura_extra_trigger >= 0:
+			var extra_trigger: int = rune.aura_extra_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_extra_trigger as Enums.TriggerEvent)
+			trigger_manager.register(extra_trigger, h, 20)
+			entries.append({event = extra_trigger, handler = h})
 
 	# Secondary handler (e.g. Soul Rune per-turn reset)
 	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
@@ -4165,6 +4633,7 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 		var h2 := func(event_ctx: EventContext):
 			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
+			ctx.source_rune = rune
 			EffectResolver.run(rune.aura_secondary_steps, ctx)
 		trigger_manager.register(sec_trigger, h2, 20)
 		entries.append({event = sec_trigger, handler = h2})
@@ -4527,10 +4996,6 @@ func _add_talent_hover_icon(parent: HBoxContainer, _anchor_panel: Control) -> vo
 
 func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void:
 	const PASSIVE_INFO: Dictionary = {
-		"feral_instinct": {
-			"name": "Feral Instinct",
-			"desc": "The first Feral Imp summoned each turn gains: draw 1 card on death."
-		},
 		"pack_instinct": {
 			"name": "Pack Instinct",
 			"desc": "Each Feral Imp gains +50 ATK for every other Feral Imp on the board."
@@ -4708,7 +5173,8 @@ func _on_enemy_hero_button_pressed() -> void:
 		selected_attacker = null
 		_clear_all_highlights()
 		_enemy_hero_panel.show_attackable(false)
-		await _deal_void_bolt_damage(atk, attacker_ref)
+		# void_manifestation talent retags Void Imp clan basic attack — MINION source.
+		await _deal_void_bolt_damage(atk, attacker_ref, false, true)
 		return
 	_log("Your %s attacks Enemy Hero" % selected_attacker.card_data.card_name)
 	var _hero_atk_slot := _find_slot_for(selected_attacker)
@@ -4840,11 +5306,15 @@ func _play_void_netter_on_play_vfx(source_minion: MinionInstance, target: Minion
 	var apply_damage := func() -> void:
 		if target == null or not is_instance_valid(target) or target.current_health <= 0:
 			return
+		# Void Netter on-play is a MINION-emitted effect on both sides. _spell_dmg
+		# defaults to SPELL source, so pass an explicit info to keep this MINION-source.
+		var netter_info := CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, source_minion, "void_netter")
 		if owner_side == "player":
-			_spell_dmg(target, 200)
+			_spell_dmg(target, 200, netter_info)
 			return
 		var slot_now := _find_slot_for(target)
-		combat_manager.apply_spell_damage(target, 200)
+		combat_manager.apply_damage_to_minion(target,
+				CombatManager.make_damage_info(200, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, source_minion, "void_netter"))
 		_refresh_slot_for(target)
 		if slot_now != null:
 			_flash_slot(slot_now)
@@ -5118,7 +5588,7 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 			AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav", -10.0)
 		_flash_slot(def_slot)
 		if damage > 0:
-			_spawn_damage_popup(def_rect.get_center(), damage, Enums.DamageType.PHYSICAL, is_crit)
+			_spawn_damage_popup(def_rect.get_center(), damage, is_crit)
 		if counter_damage > 0:
 			_flash_slot(atk_slot)
 			_spawn_damage_popup(atk_slot.get_global_rect().get_center(), counter_damage)
@@ -5324,9 +5794,16 @@ func _update_counter_warning() -> void:
 		tw.tween_callback(func() -> void: _counter_warning_label.visible = false)
 
 ## Wrapper: apply spell damage to a minion + show flash and damage popup.
-func _spell_dmg(target: MinionInstance, damage: int) -> void:
+## info is optional — when omitted, defaults to (SPELL, NONE) per call-site convention.
+func _spell_dmg(target: MinionInstance, damage: int, info: Dictionary = {}) -> void:
 	var slot := _find_slot_for(target)
-	combat_manager.apply_spell_damage(target, damage + _player_spell_damage_bonus)
+	var total := damage + _player_spell_damage_bonus
+	if info.is_empty():
+		info = CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE)
+	else:
+		info = info.duplicate()
+		info["amount"] = total
+	combat_manager.apply_damage_to_minion(target, info)
 	_refresh_slot_for(target)
 	if slot:
 		_flash_slot(slot)
@@ -5334,14 +5811,15 @@ func _spell_dmg(target: MinionInstance, damage: int) -> void:
 
 ## Flash a hero status panel and show a damage number.
 ## on_done (optional) is called after the flash animation completes.
-func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL, is_crit: bool = false) -> void:
+## school is a DamageSchool int — VOID_BOLT (and any future VOID_BOLT sub-school) flashes purple.
+func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), school: int = Enums.DamageSchool.NONE, is_crit: bool = false) -> void:
 	var panel := _player_status_panel if target == "player" else _enemy_status_panel
 	if panel == null:
 		if on_done.is_valid():
 			on_done.call()
 		return
 	var flash_color: Color
-	if dmg_type == Enums.DamageType.VOID_BOLT:
+	if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT):
 		flash_color = Color(1.2, 0.40, 1.8, 1.0)  # Purple flash for void bolt
 	else:
 		flash_color = Color(1.8, 0.30, 0.30, 1.0)  # Red flash for normal damage
@@ -5351,7 +5829,7 @@ func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), dm
 	if on_done.is_valid():
 		tw.tween_callback(on_done)
 	var txt := "-%d!" % amount if is_crit else "-%d" % amount
-	_spawn_popup(panel.get_global_rect().get_center(), txt, _dmg_color(dmg_type), is_crit)
+	_spawn_popup(panel.get_global_rect().get_center(), txt, _dmg_color(school), is_crit)
 
 func _flash_hero_heal(target: String, amount: int) -> void:
 	var panel := _player_status_panel if target == "player" else _enemy_status_panel
@@ -5362,8 +5840,8 @@ func _flash_hero_heal(target: String, amount: int) -> void:
 	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
 	_spawn_popup(panel.get_global_rect().get_center(), "+%d" % amount, Color(0.30, 0.90, 0.40, 1.0))
 
-func _dmg_color(dmg_type: Enums.DamageType) -> Color:
-	if dmg_type == Enums.DamageType.VOID_BOLT:
+func _dmg_color(school: int) -> Color:
+	if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT):
 		return Color(0.75, 0.30, 1.0, 1.0)
 	return Color(1.0, 0.22, 0.22, 1.0)
 
@@ -5435,7 +5913,7 @@ func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color, i
 		tw.chain().tween_callback(lbl.queue_free)
 
 ## Minion damage popups.
-func _spawn_damage_popup(screen_center: Vector2, damage: int, _dmg_type: Enums.DamageType = Enums.DamageType.PHYSICAL, is_crit: bool = false) -> void:
+func _spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = false) -> void:
 	var txt := "-%d!" % damage if is_crit else "-%d" % damage
 	_spawn_popup(screen_center, txt, Color(1.0, 0.22, 0.22, 1.0), is_crit)
 

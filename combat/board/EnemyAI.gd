@@ -152,7 +152,14 @@ var _limited_cards: Array[String] = []
 ## Public read access to the enemy deck (for symmetric card effects like rune_seeker).
 var deck: Array[CardInstance]:
 	get: return _deck
-var _discard: Array[CardInstance] = []
+## Unified enemy graveyard — every card the enemy plays this combat is appended here
+## (minions, spells, traps, environments) at the moment it leaves the hand.
+## Each entry has its `resolved_on_turn` stamped at append time.
+## Full-combat record — never cleared mid-combat. Cleared in `setup_deck`.
+var _graveyard: Array[CardInstance] = []
+## Public read access (mirror of `deck`) — used by symmetric graveyard-querying effects.
+var graveyard: Array[CardInstance]:
+	get: return _graveyard
 var hand: Array[CardInstance] = []
 const HAND_MAX := 10
 
@@ -178,7 +185,7 @@ const ACTION_DELAY := 0.55
 ## Each ID becomes a CardInstance; on draw, a fresh replacement is inserted and reshuffled.
 func setup_deck(card_ids: Array[String]) -> void:
 	_deck.clear()
-	_discard.clear()
+	_graveyard.clear()
 	hand.clear()
 	active_traps.clear()
 	active_environment = null
@@ -199,6 +206,15 @@ func add_to_hand(card: CardData) -> void:
 func add_instance_to_hand(inst: CardInstance) -> void:
 	if hand.size() < HAND_MAX:
 		hand.append(inst)
+
+## Stamp `resolved_on_turn` and append to the unified graveyard.
+## Called from every commit_play_* path the moment a card leaves hand.
+func _send_to_graveyard(inst: CardInstance) -> void:
+	var turn_no: int = 0
+	if scene != null and scene.turn_manager != null:
+		turn_no = scene.turn_manager.turn_number
+	inst.resolved_on_turn = turn_no
+	_graveyard.append(inst)
 
 ## Public wrapper — draw count cards from the enemy deck (used by passives).
 func draw_cards(count: int) -> void:
@@ -361,7 +377,7 @@ func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	enemy_board.append(instance)
 	_pending_slots.append(slot)  # reserve slot without touching its visual
 	hand.erase(inst)
-	_discard.append(inst)
+	_send_to_graveyard(inst)
 	minion_play_chosen_target = chosen_target
 	minion_summoned.emit(instance, slot)
 	if not is_inside_tree(): return false
@@ -382,7 +398,7 @@ func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 func commit_spell_cast(inst: CardInstance, chosen_target = null) -> bool:
 	var spell := inst.card_data as SpellCardData
 	hand.erase(inst)
-	_discard.append(inst)
+	_send_to_graveyard(inst)
 	spell_chosen_target = chosen_target
 	enemy_spell_cast.emit(spell)
 	if not is_inside_tree(): return false
@@ -399,7 +415,7 @@ func commit_spell_cast(inst: CardInstance, chosen_target = null) -> bool:
 func commit_play_trap(inst: CardInstance) -> bool:
 	var trap := inst.card_data as TrapCardData
 	hand.erase(inst)
-	_discard.append(inst)
+	_send_to_graveyard(inst)
 	active_traps.append(trap)
 	trap_placed.emit(trap)
 	if not is_inside_tree(): return false
@@ -411,7 +427,7 @@ func commit_play_trap(inst: CardInstance) -> bool:
 func commit_play_environment(inst: CardInstance) -> bool:
 	var env := inst.card_data as EnvironmentCardData
 	hand.erase(inst)
-	_discard.append(inst)
+	_send_to_graveyard(inst)
 	active_environment = env
 	environment_placed.emit(env)
 	if not is_inside_tree(): return false

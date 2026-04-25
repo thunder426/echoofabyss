@@ -58,13 +58,17 @@ func get_all_card_ids() -> Array[String]:
 		ids.append(key as String)
 	return ids
 
-## Returns card IDs whose pool field matches any value in the given list.
+## Returns card IDs that belong to any of the requested pools. Uses set intersection,
+## so a dual-pool card (e.g. soul_shatter in vael_common + seris_demon_forge) is returned
+## by either lookup but never duplicated.
 func get_card_ids_in_pools(pools: Array[String]) -> Array[String]:
 	var ids: Array[String] = []
 	for key in _cards.keys():
 		var card: CardData = _cards[key]
-		if card.pool in pools:
-			ids.append(key as String)
+		for p in card.pools:
+			if p in pools:
+				ids.append(key as String)
+				break
 	return ids
 
 ## Returns a list of CardData for a given array of ids
@@ -163,9 +167,9 @@ func _register_wanderer_cards() -> void:
 	grafted_fiend.battlefield_art_path = "res://assets/art/minions/abyss_order/grafted_fiend_small.png"
 	all.append(grafted_fiend)
 
-	# --- Seris Starter Pool ---------------------------------------------------
-	# Hero-gated pool visible only when Seris is the active hero. Pool assignment
-	# lives in the _card_pools dict at the bottom of this file.
+	# --- Seris Core Pool ------------------------------------------------------
+	# Hero-gated starter pool visible only when Seris is the active hero. Pool
+	# assignment lives in the _card_pools dict at the bottom of this file.
 
 	# Void Spawning — 1M, two 100/100 Void Demon tokens. Early board + Flesh fuel.
 	var void_spawning := SpellCardData.new()
@@ -228,7 +232,497 @@ func _register_wanderer_cards() -> void:
 	flesh_rend.faction         = "abyss_order"
 	all.append(flesh_rend)
 
-	# --- end Seris Starter Pool -----------------------------------------------
+	# --- end Seris Core Pool --------------------------------------------------
+
+	# --- Seris Common Support Pool --------------------------------------------
+	# Branch-neutral cards offered as combat rewards and shop picks for Seris.
+	# Flesh-spend semantics (see feedback_flesh_spend_semantics):
+	#   SPEND_FLESH       = all-or-nothing; enhanced effects gated via "flesh_spent_this_cast".
+	#   SPEND_FLESH_UP_TO = partial; bonuses scale via bonus_conditions + flesh_spent_this_cast.
+
+	# Flesh Harvester — 2E Demon 200/300. ON PLAY: gain 1 Flesh.
+	var flesh_harvester := MinionCardData.new()
+	flesh_harvester.id           = "flesh_harvester"
+	flesh_harvester.card_name    = "Flesh Harvester"
+	flesh_harvester.essence_cost = 2
+	flesh_harvester.atk          = 200
+	flesh_harvester.health       = 300
+	flesh_harvester.minion_type  = Enums.MinionType.DEMON
+	flesh_harvester.description  = "ON PLAY: Gain 1 Flesh."
+	flesh_harvester.on_play_effect_steps = [
+		{"type": "GAIN_FLESH", "amount": 1},
+	]
+	flesh_harvester.faction      = "abyss_order"
+	all.append(flesh_harvester)
+
+	# Ravenous Fiend — 3E Demon 400/300. ON DEATH: gain 2 Flesh.
+	var ravenous_fiend := MinionCardData.new()
+	ravenous_fiend.id           = "ravenous_fiend"
+	ravenous_fiend.card_name    = "Ravenous Fiend"
+	ravenous_fiend.essence_cost = 3
+	ravenous_fiend.atk          = 400
+	ravenous_fiend.health       = 300
+	ravenous_fiend.minion_type  = Enums.MinionType.DEMON
+	ravenous_fiend.description  = "ON DEATH: Gain 2 Flesh."
+	ravenous_fiend.on_death_effect_steps = [
+		{"type": "GAIN_FLESH", "amount": 2},
+	]
+	ravenous_fiend.faction      = "abyss_order"
+	all.append(ravenous_fiend)
+
+	# Feast of Flesh — 1M Spell. Sacrifice a friendly Demon. Gain 2 Flesh. Draw 1.
+	var feast_of_flesh := SpellCardData.new()
+	feast_of_flesh.id              = "feast_of_flesh"
+	feast_of_flesh.card_name       = "Feast of Flesh"
+	feast_of_flesh.cost            = 1
+	feast_of_flesh.description     = "Sacrifice a friendly Demon. Gain 2 Flesh. Draw a card."
+	feast_of_flesh.requires_target = true
+	feast_of_flesh.target_type     = "friendly_minion"
+	feast_of_flesh.effect_steps    = [
+		{"type": "SACRIFICE", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON"},
+		{"type": "GAIN_FLESH", "amount": 2},
+		{"type": "DRAW", "amount": 1},
+	]
+	feast_of_flesh.faction         = "abyss_order"
+	all.append(feast_of_flesh)
+
+	# Mend the Flesh — 1M Spell. AoE heal 200; 350 if 1 Flesh spent.
+	var mend_the_flesh := SpellCardData.new()
+	mend_the_flesh.id          = "mend_the_flesh"
+	mend_the_flesh.card_name   = "Mend the Flesh"
+	mend_the_flesh.cost        = 1
+	mend_the_flesh.description = "Heal all friendly minions for 200 HP. Spend 1 Flesh: heal 350 HP instead."
+	mend_the_flesh.effect_steps = [
+		{"type": "SPEND_FLESH", "amount": 1},
+		{"type": "HEAL_MINION", "scope": "ALL_FRIENDLY", "amount": 200,
+			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"]},
+	]
+	mend_the_flesh.faction     = "abyss_order"
+	all.append(mend_the_flesh)
+
+	# Flesh Eruption — 3M Spell. 250 to all enemies (minions + hero); 400 if 2 Flesh spent.
+	var flesh_eruption := SpellCardData.new()
+	flesh_eruption.id          = "flesh_eruption"
+	flesh_eruption.card_name   = "Flesh Eruption"
+	flesh_eruption.cost        = 3
+	flesh_eruption.description = "Deal 250 damage to all enemies. Spend 2 Flesh: deal 400 damage instead."
+	flesh_eruption.effect_steps = [
+		{"type": "SPEND_FLESH", "amount": 2},
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 250,
+			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"]},
+		{"type": "DAMAGE_HERO", "amount": 250,
+			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"]},
+	]
+	flesh_eruption.faction     = "abyss_order"
+	all.append(flesh_eruption)
+
+	# Gorged Fiend — 3E Demon 300/300. ON PLAY: spend up to 3 Flesh, +150/+150 per spent.
+	var gorged_fiend := MinionCardData.new()
+	gorged_fiend.id           = "gorged_fiend"
+	gorged_fiend.card_name    = "Gorged Fiend"
+	gorged_fiend.essence_cost = 3
+	gorged_fiend.atk          = 300
+	gorged_fiend.health       = 300
+	gorged_fiend.minion_type  = Enums.MinionType.DEMON
+	gorged_fiend.description  = "ON PLAY: Spend up to 3 Flesh. Gain +150 ATK and +150 HP per Flesh spent."
+	gorged_fiend.on_play_effect_steps = [
+		{"type": "SPEND_FLESH_UP_TO", "amount": 3},
+		{"type": "BUFF_ATK", "scope": "SELF", "amount": 150, "multiplier_key": "flesh_spent",
+			"permanent": true, "source_tag": "gorged_fiend", "conditions": ["flesh_spent_this_cast"]},
+		{"type": "BUFF_HP",  "scope": "SELF", "amount": 150, "multiplier_key": "flesh_spent",
+			"source_tag": "gorged_fiend", "conditions": ["flesh_spent_this_cast"]},
+	]
+	gorged_fiend.faction      = "abyss_order"
+	all.append(gorged_fiend)
+
+	# Flesh-Stitched Horror — 4E Demon 400/400. ON PLAY: spend 2 Flesh → GUARD and +300 HP.
+	var flesh_stitched_horror := MinionCardData.new()
+	flesh_stitched_horror.id           = "flesh_stitched_horror"
+	flesh_stitched_horror.card_name    = "Flesh-Stitched Horror"
+	flesh_stitched_horror.essence_cost = 4
+	flesh_stitched_horror.atk          = 400
+	flesh_stitched_horror.health       = 400
+	flesh_stitched_horror.minion_type  = Enums.MinionType.DEMON
+	flesh_stitched_horror.description  = "ON PLAY: Spend 2 Flesh: gain GUARD and +300 HP."
+	flesh_stitched_horror.on_play_effect_steps = [
+		{"type": "SPEND_FLESH", "amount": 2},
+		{"type": "GRANT_KEYWORD", "scope": "SELF", "keyword": "GUARD",
+			"source_tag": "flesh_stitched_horror", "conditions": ["flesh_spent_this_cast"]},
+		{"type": "BUFF_HP", "scope": "SELF", "amount": 300,
+			"source_tag": "flesh_stitched_horror", "conditions": ["flesh_spent_this_cast"]},
+	]
+	flesh_stitched_horror.faction      = "abyss_order"
+	all.append(flesh_stitched_horror)
+
+	# Flesh Rune — 2M Rune. Start of turn: destroy if <2 Flesh, else spend 2 and summon 300/300 Void Spark.
+	var flesh_rune := TrapCardData.new()
+	flesh_rune.id             = "flesh_rune"
+	flesh_rune.card_name      = "Flesh Rune"
+	flesh_rune.cost           = 2
+	flesh_rune.description    = "RUNE: At the start of your turn, spend 2 Flesh: summon a 300/300 Void Spark. If you do not have enough Flesh, destroy this Rune."
+	flesh_rune.is_rune        = true
+	# Reuse VOID_RUNE glow/type for now — dedicated RuneType enum entry can be added later if needed.
+	flesh_rune.rune_type      = Enums.RuneType.VOID_RUNE
+	flesh_rune.aura_trigger   = Enums.TriggerEvent.ON_PLAYER_TURN_START
+	flesh_rune.aura_effect_steps = [
+		# Self-destruct first if we cannot afford the upkeep. Destroying the rune
+		# mid-run still allows the subsequent steps to short-circuit via the gate.
+		{"type": "DESTROY", "scope": "SOURCE_RUNE", "conditions": ["flesh_lt_2"]},
+		# Pay the upkeep.
+		{"type": "SPEND_FLESH", "amount": 2, "conditions": ["flesh_gte_2"]},
+		# Summon a 300/300 Void Spark only on successful spend.
+		{"type": "SUMMON", "card_id": "void_spark", "token_atk": 300, "token_hp": 300,
+			"conditions": ["flesh_spent_this_cast"]},
+	]
+	flesh_rune.faction        = "abyss_order"
+	flesh_rune.rune_glow_color = Color(0.55, 0.08, 0.08, 1)  # Deep red, like Blood Rune
+	all.append(flesh_rune)
+
+	# --- end Seris Common Support Pool ----------------------------------------
+
+	# --- Seris Fleshcraft Pool ------------------------------------------------
+	# Branch 1 support pool. Unlocked when player takes flesh_infusion (Fleshcraft T0).
+	# See RewardScene._get_active_support_pool_ids. All members share the grafted_fiend
+	# clan where applicable so on-entry aura multipliers and on-death hooks line up.
+
+	# Grafted Reaver — 2E Grafted Fiend 200/300. ON PLAY: +100 ATK per other friendly Grafted Fiend.
+	var grafted_reaver := MinionCardData.new()
+	grafted_reaver.id           = "grafted_reaver"
+	grafted_reaver.card_name    = "Grafted Reaver"
+	grafted_reaver.essence_cost = 2
+	grafted_reaver.atk          = 200
+	grafted_reaver.health       = 300
+	grafted_reaver.minion_type  = Enums.MinionType.DEMON
+	grafted_reaver.minion_tags  = ["grafted_fiend"]
+	grafted_reaver.description  = "ON PLAY: Gain +100 ATK for each other friendly Grafted Fiend."
+	grafted_reaver.on_play_effect_steps = [
+		{"type": "BUFF_ATK", "scope": "SELF", "amount": 100,
+			"multiplier_key": "board_count", "multiplier_board": "friendly",
+			"multiplier_filter": "tag", "multiplier_tag": "grafted_fiend",
+			"exclude_self": true, "permanent": true, "source_tag": "grafted_reaver"},
+	]
+	grafted_reaver.faction      = "abyss_order"
+	all.append(grafted_reaver)
+
+	# Flesh Scout — 1E Grafted Fiend 100/200. ON PLAY: draw 2 if friendly Grafted Fiends have 3+ total kill stacks.
+	var flesh_scout := MinionCardData.new()
+	flesh_scout.id           = "flesh_scout"
+	flesh_scout.card_name    = "Flesh Scout"
+	flesh_scout.essence_cost = 1
+	flesh_scout.atk          = 100
+	flesh_scout.health       = 200
+	flesh_scout.minion_type  = Enums.MinionType.DEMON
+	flesh_scout.minion_tags  = ["grafted_fiend"]
+	flesh_scout.description  = "ON PLAY: If friendly Grafted Fiends have 3 or more total kill stacks, draw 2 cards."
+	flesh_scout.on_play_effect_steps = [
+		{"type": "DRAW", "amount": 2, "conditions": ["friendly_grafted_fiend_kill_stacks_gte_3"]},
+	]
+	flesh_scout.faction      = "abyss_order"
+	all.append(flesh_scout)
+
+	# Flesh Surgeon — 2E Human 100/300. ON PLAY: heal a Grafted Fiend to full; spend 1 Flesh for +200 max HP.
+	var flesh_surgeon := MinionCardData.new()
+	flesh_surgeon.id           = "flesh_surgeon"
+	flesh_surgeon.card_name    = "Flesh Surgeon"
+	flesh_surgeon.essence_cost = 2
+	flesh_surgeon.atk          = 100
+	flesh_surgeon.health       = 300
+	flesh_surgeon.minion_type  = Enums.MinionType.HUMAN
+	flesh_surgeon.description  = "ON PLAY: Heal a friendly Grafted Fiend to full. Spend 1 Flesh: also give it +200 HP permanently."
+	flesh_surgeon.on_play_requires_target = true
+	flesh_surgeon.on_play_target_type     = "friendly_minion"
+	flesh_surgeon.on_play_target_prompt   = "Choose a friendly Grafted Fiend to mend."
+	flesh_surgeon.on_play_effect_steps = [
+		# Try to pay — all-or-nothing. If successful, apply the +200 HP max first so the heal-to-full uses the new cap.
+		{"type": "SPEND_FLESH", "amount": 1},
+		{"type": "BUFF_HP", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 200,
+			"source_tag": "flesh_surgeon", "conditions": ["flesh_spent_this_cast"]},
+		# Base effect — always heals the chosen target to its (possibly new) max HP.
+		{"type": "HEAL_MINION_FULL", "scope": "SINGLE_CHOSEN_FRIENDLY"},
+	]
+	flesh_surgeon.faction      = "abyss_order"
+	all.append(flesh_surgeon)
+
+	# Flesh Sacrament — 2M Spell. Grant 1 kill stack; Spend 2 Flesh → 3 stacks instead.
+	# Grant pattern: always apply 1 stack, then apply 2 more if the spend succeeded (1 + 2 = 3).
+	var flesh_sacrament := SpellCardData.new()
+	flesh_sacrament.id              = "flesh_sacrament"
+	flesh_sacrament.card_name       = "Flesh Sacrament"
+	flesh_sacrament.cost            = 2
+	flesh_sacrament.description     = "Give a friendly Grafted Fiend 1 kill stack. Spend 2 Flesh: give it 3 kill stacks instead."
+	flesh_sacrament.requires_target = true
+	flesh_sacrament.target_type     = "friendly_minion"
+	flesh_sacrament.effect_steps = [
+		{"type": "SPEND_FLESH", "amount": 2},
+		{"type": "GRANT_KILL_STACKS", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 1},
+		{"type": "GRANT_KILL_STACKS", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 2,
+			"conditions": ["flesh_spent_this_cast"]},
+	]
+	flesh_sacrament.faction         = "abyss_order"
+	all.append(flesh_sacrament)
+
+	# Matron of Flesh — 5E Grafted Fiend 400/600. ON PLAY: +100/+100 per other friendly Fiend; on kill, gain 1 Flesh.
+	var matron_of_flesh := MinionCardData.new()
+	matron_of_flesh.id           = "matron_of_flesh"
+	matron_of_flesh.card_name    = "Matron of Flesh"
+	matron_of_flesh.essence_cost = 5
+	matron_of_flesh.atk          = 400
+	matron_of_flesh.health       = 600
+	matron_of_flesh.minion_type  = Enums.MinionType.DEMON
+	matron_of_flesh.minion_tags  = ["grafted_fiend"]
+	matron_of_flesh.description  = "ON PLAY: Gain +100 ATK and +100 HP for each other friendly Grafted Fiend. Whenever this minion kills an enemy minion, gain 1 Flesh."
+	matron_of_flesh.on_play_effect_steps = [
+		{"type": "BUFF_ATK", "scope": "SELF", "amount": 100,
+			"multiplier_key": "board_count", "multiplier_board": "friendly",
+			"multiplier_filter": "tag", "multiplier_tag": "grafted_fiend",
+			"exclude_self": true, "permanent": true, "source_tag": "matron_of_flesh"},
+		{"type": "BUFF_HP",  "scope": "SELF", "amount": 100,
+			"multiplier_key": "board_count", "multiplier_board": "friendly",
+			"multiplier_filter": "tag", "multiplier_tag": "grafted_fiend",
+			"exclude_self": true, "source_tag": "matron_of_flesh"},
+	]
+	matron_of_flesh.on_kill_effect_steps = [
+		{"type": "GAIN_FLESH", "amount": 1},
+	]
+	matron_of_flesh.faction      = "abyss_order"
+	all.append(matron_of_flesh)
+
+	# --- end Seris Fleshcraft Pool --------------------------------------------
+
+	# --- Seris Demon Forge Pool -----------------------------------------------
+	# Branch 2 support pool. Unlocked when player takes soul_forge (Demon Forge T0).
+	# Theme: sacrifice Demons to feed the Forge Counter; ON LEAVE-driven payoffs.
+	# Soul Shatter (vael_common) is dual-pooled into seris_demon_forge below.
+
+	# Altar Thrall — 2E Demon 300/300 SWIFT. End of turn: sacrifice self.
+	var altar_thrall := MinionCardData.new()
+	altar_thrall.id           = "altar_thrall"
+	altar_thrall.card_name    = "Altar Thrall"
+	altar_thrall.essence_cost = 2
+	altar_thrall.atk          = 300
+	altar_thrall.health       = 300
+	altar_thrall.minion_type  = Enums.MinionType.DEMON
+	altar_thrall.keywords     = [Enums.Keyword.SWIFT]
+	altar_thrall.description  = "SWIFT. At the end of your turn, sacrifice this minion."
+	altar_thrall.on_turn_end_effect_steps = [
+		{"type": "SACRIFICE", "scope": "SELF"},
+	]
+	altar_thrall.faction      = "abyss_order"
+	all.append(altar_thrall)
+
+	# Forge Acolyte — 3E Human 100/400. Whenever you sacrifice a Demon, gain 1 Flesh.
+	# Implementation: a board-presence passive listening on ON_PLAYER_MINION_SACRIFICED.
+	# Uses passive_effect_id pattern (existing string-dispatch system) so the listener
+	# stays narrow and on-scene. NOTE: passive_effect_id today only fires on death; we
+	# need to extend the dispatcher to also handle sacrifice. Done below.
+	var forge_acolyte := MinionCardData.new()
+	forge_acolyte.id                 = "forge_acolyte"
+	forge_acolyte.card_name          = "Forge Acolyte"
+	forge_acolyte.essence_cost       = 3
+	forge_acolyte.atk                = 100
+	forge_acolyte.health             = 400
+	forge_acolyte.minion_type        = Enums.MinionType.HUMAN
+	forge_acolyte.description        = "PASSIVE: Whenever you sacrifice a Demon, gain 1 Flesh."
+	forge_acolyte.passive_effect_id  = "forge_acolyte_flesh_on_sacrifice"
+	forge_acolyte.faction            = "abyss_order"
+	all.append(forge_acolyte)
+
+	# Ember Pact — 1M Spell. Sacrifice a friendly Demon. Gain 1 Flesh. +1 Forge Counter.
+	var ember_pact := SpellCardData.new()
+	ember_pact.id              = "ember_pact"
+	ember_pact.card_name       = "Ember Pact"
+	ember_pact.cost            = 1
+	ember_pact.description     = "Sacrifice a friendly Demon. Gain 1 Flesh. Add +1 Forge Counter."
+	ember_pact.requires_target = true
+	ember_pact.target_type     = "friendly_minion"
+	ember_pact.effect_steps    = [
+		{"type": "SACRIFICE", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON"},
+		{"type": "GAIN_FLESH", "amount": 1},
+		{"type": "GAIN_FORGE_COUNTER", "amount": 1},
+	]
+	ember_pact.faction         = "abyss_order"
+	all.append(ember_pact)
+
+	# Bound Offering — 2E Demon 200/200. ON LEAVE: summon two 100/100 Void Demons.
+	var bound_offering := MinionCardData.new()
+	bound_offering.id           = "bound_offering"
+	bound_offering.card_name    = "Bound Offering"
+	bound_offering.essence_cost = 2
+	bound_offering.atk          = 200
+	bound_offering.health       = 200
+	bound_offering.minion_type  = Enums.MinionType.DEMON
+	bound_offering.description  = "ON LEAVE: Summon two 100/100 Void Demons."
+	bound_offering.on_leave_effect_steps = [
+		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
+		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
+	]
+	bound_offering.faction      = "abyss_order"
+	all.append(bound_offering)
+
+	# Forgeborn Tyrant — 6E Demon 500/500. ON DEATH and ON LEAVE: +3 Forge Counter.
+	# Both triggers fire if sacrificed (ON LEAVE only) or killed in combat (ON DEATH only).
+	# No double-fire on a single removal: sacrifice path skips ON DEATH per the strict rule.
+	var forgeborn_tyrant := MinionCardData.new()
+	forgeborn_tyrant.id           = "forgeborn_tyrant"
+	forgeborn_tyrant.card_name    = "Forgeborn Tyrant"
+	forgeborn_tyrant.essence_cost = 6
+	forgeborn_tyrant.atk          = 500
+	forgeborn_tyrant.health       = 500
+	forgeborn_tyrant.minion_type  = Enums.MinionType.DEMON
+	forgeborn_tyrant.description  = "ON DEATH and ON LEAVE: Add +3 Forge Counter."
+	forgeborn_tyrant.on_death_effect_steps = [
+		{"type": "GAIN_FORGE_COUNTER", "amount": 3},
+	]
+	forgeborn_tyrant.on_leave_effect_steps = [
+		{"type": "GAIN_FORGE_COUNTER", "amount": 3},
+	]
+	forgeborn_tyrant.faction      = "abyss_order"
+	all.append(forgeborn_tyrant)
+
+	# --- end Seris Demon Forge Pool -------------------------------------------
+
+	# --- Seris Corruption Engine Pool -----------------------------------------
+	# Branch 3 support pool. Unlocked when player takes corrupt_flesh (Corruption Engine T0).
+	# Theme: stack Corruption on friendly Demons as an ATK buff (post-T0 inversion),
+	# detonate stacks for AoE pressure (T1), feed spell-damage scaling (T2),
+	# and replay spell turns (T3).
+
+	# Bloodscribe Imp — 1E Demon 100/100. ON PLAY: Add a Flesh Rend to your hand.
+	var bloodscribe_imp := MinionCardData.new()
+	bloodscribe_imp.id           = "bloodscribe_imp"
+	bloodscribe_imp.card_name    = "Bloodscribe Imp"
+	bloodscribe_imp.essence_cost = 1
+	bloodscribe_imp.atk          = 100
+	bloodscribe_imp.health       = 100
+	bloodscribe_imp.minion_type  = Enums.MinionType.DEMON
+	bloodscribe_imp.description  = "ON PLAY: Add a Flesh Rend to your hand."
+	bloodscribe_imp.on_play_effect_steps = [
+		{"type": "ADD_CARD", "card_id": "flesh_rend"},
+	]
+	bloodscribe_imp.faction      = "abyss_order"
+	all.append(bloodscribe_imp)
+
+	# Tainted Ritualist — 2E Human 100/300. ON PLAY: Apply 1 Corruption to a friendly Demon.
+	# Spend 1 Flesh: apply 2 instead.
+	# The "Spend 1: 2 stacks instead" pattern: SPEND_FLESH gates a +1 bonus_amount on the CORRUPTION step.
+	# Base 1 stack always applies; bonus +1 stack only if Flesh was spent this cast.
+	var tainted_ritualist := MinionCardData.new()
+	tainted_ritualist.id           = "tainted_ritualist"
+	tainted_ritualist.card_name    = "Tainted Ritualist"
+	tainted_ritualist.essence_cost = 2
+	tainted_ritualist.atk          = 100
+	tainted_ritualist.health       = 300
+	tainted_ritualist.minion_type  = Enums.MinionType.HUMAN
+	tainted_ritualist.description  = "ON PLAY: Apply 1 Corruption to a friendly Demon. Spend 1 Flesh: apply 2 instead."
+	tainted_ritualist.on_play_requires_target = true
+	tainted_ritualist.on_play_target_type     = "friendly_demon"
+	tainted_ritualist.on_play_effect_steps = [
+		{"type": "SPEND_FLESH", "amount": 1},
+		{"type": "CORRUPTION", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON",
+			"amount": 1, "bonus_amount": 1, "bonus_conditions": ["flesh_spent_this_cast"]},
+	]
+	tainted_ritualist.faction      = "abyss_order"
+	all.append(tainted_ritualist)
+
+	# Festering Fiend — 3E Demon 300/400. ON PLAY: Apply 2 Corruption to itself.
+	# ON DEATH: Apply 1 Corruption to a random friendly Demon.
+	var festering_fiend := MinionCardData.new()
+	festering_fiend.id           = "festering_fiend"
+	festering_fiend.card_name    = "Festering Fiend"
+	festering_fiend.essence_cost = 3
+	festering_fiend.atk          = 300
+	festering_fiend.health       = 400
+	festering_fiend.minion_type  = Enums.MinionType.DEMON
+	festering_fiend.description  = "ON PLAY: Apply 2 Corruption to itself. ON DEATH: Apply 1 Corruption to a random friendly Demon."
+	festering_fiend.on_play_effect_steps = [
+		{"type": "CORRUPTION", "scope": "SELF", "amount": 2},
+	]
+	# ON DEATH targets a random friendly Demon other than self (self is already gone, but exclude_self
+	# also serves as future-proof against death-rebirth interactions).
+	festering_fiend.on_death_effect_steps = [
+		{"type": "CORRUPTION", "scope": "FILTERED_RANDOM_FRIENDLY", "filter": "DEMON",
+			"amount": 1, "exclude_self": true},
+	]
+	festering_fiend.faction      = "abyss_order"
+	all.append(festering_fiend)
+
+	# Self-Mutilation — 1M Spell. Apply 2 Corruption to a friendly Demon. Draw a card.
+	var self_mutilation := SpellCardData.new()
+	self_mutilation.id              = "self_mutilation"
+	self_mutilation.card_name       = "Self-Mutilation"
+	self_mutilation.cost            = 1
+	self_mutilation.description     = "Apply 2 Corruption to a friendly Demon. Draw a card."
+	self_mutilation.requires_target = true
+	self_mutilation.target_type     = "friendly_demon"
+	self_mutilation.effect_steps    = [
+		{"type": "CORRUPTION", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON", "amount": 2},
+		{"type": "DRAW", "amount": 1},
+	]
+	self_mutilation.faction         = "abyss_order"
+	all.append(self_mutilation)
+
+	# Resonant Outburst — 2M Spell. Deal 100 damage to all enemies. Spend 2 Flesh: deal 300 instead.
+	# Pattern matches Flesh Eruption: SPEND_FLESH gates a +200 bonus on both the minion AoE and hero damage.
+	var resonant_outburst := SpellCardData.new()
+	resonant_outburst.id          = "resonant_outburst"
+	resonant_outburst.card_name   = "Resonant Outburst"
+	resonant_outburst.cost        = 2
+	resonant_outburst.description = "Deal 100 damage to all enemies. Spend 2 Flesh: deal 300 instead."
+	resonant_outburst.effect_steps = [
+		{"type": "SPEND_FLESH", "amount": 2},
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100,
+			"bonus_amount": 200, "bonus_conditions": ["flesh_spent_this_cast"]},
+		{"type": "DAMAGE_HERO", "amount": 100,
+			"bonus_amount": 200, "bonus_conditions": ["flesh_spent_this_cast"]},
+	]
+	resonant_outburst.faction     = "abyss_order"
+	all.append(resonant_outburst)
+
+	# Voidshaped Acolyte — 3E Demon 300/300. ON PLAY: Place a Shadow Rune on the enemy's battlefield.
+	# Symmetric: the rune is placed on the *opponent* of the caster, so it's enemy-side when player casts
+	# and player-side if enemy ever casts. From the caster's perspective the rune corrupts the OPPONENT'S
+	# minions on entry — read from the opponent's perspective ("their" minions = caster's friendlies)
+	# this means caster's Demons enter with 1 Corruption stack, which with corrupt_flesh active becomes
+	# +100 ATK per summon.
+	var voidshaped_acolyte := MinionCardData.new()
+	voidshaped_acolyte.id           = "voidshaped_acolyte"
+	voidshaped_acolyte.card_name    = "Voidshaped Acolyte"
+	voidshaped_acolyte.essence_cost = 3
+	voidshaped_acolyte.atk          = 300
+	voidshaped_acolyte.health       = 300
+	voidshaped_acolyte.minion_type  = Enums.MinionType.DEMON
+	voidshaped_acolyte.description  = "ON PLAY: Place a Shadow Rune on the enemy's battlefield."
+	voidshaped_acolyte.on_play_effect_steps = [
+		{"type": "HARDCODED", "hardcoded_id": "voidshaped_acolyte_place_rune"},
+	]
+	voidshaped_acolyte.faction      = "abyss_order"
+	all.append(voidshaped_acolyte)
+
+	# Recursive Hex — 5M Spell. Copy each spell you cast last turn (excluding Recursive Hex)
+	# into your hand. Deal 200 damage to enemy hero per spell copied.
+	# Implementation notes:
+	# - "Last turn" is computed from the graveyard: ctx.scene._friendly_graveyard(ctx.owner)
+	#   has Recursive Hex itself as the most recent entry (appended at remove_from_hand /
+	#   commit_play_spell time). Its resolved_on_turn is the current turn; we filter for
+	#   resolved_on_turn == current - 1.
+	# - Self-copy is filtered by exclude_card_id so multiple Recursive Hex casts in the
+	#   same turn last turn (or any turn) cannot self-replicate.
+	# - Copies are fresh CardInstances at base cost. If hand is full, excess copies burn
+	#   silently (matches add_to_hand semantics on both real and sim).
+	# - Hero damage is paid based on the graveyard-query count, not how many copies actually
+	#   landed in hand — so a full-hand cast still does the face damage.
+	var recursive_hex := SpellCardData.new()
+	recursive_hex.id          = "recursive_hex"
+	recursive_hex.card_name   = "Recursive Hex"
+	recursive_hex.cost        = 5
+	recursive_hex.description = "Copy each spell you cast last turn (excluding Recursive Hex) into your hand. Deal 200 damage to enemy hero per spell copied."
+	recursive_hex.effect_steps = [
+		{"type": "COPY_LAST_TURN_SPELLS_FROM_GRAVEYARD", "amount": 200, "exclude_card_id": "recursive_hex"},
+	]
+	recursive_hex.faction     = "abyss_order"
+	all.append(recursive_hex)
+
+	# --- end Seris Corruption Engine Pool -------------------------------------
 
 	# Void Imp Wizard — variant core unit; offered via special reward
 	var void_imp_wizard := MinionCardData.new()
@@ -319,7 +813,7 @@ func _register_wanderer_cards() -> void:
 	abyssal_plague.description = "Apply 1 CORRUPTION to all enemy minions. Deal 100 damage to all enemy minions."
 	abyssal_plague.effect_steps = [
 		{"type": "CORRUPTION",    "scope": "ALL_ENEMY", "amount": 1},
-		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100, "damage_school": "VOID"},
 	]
 	abyssal_plague.faction     = "abyss_order"
 	abyssal_plague.art_path    = "res://assets/art/spells/abyss_order/abyssal_plague.png"
@@ -346,7 +840,7 @@ func _register_wanderer_cards() -> void:
 	void_execution.requires_target = true
 	void_execution.target_type    = "enemy_minion_or_hero"
 	void_execution.effect_steps = [
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 500, "bonus_amount": 200, "bonus_conditions": ["has_friendly_human"]},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 500, "bonus_amount": 200, "bonus_conditions": ["has_friendly_human"], "damage_school": "VOID"},
 	]
 	void_execution.faction        = "abyss_order"
 	void_execution.art_path       = "res://assets/art/spells/abyss_order/void_execution.png"
@@ -1052,6 +1546,7 @@ func _register_wanderer_cards() -> void:
 	soul_rune.is_rune                  = true
 	soul_rune.rune_type                = Enums.RuneType.SOUL_RUNE
 	soul_rune.aura_trigger             = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
+	soul_rune.aura_extra_trigger       = Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED
 	soul_rune.aura_effect_steps        = [{"type": "HARDCODED", "hardcoded_id": "soul_rune_death"}]
 	soul_rune.aura_secondary_trigger   = Enums.TriggerEvent.ON_ENEMY_TURN_START
 	soul_rune.aura_secondary_steps     = [{"type": "HARDCODED", "hardcoded_id": "soul_rune_reset"}]
@@ -1087,8 +1582,9 @@ func _register_wanderer_cards() -> void:
 	blood_rune.description      = "RUNE: Whenever a friendly minion dies, heal your hero for 100 HP."
 	blood_rune.is_rune          = true
 	blood_rune.rune_type        = Enums.RuneType.BLOOD_RUNE
-	blood_rune.aura_trigger     = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
-	blood_rune.aura_effect_steps = [{"type": "HEAL_HERO", "amount": 100, "multiplier_key": "rune_aura"}]
+	blood_rune.aura_trigger        = Enums.TriggerEvent.ON_PLAYER_MINION_DIED
+	blood_rune.aura_extra_trigger  = Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED
+	blood_rune.aura_effect_steps   = [{"type": "HEAL_HERO", "amount": 100, "multiplier_key": "rune_aura"}]
 	blood_rune.faction          = "abyss_order"
 	blood_rune.art_path             = "res://assets/art/traps/abyss_order/blood_rune.png"
 	blood_rune.battlefield_art_path = "res://assets/art/traps/abyss_order/blood_rune_battlefield.png"
@@ -1149,7 +1645,7 @@ func _register_wanderer_cards() -> void:
 	abyssal_summoning_circle.cost                       = 2
 	abyssal_summoning_circle.description                = "Whenever a friendly Demon dies, deal 200 damage to enemy hero. \nRITUAL: Blood + Dominion → Demon Ascendant."
 	abyssal_summoning_circle.passive_description        = "Whenever a friendly Demon dies, deal 200 damage to enemy hero."
-	abyssal_summoning_circle.on_player_minion_died_steps = [{"type": "DAMAGE_HERO", "amount": 200, "conditions": ["dead_is_demon"]}]
+	abyssal_summoning_circle.on_player_minion_died_steps = [{"type": "DAMAGE_HERO", "amount": 200, "damage_school": "VOID", "conditions": ["dead_is_demon"]}]
 	abyssal_summoning_circle.rituals                    = [blood_dominion_ritual]
 	abyssal_summoning_circle.faction                    = "abyss_order"
 	abyssal_summoning_circle.art_path                   = "res://assets/art/environments/abyss_order/abyssal_summoning_circle.png"
@@ -1805,7 +2301,7 @@ func _register_wanderer_cards() -> void:
 	rift_collapse.cost            = 1
 	rift_collapse.void_spark_cost = 1
 	rift_collapse.description     = "Consume 1 Void Spark. Deal 200 damage to all enemy minions."
-	rift_collapse.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 200}]
+	rift_collapse.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 200, "damage_school": "VOID"}]
 	rift_collapse.faction         = "abyss_order"
 	rift_collapse.art_path        = "res://assets/art/spells/abyss_order/rift_collapse.png"
 	all.append(rift_collapse)
@@ -1817,7 +2313,7 @@ func _register_wanderer_cards() -> void:
 	void_lance.description     = "Deal 600 damage to a minion."
 	void_lance.requires_target = true
 	void_lance.target_type     = "any_minion"
-	void_lance.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 600}]
+	void_lance.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 600, "damage_school": "VOID"}]
 	void_lance.art_path        = "res://assets/art/spells/abyss_order/void_lance.png"
 	void_lance.faction         = "abyss_order"
 	all.append(void_lance)
@@ -1874,14 +2370,14 @@ func _register_wanderer_cards() -> void:
 	void_shatter.cost        = 3
 	void_shatter.description = "Deal 100 damage to a random enemy 8 times."
 	void_shatter.effect_steps = [
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_ANY", "amount": 100, "damage_school": "VOID"},
 	]
 	void_shatter.requires_target = false
 	void_shatter.art_path    = "res://assets/art/spells/abyss_order/void_shatter.png"
@@ -2190,87 +2686,122 @@ func _register_wanderer_cards() -> void:
 	all.append(ethereal_titan)
 
 	# --- Pool assignments (controls deck builder visibility and collection) ---
-	# "" = token/internal; cards with no entry stay ""
+	# Each value is an Array[String] — most cards live in one pool, but a card may
+	# belong to multiple (e.g. soul_shatter is in both vael_common and seris_demon_forge).
+	# Cards with no entry default to [] (token/internal — not surfaced through acquisition).
 	var _card_pools := {
 		# Abyss core (starter deck pool)
-		"void_imp": "abyss_core",         "shadow_hound": "abyss_core",
-		"abyssal_brute": "abyss_core",    "nyx_ael": "abyss_core",
-		"abyss_cultist": "abyss_core",    "void_netter": "abyss_core",
-		"corruption_weaver": "abyss_core","soul_collector": "abyss_core",
-		"void_stalker": "abyss_core",     "void_spawner": "abyss_core",
-		"abyssal_tide": "abyss_core",     "void_devourer": "abyss_core",
-		"void_bolt": "abyss_core",        "dark_empowerment": "abyss_core",
-		"abyssal_sacrifice": "abyss_core","abyssal_plague": "abyss_core",
-		"void_summoning": "abyss_core",   "void_execution": "abyss_core",
-		"dark_covenant": "abyss_core",    "abyssal_summoning_circle": "abyss_core",
-		"void_rune": "abyss_core",        "blood_rune": "abyss_core",
-		"dominion_rune": "abyss_core",    "shadow_rune": "abyss_core",
-		"grafted_fiend": "abyss_core",
-		# Seris Starter Pool — visible only when Seris is the active hero (see DeckBuilderScene._deck_builder_pools_for_hero)
-		"void_spawning": "seris_starter",
-		"fiendish_pact": "seris_starter",
-		"grafted_butcher": "seris_starter",
-		"flesh_rend": "seris_starter",
+		"void_imp": ["abyss_core"],         "shadow_hound": ["abyss_core"],
+		"abyssal_brute": ["abyss_core"],    "nyx_ael": ["abyss_core"],
+		"abyss_cultist": ["abyss_core"],    "void_netter": ["abyss_core"],
+		"corruption_weaver": ["abyss_core"],"soul_collector": ["abyss_core"],
+		"void_stalker": ["abyss_core"],     "void_spawner": ["abyss_core"],
+		"abyssal_tide": ["abyss_core"],     "void_devourer": ["abyss_core"],
+		"void_bolt": ["abyss_core"],        "dark_empowerment": ["abyss_core"],
+		"abyssal_sacrifice": ["abyss_core"],"abyssal_plague": ["abyss_core"],
+		"void_summoning": ["abyss_core"],   "void_execution": ["abyss_core"],
+		"dark_covenant": ["abyss_core"],    "abyssal_summoning_circle": ["abyss_core"],
+		"void_rune": ["abyss_core"],        "blood_rune": ["abyss_core"],
+		"dominion_rune": ["abyss_core"],    "shadow_rune": ["abyss_core"],
+		"grafted_fiend": ["abyss_core"],
+		# Seris Core Pool — visible only when Seris is the active hero (see DeckBuilderScene._deck_builder_pools_for_hero)
+		"void_spawning": ["seris_core"],
+		"fiendish_pact": ["seris_core"],
+		"grafted_butcher": ["seris_core"],
+		"flesh_rend": ["seris_core"],
+		# Seris Common Support Pool — combat reward / shop pool for Seris (see RewardScene._get_active_support_pool_ids)
+		"flesh_harvester": ["seris_common"],
+		"ravenous_fiend": ["seris_common"],
+		"feast_of_flesh": ["seris_common"],
+		"mend_the_flesh": ["seris_common"],
+		"flesh_eruption": ["seris_common"],
+		"gorged_fiend": ["seris_common"],
+		"flesh_stitched_horror": ["seris_common"],
+		"flesh_rune": ["seris_common"],
+		# Seris Fleshcraft Pool — unlocked by flesh_infusion talent
+		"grafted_reaver": ["seris_fleshcraft"],
+		"flesh_scout": ["seris_fleshcraft"],
+		"flesh_surgeon": ["seris_fleshcraft"],
+		"flesh_sacrament": ["seris_fleshcraft"],
+		"matron_of_flesh": ["seris_fleshcraft"],
+		# Seris Demon Forge Pool — unlocked by soul_forge talent
+		"altar_thrall": ["seris_demon_forge"],
+		"forge_acolyte": ["seris_demon_forge"],
+		"ember_pact": ["seris_demon_forge"],
+		"bound_offering": ["seris_demon_forge"],
+		"forgeborn_tyrant": ["seris_demon_forge"],
+		# Seris Corruption Engine Pool — unlocked by corrupt_flesh talent
+		# font_of_the_depths is dual-pooled (also vael_piercing_void) — see below.
+		"bloodscribe_imp": ["seris_corruption"],
+		"tainted_ritualist": ["seris_corruption"],
+		"festering_fiend": ["seris_corruption"],
+		"self_mutilation": ["seris_corruption"],
+		"resonant_outburst": ["seris_corruption"],
+		"voidshaped_acolyte": ["seris_corruption"],
+		"recursive_hex": ["seris_corruption"],
 		# Neutral core (starter deck pool)
-		"roadside_drifter": "neutral_core",  "ashland_forager": "neutral_core",
-		"freelance_sellsword": "neutral_core","traveling_merchant": "neutral_core",
-		"trapbreaker_rogue": "neutral_core", "caravan_guard": "neutral_core",
-		"arena_challenger": "neutral_core",  "spell_taxer": "neutral_core",
-		"saboteur_adept": "neutral_core",    "aether_bulwark": "neutral_core",
-		"bulwark_automaton": "neutral_core", "wandering_warden": "neutral_core",
-		"ruins_archivist": "neutral_core",   "wildland_behemoth": "neutral_core",
-		"stone_sentinel": "neutral_core",    "rift_leviathan": "neutral_core",
-		"energy_conversion": "neutral_core", "arcane_strike": "neutral_core",
-		"purge": "neutral_core",             "cyclone": "neutral_core",
-		"tactical_planning": "neutral_core", "precision_strike": "neutral_core",
-		"hurricane": "neutral_core",         "flux_siphon": "neutral_core",
-		"hidden_ambush": "neutral_core",     "smoke_veil": "neutral_core",
-		"silence_trap": "neutral_core",      "death_trap": "neutral_core",
+		"roadside_drifter": ["neutral_core"],  "ashland_forager": ["neutral_core"],
+		"freelance_sellsword": ["neutral_core"],"traveling_merchant": ["neutral_core"],
+		"trapbreaker_rogue": ["neutral_core"], "caravan_guard": ["neutral_core"],
+		"arena_challenger": ["neutral_core"],  "spell_taxer": ["neutral_core"],
+		"saboteur_adept": ["neutral_core"],    "aether_bulwark": ["neutral_core"],
+		"bulwark_automaton": ["neutral_core"], "wandering_warden": ["neutral_core"],
+		"ruins_archivist": ["neutral_core"],   "wildland_behemoth": ["neutral_core"],
+		"stone_sentinel": ["neutral_core"],    "rift_leviathan": ["neutral_core"],
+		"energy_conversion": ["neutral_core"], "arcane_strike": ["neutral_core"],
+		"purge": ["neutral_core"],             "cyclone": ["neutral_core"],
+		"tactical_planning": ["neutral_core"], "precision_strike": ["neutral_core"],
+		"hurricane": ["neutral_core"],         "flux_siphon": ["neutral_core"],
+		"hidden_ambush": ["neutral_core"],     "smoke_veil": ["neutral_core"],
+		"silence_trap": ["neutral_core"],      "death_trap": ["neutral_core"],
 		# Lord Vael — Piercing Void unlock pool
-		"font_of_the_depths": "vael_piercing_void",
-		"mark_the_target": "vael_piercing_void",
-		"void_detonation": "vael_piercing_void",
-		"abyssal_arcanist": "vael_piercing_void",
-		"void_archmagus": "vael_piercing_void",
-		"abyss_ritual_circle": "vael_piercing_void",
+		# font_of_the_depths is dual-pooled — also offered to Corruption Engine decks.
+		"font_of_the_depths": ["vael_piercing_void", "seris_corruption"],
+		"mark_the_target": ["vael_piercing_void"],
+		"void_detonation": ["vael_piercing_void"],
+		"abyssal_arcanist": ["vael_piercing_void"],
+		"void_archmagus": ["vael_piercing_void"],
+		"abyss_ritual_circle": ["vael_piercing_void"],
 		# Lord Vael — common unlock pool
-		"imp_recruiter": "vael_common",  "blood_pact": "vael_common",
-		"soul_taskmaster": "vael_common","soul_shatter": "vael_common",
-		"void_amplifier": "vael_common", "soul_rune": "vael_common",
+		"imp_recruiter": ["vael_common"],  "blood_pact": ["vael_common"],
+		"soul_taskmaster": ["vael_common"],
+		# soul_shatter is dual-pooled — also offered to Demon Forge decks.
+		"soul_shatter": ["vael_common", "seris_demon_forge"],
+		"void_amplifier": ["vael_common"], "soul_rune": ["vael_common"],
 		# Lord Vael — Endless Tide unlock pool (imp_evolution talent)
-		"imp_frenzy": "vael_endless_tide",       "imp_martyr": "vael_endless_tide",
-		"imp_vessel": "vael_endless_tide",        "imp_idol": "vael_endless_tide",
-		"vaels_colossal_guard": "vael_endless_tide",
+		"imp_frenzy": ["vael_endless_tide"],       "imp_martyr": ["vael_endless_tide"],
+		"imp_vessel": ["vael_endless_tide"],        "imp_idol": ["vael_endless_tide"],
+		"vaels_colossal_guard": ["vael_endless_tide"],
 		# Lord Vael — Rune Master unlock pool (rune_caller talent)
-		"runic_blast": "vael_rune_master",       "runic_echo": "vael_rune_master",
-		"rune_warden": "vael_rune_master",        "rune_seeker": "vael_rune_master",
+		"runic_blast": ["vael_rune_master"],       "runic_echo": ["vael_rune_master"],
+		"rune_warden": ["vael_rune_master"],        "rune_seeker": ["vael_rune_master"],
 		# echo_rune: removed from pool — granted as capstone reward (abyss_convergence)
 		# Feral Imp Clan — Act 1 enemy-only pool (not visible to players)
-		"rabid_imp": "feral_imp_clan",             "brood_imp": "feral_imp_clan",
-		"imp_brawler": "feral_imp_clan",           "void_touched_imp": "feral_imp_clan",
-		"frenzied_imp": "feral_imp_clan",          "matriarchs_broodling": "feral_imp_clan",
-		"rogue_imp_elder": "feral_imp_clan",
-		"feral_surge": "feral_imp_clan",           "void_screech": "feral_imp_clan",
-		"brood_call": "feral_imp_clan",            "pack_frenzy": "feral_imp_clan",
+		"rabid_imp": ["feral_imp_clan"],             "brood_imp": ["feral_imp_clan"],
+		"imp_brawler": ["feral_imp_clan"],           "void_touched_imp": ["feral_imp_clan"],
+		"frenzied_imp": ["feral_imp_clan"],          "matriarchs_broodling": ["feral_imp_clan"],
+		"rogue_imp_elder": ["feral_imp_clan"],
+		"feral_surge": ["feral_imp_clan"],           "void_screech": ["feral_imp_clan"],
+		"brood_call": ["feral_imp_clan"],            "pack_frenzy": ["feral_imp_clan"],
 		# Abyss Dungeon — Act 2 enemy-only pool (not visible to players)
-		"cult_fanatic": "abyss_cultist_clan",     "dark_command": "abyss_cultist_clan",
+		"cult_fanatic": ["abyss_cultist_clan"],     "dark_command": ["abyss_cultist_clan"],
 		# Void Rift World — Act 3 enemy-only pool (not visible to players)
-		"void_pulse": "void_rift",              "phase_stalker": "void_rift",
-		"rift_collapse": "void_rift",           "void_behemoth": "void_rift",
-		"dimensional_breach": "void_rift",      "void_rift_lord": "void_rift",
-		"void_resonance": "void_rift",          "void_echo": "void_rift",
-		"rift_tender": "void_rift",             "hollow_sentinel": "void_rift",
-		"phase_disruptor": "void_rift",         "void_architect": "void_rift",
-		"riftscarred_colossus": "void_rift",    "rift_warden": "void_rift",
-		"ethereal_titan": "void_rift",
-		"void_shatter": "void_rift",            "spirit_surge": "void_rift",
-		"void_wind": "void_rift",
+		"void_pulse": ["void_rift"],              "phase_stalker": ["void_rift"],
+		"rift_collapse": ["void_rift"],           "void_behemoth": ["void_rift"],
+		"dimensional_breach": ["void_rift"],      "void_rift_lord": ["void_rift"],
+		"void_resonance": ["void_rift"],          "void_echo": ["void_rift"],
+		"rift_tender": ["void_rift"],             "hollow_sentinel": ["void_rift"],
+		"phase_disruptor": ["void_rift"],         "void_architect": ["void_rift"],
+		"riftscarred_colossus": ["void_rift"],    "rift_warden": ["void_rift"],
+		"ethereal_titan": ["void_rift"],
+		"void_shatter": ["void_rift"],            "spirit_surge": ["void_rift"],
+		"void_wind": ["void_rift"],
 		# Void Castle — Act 4 enemy-only pool (not visible to players)
-		"void_wisp": "void_castle",            "void_shade": "void_castle",
-		"void_wraith": "void_castle",          "void_revenant": "void_castle",
-		"sovereigns_decree": "void_castle",    "thrones_command": "void_castle",
-		"bastion_colossus": "void_castle",     "sovereigns_edict": "void_castle",
-		"sovereigns_herald": "void_castle",
+		"void_wisp": ["void_castle"],            "void_shade": ["void_castle"],
+		"void_wraith": ["void_castle"],          "void_revenant": ["void_castle"],
+		"sovereigns_decree": ["void_castle"],    "thrones_command": ["void_castle"],
+		"bastion_colossus": ["void_castle"],     "sovereigns_edict": ["void_castle"],
+		"sovereigns_herald": ["void_castle"],
 	}
 	# --- Act gate assignments (earliest act card appears in rewards/shop) ---
 	var _card_act_gates := {
@@ -2293,13 +2824,37 @@ func _register_wanderer_cards() -> void:
 		"runic_blast": 1,                 "rune_seeker": 1,
 		"rune_warden": 2,                 "runic_echo": 3,
 		"echo_rune": 4,
+		# Seris common pool — gate by rarity (Common=1, Rare=2, Epic=3)
+		"flesh_harvester": 1,             "ravenous_fiend": 1,
+		"feast_of_flesh": 1,              "mend_the_flesh": 1,
+		"flesh_eruption": 1,
+		"gorged_fiend": 2,                "flesh_stitched_horror": 2,
+		"flesh_rune": 3,
+		# Seris Fleshcraft pool
+		"grafted_reaver": 1,              "flesh_scout": 1,
+		"flesh_surgeon": 1,
+		"flesh_sacrament": 2,
+		"matron_of_flesh": 3,
+		# Seris Demon Forge pool (soul_shatter already gated above for vael_common at 2)
+		"altar_thrall": 1,                "forge_acolyte": 1,
+		"ember_pact": 1,
+		"bound_offering": 2,
+		"forgeborn_tyrant": 3,
+		# Seris Corruption Engine pool (font_of_the_depths already gated above for vael_piercing_void at 1)
+		"bloodscribe_imp": 1,             "tainted_ritualist": 1,
+		"festering_fiend": 1,             "self_mutilation": 1,
+		"resonant_outburst": 2,           "voidshaped_acolyte": 2,
+		"recursive_hex": 3,
 	}
 	# Append all token cards (pool = "", rarity = "")
 	for td in _TOKEN_DEFS:
 		all.append(_make_token(td))
 
 	for c in all:
-		c.pool   = _card_pools.get(c.id, "")
+		var p: Array = _card_pools.get(c.id, [])
+		var pools_typed: Array[String] = []
+		pools_typed.assign(p)
+		c.pools    = pools_typed
 		c.act_gate = _card_act_gates.get(c.id, 0)
 
 	for c in all:

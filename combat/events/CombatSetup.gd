@@ -33,10 +33,6 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_swarm_discipline",     "priority": 20 }],
 		"stats":    {}
 	},
-	"abyssal_legion": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_abyssal_legion",       "priority": 21 }],
-		"stats":    {}
-	},
 	"piercing_void": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_piercing_void",        "priority": 23 }],
 		"stats":    {}
@@ -140,9 +136,13 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_passive_void_imp_boost", "priority": 0 }],
 		"stats":    {}
 	},
-	# Seris, the Fleshbinder — friendly Demon deaths grant 1 Flesh (capped).
+	# Seris, the Fleshbinder — friendly Demon deaths AND sacrifices grant 1 Flesh (capped).
+	# Sacrifice is not death (strict rule), so the same handler is registered for both events.
 	"fleshbind": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_DIED, "method": "on_minion_died_fleshbind", "priority": 0 }],
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_DIED,       "method": "on_minion_died_fleshbind", "priority": 0 },
+			{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED, "method": "on_minion_died_fleshbind", "priority": 0 },
+		],
 		"stats":    {}
 	},
 	# grafted_affinity — deck-builder concern only (copy cap); no combat-time triggers.
@@ -152,14 +152,6 @@ const _REGISTRY: Dictionary = {
 	},
 
 	# ── Enemy passives ────────────────────────────────────────────────────────
-	"feral_instinct": {
-		"triggers": [
-			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START,      "method": "on_enemy_turn_feral_instinct_reset", "priority": 5 },
-			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_feral_instinct",     "priority": 1 },
-			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     "method": "on_enemy_died_feral_instinct",       "priority": 4 },
-		],
-		"stats": {}
-	},
 	"pack_instinct": {
 		"triggers": [
 			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_board_changed_pack_instinct", "priority": 9 },
@@ -167,10 +159,10 @@ const _REGISTRY: Dictionary = {
 		],
 		"stats": {}
 	},
+	# corrupted_death — no triggers; the only active effect is a Void-Touched Imp
+	# essence-cost discount applied in setup() below.
 	"corrupted_death": {
-		"triggers": [
-			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,  "method": "on_enemy_died_corrupted_death",    "priority": 6 },
-		],
+		"triggers": [],
 		"stats":    {}
 	},
 	# ── Enemy champion passives (Act 1) ──────────────────────────────────────
@@ -418,11 +410,20 @@ func setup(
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,     h.on_minion_event_rogue_imp_elder_aura,  7)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,      h.on_minion_event_rogue_imp_elder_aura,  7)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_player_minion_died_board_passives,  0)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED, h.on_player_minion_sacrificed_board_passives, 0)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_minion_died_death_effect,           5)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     h.on_minion_died_death_effect,           5)
+	# Declarative on_kill_effect_steps on MinionCardData — fires for the attacker.
+	# Priority below grafted_constitution (30) so kill_stacks are updated first.
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_minion_killed_on_kill_steps,       25)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     h.on_minion_killed_on_kill_steps,       25)
 	tm.register(Enums.TriggerEvent.ON_RUNE_PLACED,           h.on_player_minion_died_rune_warden,     5)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_turn_end_hollow_sentinel,          20)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_END,       h.on_turn_end_hollow_sentinel,          20)
+	# Declarative on_turn_end_effect_steps on MinionCardData. Priority 21 mirrors the
+	# turn-start handler. Iterates whichever side is ending its turn.
+	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_minion_turn_end_passives,          21)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_END,       h.on_minion_turn_end_passives,          21)
 	# Pack Frenzy is "+250 ATK and SWIFT this turn" — revert on turn end
 	# (not next turn start) so the buff doesn't bleed into the opponent's turn.
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_turn_end_pack_frenzy_revert,       10)

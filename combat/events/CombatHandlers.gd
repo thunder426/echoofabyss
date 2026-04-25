@@ -40,6 +40,26 @@ func on_minion_turn_start_passives(_ctx: EventContext) -> void:
 			ectx.source = m
 			EffectResolver.run(mc.on_turn_start_effect_steps, ectx)
 
+## ON_PLAYER_TURN_END / ON_ENEMY_TURN_END — fires every minion's on_turn_end_effect_steps
+## for the side whose turn is ending. Used by Altar Thrall (sacrifice self) and any future
+## upkeep-style minions.
+func on_minion_turn_end_passives(ctx: EventContext) -> void:
+	var board: Array
+	var owner: String
+	if ctx.event_type == Enums.TriggerEvent.ON_PLAYER_TURN_END:
+		board = _scene.player_board
+		owner = "player"
+	else:
+		board = _scene.enemy_board
+		owner = "enemy"
+	for m in board.duplicate():
+		var mc := m.card_data as MinionCardData
+		if mc and not mc.on_turn_end_effect_steps.is_empty():
+			var ectx    := EffectContext.make(_scene, owner)
+			ectx.source = m
+			ectx.source_card_id = mc.id
+			EffectResolver.run(mc.on_turn_end_effect_steps, ectx)
+
 # ---------------------------------------------------------------------------
 # ON_ENEMY_TURN_START
 # ---------------------------------------------------------------------------
@@ -130,22 +150,6 @@ func on_summon_swarm_discipline(ctx: EventContext) -> void:
 	ctx.minion.current_health += 100
 	_log("  Swarm Discipline: %s +100 HP." % ctx.card.card_name, _LOG_PLAYER)
 
-func on_summon_abyssal_legion(ctx: EventContext) -> void:
-	if not _is_void_imp(ctx.minion):
-		return
-	var imp_count := _count_void_imps(_scene.player_board)
-	if imp_count >= 3:
-		BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "abyssal_legion", false, false)
-		ctx.minion.current_health += 100
-		_log("  Abyssal Legion: %s +100/+100." % ctx.card.card_name, _LOG_PLAYER)
-		if imp_count == 3:
-			for m in _scene.player_board:
-				if m != ctx.minion and _is_void_imp(m):
-					BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "abyssal_legion", false, false)
-					m.current_health += 100
-					_scene._refresh_slot_for(m)
-					_log("  Abyssal Legion: %s +100/+100." % m.card_data.card_name, _LOG_PLAYER)
-
 func on_played_rune_caller(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp"):
 		return
@@ -159,7 +163,8 @@ func on_summon_piercing_void(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp"):
 		return
 	_scene.set("_pending_dmg_source", "imp_piercing")
-	_scene._deal_void_bolt_damage(200, ctx.minion)
+	# piercing_void talent retags the imp's on-play effect — still a minion-emitted effect.
+	_scene._deal_void_bolt_damage(200, ctx.minion, false, true)
 	_scene._apply_void_mark(1)
 
 func on_summon_imp_evolution(ctx: EventContext) -> void:
@@ -255,6 +260,42 @@ func _resolve_on_death(minion: MinionInstance) -> void:
 			_scene._summon_token(summon_id, minion.owner, 0, 0)
 			_log("  %s dies — summons a %s." % [minion.card_data.card_name, summon_id], _LOG_ENEMY if minion.owner == "enemy" else _LOG_PLAYER)
 
+## Shared handler — fires the killer's on_kill_effect_steps (declarative primitive on
+## MinionCardData). Runs on both ON_ENEMY_MINION_DIED and ON_PLAYER_MINION_DIED; ctx.attacker
+## is populated by CombatScene during attack resolution. The attacker's owner drives ctx.owner
+## so effects like GAIN_FLESH resolve to the correct side.
+func on_minion_killed_on_kill_steps(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.attacker
+	if attacker == null or attacker.card_data == null:
+		return
+	if not (attacker.card_data is MinionCardData):
+		return
+	var steps: Array = (attacker.card_data as MinionCardData).on_kill_effect_steps
+	if steps.is_empty():
+		return
+	var eff_ctx         := EffectContext.make(_scene, attacker.owner)
+	eff_ctx.source      = attacker
+	eff_ctx.source_card_id = attacker.card_data.id
+	eff_ctx.dead_minion = ctx.minion
+	EffectResolver.run(steps, eff_ctx)
+
+## ON_PLAYER_MINION_SACRIFICED — board-wide passives that react to friendly sacrifices.
+## Mirrors the death dispatcher's structure but listens specifically for sacrifice. The
+## sacrificed minion has not yet been removed when this fires (per _sacrifice_minion order).
+func on_player_minion_sacrificed_board_passives(ctx: EventContext) -> void:
+	var sacd: MinionInstance = ctx.minion
+	if sacd == null or not (sacd.card_data is MinionCardData):
+		return
+	if (sacd.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		# Currently only Forge Acolyte cares, and it cares about Demons. Add more
+		# branches here if other passives need non-Demon sacrifice triggers.
+		return
+	for m in _scene.player_board.duplicate():
+		var pid: String = (m.card_data as MinionCardData).passive_effect_id
+		match pid:
+			"forge_acolyte_flesh_on_sacrifice":
+				_scene._gain_flesh(1)
+
 func on_player_minion_died_board_passives(ctx: EventContext) -> void:
 	var dead := ctx.minion
 	if _scene.active_environment != null and not _scene.active_environment.on_player_minion_died_steps.is_empty():
@@ -274,7 +315,8 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 				_scene._summon_void_spark()
 		"deal_200_hero_on_friendly_death":
 			_log("  Abyssal Tide: deal 200 damage to enemy hero.", _LOG_PLAYER)
-			_scene.combat_manager.apply_hero_damage("enemy", 200, Enums.DamageType.SPELL)
+			_scene.combat_manager.apply_hero_damage("enemy",
+					CombatManager.make_damage_info(200, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "abyssal_tide"))
 		"void_mark_on_void_imp_death":
 			if _is_void_imp(dead):
 				_log("  Abyssal Sacrificer: %s died → 1 Void Mark." % dead.card_data.card_name, _LOG_PLAYER)
@@ -318,24 +360,14 @@ func on_played_flesh_infusion(ctx: EventContext) -> void:
 	BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 200, "flesh_infusion", false, false)
 	_log("  Flesh Infusion: %s gains +200 ATK." % ctx.minion.card_data.card_name, _LOG_PLAYER)
 
-## grafted_constitution (T1) — Grafted Fiend permanently gains +100/+100 when it kills an enemy minion.
-## Hooks into the enemy death event and checks ctx.attacker (populated by CombatScene when
-## firing death triggers during attack resolution). Also increments kill_stacks for Predatory Surge.
+## flesh_infusion T0 (formerly grafted_constitution T1) — Grafted Fiend gains kill stacks
+## when it kills an enemy minion. _add_kill_stacks routes through the unified helper so
+## +100/+100 stat conversion and Predatory Surge's Siphon grant happen in one place.
 func on_enemy_died_grafted_constitution(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.attacker
 	if attacker == null or not _has_tag(attacker, "grafted_fiend"):
 		return
-	attacker.kill_stacks += 1
-	BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 100, "grafted_constitution", false, false)
-	BuffSystem.apply_hp_gain(attacker, 100, "grafted_constitution", true)
-	_log("  Grafted Constitution: %s +100/+100 (kills: %d)." % [attacker.card_data.card_name, attacker.kill_stacks], _LOG_PLAYER)
-	# Predatory Surge: at 3 kill stacks, grant SIPHON.
-	if _scene._has_talent("predatory_surge") and attacker.kill_stacks >= 3 \
-			and not BuffSystem.has_type(attacker, Enums.BuffType.GRANT_SIPHON):
-		BuffSystem.apply(attacker, Enums.BuffType.GRANT_SIPHON, 1, "predatory_surge", false, false)
-		_log("  Predatory Surge: %s gains Siphon." % attacker.card_data.card_name, _LOG_PLAYER)
-	if _scene.has_method("_refresh_slot_for"):
-		_scene._refresh_slot_for(attacker)
+	_scene._add_kill_stacks(attacker, 1)
 
 ## grafting_ritual (T1) — When you play a Grafted Fiend, optionally transform a
 ## friendly Demon (ctx.target) into a fresh 300/300 Grafted Fiend. Resets stats,
@@ -414,12 +446,14 @@ func on_corruption_removed_detonation(ctx: EventContext) -> void:
 	var pick = pool[randi() % pool.size()]
 	_log("  Corrupt Detonation: %d damage to random enemy (%d stacks)." % [damage, stacks], _LOG_PLAYER)
 	if pick is MinionInstance:
+		var pick_info := CombatManager.make_damage_info(damage, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "corrupt_detonation")
 		if _scene.has_method("_spell_dmg"):
-			_scene._spell_dmg(pick, damage)
+			_scene._spell_dmg(pick, damage, pick_info)
 		else:
-			_scene.combat_manager.apply_spell_damage(pick, damage)
+			_scene.combat_manager.apply_damage_to_minion(pick, pick_info)
 	else:
-		_scene.combat_manager.apply_hero_damage("enemy", damage, Enums.DamageType.SPELL)
+		_scene.combat_manager.apply_hero_damage("enemy",
+				CombatManager.make_damage_info(damage, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "corrupt_detonation"))
 
 ## corrupt_flesh (T0) — reset the 1-per-turn activated-ability flag at the start of
 ## the player's turn. The activation itself lives on CombatScene._seris_corrupt_activate.
@@ -455,10 +489,11 @@ func on_turn_end_forge_auras(_ctx: EventContext) -> void:
 		if "void_pulse" in m.aura_tags:
 			_log("  Void Pulse: 100 damage to all enemy minions.", _LOG_PLAYER)
 			for target: MinionInstance in (_scene.enemy_board as Array).duplicate():
+				var t_info := CombatManager.make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE)
 				if _scene.has_method("_spell_dmg"):
-					_scene._spell_dmg(target, 100)
+					_scene._spell_dmg(target, 100, t_info)
 				else:
-					_scene.combat_manager.apply_spell_damage(target, 100)
+					_scene.combat_manager.apply_damage_to_minion(target, t_info)
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_PLAYED
@@ -538,31 +573,6 @@ func _refresh_rogue_imp_elder_aura(side: String) -> void:
 # Enemy encounter passive handlers
 # ---------------------------------------------------------------------------
 
-func on_enemy_turn_feral_instinct_reset(_ctx: EventContext) -> void:
-	_scene.feral_instinct_granted_this_turn = false
-
-func on_enemy_summon_feral_instinct(ctx: EventContext) -> void:
-	if _scene.feral_instinct_granted_this_turn:
-		return
-	var minion := ctx.minion
-	if minion == null or not _scene._minion_has_tag(minion, "feral_imp"):
-		return
-	_scene.feral_instinct_granted_this_turn = true
-	minion.granted_on_death_effects.append({"description": "Draw 1 card.", "source": "feral_instinct"})
-	_scene._refresh_slot_for(minion)
-	_log("  Feral Instinct: %s will draw 1 card on death." % minion.card_data.card_name, _LOG_ENEMY)
-
-func on_enemy_died_feral_instinct(ctx: EventContext) -> void:
-	var minion := ctx.minion
-	if minion == null:
-		return
-	var has_effect := minion.granted_on_death_effects.any(
-		func(e: Dictionary) -> bool: return e.get("source") == "feral_instinct")
-	if not has_effect:
-		return
-	_scene.enemy_ai.draw_cards(1)
-	_log("  Feral Instinct: death draw triggered — enemy draws 1.", _LOG_ENEMY)
-
 func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 	var feral_imps: Array[MinionInstance] = []
 	for m in _scene.enemy_board:
@@ -603,30 +613,6 @@ func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 					slot._atk_label.text = str(old_atk)
 				_scene._spawn_pack_instinct_buff_vfx(m, new_atk - old_atk)
 
-func on_enemy_died_corrupted_death(_ctx: EventContext) -> void:
-	pass  # Death effect removed — corrupted_death now only provides cost discounts
-
-## Corrupted Death — when PLAYER casts a spell, reduce a random enemy minion's
-## essence cost in hand by 1.
-func on_player_spell_corrupted_death(_ctx: EventContext) -> void:
-	var ai = _scene.get("enemy_ai")
-	if ai == null:
-		return
-	# Find all minion CardInstances in enemy hand
-	var minion_insts: Array = []
-	for inst in ai.hand:
-		if inst.card_data is MinionCardData:
-			minion_insts.append(inst)
-	if minion_insts.is_empty():
-		return
-	# Pick a random minion and discount its essence cost by 1
-	var chosen: CardInstance = minion_insts[randi() % minion_insts.size()] as CardInstance
-	var mc: MinionCardData = chosen.card_data as MinionCardData
-	var discounts: Dictionary = ai.essence_cost_discounts
-	var current: int = (discounts.get(mc.id, 0) as int)
-	discounts[mc.id] = current + 1
-	_log("  Corrupted Death: player spell → %s cost reduced (-%d Essence)." % [mc.card_name, current + 1], _LOG_ENEMY)
-
 ## Human Imp Caller — shared Act 2 passive
 ## When a human is summoned: add a random feral imp to the enemy's hand.
 func on_enemy_turn_reset_feral_reinforcement(_ctx: EventContext) -> void:
@@ -650,6 +636,8 @@ func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
 		return
 	var chosen: CardData = feral_imps[randi() % feral_imps.size()]
 	_scene.enemy_ai.add_to_hand(chosen)
+	if _scene.has_method("_play_feral_reinforcement_vfx"):
+		_scene._play_feral_reinforcement_vfx(minion, chosen)
 	_log("  Feral Reinforcement: %s summoned → enemy draws %s." % [minion.card_data.card_name, chosen.card_name], _LOG_ENEMY)
 
 ## Corrupt Authority — encounter 3 (Abyss Cultist Patrol)
@@ -672,19 +660,32 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 	var _prev_det = _scene.get("_detonation_count")
 	_scene.set("_detonation_count", (_prev_det if _prev_det != null else 0) + 1)
 	_scene._corruption_detonation_times += 1
+
+	var targets: Array = []
 	for m: MinionInstance in _scene.player_board.duplicate():
 		var stacks := 0
 		for b in m.buffs:
 			if (b as BuffEntry).type == Enums.BuffType.CORRUPTION:
 				stacks += 1
-		if stacks == 0:
-			continue
+		if stacks > 0:
+			targets.append({"minion": m, "stacks": stacks})
+	if targets.is_empty():
+		return
+
+	var on_impact := func(m: MinionInstance, stacks: int) -> void:
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		_scene._refresh_slot_for(m)
-		_scene.combat_manager.apply_spell_damage(m, 100 * stacks)
+		_scene.combat_manager.apply_damage_to_minion(m,
+				CombatManager.make_damage_info(100 * stacks, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "corrupt_authority"))
 		_log("  Corrupt Authority: %s had %d stack(s) → consumed, dealt %d damage." % [m.card_data.card_name, stacks, 100 * stacks], _LOG_ENEMY)
 		# Track consumed stacks toward Abyss Cultist Patrol champion
 		on_champion_acp_track_stacks(stacks)
+
+	if _scene.has_method("_play_corruption_detonations"):
+		_scene._play_corruption_detonations(targets, on_impact)
+	else:
+		for t in targets:
+			on_impact.call(t["minion"], t["stacks"])
 
 ## Ritual Sacrifice — encounter 4 (Void Ritualist)
 ## When a feral imp is summoned and enemy has Blood Rune + Dominion Rune active:
@@ -725,10 +726,12 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	# Deal 200 damage to 2 random player targets (minion or hero if board is empty)
 	for _i in 2:
 		if _scene.player_board.is_empty():
-			_scene.combat_manager.apply_hero_damage("player", 200, Enums.DamageType.SPELL)
+			_scene.combat_manager.apply_hero_damage("player",
+					CombatManager.make_damage_info(200, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "ritual_sacrifice"))
 		else:
 			var t: MinionInstance = _scene.player_board[randi() % _scene.player_board.size()]
-			_scene.combat_manager.apply_spell_damage(t, 200)
+			_scene.combat_manager.apply_damage_to_minion(t,
+					CombatManager.make_damage_info(200, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "ritual_sacrifice"))
 	# Special Summon a 500/500 Demon
 	_scene._summon_token("void_demon", "enemy", 500, 500)
 	# Trigger Void Ritualist champion on first ritual
@@ -843,8 +846,10 @@ func on_spark_consumed_void_detonation(ctx: EventContext) -> void:
 	var dmg_per_spark: int = 200 if _champion_va_is_alive() else 100
 	for i in spark_val:
 		for m: MinionInstance in opponent_board.duplicate():
-			_scene.combat_manager.apply_spell_damage(m, dmg_per_spark)
-		_scene.combat_manager.apply_hero_damage(opponent, dmg_per_spark, Enums.DamageType.SPELL)
+			_scene.combat_manager.apply_damage_to_minion(m,
+					CombatManager.make_damage_info(dmg_per_spark, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "void_detonation"))
+		_scene.combat_manager.apply_hero_damage(opponent,
+				CombatManager.make_damage_info(dmg_per_spark, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "void_detonation"))
 		_log("  Void Detonation: spark consumed — %d damage to all %s minions and hero!" % [dmg_per_spark, opponent], side)
 
 ## Hollow Sentinel: at end of owner's turn, +100 ATK permanently to all friendly Void Sparks.
@@ -1373,7 +1378,8 @@ func on_enemy_turn_end_captain_orders(_ctx: EventContext) -> void:
 		BuffSystem.remove_one_source(m, "critical_strike")
 		var dmg: int = m.effective_atk()
 		if dmg > 0:
-			_scene.combat_manager.apply_hero_damage("player", dmg, Enums.DamageType.SPELL)
+			_scene.combat_manager.apply_hero_damage("player",
+					CombatManager.make_damage_info(dmg, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, m, "captains_orders"))
 			_log("  Captain's Orders: %s's crit consumed — %d damage to enemy hero." % [m.card_data.card_name, dmg], _LOG_ENEMY)
 		_scene._refresh_slot_for(m)
 		# Track for crit counter
@@ -1577,17 +1583,35 @@ func on_enemy_summon_champion_acp_corrupt(_ctx: EventContext) -> void:
 	if not _scene.get("_champion_acp_summoned"):
 		return
 	# Instantly detonate all corruption stacks on player minions
+	var targets: Array = []
+	# Prepare targets first so we only pulse the aura when something will actually
+	# detonate — avoids a phantom champion pulse when no player minion is corrupted.
 	for m: MinionInstance in _scene.player_board.duplicate():
 		var stacks := 0
 		for b in m.buffs:
 			if (b as BuffEntry).type == Enums.BuffType.CORRUPTION:
 				stacks += 1
-		if stacks == 0:
-			continue
+		if stacks > 0:
+			targets.append({"minion": m, "stacks": stacks})
+	if targets.is_empty():
+		return
+
+	var on_impact := func(m: MinionInstance, stacks: int) -> void:
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		_scene._refresh_slot_for(m)
-		_scene.combat_manager.apply_spell_damage(m, 100 * stacks)
+		_scene.combat_manager.apply_damage_to_minion(m,
+				CombatManager.make_damage_info(100 * stacks, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cultist_patrol_aura"))
 		_log("  Cultist Patrol aura: instant detonation — %s takes %d damage!" % [m.card_data.card_name, 100 * stacks], _LOG_ENEMY)
+
+	# Pulse the champion's aura — fires in parallel with the detonation's charge-up.
+	if _scene.has_method("_play_champion_acp_aura_pulse"):
+		_scene._play_champion_acp_aura_pulse()
+
+	if _scene.has_method("_play_corruption_detonations"):
+		_scene._play_corruption_detonations(targets, on_impact)
+	else:
+		for t in targets:
+			on_impact.call(t["minion"], t["stacks"])
 
 func on_enemy_died_champion_acp(ctx: EventContext) -> void:
 	var minion := ctx.minion
@@ -1642,7 +1666,8 @@ func on_enemy_summon_champion_ch_spark_buff(ctx: EventContext) -> void:
 				_summon_enemy_champion("champion_corrupted_handler")
 		# Champion aura: each spark summoned deals 200 damage to player hero (only while champion is alive)
 		if _scene.get("_champion_ch_summoned") and self._champion_ch_is_alive():
-			_scene.combat_manager.apply_hero_damage("player", 200, Enums.DamageType.SPELL)
+			_scene.combat_manager.apply_hero_damage("player",
+					CombatManager.make_damage_info(200, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "champion_corrupted_handler_aura"))
 			var prev_dmg: int = _scene.get("_champion_ch_aura_dmg") if _scene.get("_champion_ch_aura_dmg") != null else 0
 			_scene.set("_champion_ch_aura_dmg", prev_dmg + 200)
 			_log("  Corrupted Handler aura: Void Spark summoned → 200 damage to player!", _LOG_ENEMY)

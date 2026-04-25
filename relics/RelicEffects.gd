@@ -40,11 +40,13 @@ func resolve(effect_id: String) -> bool:
 
 		# ── Act 2 ────────────────────────────────────────────────────────────
 		"relic_cast_plague":
-			# Apply 1 Corruption to all enemies + 100 AoE damage
+			# Apply 1 Corruption to all enemies + 100 AoE damage. Mirror the
+			# abyssal_plague spell's school (VOID) since this relic literally casts it.
 			for m in (_scene._opponent_board("player") as Array).duplicate():
 				_scene._corrupt_minion(m)
+			var plague_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "relic_void_lens_plague")
 			for m in (_scene._opponent_board("player") as Array).duplicate():
-				_scene._spell_dmg(m, 100)
+				_scene._spell_dmg(m, 100, plague_info)
 			_log("  Relic: Void Lens — Abyssal Plague cast!")
 			return true
 
@@ -68,10 +70,12 @@ func resolve(effect_id: String) -> bool:
 			# Deal 500 damage to the highest-ATK enemy minion, or enemy hero if no minions
 			var target: MinionInstance = _pick_highest_atk_enemy()
 			if target:
-				_scene.combat_manager.apply_spell_damage(target, 500)
+				_scene.combat_manager.apply_damage_to_minion(target,
+						CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
 				_log("  Relic: Blood Chalice — dealt 500 damage to %s." % target.card_data.card_name)
 			else:
-				_scene.combat_manager.apply_hero_damage("enemy", 500, Enums.DamageType.SPELL)
+				_scene.combat_manager.apply_hero_damage("enemy",
+						CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
 				_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.")
 			return true
 
@@ -160,13 +164,14 @@ func _relic_damage_random_enemy(amount: int) -> void:
 			pool.append(m)
 	pool.append("enemy_hero")
 	var pick = pool[randi() % pool.size()]
+	var info := CombatManager.make_damage_info(amount, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_random_zap")
 	if pick is MinionInstance:
 		if _scene.has_method("_spell_dmg"):
-			_scene._spell_dmg(pick, amount)
+			_scene._spell_dmg(pick, amount, info)
 		else:
-			_scene.combat_manager.apply_spell_damage(pick, amount)
+			_scene.combat_manager.apply_damage_to_minion(pick, info)
 	else:
-		_scene.combat_manager.apply_hero_damage("enemy", amount, Enums.DamageType.SPELL)
+		_scene.combat_manager.apply_hero_damage("enemy", info)
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -166,11 +166,15 @@ func _play_abyssal_plague(caster_side: String) -> void:
 			occupied.append(s)
 	var caster_panel: Control = _combat._player_status_panel if caster_side == "player" else _combat._enemy_status_panel
 	var combat := _combat
+	# Plague's EffectStep declares damage_school=VOID, but this VFX path bypasses
+	# EffectResolver so the school must be re-stated here. Keep in sync with the
+	# abyssal_plague spell definition in CardDatabase.gd.
+	var plague_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "abyssal_plague")
 	var per_minion_cb := func(m: MinionInstance) -> void:
 		if m == null or m.current_health <= 0:
 			return
 		combat._corrupt_minion(m)
-		combat._spell_dmg(m, 100)
+		combat._spell_dmg(m, 100, plague_info)
 	var vfx := AbyssalPlagueVFX.create(caster_panel, caster_side, all_slots, occupied, per_minion_cb)
 	_vfx_layer.add_child(vfx)
 	await vfx.finished

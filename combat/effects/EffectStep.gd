@@ -35,6 +35,14 @@ enum EffectType {
 	HARDCODED,         # Fall through to CombatScene._resolve_hardcoded(hardcoded_id, ctx)
 	CONVERT_RESOURCE,  # Convert all of convert_from resource into convert_to, capped at target's max
 	PURGE,             # Dispel all buffs from enemy target or cleanse all debuffs from friendly target; purge_filter narrows to a specific BuffType
+	GAIN_FLESH,        # Seris — owner gains amount Flesh (clamped to player_flesh_max)
+	SPEND_FLESH,       # Seris — all-or-nothing. Spends amount if available, else zero. Accumulates into ctx.flesh_spent_this_cast on success
+	SPEND_FLESH_UP_TO, # Seris — spends min(current, amount). Partial allowed. Accumulates into ctx.flesh_spent_this_cast
+	HEAL_MINION,       # Heal resolved minion target(s) by amount HP
+	HEAL_MINION_FULL,  # Heal resolved minion target(s) to their effective max HP (ignores amount)
+	GRANT_KILL_STACKS, # Seris — add amount kill_stacks to target(s). Routes through scene._add_kill_stacks so flesh_infusion and predatory_surge talents react uniformly.
+	GAIN_FORGE_COUNTER, # Seris — owner's Forge Counter += amount (Demon Forge branch). Player-only.
+	COPY_LAST_TURN_SPELLS_FROM_GRAVEYARD, # Seris (Recursive Hex) — copy each spell the owner cast last turn into hand (excluding step.exclude_card_id). Damages opponent hero by amount × copies stamped (regardless of hand-cap burn).
 }
 
 enum TargetScope {
@@ -44,7 +52,8 @@ enum TargetScope {
 	SINGLE_CHOSEN_FRIENDLY, # Player-chosen friendly target; falls back to random friendly if null
 	SINGLE_RANDOM,         # One random minion from the base pool
 	SINGLE_RANDOM_ANY,     # One random target from enemy minions + enemy hero (hero included as "enemy_hero" sentinel)
-	FILTERED_RANDOM,       # One random minion from the filtered pool
+	FILTERED_RANDOM,       # One random minion from the filtered pool (opponent board)
+	FILTERED_RANDOM_FRIENDLY, # One random minion from the friendly board, after filter
 	ALL_ENEMY,             # All opposing board minions
 	ALL_FRIENDLY,          # All friendly board minions
 	ALL_BOARD,             # Every minion on both boards
@@ -54,6 +63,7 @@ enum TargetScope {
 	ALL_TRAPS,             # All entries in active_traps
 	ACTIVE_ENVIRONMENT,    # The active environment card (if any)
 	SINGLE_CHOSEN_TRAP_OR_ENV,  # ctx.chosen_object if set; falls back to random from traps+env
+	SOURCE_RUNE,           # The rune that owns the currently-firing aura (ctx.source_rune). Used by DESTROY for self-destruct runes.
 }
 
 enum MinionFilter {
@@ -96,6 +106,7 @@ enum MinionFilter {
 ## "" = no scaling, "rune_aura" = × rune count, "void_marks" = × enemy void marks
 ## "board_count" = × count of minions matching multiplier_board/multiplier_filter/multiplier_tag;
 ##                 respects exclude_self for self-exclusion from the count.
+## "flesh_spent" = × ctx.flesh_spent_this_cast (set by earlier SPEND_FLESH / SPEND_FLESH_UP_TO step)
 @export var multiplier_key: String = ""
 
 ## Used with "board_count": which board to count — "friendly" or "enemy".
@@ -138,6 +149,16 @@ enum MinionFilter {
 ## Checked globally (board state), not per-target. Use for "deal X, +Y if condition" on a single hit.
 @export var bonus_amount: int = 0
 @export var bonus_conditions: Array[String] = []
+
+## Card ID to exclude from graveyard-querying effects (e.g. Recursive Hex excludes itself).
+@export var exclude_card_id: String = ""
+
+## Damage school for damage-dealing steps (DAMAGE_HERO, DAMAGE_MINION, VOID_BOLT).
+## Default NONE — surfaces forgotten tags loudly. Cards/talents that need a specific
+## flavor (VOID, VOID_BOLT, FIRE, …) set this explicitly. EffectResolver may override
+## via faction/talent inference at the emission site.
+## See design/DAMAGE_TYPE_SYSTEM.md.
+@export var damage_school: int = Enums.DamageSchool.NONE
 
 # ---------------------------------------------------------------------------
 # Convenience factory
@@ -186,4 +207,12 @@ static func from_dict(d: Dictionary) -> EffectStep:
 		var bc: Array[String] = []
 		bc.assign(d["bonus_conditions"])
 		s.bonus_conditions = bc
+	if "exclude_card_id" in d: s.exclude_card_id = d["exclude_card_id"]
+	if "damage_school" in d:
+		# Accept either an int (Enums.DamageSchool value) or string name ("VOID", "VOID_BOLT").
+		var ds = d["damage_school"]
+		if ds is String:
+			s.damage_school = Enums.DamageSchool[ds]
+		else:
+			s.damage_school = ds
 	return s

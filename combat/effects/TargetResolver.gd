@@ -23,7 +23,7 @@ static func resolve(step: EffectStep, ctx: EffectContext) -> Array:
 			if ctx.chosen_target != null and pool.has(ctx.chosen_target):
 				return [ctx.chosen_target]
 			return []
-		EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM, EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_ANY:
+		EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM_FRIENDLY, EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_ANY:
 			return _random_one(pool)
 		_:
 			return pool
@@ -39,6 +39,8 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 			return [ctx.source] if ctx.source != null else []
 		EffectStep.TargetScope.ALL_ENEMY, EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM:
 			return scene._opponent_board(ctx.owner).duplicate()
+		EffectStep.TargetScope.FILTERED_RANDOM_FRIENDLY:
+			return scene._friendly_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.SINGLE_RANDOM_ANY:
 			# Enemy minions + enemy hero (sentinel string). Untyped Array so we can mix types.
 			var pool_any: Array = []

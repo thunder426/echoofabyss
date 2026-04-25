@@ -78,6 +78,11 @@ var _slot: Control = null
 var _atk_delta: int = 0
 var _hp_delta: int = 0
 var _prelude: Callable = Callable()
+# Per-source palette overrides. Keys (all Color, all optional):
+#   surge_core, surge_edge, surge_particle, flash,
+#   pulse_atk, pulse_hp, mote
+# Missing keys fall back to the green/gold defaults above.
+var _palette: Dictionary = {}
 
 
 ## Create a buff VFX for a slot.
@@ -86,15 +91,26 @@ var _prelude: Callable = Callable()
 ##           before the common phases so per-card flavor plays first.
 ##           Callers use this for "feel the difference" moments (e.g. a
 ##           rising flame column for Rage, falling leaves for Regrowth).
+## palette — optional per-source color overrides (see _palette). Empty
+##           dictionary keeps the default green/gold blessing palette.
 static func create(slot: Control, atk_delta: int, hp_delta: int,
-		prelude: Callable = Callable()) -> BuffApplyVFX:
+		prelude: Callable = Callable(),
+		palette: Dictionary = {}) -> BuffApplyVFX:
 	var vfx := BuffApplyVFX.new()
 	vfx._slot       = slot
 	vfx._atk_delta  = atk_delta
 	vfx._hp_delta   = hp_delta
 	vfx._prelude    = prelude
+	vfx._palette    = palette
 	vfx.impact_count = 0   # apply VFX — no damage gate
 	return vfx
+
+
+## Resolve a palette color by key, falling back to the given default.
+func _pc(key: String, fallback: Color) -> Color:
+	if _palette.has(key):
+		return _palette[key]
+	return fallback
 
 
 func _play() -> void:
@@ -177,12 +193,14 @@ func _spawn_surge(host: Node, rect: Rect2) -> void:
 	shaft.position = Vector2(rect.position.x, rect.position.y - shaft_pad_top)
 	shaft.size     = Vector2(rect.size.x, rect.size.y + shaft_pad_top + shaft_pad_bot)
 
+	var surge_core: Color = _pc("surge_core", SURGE_TINT_CORE)
+	var surge_edge: Color = _pc("surge_edge", SURGE_TINT_EDGE)
 	var mat := ShaderMaterial.new()
 	mat.shader = SHADER_SHAFT
 	mat.set_shader_parameter("progress", 0.0)
 	mat.set_shader_parameter("time_offset", randf() * 10.0)
-	mat.set_shader_parameter("tint_core", SURGE_TINT_CORE)
-	mat.set_shader_parameter("tint_edge", SURGE_TINT_EDGE)
+	mat.set_shader_parameter("tint_core", surge_core)
+	mat.set_shader_parameter("tint_edge", surge_edge)
 	mat.set_shader_parameter("intensity", 1.6)
 	mat.set_shader_parameter("column_width", 0.55)
 	mat.set_shader_parameter("wisp_speed", 2.4)
@@ -198,6 +216,7 @@ func _spawn_surge(host: Node, rect: Rect2) -> void:
 
 	# ── Textured glow particles rising through the shaft ──
 	var glow_tex: Texture2D = _get_glow_texture()
+	var particle_tint: Color = _pc("surge_particle", SURGE_PARTICLE_TINT)
 	for i in SURGE_PARTICLE_COUNT:
 		var p := TextureRect.new()
 		p.texture = glow_tex
@@ -213,9 +232,9 @@ func _spawn_surge(host: Node, rect: Rect2) -> void:
 		var start_y: float = rect.position.y + rect.size.y - sz * 0.5 + randf() * 14.0
 		var end_y: float   = rect.position.y - sz - randf() * 30.0
 		p.position = Vector2(start_x, start_y)
-		# Warm-gold tint with some per-particle jitter toward green.
+		# Core→edge lerp driven by the active palette.
 		var mix_t: float = randf()
-		var tint: Color = SURGE_TINT_CORE.lerp(SURGE_TINT_EDGE, mix_t * 0.6)
+		var tint: Color = surge_core.lerp(surge_edge, mix_t * 0.6)
 		tint.a = 0.0
 		p.modulate = tint
 		var add_mat := CanvasItemMaterial.new()
@@ -224,7 +243,7 @@ func _spawn_surge(host: Node, rect: Rect2) -> void:
 		host.add_child(p)
 
 		var delay: float = randf() * 0.20
-		var peak_alpha: float = SURGE_PARTICLE_TINT.a * (0.7 + randf() * 0.3)
+		var peak_alpha: float = particle_tint.a * (0.7 + randf() * 0.3)
 		# Rise in parallel with the alpha in/out sequence.
 		var tw_rise := create_tween()
 		tw_rise.tween_interval(delay)
@@ -243,8 +262,9 @@ func _spawn_surge(host: Node, rect: Rect2) -> void:
 ## Phase 2 — duplicate the minion art and flash a low-alpha white-green tint
 ## on top of it, so it reads as "the minion itself got empowered."
 func _spawn_silhouette_flash(host: Node, rect: Rect2) -> void:
+	var flash_tint: Color = _pc("flash", FLASH_COLOR)
 	var flash := ColorRect.new()
-	flash.color = Color(FLASH_COLOR.r, FLASH_COLOR.g, FLASH_COLOR.b, 0.0)
+	flash.color = Color(flash_tint.r, flash_tint.g, flash_tint.b, 0.0)
 	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	flash.position = rect.position
 	flash.size     = rect.size
@@ -269,13 +289,13 @@ func _pulse_stat(which: String) -> void:
 	if not is_instance_valid(_slot):
 		return
 	var lbl: Label = null
-	var pulse_color: Color = PULSE_COLOR_ATK
+	var pulse_color: Color = _pc("pulse_atk", PULSE_COLOR_ATK)
 	if which == "atk":
 		lbl = _slot.get("_atk_label")
-		pulse_color = PULSE_COLOR_ATK
+		pulse_color = _pc("pulse_atk", PULSE_COLOR_ATK)
 	elif which == "hp":
 		lbl = _slot.get("_hp_label")
-		pulse_color = PULSE_COLOR_HP
+		pulse_color = _pc("pulse_hp", PULSE_COLOR_HP)
 	if lbl == null or not is_instance_valid(lbl):
 		return
 
@@ -321,6 +341,7 @@ func _pulse_stat(which: String) -> void:
 ## same runtime glow texture as the surge particles for visual consistency.
 func _spawn_motes(host: Node, rect: Rect2) -> void:
 	var glow_tex: Texture2D = _get_glow_texture()
+	var mote_tint: Color = _pc("mote", MOTE_COLOR)
 	for i in MOTE_COUNT:
 		var mote := TextureRect.new()
 		mote.texture = glow_tex
@@ -332,7 +353,7 @@ func _spawn_motes(host: Node, rect: Rect2) -> void:
 		var sz: float = MOTE_MIN_SIZE + randf() * (MOTE_MAX_SIZE - MOTE_MIN_SIZE)
 		mote.size = Vector2(sz, sz)
 		mote.pivot_offset = mote.size * 0.5
-		mote.modulate = Color(MOTE_COLOR.r, MOTE_COLOR.g, MOTE_COLOR.b, 0.0)
+		mote.modulate = Color(mote_tint.r, mote_tint.g, mote_tint.b, 0.0)
 		var add_mat := CanvasItemMaterial.new()
 		add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 		mote.material = add_mat
@@ -349,7 +370,7 @@ func _spawn_motes(host: Node, rect: Rect2) -> void:
 		host.add_child(mote)
 
 		var delay: float = randf() * 0.10
-		var peak_alpha: float = MOTE_COLOR.a * (0.75 + randf() * 0.25)
+		var peak_alpha: float = mote_tint.a * (0.75 + randf() * 0.25)
 		# Alpha: fade in → hold → fade out.
 		var tw_alpha := create_tween()
 		tw_alpha.tween_interval(delay)

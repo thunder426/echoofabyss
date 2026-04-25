@@ -73,6 +73,21 @@ extends CardData
 ## Uses EffectResolver with the minion as ctx.source.
 @export var on_turn_start_effect_steps: Array = []
 
+## Declarative effect steps fired at the end of the owner's turn while this minion is on board.
+## Uses EffectResolver with the minion as ctx.source.
+@export var on_turn_end_effect_steps: Array = []
+
+## Declarative effect steps fired when this minion kills an enemy minion (i.e. is the attacker
+## in an ON_ENEMY_MINION_DIED event). Uses EffectResolver with the killing minion as ctx.source
+## and the dead minion as ctx.dead_minion.
+@export var on_kill_effect_steps: Array = []
+
+## Declarative effect steps fired when this minion is sacrificed (ON LEAVE). Sacrifice is a
+## ritual removal — distinct from death — so on_death_effect_steps do NOT fire on sacrifice.
+## Uses EffectResolver with the leaving minion as ctx.source. Fires while the minion is still
+## on its slot, before the silent removal.
+@export var on_leave_effect_steps: Array = []
+
 ## Reduces the Mana cost of all player spells by this amount while this minion is on board.
 ## Multiple minions stack (e.g. two Archmagus = -2). Floor is 0.
 @export var mana_cost_discount: int = 0

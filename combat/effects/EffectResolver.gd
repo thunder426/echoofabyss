@@ -12,6 +12,8 @@ extends RefCounted
 # ---------------------------------------------------------------------------
 
 static func run(steps: Array, ctx: EffectContext) -> void:
+	# Reset per-run Flesh counter so SPEND_FLESH → scaling downstream only sees this run's spend.
+	ctx.flesh_spent_this_cast = 0
 	for raw in steps:
 		var step: EffectStep
 		if raw is Dictionary:
@@ -35,7 +37,8 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var dmg      := _dark_channeling_dmg(_amount(step, ctx), ctx)
 				var opponent := "enemy" if ctx.owner == "player" else "player"
-				ctx.scene.combat_manager.apply_hero_damage(opponent, dmg, Enums.DamageType.SPELL)
+				var info := _build_damage_info(step, ctx, dmg)
+				ctx.scene.combat_manager.apply_hero_damage(opponent, info)
 			return
 
 		EffectStep.EffectType.HEAL_HERO:
@@ -113,10 +116,13 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 		EffectStep.EffectType.VOID_BOLT:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var dmg := _amount(step, ctx)
+				# Same source rule as _build_damage_info: ctx.source non-null means a
+				# minion is emitting (e.g. void_imp_wizard on-play). Null = spell card.
+				var is_min_emitted: bool = ctx.source != null
 				if ctx.owner == "player":
-					ctx.scene._deal_void_bolt_damage(dmg, ctx.source, ctx.from_rune)
+					ctx.scene._deal_void_bolt_damage(dmg, ctx.source, ctx.from_rune, is_min_emitted)
 				else:
-					ctx.scene._deal_enemy_void_bolt_damage(dmg, ctx.source)
+					ctx.scene._deal_enemy_void_bolt_damage(dmg, ctx.source, is_min_emitted)
 			return
 
 		EffectStep.EffectType.TUTOR:
@@ -163,6 +169,74 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					tm.convert_essence_to_mana()
 			return
 
+		EffectStep.EffectType.GAIN_FLESH:
+			# Seris — player-only. Enemy Seris is not supported.
+			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
+				ctx.scene._gain_flesh(maxi(1, step.amount))
+			return
+
+		EffectStep.EffectType.SPEND_FLESH:
+			# All-or-nothing. _spend_flesh returns false without deducting if short.
+			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
+				var amt := maxi(1, step.amount)
+				if ctx.scene._spend_flesh(amt):
+					ctx.flesh_spent_this_cast += amt
+			return
+
+		EffectStep.EffectType.GAIN_FORGE_COUNTER:
+			# Seris — player-only. Soul Forge gate is enforced inside _gain_forge_counter.
+			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
+				ctx.scene._gain_forge_counter(maxi(1, step.amount))
+			return
+
+		EffectStep.EffectType.COPY_LAST_TURN_SPELLS_FROM_GRAVEYARD:
+			# Seris — Recursive Hex. Copy each spell the caster cast last turn into hand
+			# (excluding step.exclude_card_id). Then deal step.amount damage to opponent
+			# hero per spell COPIED (count is taken from the graveyard query, not the hand-
+			# add result, so hand-cap burns do not reduce the damage).
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				# The casting card is the most recent graveyard entry — its resolved_on_turn
+				# is the current turn. "Last turn" = current_turn - 1.
+				var graveyard: Array = ctx.scene._friendly_graveyard(ctx.owner)
+				if graveyard.is_empty():
+					return
+				var current_turn: int = (graveyard[graveyard.size() - 1] as CardInstance).resolved_on_turn
+				var target_turn := current_turn - 1
+				if target_turn < 1:
+					return  # Turn 1 cast: no prior turn to copy from. (Recursive Hex costs 5M, also impossible.)
+				var copied: Array[String] = []
+				for entry in graveyard:
+					var inst: CardInstance = entry
+					if inst.resolved_on_turn != target_turn:
+						continue
+					if not (inst.card_data is SpellCardData):
+						continue
+					if step.exclude_card_id != "" and inst.card_data.id == step.exclude_card_id:
+						continue
+					# Add a fresh copy (new instance_id) — base cost, not modified.
+					if ctx.owner == "player":
+						ctx.scene.turn_manager.add_to_hand(inst.card_data)
+					else:
+						ctx.scene.enemy_ai.add_to_hand(inst.card_data)
+					copied.append(inst.card_data.card_name)
+				# Per-copy hero damage — count uses graveyard query result, not hand-add success.
+				if not copied.is_empty():
+					var dmg := step.amount * copied.size()
+					var opponent := "enemy" if ctx.owner == "player" else "player"
+					var info := _build_damage_info(step, ctx, dmg)
+					ctx.scene.combat_manager.apply_hero_damage(opponent, info)
+			return
+
+		EffectStep.EffectType.SPEND_FLESH_UP_TO:
+			# Partial allowed — spend min(current, amount). Never fails; may spend 0.
+			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
+				var cap := maxi(1, step.amount)
+				var cur: int = ctx.scene.player_flesh if ctx.scene.get("player_flesh") != null else 0
+				var to_spend := mini(cap, cur)
+				if to_spend > 0 and ctx.scene._spend_flesh(to_spend):
+					ctx.flesh_spent_this_cast += to_spend
+			return
+
 		EffectStep.EffectType.DESTROY:
 			# Environment destruction — no minion pool needed
 			if step.scope == EffectStep.TargetScope.ACTIVE_ENVIRONMENT:
@@ -171,6 +245,16 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 						ctx.scene._unregister_env_rituals()
 						ctx.scene.active_environment = null
 						ctx.scene._update_environment_display()
+				return
+			# Self-destruct the rune that owns this aura (Flesh Rune upkeep failure).
+			if step.scope == EffectStep.TargetScope.SOURCE_RUNE:
+				if ConditionResolver.check_all(step.conditions, ctx, null):
+					var r: TrapCardData = ctx.source_rune
+					if r != null and r in ctx.scene.active_traps:
+						if r.is_rune:
+							ctx.scene._remove_rune_aura(r)
+						ctx.scene.active_traps.erase(r)
+						ctx.scene._update_trap_display()
 				return
 
 	# Minion / trap targeting effects — resolve pool then apply per target
@@ -190,9 +274,10 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 		EffectStep.EffectType.DAMAGE_MINION:
 			var dmg: int = _dark_channeling_dmg(amount, ctx)
 			if target is String and target == "enemy_hero":
-				scene.combat_manager.apply_hero_damage(scene._opponent_of(ctx.owner), dmg, Enums.DamageType.SPELL)
+				var info := _build_damage_info(step, ctx, dmg)
+				scene.combat_manager.apply_hero_damage(scene._opponent_of(ctx.owner), info)
 			else:
-				scene._spell_dmg(target, dmg)
+				scene._spell_dmg(target, dmg, _build_damage_info(step, ctx, dmg))
 
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
@@ -205,14 +290,28 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			BuffSystem.apply_hp_gain(target, amount, tag_hp)
 			scene._refresh_slot_for(target)
 
+		EffectStep.EffectType.HEAL_MINION:
+			if target is MinionInstance:
+				scene._heal_minion(target, amount)
+
+		EffectStep.EffectType.HEAL_MINION_FULL:
+			if target is MinionInstance:
+				scene._heal_minion_full(target)
+
+		EffectStep.EffectType.GRANT_KILL_STACKS:
+			if target is MinionInstance:
+				scene._add_kill_stacks(target, maxi(1, amount))
+
 		EffectStep.EffectType.CORRUPTION:
 			var stacks := maxi(1, amount)
 			for _i in stacks:
 				scene._corrupt_minion(target)
 
 		EffectStep.EffectType.SACRIFICE:
+			# SacrificeSystem.sacrifice handles the full flow — ON LEAVE steps,
+			# ON_*_MINION_SACRIFICED trigger, corruption removal, silent board cleanup.
+			# Strict rule: sacrifice is NOT death — does not fire ON_*_MINION_DIED.
 			SacrificeSystem.sacrifice(scene, target, ctx.source_card_id)
-			scene.combat_manager.kill_minion(target)
 
 		EffectStep.EffectType.KILL_MINION:
 			scene.combat_manager.kill_minion(target)
@@ -271,6 +370,7 @@ static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 	match step.multiplier_key:
 		"rune_aura":  base = step.amount * ctx.scene._rune_aura_multiplier()
 		"void_marks": base = step.amount * ctx.scene.enemy_void_marks
+		"flesh_spent": base = step.amount * ctx.flesh_spent_this_cast
 		"board_count":
 			var board: Array = ctx.scene._friendly_board(ctx.owner) \
 				if step.multiplier_board == "friendly" \
@@ -302,6 +402,15 @@ static func _race_from_string(name: String) -> int:
 		"spirit": return Enums.MinionType.SPIRIT
 		"beast":  return Enums.MinionType.BEAST
 	return -1
+
+## Build a DamageInfo for a damage-dealing EffectStep emission.
+## Source is inferred: ctx.source != null → MINION (minion-emitted effect),
+##                     ctx.source == null → SPELL (spell card, trap, environment, DoT).
+## School comes from step.damage_school. Faction/talent overrides happen in Phase 4.
+## See design/DAMAGE_TYPE_SYSTEM.md.
+static func _build_damage_info(step: EffectStep, ctx: EffectContext, amount: int) -> Dictionary:
+	var source: Enums.DamageSource = Enums.DamageSource.MINION if ctx.source != null else Enums.DamageSource.SPELL
+	return CombatManager.make_damage_info(amount, source, step.damage_school, ctx.source, ctx.source_card_id)
 
 ## Apply dark_channeling spell damage multiplier (enemy-only, flag set by handler).
 static func _dark_channeling_dmg(base: int, ctx: EffectContext) -> int:

@@ -56,6 +56,12 @@ var player_hand: Array[CardInstance] = []
 var player_board: Array[MinionInstance] = []
 var enemy_board: Array[MinionInstance] = []
 
+## Unified graveyard — every card the player plays this combat is appended here
+## (minions, spells, traps, runes, environments) at the moment it leaves the hand.
+## Each entry has its `resolved_on_turn` stamped at append time.
+## Full-combat record — never cleared mid-combat. Cleared in `start_combat`.
+var player_graveyard: Array[CardInstance] = []
+
 # Max hand size
 const HAND_SIZE_MAX: int = 10
 
@@ -70,6 +76,7 @@ func start_combat(deck: Array[CardData]) -> void:
 		player_deck.append(CardInstance.create(card))
 	player_deck.shuffle()
 	player_hand.clear()
+	player_graveyard.clear()
 	turn_number = 0
 	essence_max = 1
 	mana_max = 1
@@ -186,6 +193,8 @@ func spend_mana(amount: int) -> bool:
 ## Remove a specific card instance from the tracked hand (call when a card is played).
 func remove_from_hand(inst: CardInstance) -> void:
 	player_hand.erase(inst)
+	inst.resolved_on_turn = turn_number
+	player_graveyard.append(inst)
 
 ## Public wrapper — lets CombatScene draw an extra card (e.g. Ancient Tome relic).
 func draw_card() -> void:

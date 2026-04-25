@@ -15,7 +15,7 @@ extends Resource
 @export var background_path: String = "res://assets/art/progression/backgrounds/a1_combat_background.png"
 ## Path to the enemy hero portrait shown in the combat status panel. Leave empty for the default initial-letter placeholder.
 @export var portrait_path: String = ""
-## Passive IDs active for this encounter (e.g. "feral_instinct", "pack_instinct").
+## Passive IDs active for this encounter (e.g. "pack_instinct", "corrupted_death").
 @export var passives: Array[String] = []
 ## AI behaviour profile ID. "default" = generic EnemyAI logic; others are encounter-specific.
 @export var ai_profile: String = "default"

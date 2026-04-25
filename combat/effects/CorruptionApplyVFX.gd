@@ -57,6 +57,8 @@ func _play() -> void:
 	var slot_center_px: Vector2 = _slot.global_position + _slot.size * 0.5
 	var center_uv := Vector2(slot_center_px.x / vp_size.x, slot_center_px.y / vp_size.y)
 
+	AudioManager.play_sfx("res://assets/audio/sfx/spells/abyssal_plague_hit_low.wav", -6.0)
+
 	# VfxLayer is CanvasLayer layer=2 above the UI, so the sonic shader's
 	# SCREEN_TEXTURE samples the full pre-VFX scene.
 	# ── Phase 1: Stamp the corruption icon onto the card ───────────────────

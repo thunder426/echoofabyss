@@ -37,10 +37,13 @@ extends Resource
 ## Faction this card belongs to. "neutral" or "abyss_order" (more factions added later)
 @export var faction: String = "neutral"
 
-## Card pool this card belongs to. Controls where it appears (deck builder, collection).
-## "" = token/internal; "abyss_core" / "neutral_core" = starter deck pool;
-## "vael_common" / "vael_piercing_void" = Lord Vael unlock pools.
-@export var pool: String = ""
+## Card pools this card belongs to. Controls where it appears (deck builder, collection).
+## A card can live in multiple pools — e.g. Soul Shatter is in both vael_common and
+## seris_demon_forge. Membership checks: "X in card.pools". For display/sort sites that
+## need a single representative pool, use the first entry — entries follow the order
+## written in CardDatabase._card_pools and are stable.
+## [] = token/internal (not surfaced through acquisition).
+@export var pools: Array[String] = []
 
 ## Act gate: earliest act this card can appear in rewards/shop (1–4).
 ## 0 = token/internal card, not available through acquisition.

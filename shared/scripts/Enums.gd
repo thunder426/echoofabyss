@@ -76,6 +76,10 @@ enum TriggerEvent {
 	ON_PLAYER_MINION_DIED,      # A player minion died (ctx.minion = the dead minion)
 	ON_ENEMY_MINION_DIED,       # An enemy minion died (ctx.minion = the dead minion)
 
+	# ---- Minion sacrifice (NOT death — strict rule: sacrifice does not fire ON DEATH) ----
+	ON_PLAYER_MINION_SACRIFICED, # A player minion was sacrificed (ctx.minion = the sacrificed minion)
+	ON_ENEMY_MINION_SACRIFICED,  # An enemy minion was sacrificed (ctx.minion = the sacrificed minion)
+
 	# ---- Enemy actions ----
 	ON_ENEMY_MINION_SUMMONED,   # Enemy summons a minion (ctx.minion = summoned)
 	ON_ENEMY_SPELL_CAST,        # Enemy casts a spell (ctx.card = spell)
@@ -114,6 +118,8 @@ static func mirror_trigger(trigger: TriggerEvent) -> TriggerEvent:
 		TriggerEvent.ON_ENEMY_MINION_SUMMONED:   return TriggerEvent.ON_PLAYER_MINION_SUMMONED
 		TriggerEvent.ON_PLAYER_MINION_DIED:      return TriggerEvent.ON_ENEMY_MINION_DIED
 		TriggerEvent.ON_ENEMY_MINION_DIED:       return TriggerEvent.ON_PLAYER_MINION_DIED
+		TriggerEvent.ON_PLAYER_MINION_SACRIFICED: return TriggerEvent.ON_ENEMY_MINION_SACRIFICED
+		TriggerEvent.ON_ENEMY_MINION_SACRIFICED:  return TriggerEvent.ON_PLAYER_MINION_SACRIFICED
 		TriggerEvent.ON_PLAYER_SPELL_CAST:       return TriggerEvent.ON_ENEMY_SPELL_CAST
 		TriggerEvent.ON_ENEMY_SPELL_CAST:        return TriggerEvent.ON_PLAYER_SPELL_CAST
 		TriggerEvent.ON_PLAYER_ATTACK:           return TriggerEvent.ON_ENEMY_ATTACK
@@ -148,13 +154,41 @@ enum MinionState {
 	SWIFT,     # Summoned with Swift — can attack enemy minions but not the enemy hero this turn
 }
 
-## How damage is delivered — determines scaling, shield interaction, and trigger reactions.
-enum DamageType {
-	PHYSICAL,   # Minion combat attacks
-	SPELL,      # Spell / effect damage (minion or hero target)
-	VOID_BOLT,  # Hero-targeted; scales with Void Marks; triggers bolt passives
-	# Future: TRAP, POISON, FIRE, CHAOS…
+## Who/what dealt the damage — orthogonal to school.
+## See design/DAMAGE_TYPE_SYSTEM.md.
+enum DamageSource {
+	MINION,  # Minion basic attacks AND minion-emitted effects (battlecries, deathrattles, on-play, auras)
+	SPELL,   # Spell cards, traps, environment, hero powers, all DoT ticks
 }
+
+## What kind of damage — orthogonal to source. Composes with SCHOOL_LINEAGE for sub-schools.
+## Default NONE: surfaces forgotten tags loudly rather than silently absorbing them as PHYSICAL.
+## See design/DAMAGE_TYPE_SYSTEM.md.
+enum DamageSchool {
+	NONE,
+	PHYSICAL,
+	VOID,
+	VOID_BOLT,  # Sub-school of VOID — see SCHOOL_LINEAGE
+	TRUE_DMG,   # Bypasses school resistances. Named TRUE_DMG because TRUE is a GDScript reserved word.
+}
+
+## Maps each school to the array of schools it satisfies (itself plus parents).
+## Predicate `has_school()` walks this — never compare schools with `==` outside this file.
+## Adding a sub-school: include itself first, then parent chain.
+const SCHOOL_LINEAGE := {
+	DamageSchool.NONE:      [],
+	DamageSchool.PHYSICAL:  [DamageSchool.PHYSICAL],
+	DamageSchool.VOID:      [DamageSchool.VOID],
+	DamageSchool.VOID_BOLT: [DamageSchool.VOID_BOLT, DamageSchool.VOID],
+	DamageSchool.TRUE_DMG:  [DamageSchool.TRUE_DMG],
+}
+
+## Returns true if `school` satisfies `target` (i.e. target is school itself or one of its parents).
+## Use this for ALL school checks — buffs, resists, triggers. Direct == comparison silently
+## misses subschools (e.g. school == VOID would not match VOID_BOLT damage).
+static func has_school(school: int, target: int) -> bool:
+	var lineage = SCHOOL_LINEAGE.get(school, [])
+	return target in lineage
 
 ## Buff and debuff types tracked per-minion by BuffSystem.
 ## Buffs are removed by Dispel; debuffs are removed by Cleanse.

@@ -26,8 +26,14 @@ var target: MinionInstance = null
 ## The card played or drawn (for ON_PLAYER_CARD_DRAWN, ON_PLAYER_MINION_SUMMONED, etc.)
 var card: CardData = null
 
-## Damage amount (for ON_HERO_DAMAGED).
+## Damage amount (for ON_HERO_DAMAGED). Mirrors damage_info.amount when both are populated.
 var damage: int = 0
+
+## Full DamageInfo carried by ON_HERO_DAMAGED (and any future damage-flavored triggers).
+## Empty {} when the trigger was fired without damage context. See design/DAMAGE_TYPE_SYSTEM.md.
+## Read source / school / attacker / source_card via Dictionary keys; use Enums.has_school()
+## for school predicates, never == comparisons.
+var damage_info: Dictionary = {}
 
 ## Set to true by a handler to cancel the triggering action (e.g. Null Seal cancels a spell).
 ## Callers must check ctx.cancelled after fire() returns.

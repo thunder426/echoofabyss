@@ -71,7 +71,8 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	sim.player_board.append(instance)
 	slot.place_minion(instance)
 	sim.player_hand.erase(inst)
-	sim.player_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.player_graveyard.append(inst)
 	if sim.trigger_manager != null:
 		# ON_PLAYER_MINION_PLAYED — triggers on-play effects and rune_caller
 		var played_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
@@ -93,7 +94,8 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 	var spell := inst.card_data as SpellCardData
 	sim.player_hand.erase(inst)
-	sim.player_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.player_graveyard.append(inst)
 	# Phase Disruptor counter: enemy counters player spell
 	if sim._player_spell_counter > 0:
 		sim._player_spell_counter -= 1
@@ -113,7 +115,8 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 func commit_play_trap(inst: CardInstance) -> bool:
 	var trap := inst.card_data as TrapCardData
 	sim.player_hand.erase(inst)
-	sim.player_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.player_graveyard.append(inst)
 	sim.active_traps.append(trap)
 	# Fire ON_PLAYER_TRAP_PLACED
 	if sim.trigger_manager != null:
@@ -131,7 +134,8 @@ func commit_play_trap(inst: CardInstance) -> bool:
 func commit_play_environment(inst: CardInstance) -> bool:
 	var env := inst.card_data as EnvironmentCardData
 	sim.player_hand.erase(inst)
-	sim.player_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.player_graveyard.append(inst)
 	# Tear down previous environment before replacing
 	if sim.active_environment != null and sim.trigger_manager != null:
 		sim._unregister_env_rituals()
@@ -163,7 +167,8 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 	# Void Manifestation: Void Imp clan minions deal Void Bolt damage instead of physical
 	if "void_manifestation" in sim.talents and sim._minion_has_tag(attacker, "void_imp"):
 		sim._pending_dmg_source = "imp_manifestation"
-		sim._deal_void_bolt_damage(attacker.effective_atk(), attacker)
+		# void_manifestation talent retags Void Imp clan basic attack — MINION source.
+		sim._deal_void_bolt_damage(attacker.effective_atk(), attacker, false, true)
 		attacker.attack_count += 1
 		attacker.state = Enums.MinionState.EXHAUSTED
 		return sim.winner.is_empty()

@@ -58,7 +58,7 @@ const DECK_BUILDER_POOLS_BASE: Array[String] = ["abyss_core", "neutral_core"]
 ## Hero-specific pools layered on top of the base pools. Cards with one of these
 ## pool ids are visible in the deck builder only when the matching hero is active.
 const DECK_BUILDER_POOLS_BY_HERO: Dictionary = {
-	"seris": ["seris_starter"],
+	"seris": ["seris_core"],
 }
 
 ## Pools visible in the deck builder for the current hero (base + hero-specific).
@@ -69,6 +69,17 @@ func _deck_builder_pools() -> Array[String]:
 	for p in extra:
 		result.append(p)
 	return result
+
+## True if any of the card's pools are visible to the current hero's deck builder.
+## Cards in multiple pools (e.g. dual-pool reward cards) qualify if any one pool matches.
+func _card_in_builder_pools(card: CardData) -> bool:
+	if card == null:
+		return false
+	var allowed := _deck_builder_pools()
+	for p in card.pools:
+		if p in allowed:
+			return true
+	return false
 
 ## Preview card size shown on hover
 const PREVIEW_SIZE := Vector2(480, 720)
@@ -137,12 +148,13 @@ func _process(_delta: float) -> void:
 
 func _setup_preview() -> void:
 	_preview = CARD_VISUAL_SCENE.instantiate() as CardVisual
-	_preview.custom_minimum_size = PREVIEW_SIZE
-	_preview.size                = PREVIEW_SIZE
 	_preview.z_index             = 10
 	_preview.mouse_filter        = Control.MOUSE_FILTER_IGNORE
 	_preview.visible             = false
 	$UI.add_child(_preview)
+	_preview.apply_size_mode("deck_preview")
+	_preview.custom_minimum_size = PREVIEW_SIZE
+	_preview.size                = PREVIEW_SIZE
 
 func _show_preview(card_id: String) -> void:
 	var card := CardDatabase.get_card(card_id)
@@ -194,7 +206,7 @@ func _on_load_preset(preset_id: String) -> void:
 				if _built_deck.size() >= MAX_DECK_SIZE:
 					break
 				var preset_card := CardDatabase.get_card(card_id)
-				if preset_card == null or preset_card.pool not in _deck_builder_pools():
+				if preset_card == null or not _card_in_builder_pools(preset_card):
 					continue
 				var limit := _copy_limit_for(preset_card)
 				if _built_deck.count(card_id) < limit:
@@ -204,7 +216,7 @@ func _on_load_preset(preset_id: String) -> void:
 				if _built_deck.size() >= MAX_DECK_SIZE:
 					break
 				var fill_card := CardDatabase.get_card(fill_id)
-				if fill_card == null or fill_card.pool not in _deck_builder_pools():
+				if fill_card == null or not _card_in_builder_pools(fill_card):
 					continue
 				var limit := _copy_limit_for(fill_card)
 				if _built_deck.count(fill_id) < limit:
@@ -293,7 +305,7 @@ func _on_load_saved_deck(deck_name: String) -> void:
 		if _built_deck.size() >= MAX_DECK_SIZE:
 			break
 		var card := CardDatabase.get_card(card_id)
-		if card == null or card.pool not in _deck_builder_pools():
+		if card == null or not _card_in_builder_pools(card):
 			continue
 		var limit := _copy_limit_for(card)
 		if _built_deck.count(card_id) < limit:

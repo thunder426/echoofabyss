@@ -22,6 +22,10 @@ var card_data: CardData
 ## Per-turn cost modifier.  Negative = cheaper.  Cleared on player turn start.
 var cost_delta: int = 0
 
+## Turn number on which this card was played (left the hand to resolve).
+## -1 while the card is still in deck or hand.  Stamped at graveyard append time.
+var resolved_on_turn: int = -1
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------

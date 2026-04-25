@@ -109,7 +109,8 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	sim.enemy_board.append(instance)
 	slot.place_minion(instance)
 	sim.enemy_hand.erase(inst)
-	sim.enemy_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.enemy_graveyard.append(inst)
 	# Track per-fight big-body plays
 	if mc.id == "bastion_colossus":
 		sim._vw_bastion_plays += 1
@@ -129,7 +130,8 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 	var spell := inst.card_data as SpellCardData
 	sim.enemy_hand.erase(inst)
-	sim.enemy_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.enemy_graveyard.append(inst)
 	# Phase Disruptor counter: player counters enemy spell
 	if sim._enemy_spell_counter > 0:
 		sim._enemy_spell_counter -= 1
@@ -145,7 +147,8 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 func commit_play_trap(inst: CardInstance) -> bool:
 	var trap := inst.card_data as TrapCardData
 	sim.enemy_hand.erase(inst)
-	sim.enemy_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.enemy_graveyard.append(inst)
 	sim.enemy_active_traps.append(trap)
 	# Fire ON_ENEMY_TRAP_PLACED
 	if sim.trigger_manager != null:
@@ -160,7 +163,8 @@ func commit_play_trap(inst: CardInstance) -> bool:
 func commit_play_environment(inst: CardInstance) -> bool:
 	var env := inst.card_data as EnvironmentCardData
 	sim.enemy_hand.erase(inst)
-	sim.enemy_discard.append(inst)
+	inst.resolved_on_turn = sim._current_turn
+	sim.enemy_graveyard.append(inst)
 	sim.enemy_active_environment = env
 	return sim.winner.is_empty()
 

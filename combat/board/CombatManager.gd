@@ -15,11 +15,35 @@ signal attack_resolved(attacker: MinionInstance, defender: MinionInstance)
 ## Emitted when a minion's HP reaches 0 and it leaves the board
 signal minion_vanished(minion: MinionInstance)
 
-## Emitted when a hero takes damage ("player" or "enemy", amount, damage type)
-signal hero_damaged(target: String, amount: int, type: Enums.DamageType)
+## Emitted when a hero takes damage. info carries amount + source + school + attacker + source_card.
+## See design/DAMAGE_TYPE_SYSTEM.md for the DamageInfo shape.
+signal hero_damaged(target: String, info: Dictionary)
 
 ## Emitted when a hero is healed ("player" or "enemy", amount)
 signal hero_healed(target: String, amount: int)
+
+# ---------------------------------------------------------------------------
+# DamageInfo construction
+# See design/DAMAGE_TYPE_SYSTEM.md.
+# ---------------------------------------------------------------------------
+
+## Build a DamageInfo dict — the canonical payload carried through every damage path.
+## Stored as Dictionary (not a Resource) for lightness; fields are stable, validated by tests.
+static func make_damage_info(
+		amount: int,
+		source: Enums.DamageSource,
+		school: int = Enums.DamageSchool.NONE,
+		attacker: MinionInstance = null,
+		source_card: String = ""
+) -> Dictionary:
+	return {
+		"amount": amount,
+		"source": source,
+		"school": school,
+		"attacker": attacker,
+		"source_card": source_card,
+	}
+
 
 # ---------------------------------------------------------------------------
 # Main attack resolution
@@ -47,16 +71,17 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 
 	var pre_hp := defender.current_health
 	var pre_shield := defender.current_shield
-	_deal_damage(defender, atk_damage, Enums.DamageType.PHYSICAL)
+	_deal_damage(defender, _attack_damage_info(atk_damage, attacker))
 	last_attack_damage = maxi(0, pre_hp - defender.current_health)
 
-	# PIERCE: excess kill damage carries through to the enemy hero
+	# PIERCE: excess kill damage carries through to the enemy hero. School inherits
+	# from the attacker so a Void minion's pierce overkill stays Void-flavored.
 	if attacker.has_pierce() and defender.current_health <= 0:
 		var total_effective_hp := pre_hp + pre_shield
 		var excess := maxi(0, atk_damage - total_effective_hp)
 		if excess > 0:
 			var target_owner := "player" if defender.owner == "player" else "enemy"
-			hero_damaged.emit(target_owner, excess, Enums.DamageType.PHYSICAL)
+			apply_hero_damage(target_owner, _attack_damage_info(excess, attacker))
 
 	# Rift Warden siphon: if any friendly minion has rift_warden_siphon passive,
 	# deal ETHEREAL prevented damage to the enemy hero
@@ -69,7 +94,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 		counter_damage -= counter_damage / 2
 	var attacker_pre_hp := attacker.current_health
 	var attacker_pre_shield := attacker.current_shield
-	_deal_damage(attacker, counter_damage, Enums.DamageType.PHYSICAL)
+	_deal_damage(attacker, _attack_damage_info(counter_damage, defender))
 	last_counter_damage = maxi(0, (attacker_pre_hp + attacker_pre_shield) - (attacker.current_health + attacker.current_shield))
 
 	if attacker.has_lifedrain() and atk_damage > 0:
@@ -92,7 +117,7 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 		scene._last_attacker = attacker
 	var damage := _apply_crit(attacker)
 	if damage > 0:
-		hero_damaged.emit(target_owner, damage, Enums.DamageType.PHYSICAL)
+		apply_hero_damage(target_owner, _attack_damage_info(damage, attacker))
 		if attacker.has_lifedrain():
 			hero_healed.emit(attacker.owner, damage)
 		if attacker.has_siphon():
@@ -108,15 +133,17 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 # Damage application
 # ---------------------------------------------------------------------------
 
-## Deliver typed damage to the opponent hero. All hero damage routes through here
-## so that type is available to signal listeners (passives, triggers, future resistances).
-func apply_hero_damage(target: String, amount: int, type: Enums.DamageType) -> void:
-	if amount > 0:
-		hero_damaged.emit(target, amount, type)
+## Apply hero damage carrying full DamageInfo. All hero damage routes through here.
+func apply_hero_damage(target: String, info: Dictionary) -> void:
+	var amount: int = info.get("amount", 0)
+	if amount <= 0:
+		return
+	hero_damaged.emit(target, info)
 
-## Reduce a minion's HP, shield absorbs first. Emit minion_vanished if HP reaches 0.
-## type is passed through for future use (spell shields, resistances, typed triggers).
-func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
+## Reduce a minion's HP using a DamageInfo. Shield absorbs first. Emit minion_vanished
+## if HP reaches 0. Source/school are stashed for downstream resistances and triggers.
+func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
+	var damage: int = info.get("amount", 0)
 	if damage <= 0:
 		return
 	if minion.has_immune():
@@ -149,18 +176,36 @@ func _deal_damage(minion: MinionInstance, damage: int, type: Enums.DamageType = 
 					var key: String = "_vw_behemoth_lost" if id == "void_behemoth" else "_vw_bastion_lost"
 					var dict = scene.get(key)
 					if dict is Dictionary:
-						var cause: String = "damage" if type == Enums.DamageType.SPELL else "combat"
+						var src: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
+						var cause: String = "damage" if src == Enums.DamageSource.SPELL else "combat"
 						dict[cause] = (dict[cause] as int) + 1
 			minion_vanished.emit(minion)
 
-## Apply spell damage to a minion. Respects SPELL_IMMUNE.
-## ETHEREAL: minion takes 50% increased spell damage.
-func apply_spell_damage(minion: MinionInstance, damage: int) -> void:
-	if minion.has_spell_immune():
-		return
-	if minion.has_ethereal():
-		damage += damage / 2
-	_deal_damage(minion, damage, Enums.DamageType.SPELL)
+## Apply damage to a minion using a DamageInfo. SPELL_IMMUNE blocks SPELL-source damage;
+## ETHEREAL amplifies SPELL-source damage by 50%. Source-keyed (not school-keyed) so the
+## existing keywords keep their meaning under the new model.
+func apply_damage_to_minion(minion: MinionInstance, info: Dictionary) -> void:
+	var source: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
+	if source == Enums.DamageSource.SPELL:
+		if minion.has_spell_immune():
+			return
+		if minion.has_ethereal():
+			var amount: int = info.get("amount", 0)
+			info = info.duplicate()
+			info["amount"] = amount + amount / 2
+	_deal_damage(minion, info)
+
+## Build a DamageInfo for a minion basic attack (or counter-attack / pierce carry).
+## Source = MINION; school = PHYSICAL (default for basic attacks). attacker is the
+## minion whose attack this is — counters set attacker = the defender, since *that*
+## minion's effective_atk drives the counter damage. Faction/talent-based school
+## overrides will hook here in a future phase per design/DAMAGE_TYPE_SYSTEM.md.
+func _attack_damage_info(amount: int, attacker: MinionInstance) -> Dictionary:
+	var card_id: String = ""
+	if attacker != null and attacker.card_data != null:
+		card_id = attacker.card_data.id
+	return make_damage_info(amount, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL, attacker, card_id)
+
 
 ## Instantly kill a minion, bypassing shield and health checks.
 ## Fires minion_vanished so On Death effects and board cleanup happen normally.
@@ -209,7 +254,7 @@ func _apply_crit(attacker: MinionInstance) -> int:
 func apply_crit_spell_damage(minion: MinionInstance, damage: int, multiplier: float) -> void:
 	if minion.has_spell_immune():
 		return
-	_deal_damage(minion, int(damage * multiplier), Enums.DamageType.SPELL)
+	_deal_damage(minion, make_damage_info(int(damage * multiplier), Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "dark_channeling_crit"))
 
 # ---------------------------------------------------------------------------
 # Board helpers
@@ -230,7 +275,9 @@ func _rift_warden_siphon(defender: MinionInstance, prevented: int) -> void:
 	for m: MinionInstance in board:
 		if (m.card_data as MinionCardData).passive_effect_id == "rift_warden_siphon":
 			var target_owner := "player" if defender.owner == "enemy" else "enemy"
-			hero_damaged.emit(target_owner, prevented, Enums.DamageType.SPELL)
+			# Rift Warden re-emits prevented damage as SPELL-source (passive ability).
+			var info := make_damage_info(prevented, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, m, "rift_warden_siphon")
+			apply_hero_damage(target_owner, info)
 			return  # only one siphon per attack
 
 ## Siphon keyword — heal the attacker by 50% of damage dealt, clamped to max HP.
@@ -277,9 +324,11 @@ func _post_crit(attacker: MinionInstance) -> void:
 			targets.append("hero")  # hero is always a valid target
 			var pick: Variant = targets[randi() % targets.size()]
 			if pick is MinionInstance:
-				apply_spell_damage(pick as MinionInstance, 100)
+				var m_info := make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, attacker, "champion_void_captain")
+				apply_damage_to_minion(pick as MinionInstance, m_info)
 			else:
-				hero_damaged.emit("player", 100, Enums.DamageType.SPELL)
+				var h_info := make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, attacker, "champion_void_captain")
+				apply_hero_damage("player", h_info)
 	# Champion void_scout tracking is handled via _enemy_crits_consumed counter
 	# (incremented in _apply_crit, checked by champion handler on turn events)
 

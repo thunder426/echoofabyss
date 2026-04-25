@@ -358,6 +358,18 @@ var condition_active: bool = false
 var _glow_pulse: float = 0.0   # 0..1, animated by tween on hover
 var _glow_tween: Tween = null
 var _glow_overlay: Panel = null
+var _type_glow: Panel = null
+var _type_glow_style: StyleBoxFlat = null
+var _type_glow_tween: Tween = null
+
+# Per-type glow tint — drawn as a StyleBoxFlat drop-shadow that bleeds outside
+# the card frame. Only shown on large previews (deck builder, combat hover/cast).
+const _TYPE_GLOW_COLORS: Dictionary = {
+	Enums.CardType.MINION:      Color(0.70, 0.30, 1.00, 0.75),  # purple
+	Enums.CardType.SPELL:       Color(0.30, 0.65, 1.00, 0.75),  # blue
+	Enums.CardType.TRAP:        Color(0.75, 0.45, 0.15, 0.75),  # brown
+	Enums.CardType.ENVIRONMENT: Color(0.20, 0.55, 0.25, 0.75),  # dark green
+}
 
 # Scale constants — hover/select uses scale so HBoxContainer layout is unaffected
 const SCALE_NORMAL   := Vector2(1.0, 1.0)
@@ -397,6 +409,8 @@ var size_mode:  String = "default"
 
 func _ready() -> void:
 	_find_nodes()
+	_create_type_glow()
+	_update_type_glow_for_mode(size_mode, size)
 	_glow_overlay = Panel.new()
 	_glow_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_glow_overlay.offset_left   = -4
@@ -566,6 +580,7 @@ func setup(data: CardData) -> void:
 
 	_apply_font_scale()
 	_refresh_playable_state()
+	_apply_type_glow_color(data.card_type)
 
 # ---------------------------------------------------------------------------
 # Frame config apply — resolves texture, layout, and _frame_style in one call
@@ -840,6 +855,90 @@ func apply_size_mode(mode: String) -> void:
 	font_scale = cfg["font_scale"]
 	custom_minimum_size = cfg["card_size"]
 	size = cfg["card_size"]
+	_update_type_glow_for_mode(mode, cfg["card_size"])
+
+# ---------------------------------------------------------------------------
+# Type glow — subtle halo behind the card frame, tinted by card type.
+# Only rendered on the large previews (deck builder + combat hover/cast).
+# ---------------------------------------------------------------------------
+
+func _create_type_glow() -> void:
+	if _type_glow != null:
+		return
+	_type_glow = Panel.new()
+	_type_glow.name = "TypeGlow"
+	_type_glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_type_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_type_glow.visible = false
+	_type_glow.show_behind_parent = false
+	_type_glow_style = StyleBoxFlat.new()
+	_type_glow_style.draw_center = false
+	_type_glow_style.bg_color = Color(0, 0, 0, 0)
+	_type_glow_style.corner_radius_top_left = 6
+	_type_glow_style.corner_radius_top_right = 6
+	_type_glow_style.corner_radius_bottom_left = 6
+	_type_glow_style.corner_radius_bottom_right = 6
+	_type_glow_style.shadow_color = Color(1, 1, 1, 0)
+	_type_glow_style.shadow_size = 24
+	_type_glow_style.shadow_offset = Vector2.ZERO
+	_type_glow.add_theme_stylebox_override("panel", _type_glow_style)
+	add_child(_type_glow)
+	# Sit above the opaque Background but below ArtRect / FrameTexture so the
+	# shadow bleeds *inward* through the frame's semi-transparent border pixels
+	# and *outward* past the card edge — reads as one continuous halo.
+	move_child(_type_glow, 1)
+
+func _update_type_glow_for_mode(mode: String, card_size: Vector2) -> void:
+	if _type_glow == null or _type_glow_style == null:
+		return
+	var show_glow: bool = mode == "deck_preview" or mode == "combat_preview"
+	_type_glow.visible = show_glow
+	if not show_glow:
+		_stop_type_glow_pulse()
+		return
+	# Inset the glow rect inside the card so the shadow starts at the frame
+	# border and radiates outward in both directions — covering the frame's
+	# semi-transparent border pixels AND extending past the card edge.
+	var inset_x: float = card_size.x * 0.045
+	var inset_y: float = card_size.y * 0.045
+	_type_glow.anchor_left   = 0.0
+	_type_glow.anchor_top    = 0.0
+	_type_glow.anchor_right  = 1.0
+	_type_glow.anchor_bottom = 1.0
+	_type_glow.offset_left   =  inset_x
+	_type_glow.offset_top    =  inset_y
+	_type_glow.offset_right  = -inset_x
+	_type_glow.offset_bottom = -inset_y
+	# Shadow reach = inward to card edge + outward halo past the card.
+	_type_glow_style.shadow_size = int(round(card_size.x * 0.11))
+	if card_data != null:
+		_apply_type_glow_color(card_data.card_type)
+	_start_type_glow_pulse()
+
+func _start_type_glow_pulse() -> void:
+	if _type_glow == null:
+		return
+	_stop_type_glow_pulse()
+	# Slow "breathing" — tween self_modulate.a so the shadow alpha cycles
+	# smoothly. Uses self_modulate so the per-type shadow_color stays intact.
+	_type_glow.self_modulate = Color(1, 1, 1, 0.55)
+	_type_glow_tween = create_tween()
+	_type_glow_tween.set_loops()
+	_type_glow_tween.set_trans(Tween.TRANS_SINE)
+	_type_glow_tween.set_ease(Tween.EASE_IN_OUT)
+	_type_glow_tween.tween_property(_type_glow, "self_modulate:a", 1.0,  1.8)
+	_type_glow_tween.tween_property(_type_glow, "self_modulate:a", 0.55, 1.8)
+
+func _stop_type_glow_pulse() -> void:
+	if _type_glow_tween != null:
+		_type_glow_tween.kill()
+		_type_glow_tween = null
+
+func _apply_type_glow_color(card_type: int) -> void:
+	if _type_glow_style == null:
+		return
+	var col: Color = _TYPE_GLOW_COLORS.get(card_type, Color(1, 1, 1, 0))
+	_type_glow_style.shadow_color = col
 
 ## Shrink desc font size until the content fits within the label's visible height.
 ## Called deferred so the label has completed layout and content_height is accurate.

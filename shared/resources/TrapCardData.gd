@@ -32,6 +32,11 @@ extends CardData
 ## TriggerEvent the rune's primary aura handler listens to. -1 = no handler.
 @export var aura_trigger: int = -1
 
+## Optional additional TriggerEvent that fires the SAME aura_effect_steps as aura_trigger.
+## Used by runes that should react to both death and sacrifice (e.g. Blood Rune heals on
+## a friendly minion either dying OR being sacrificed). -1 = no extra trigger.
+@export var aura_extra_trigger: int = -1
+
 ## Steps run by EffectResolver when the primary aura trigger fires.
 @export var aura_effect_steps: Array = []
 

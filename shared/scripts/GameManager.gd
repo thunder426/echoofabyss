@@ -158,16 +158,27 @@ func _act_for_index(index: int) -> int:
 ##   Act 2 → common + rare; Acts 3 & 4 → all rarities.
 func grant_boss_unlocks(act_number: int) -> void:
 	# Gather all support pool cards relevant to the current hero + talents.
+	# Talent-pool checks are nested inside the hero gate so a future shared talent
+	# id can't cross-contaminate the other hero's pool.
 	var candidates: Array[String] = []
 	if current_hero == "lord_vael":
 		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_common"]))
-	if has_talent("piercing_void"):
-		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_piercing_void"]))
-	if has_talent("imp_evolution"):
-		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_endless_tide"]))
-	if has_talent("rune_caller"):
-		candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_rune_master"]))
-	# Future support pools (other heroes / talents) appended here.
+		if has_talent("piercing_void"):
+			candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_piercing_void"]))
+		if has_talent("imp_evolution"):
+			candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_endless_tide"]))
+		if has_talent("rune_caller"):
+			candidates.append_array(CardDatabase.get_card_ids_in_pools(["vael_rune_master"]))
+	elif current_hero == "seris":
+		candidates.append_array(CardDatabase.get_card_ids_in_pools(["seris_common"]))
+		if has_talent("flesh_infusion"):
+			candidates.append_array(CardDatabase.get_card_ids_in_pools(["seris_fleshcraft"]))
+		if has_talent("soul_forge"):
+			# soul_shatter is dual-pooled (vael_common + seris_demon_forge); pulled in here for Seris.
+			candidates.append_array(CardDatabase.get_card_ids_in_pools(["seris_demon_forge"]))
+		if has_talent("corrupt_flesh"):
+			# font_of_the_depths is dual-pooled (vael_piercing_void + seris_corruption); pulled in here for Seris.
+			candidates.append_array(CardDatabase.get_card_ids_in_pools(["seris_corruption"]))
 
 	# Roll each candidate whose act_gate <= current act and not yet unlocked.
 	last_boss_unlocks.clear()

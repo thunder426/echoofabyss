@@ -94,7 +94,15 @@ func _get_active_support_pool_ids() -> Array[String]:
 		if GameManager.has_talent("rune_caller"):
 			ids.append_array(CardDatabase.get_card_ids_in_pools(["vael_rune_master"]))
 	elif GameManager.current_hero == "seris":
-		ids.append_array(CardDatabase.get_card_ids_in_pools(["seris_starter"]))
+		ids.append_array(CardDatabase.get_card_ids_in_pools(["seris_common"]))
+		if GameManager.has_talent("flesh_infusion"):
+			ids.append_array(CardDatabase.get_card_ids_in_pools(["seris_fleshcraft"]))
+		if GameManager.has_talent("soul_forge"):
+			# soul_shatter is in this pool via its dual-pool entry in CardDatabase._card_pools.
+			ids.append_array(CardDatabase.get_card_ids_in_pools(["seris_demon_forge"]))
+		if GameManager.has_talent("corrupt_flesh"):
+			# font_of_the_depths is in this pool via its dual-pool entry in CardDatabase._card_pools.
+			ids.append_array(CardDatabase.get_card_ids_in_pools(["seris_corruption"]))
 	return ids
 
 func _build_card_phase_ui() -> void:

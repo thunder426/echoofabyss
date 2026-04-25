@@ -156,7 +156,7 @@ func _build_list() -> void:
 			continue
 		if _filter_status == 2 and is_unlocked:
 			continue
-		if _filter_pool != "" and card.pool != _filter_pool:
+		if _filter_pool != "" and not (_filter_pool in card.pools):
 			continue
 		visible_ids.append(card_id)
 
@@ -170,12 +170,18 @@ func _build_list() -> void:
 		return
 
 	# --- Sort: pool asc, then act_gate asc, then name ---
+	# Cards in multiple pools sort by their first pool entry (the order they're listed
+	# in CardDatabase._card_pools) — stable across builds.
 	var pool_order := {"vael_common": 0, "vael_piercing_void": 1, "vael_endless_tide": 2, "vael_rune_master": 3, "feral_imp_clan": 4, "abyss_cultist_clan": 5, "void_rift": 6, "void_castle": 7}
+	var first_pool_for := func(card: CardData) -> String:
+		if card == null or card.pools.is_empty():
+			return ""
+		return card.pools[0]
 	visible_ids.sort_custom(func(a: String, b: String) -> bool:
 		var ca := CardDatabase.get_card(a)
 		var cb := CardDatabase.get_card(b)
-		var pa: int = pool_order.get(ca.pool if ca else "", 99)
-		var pb: int = pool_order.get(cb.pool if cb else "", 99)
+		var pa: int = pool_order.get(first_pool_for.call(ca), 99)
+		var pb: int = pool_order.get(first_pool_for.call(cb), 99)
 		if pa != pb:
 			return pa < pb
 		var ra: int = ca.act_gate if ca else 99
@@ -213,11 +219,17 @@ func _build_list() -> void:
 		if not is_unlocked:
 			row.modulate = Color(0.45, 0.45, 0.50, 1)
 
-		var pool_display: String = _pool_display_name(card.pool)
+		# Comma-join all pools the card belongs to (e.g. "Vael Common, Demon Forge").
+		# Color uses the first pool — visually consistent with sort order.
+		var pool_displays: Array[String] = []
+		for p in card.pools:
+			pool_displays.append(_pool_display_name(p))
+		var pool_display: String = ", ".join(pool_displays) if not pool_displays.is_empty() else ""
+		var primary_pool: String = card.pools[0] if not card.pools.is_empty() else ""
 		_add_cell(row, "🔓" if is_unlocked else "🔒", 28, HORIZONTAL_ALIGNMENT_CENTER,
 			Color(1, 1, 1, 1))
 		_add_cell(row, pool_display, 130, HORIZONTAL_ALIGNMENT_LEFT,
-			_pool_color(card.pool))
+			_pool_color(primary_pool))
 		_add_cell(row, _act_gate_label(card.act_gate), 100, HORIZONTAL_ALIGNMENT_LEFT,
 			_act_gate_color(card.act_gate))
 		_add_cell(row, _type_str(card.card_type), 60, HORIZONTAL_ALIGNMENT_LEFT,

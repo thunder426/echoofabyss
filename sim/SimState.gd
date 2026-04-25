@@ -69,11 +69,15 @@ var enemy_mana_max:     int = 0
 
 var player_deck:    Array[CardInstance] = []
 var player_hand:    Array[CardInstance] = []
-var player_discard: Array[CardInstance] = []
+## Unified player graveyard — every card the player plays this combat is appended
+## here (minions, spells, traps, runes, environments) at play time. Each entry has
+## its `resolved_on_turn` stamped at append time. Full-combat record.
+var player_graveyard: Array[CardInstance] = []
 
 var enemy_deck:    Array[CardInstance] = []
 var enemy_hand:    Array[CardInstance] = []
-var enemy_discard: Array[CardInstance] = []
+## Unified enemy graveyard — mirror of player_graveyard for the enemy side.
+var enemy_graveyard: Array[CardInstance] = []
 var enemy_limited_cards: Array[String] = []
 
 # ---------------------------------------------------------------------------
@@ -220,7 +224,7 @@ var talents: Array[String] = []
 ## Hero passive IDs for the current hero. Set by CombatSim before SimTriggerSetup.setup().
 var hero_passives: Array[String] = []
 
-## Active passive IDs for the current enemy encounter (e.g. ["feral_instinct", "pack_instinct"]).
+## Active passive IDs for the current enemy encounter (e.g. ["pack_instinct"]).
 ## Set by CombatSim before calling SimTriggerSetup.setup().
 var enemy_passives: Array[String] = []
 
@@ -230,9 +234,6 @@ var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
 
 ## Imp Evolution once-per-turn gate — reset at the start of each player turn.
 var imp_evolution_used_this_turn: bool = false
-
-## Feral Instinct once-per-turn gate — reset at ON_ENEMY_TURN_START.
-var feral_instinct_granted_this_turn: bool = false
 
 ## Act 4 passive stats — set dynamically by CombatSetup via scene.set().
 var _vp_pre_crit_stacks: int = 0
@@ -410,13 +411,21 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		ctx.attacker = _last_attacker
 		trigger_manager.fire(ctx)
 
-func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enums.DamageType.PHYSICAL) -> void:
+func _on_hero_damaged(target: String, info: Dictionary) -> void:
+	var amount: int = info.get("amount", 0)
+	var src: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
 	if target == "player":
 		if _relic_hero_immune:
 			return  # Bone Shield: immune this turn
 		player_hp -= amount
 		if player_hp <= 0 and winner.is_empty():
 			winner = "enemy"
+			return
+		# Mirror live combat: fire ON_HERO_DAMAGED so handlers (traps, passives) react.
+		var _pctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
+		_pctx.damage = amount
+		_pctx.damage_info = info
+		trigger_manager.fire(_pctx)
 	else:
 		enemy_hp -= amount
 		if dmg_log_enabled:
@@ -424,7 +433,7 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 				pass  # already split-logged in _deal_void_bolt_damage
 			else:
 				var source: String = _pending_dmg_source if not _pending_dmg_source.is_empty() \
-					else ("minion_atk" if type == Enums.DamageType.PHYSICAL else "spell_onplay")
+					else ("minion_atk" if src == Enums.DamageSource.MINION else "spell_onplay")
 				dmg_log.append({turn = _current_turn, amount = amount, source = source})
 			_pending_dmg_source = ""
 		if enemy_hp <= 0 and winner.is_empty():
@@ -434,6 +443,12 @@ func _on_hero_damaged(target: String, amount: int, type: Enums.DamageType = Enum
 			if pt.attempt(self):
 				return
 			winner = "player"
+			return
+		# Mirror live combat: fire ON_ENEMY_HERO_DAMAGED so handlers can react.
+		var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
+		_ectx.damage = amount
+		_ectx.damage_info = info
+		trigger_manager.fire(_ectx)
 
 func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":
@@ -479,8 +494,14 @@ func _consume_fiendish_pact_discount() -> void:
 		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
 			inst.cost_delta = 0
 
-func _spell_dmg(minion: MinionInstance, amount: int) -> void:
-	combat_manager.apply_spell_damage(minion, amount + _player_spell_damage_bonus)
+func _spell_dmg(minion: MinionInstance, amount: int, info: Dictionary = {}) -> void:
+	var total := amount + _player_spell_damage_bonus
+	if info.is_empty():
+		info = CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE)
+	else:
+		info = info.duplicate()
+		info["amount"] = total
+	combat_manager.apply_damage_to_minion(minion, info)
 
 func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
 	var base := CardDatabase.get_card(card_id)
@@ -551,8 +572,102 @@ func _forge_counter_tick(amount: int = 1) -> bool:
 func _forge_counter_reset() -> void:
 	forge_counter = 0
 
+## Sim mirror of CombatScene._summon_forged_demon — summons + applies Abyssal Forge auras.
+func _summon_forged_demon() -> void:
+	_summon_token("forged_demon", "player")
+	var forged: MinionInstance = null
+	for i in range(player_board.size() - 1, -1, -1):
+		var m: MinionInstance = player_board[i]
+		if m.card_data.id == "forged_demon":
+			forged = m
+			break
+	if forged != null and _has_talent("abyssal_forge"):
+		if player_flesh >= 5 and _spend_flesh(5):
+			forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
+		else:
+			var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
+			forged.aura_tags = [roll]
+
+## Sim mirror of CombatScene._gain_forge_counter.
+func _gain_forge_counter(amount: int = 1) -> bool:
+	if amount <= 0 or not _has_talent("soul_forge"):
+		return false
+	var summoned := false
+	while amount > 0:
+		var step := mini(amount, forge_counter_threshold)
+		amount -= step
+		if _forge_counter_tick(step):
+			_summon_forged_demon()
+			_forge_counter_reset()
+			summoned = true
+	return summoned
+
 func _on_flesh_changed() -> void:
 	pass
+
+## Sim mirror of CombatScene._heal_minion — HP math only, no logging / UI.
+func _heal_minion(minion: MinionInstance, amount: int) -> void:
+	if minion == null or amount <= 0 or minion.current_health <= 0:
+		return
+	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
+	minion.current_health = mini(minion.current_health + amount, hp_cap)
+
+## Sim mirror of CombatScene._heal_minion_full.
+func _heal_minion_full(minion: MinionInstance) -> void:
+	if minion == null or minion.current_health <= 0:
+		return
+	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
+	minion.current_health = hp_cap
+
+## Sim mirror of CombatScene._sacrifice_minion. Sacrifice is NOT death — fires ON LEAVE
+## and ON_*_MINION_SACRIFICED but NOT ON_*_MINION_DIED.
+func _sacrifice_minion(minion: MinionInstance) -> void:
+	if minion == null:
+		return
+	# Step 1 — declarative ON LEAVE steps.
+	var card_data := minion.card_data as MinionCardData
+	if card_data != null and not card_data.on_leave_effect_steps.is_empty():
+		var leave_ctx := EffectContext.make(self, minion.owner)
+		leave_ctx.source         = minion
+		leave_ctx.source_card_id = card_data.id
+		EffectResolver.run(card_data.on_leave_effect_steps, leave_ctx)
+	# Step 2 — corruption removal still fires.
+	if trigger_manager != null:
+		var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
+		if pre_corruption > 0:
+			var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+			rm_ctx.minion = minion
+			rm_ctx.damage = pre_corruption
+			trigger_manager.fire(rm_ctx)
+		# Step 3 — sacrifice event.
+		var sac_event := Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED if minion.owner == "player" \
+			else Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED
+		var sac_ctx := EventContext.make(sac_event, minion.owner)
+		sac_ctx.minion = minion
+		trigger_manager.fire(sac_ctx)
+	# Step 4 — silent removal.
+	player_board.erase(minion)
+	enemy_board.erase(minion)
+	for slot in player_slots:
+		if slot.minion == minion:
+			slot.minion = null
+			break
+	for slot in enemy_slots:
+		if slot.minion == minion:
+			slot.minion = null
+			break
+
+## Sim mirror of CombatScene._add_kill_stacks.
+func _add_kill_stacks(minion: MinionInstance, count: int = 1) -> void:
+	if minion == null or count <= 0:
+		return
+	minion.kill_stacks += count
+	if _has_talent("flesh_infusion"):
+		BuffSystem.apply(minion, Enums.BuffType.ATK_BONUS, 100 * count, "grafted_constitution", false, false)
+		BuffSystem.apply_hp_gain(minion, 100 * count, "grafted_constitution", true)
+	if _has_talent("predatory_surge") and minion.kill_stacks >= 3 \
+			and not BuffSystem.has_type(minion, Enums.BuffType.GRANT_SIPHON):
+		BuffSystem.apply(minion, Enums.BuffType.GRANT_SIPHON, 1, "predatory_surge", false, false)
 
 func _on_forge_changed() -> void:
 	pass
@@ -572,19 +687,7 @@ func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
 	if not _has_talent("soul_forge"):
 		return
 	if _forge_counter_tick(1):
-		_summon_token("forged_demon", "player")
-		var forged: MinionInstance = null
-		for i in range(player_board.size() - 1, -1, -1):
-			var m: MinionInstance = player_board[i]
-			if m.card_data.id == "forged_demon":
-				forged = m
-				break
-		if forged != null and _has_talent("abyssal_forge"):
-			if player_flesh >= 5 and _spend_flesh(5):
-				forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
-			else:
-				var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
-				forged.aura_tags = [roll]
+		_summon_forged_demon()
 		_forge_counter_reset()
 
 ## Seris — mirror of CombatScene._pre_player_spell_cast. Computes the Void
@@ -719,7 +822,11 @@ func _try_save_from_death(minion: MinionInstance) -> bool:
 		return true
 	return false
 
-func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, _from_rune: bool = false) -> void:
+## is_minion_emitted: when true, the emitted DamageInfo carries MINION source instead
+## of SPELL — used by talent paths (void_manifestation, piercing_void) that retag a
+## minion attack/effect into a Void Bolt. Default false preserves spell-cast and
+## triggered-passive semantics. Mirrors CombatScene._deal_void_bolt_damage.
+func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, _from_rune: bool = false, is_minion_emitted: bool = false) -> void:
 	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
 	var total: int = base_damage + bonus
 	# Determine base source label
@@ -733,10 +840,12 @@ func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = n
 		if bonus > 0:
 			dmg_log.append({turn = _current_turn, amount = bonus, source = "void_mark"})
 		_pending_dmg_source = "__logged__"  # signal _on_hero_damaged to skip logging
-	combat_manager.apply_hero_damage("enemy", total, Enums.DamageType.VOID_BOLT)
+	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
+	combat_manager.apply_hero_damage("enemy",
+			CombatManager.make_damage_info(total, src, Enums.DamageSchool.VOID_BOLT, _source_minion, base_source))
 	_void_bolt_total_dmg += total
 
-func _deal_enemy_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null) -> void:
+func _deal_enemy_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
 	var base_source: String = _pending_dmg_source
 	if base_source.is_empty():
 		base_source = "enemy_void_bolt"
@@ -744,7 +853,9 @@ func _deal_enemy_void_bolt_damage(base_damage: int, _source_minion: MinionInstan
 	if dmg_log_enabled:
 		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
 		_pending_dmg_source = "__logged__"
-	combat_manager.apply_hero_damage("player", base_damage, Enums.DamageType.VOID_BOLT)
+	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
+	combat_manager.apply_hero_damage("player",
+			CombatManager.make_damage_info(base_damage, src, Enums.DamageSchool.VOID_BOLT, _source_minion, base_source))
 
 func _void_mark_damage_per_stack() -> int:
 	return void_mark_damage_per_stack
@@ -791,6 +902,10 @@ func _friendly_slots(owner: String) -> Array:
 
 func _friendly_traps(owner: String) -> Array:
 	return active_traps if owner == "player" else enemy_active_traps
+
+## Return the unified card graveyard belonging to the given owner. Mirror of CombatScene._friendly_graveyard.
+func _friendly_graveyard(owner: String) -> Array:
+	return player_graveyard if owner == "player" else enemy_graveyard
 
 func _opponent_traps(owner: String) -> Array:
 	return _friendly_traps(_opponent_of(owner))
@@ -875,14 +990,20 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.from_rune = true
+			ctx.source_rune = rune
 			EffectResolver.run(rune.aura_effect_steps, ctx)
 		trigger_manager.register(trigger, h, 20)
 		entries.append({event = trigger, handler = h})
+		if rune.aura_extra_trigger >= 0:
+			var extra_trigger: int = rune.aura_extra_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_extra_trigger as Enums.TriggerEvent)
+			trigger_manager.register(extra_trigger, h, 20)
+			entries.append({event = extra_trigger, handler = h})
 	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
 		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
 		var h2 := func(event_ctx: EventContext):
 			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
+			ctx.source_rune = rune
 			EffectResolver.run(rune.aura_secondary_steps, ctx)
 		trigger_manager.register(sec_trigger, h2, 20)
 		entries.append({event = sec_trigger, handler = h2})
@@ -1024,12 +1145,12 @@ func _draw_player(count: int) -> void:
 			ctx.card = inst.card_data
 			trigger_manager.fire(ctx)
 
-## Rebuild the enemy deck/hand/discard from a fresh card-id list. Used by the
+## Rebuild the enemy deck/hand/graveyard from a fresh card-id list. Used by the
 ## F15 phase transition to swap the Sovereign's deck between P1 and P2.
 func setup_enemy_deck(card_ids: Array[String]) -> void:
 	enemy_deck.clear()
 	enemy_hand.clear()
-	enemy_discard.clear()
+	enemy_graveyard.clear()
 	for id in card_ids:
 		var card := CardDatabase.get_card(id)
 		if card:

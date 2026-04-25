@@ -131,20 +131,29 @@ func _build_ui() -> void:
 	_dmg_input.custom_minimum_size = Vector2(110, 0)
 	dmg_row.add_child(_dmg_input)
 
+	# Cheat buttons route through combat_manager.apply_hero_damage so the full
+	# pipeline (signals, triggers, VFX) runs — same path as in-game damage.
+	# Tagged with source_card="cheat_panel" for log attribution.
 	var dmg_player := Button.new()
 	dmg_player.text = "Dmg Player"
-	dmg_player.pressed.connect(func(): _scene._on_hero_damaged("player", int(_dmg_input.value)))
+	dmg_player.pressed.connect(func():
+		_scene.combat_manager.apply_hero_damage("player",
+				CombatManager.make_damage_info(int(_dmg_input.value), Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cheat_panel")))
 	dmg_row.add_child(dmg_player)
 
 	var dmg_enemy := Button.new()
 	dmg_enemy.text = "Dmg Enemy"
-	dmg_enemy.pressed.connect(func(): _scene._on_hero_damaged("enemy", int(_dmg_input.value)))
+	dmg_enemy.pressed.connect(func():
+		_scene.combat_manager.apply_hero_damage("enemy",
+				CombatManager.make_damage_info(int(_dmg_input.value), Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cheat_panel")))
 	dmg_row.add_child(dmg_enemy)
 
 	var kill_enemy := Button.new()
 	kill_enemy.text = "Kill Enemy (5000)"
 	kill_enemy.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35, 1.0))
-	kill_enemy.pressed.connect(func(): _scene._on_hero_damaged("enemy", 5000))
+	kill_enemy.pressed.connect(func():
+		_scene.combat_manager.apply_hero_damage("enemy",
+				CombatManager.make_damage_info(5000, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cheat_panel")))
 	dmg_row.add_child(kill_enemy)
 
 	var heal_row := HBoxContainer.new()

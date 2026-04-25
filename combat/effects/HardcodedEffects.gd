@@ -113,6 +113,9 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			_brood_call(ctx)
 		"pack_frenzy":
 			_pack_frenzy(ctx)
+		# --- Seris Corruption Engine ---
+		"voidshaped_acolyte_place_rune":
+			_voidshaped_acolyte_place_rune(ctx)
 
 # ---------------------------------------------------------------------------
 # Spell effects
@@ -125,12 +128,14 @@ func _soul_shatter(ctx: EffectContext) -> void:
 		return
 	var pre_hp: int = demon.current_health
 	SacrificeSystem.sacrifice(_scene, demon, "soul_shatter")
-	_scene.combat_manager.kill_minion(demon)
 	var dmg := 300 if pre_hp >= 300 else 200
 	var ls := _log_side(ctx.owner)
 	_log("  Soul Shatter: sacrifice had %d HP — %d AoE to all %s minions." % [pre_hp, dmg, _scene._opponent_of(ctx.owner)], ls)
+	# abyss_order spell — VOID school per Phase 7 audit rule. (Hardcoded handler so
+	# the school can't live on a damage_school field; declared at the call site.)
+	var ss_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "soul_shatter")
 	for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
-		_scene._spell_dmg(m, dmg)
+		_scene._spell_dmg(m, dmg, ss_info)
 
 ## Seris Starter — Grafted Butcher ON PLAY: sacrifice chosen friendly minion, then 200 AoE to opponent board.
 ## chosen_target is the sac target (picked via on_play_target_type = "friendly_minion_other").
@@ -146,13 +151,15 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 	if sac_slot != null and is_instance_valid(sac_slot):
 		sac_center = sac_slot.global_position + sac_slot.size * 0.5
 	SacrificeSystem.sacrifice(_scene, sac, "grafted_butcher")
-	_scene.combat_manager.kill_minion(sac)
 	_log("  Grafted Butcher: sacrificed %s — 200 AoE to all %s minions." % [sac.card_data.card_name, _scene._opponent_of(ctx.owner)], ls)
 	# Play the VFX (skip in sim) and sync the AoE damage with its impact beat.
 	if _scene.has_method("_play_grafted_butcher_vfx"):
 		await _scene._play_grafted_butcher_vfx(ctx.source, sac_center, ctx.owner)
+	# Grafted Butcher is a minion ON-PLAY effect — MINION-source per design rule.
+	# Attacker is the butcher itself (ctx.source) for attribution.
+	var gb_info := CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, ctx.source, "grafted_butcher")
 	for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
-		_scene._spell_dmg(m, 200)
+		_scene._spell_dmg(m, 200, gb_info)
 
 ## Seris Starter — Fiendish Pact: arm a pending 2-Mana discount for the NEXT Demon played this turn.
 ## The discount is consumed on the first Demon played (see CombatScene._consume_fiendish_pact_discount
@@ -241,7 +248,8 @@ func _abyss_ritual_circle_passive(ctx: EffectContext) -> void:
 	if not all_minions.is_empty():
 		var hit: MinionInstance = all_minions[randi() % all_minions.size()]
 		_log("  Abyss Ritual Circle: 100 damage to %s." % hit.card_data.card_name, ls)
-		_scene._spell_dmg(hit, 100)
+		_scene._spell_dmg(hit, 100,
+				CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "abyss_ritual_circle"))
 
 # ---------------------------------------------------------------------------
 # Ritual effects
@@ -252,10 +260,11 @@ func _demon_ascendant(ctx: EffectContext) -> void:
 	var ls := _log_side(ctx.owner)
 	var opponent: String = _scene._opponent_of(ctx.owner)
 	_log("  Demon Ascendant: deal 200 damage to 2 random %s minions." % opponent, ls)
+	var da_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "demon_ascendant")
 	for _i in 2:
 		var target_m: MinionInstance = _scene._find_random_minion(_scene._opponent_board(ctx.owner))
 		if target_m:
-			_scene._spell_dmg(target_m, 200)
+			_scene._spell_dmg(target_m, 200, da_info)
 	_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", ls)
 	for slot in (_scene._friendly_slots(ctx.owner) as Array):
 		if slot.is_empty():
@@ -331,16 +340,17 @@ func _runic_blast(ctx: EffectContext) -> void:
 	for t in (_scene._friendly_traps(ctx.owner) as Array):
 		if (t as TrapCardData).is_rune:
 			rune_count += 1
+	var rb_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "runic_blast")
 	if rune_count >= 2:
 		_log("  Runic Blast: 2+ Runes active — 200 damage to ALL %s minions!" % opponent, ls)
 		for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
-			_scene._spell_dmg(m, 200)
+			_scene._spell_dmg(m, 200, rb_info)
 	else:
 		_log("  Runic Blast: 200 damage to 2 random %s minions." % opponent, ls)
 		for _i in 2:
 			var target_m: MinionInstance = _scene._find_random_minion(_scene._opponent_board(ctx.owner))
 			if target_m:
-				_scene._spell_dmg(target_m, 200)
+				_scene._spell_dmg(target_m, 200, rb_info)
 
 ## #10 — runic_echo: symmetric — copies owner's runes to owner's hand
 func _runic_echo(ctx: EffectContext) -> void:
@@ -362,6 +372,7 @@ func _echo_rune_fire(ctx: EffectContext) -> void:
 	if last_rune and not last_rune.aura_effect_steps.is_empty():
 		_log("  Echo Rune: fires %s's effect." % last_rune.card_name, _LOG_TRAP)
 		var eff_ctx := EffectContext.make(_scene, ctx.owner)
+		eff_ctx.source_rune = last_rune
 		EffectResolver.run(last_rune.aura_effect_steps, eff_ctx)
 
 
@@ -382,10 +393,14 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 		return
 	_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _log_side(ctx.owner))
 	var target_ref: MinionInstance = frenzied_target
+	var src_ref: MinionInstance = ctx.source
 	var apply_damage := func() -> void:
 		if target_ref == null or not is_instance_valid(target_ref) or target_ref.current_health <= 0:
 			return
-		_scene._spell_dmg(target_ref, dmg)
+		# Minion-emitted effect → MINION source, NONE school (per design rule:
+		# only piercing_void talent retags Void minion damage; default is NONE).
+		_scene._spell_dmg(target_ref, dmg,
+				CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, src_ref, "frenzied_imp"))
 	# Live scene plays VFX (with impact-synced damage). Sim skips and applies immediately.
 	if _scene.has_method("_play_frenzied_imp_vfx"):
 		await _scene._play_frenzied_imp_vfx(ctx.source, frenzied_target, feral_count, apply_damage)
@@ -399,7 +414,10 @@ func _void_screech(ctx: EffectContext) -> void:
 		if _scene._minion_has_tag(m, "feral_imp"):
 			feral_on_board += 1
 	var screech_dmg := 350 if feral_on_board >= 3 else 250
-	_scene.combat_manager.apply_hero_damage(_scene._opponent_of(ctx.owner), screech_dmg, Enums.DamageType.SPELL)
+	# Void Screech is a minion-emitted effect (ctx.source is the screeching imp). MINION source.
+	var src: Enums.DamageSource = Enums.DamageSource.MINION if ctx.source != null else Enums.DamageSource.SPELL
+	_scene.combat_manager.apply_hero_damage(_scene._opponent_of(ctx.owner),
+			CombatManager.make_damage_info(screech_dmg, src, Enums.DamageSchool.NONE, ctx.source, "void_screech"))
 	_log("  Void Screech: %d damage to hero (%d feral imps)." % [screech_dmg, feral_on_board], _log_side(ctx.owner))
 
 func _brood_call(ctx: EffectContext) -> void:
@@ -447,6 +465,32 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 	if ancient_active:
 		frenzy_msg += " and LIFEDRAIN (Ancient Frenzy)"
 	_log(frenzy_msg + ".", _log_side(ctx.owner))
+
+# ---------------------------------------------------------------------------
+# Seris Corruption Engine effects
+# ---------------------------------------------------------------------------
+
+## Voidshaped Acolyte ON PLAY: place a Shadow Rune on the OPPONENT's battlefield.
+## The rune is owned by the opponent, so its corruption-on-summon trigger fires for
+## minions entering the opponent's board — which from the caster's perspective means
+## the *caster's* friendly Demons (with corrupt_flesh: those entries become +100 ATK).
+## Symmetric: works correctly whichever side casts.
+func _voidshaped_acolyte_place_rune(ctx: EffectContext) -> void:
+	var opponent: String = _scene._opponent_of(ctx.owner)
+	var rune_data: TrapCardData = CardDatabase.get_card("shadow_rune") as TrapCardData
+	if rune_data == null:
+		return
+	# Append to the opponent's trap list. _opponent_traps returns the live array (not a copy),
+	# so .append() mutates the underlying state on both real combat (enemy_ai.active_traps)
+	# and sim (enemy_active_traps).
+	var traps: Array = _scene._opponent_traps(ctx.owner)
+	traps.append(rune_data)
+	# Register the rune's aura handlers on the opponent side (mirrored triggers).
+	_scene._apply_rune_aura(rune_data, opponent)
+	# Refresh the opponent-side trap UI in real combat (sim has a no-op stub).
+	if _scene.has_method("_update_trap_display_for"):
+		_scene._update_trap_display_for(opponent)
+	_log("  Voidshaped Acolyte: places Shadow Rune on %s's battlefield." % opponent, _log_side(ctx.owner))
 
 # ---------------------------------------------------------------------------
 # Logging helper
