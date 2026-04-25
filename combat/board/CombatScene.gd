@@ -80,8 +80,7 @@ var deck_count_label: Label
 var game_over_panel: Panel
 var game_over_label: Label
 var restart_button: Button
-var _log_scroll: ScrollContainer = null
-var _log_container: VBoxContainer = null
+var combat_log := CombatLog.new()
 var _large_preview: CardVisual = null
 
 ## Popup stagger — popups near the same position get offset vertically so they don't overlap.
@@ -562,8 +561,7 @@ func _find_nodes() -> void:
 	game_over_panel   = $UI/GameOverPanel
 	game_over_label   = $UI/GameOverPanel/GameOverLabel
 	restart_button    = $UI/GameOverPanel/RestartButton
-	_log_scroll     = $UI/CombatLogPanel/LogScroll           if has_node("UI/CombatLogPanel/LogScroll")                     else null
-	_log_container  = $UI/CombatLogPanel/LogScroll/LogContainer if has_node("UI/CombatLogPanel/LogScroll/LogContainer") else null
+	combat_log.setup(self)
 	for i in 5:
 		player_slots.append($UI/PlayerBoard.get_child(i) as BoardSlot)
 		enemy_slots.append($UI/EnemyBoard.get_child(i) as BoardSlot)
@@ -5953,35 +5951,13 @@ func _on_enemy_attacking_hero(attacker: MinionInstance) -> void:
 	if atk_slot and _player_status_panel:
 		_play_hero_attack_anim(atk_slot, _player_status_panel, attacker)
 
-enum _LogType { TURN, PLAYER, ENEMY, DAMAGE, HEAL, TRAP, DEATH }
-const _LOG_MAX := 80
+# LogType / _log() are facades that delegate to CombatLog. Kept on the scene
+# so the dozens of internal call sites and ~5 external callers (handlers,
+# effects, relics, EnemyAI, CheatPanel) don't need to know about the move.
+const _LogType := CombatLog.LogType
 
-func _log(msg: String, type: _LogType = _LogType.PLAYER) -> void:
-	if not _log_container:
-		return
-	var lbl := Label.new()
-	lbl.text = msg
-	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lbl.add_theme_font_size_override("font_size", 13)
-	lbl.add_theme_color_override("font_color", _log_color(type))
-	_log_container.add_child(lbl)
-	while _log_container.get_child_count() > _LOG_MAX:
-		var old := _log_container.get_child(0)
-		_log_container.remove_child(old)
-		old.free()
-	if _log_scroll:
-		_log_scroll.set_deferred("scroll_vertical", 999999)
-
-func _log_color(type: _LogType) -> Color:
-	match type:
-		_LogType.TURN:   return Color(0.50, 0.50, 0.62, 1)
-		_LogType.PLAYER: return Color(0.50, 0.82, 1.00, 1)
-		_LogType.ENEMY:  return Color(1.00, 0.55, 0.40, 1)
-		_LogType.DAMAGE: return Color(1.00, 0.38, 0.38, 1)
-		_LogType.HEAL:   return Color(0.35, 0.90, 0.55, 1)
-		_LogType.TRAP:   return Color(1.00, 0.85, 0.15, 1)
-		_LogType.DEATH:  return Color(0.65, 0.45, 0.75, 1)
-	return Color(0.9, 0.9, 0.9, 1)
+func _log(msg: String, type: int = CombatLog.LogType.PLAYER) -> void:
+	combat_log.write(msg, type)
 
 func _highlight_empty_player_slots() -> void:
 	_clear_all_highlights()
