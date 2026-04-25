@@ -324,6 +324,11 @@ func run(
 
 ## Run count simulations and return aggregate stats.
 ## Useful for win-rate estimation over a sample.
+##
+## When `base_seed >= 0`, each run is seeded with `base_seed + run_index` so the
+## whole batch is bit-reproducible run-by-run. Changing `count` extends the
+## sequence rather than reshuffling it. `base_seed = -1` keeps legacy
+## unseeded behaviour (Godot's randomized startup state).
 func run_many(
 		count: int,
 		player_deck_ids: Array[String],
@@ -337,7 +342,8 @@ func run_many(
 		player_relic_ids: Array[String] = [],
 		relic_bonus_charges: Dictionary = {},
 		enemy_limited: Array[String] = [],
-		player_hero_id: String = "lord_vael") -> Dictionary:
+		player_hero_id: String = "lord_vael",
+		base_seed: int = -1) -> Dictionary:
 
 	var wins   := 0
 	var losses := 0
@@ -390,6 +396,8 @@ func run_many(
 	var p2_losses := 0              # player losses after transition (died in P2)
 
 	for _i in count:
+		if base_seed >= 0:
+			seed(base_seed + _i)
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
 				enemy_deck_ids, player_hp, enemy_hp, player_talents, player_profile_id,
 				player_hero_passives, player_relic_ids, relic_bonus_charges, false, false,

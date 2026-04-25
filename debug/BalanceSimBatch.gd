@@ -164,10 +164,13 @@ func _run() -> void:
 	var fight_filter: int = args.fight
 	var variant_filter: int = args.variant  # -1 = all
 	var hero_filter: String = args.hero  # "" = all heroes
+	var base_seed: int = args.seed       # -1 = unseeded
 
 	print("")
 	print("=== Echo of Abyss — Batch Balance Simulator ===")
 	print("Runs per combination: %d" % runs)
+	if base_seed >= 0:
+		print("Seed: %d (deterministic per-run)" % base_seed)
 	if fight_filter > 0:
 		print("Fight filter: F%d" % fight_filter)
 	else:
@@ -292,16 +295,18 @@ func _run() -> void:
 							var half_b: int = runs - half_a
 							var bonus_a: Dictionary = {relic_ids[0]: 1}
 							var bonus_b: Dictionary = {relic_ids[1]: 1}
+							var seed_a: int = base_seed
+							var seed_b: int = (base_seed + half_a) if base_seed >= 0 else -1
 							var s_a: Dictionary = await sim.run_many(
 								half_a, deck, enemy_profile, enemy_deck,
 								3000, enemy_hp, talents, profile_id,
 								hero_passives, relic_ids, bonus_a,
-								enemy_limited, preset_hero)
+								enemy_limited, preset_hero, seed_a)
 							var s_b: Dictionary = await sim.run_many(
 								half_b, deck, enemy_profile, enemy_deck,
 								3000, enemy_hp, talents, profile_id,
 								hero_passives, relic_ids, bonus_b,
-								enemy_limited, preset_hero)
+								enemy_limited, preset_hero, seed_b)
 							s = _merge_stats(s_a, s_b, half_a, half_b)
 						else:
 							var bonus_charges: Dictionary = {}
@@ -309,7 +314,7 @@ func _run() -> void:
 								runs, deck, enemy_profile, enemy_deck,
 								3000, enemy_hp, talents, profile_id,
 								hero_passives, relic_ids, bonus_charges,
-								enemy_limited, preset_hero)
+								enemy_limited, preset_hero, base_seed)
 
 						_print_row(preset_name, relic_display, enc.enemy_name, fight_idx as int, s, deck_id)
 
@@ -454,6 +459,7 @@ func _parse_args() -> Dictionary:
 		"fight": 0,
 		"variant": -1,
 		"hero": "",  # "" = all heroes, else filter to a specific hero id
+		"seed": -1,  # -1 = unseeded (legacy); >=0 = deterministic per-run seed
 	}
 
 	var args := OS.get_cmdline_user_args()
@@ -483,6 +489,10 @@ func _parse_args() -> Dictionary:
 			"--hero":
 				if i + 1 < args.size():
 					result.hero = args[i + 1]
+					i += 1
+			"--seed":
+				if i + 1 < args.size():
+					result.seed = int(args[i + 1])
 					i += 1
 		i += 1
 
