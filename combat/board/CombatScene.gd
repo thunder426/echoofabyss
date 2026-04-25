@@ -237,6 +237,11 @@ var _fiendish_pact_pending: int = 0
 var forge_counter:            int = 0
 var forge_counter_threshold:  int = 3
 
+## Behavior modules for Flesh/Forge primitives. Vars above stay on scene
+## (SimState mirror constraint); these classes own only the gain/spend logic.
+var flesh: Flesh = null
+var forge: Forge = null
+
 ## Passive-configurable stats — set by CombatSetup from the registry at combat start.
 var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
 var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
@@ -383,6 +388,8 @@ func _ready() -> void:
 	trigger_manager = TriggerManager.new()
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
+	flesh = Flesh.new(self)
+	forge = Forge.new(self)
 	_find_nodes()
 	_connect_buff_signal()
 	_register_buff_preludes()
@@ -3109,92 +3116,31 @@ func _apply_void_mark(stacks: int = 1) -> void:
 		var vfx := VoidMarkApplyVFX.create(_enemy_status_panel)
 		vfx_controller.spawn(vfx)
 
-## Seris — gain Flesh (clamped to player_flesh_max). Called by Fleshbind handler and related talents.
+# Flesh / Forge facades — delegate to behavior modules. Names preserved so
+# external callers (handlers, EffectResolver) keep working unchanged.
 func _gain_flesh(amount: int = 1) -> void:
-	if amount <= 0:
-		return
-	var before := player_flesh
-	player_flesh = min(player_flesh + amount, player_flesh_max)
-	if player_flesh == before:
-		return
-	_log("  Flesh +%d (%d/%d)" % [player_flesh - before, player_flesh, player_flesh_max], _LogType.PLAYER)
-	_on_flesh_changed()
+	flesh.gain(amount)
 
-## Seris — try to spend Flesh. Returns true if successful. Handlers that call this
-## must check the return value — if false, the effect should not apply.
 func _spend_flesh(amount: int) -> bool:
-	if amount <= 0 or player_flesh < amount:
-		return false
-	player_flesh -= amount
-	_log("  Flesh -%d (%d/%d)" % [amount, player_flesh, player_flesh_max], _LogType.PLAYER)
-	_on_flesh_changed()
-	_on_flesh_spent(amount)
-	return true
+	return flesh.spend(amount)
 
-## Fired after a successful _spend_flesh. Flesh Bond aura (Abyssal Forge) draws
-## a card per spend here. Called per spend event, not per Flesh point — design
-## says "whenever you spend Flesh", so one draw per spend batch.
-func _on_flesh_spent(_amount: int) -> void:
-	var has_flesh_bond := false
-	for m in player_board:
-		if "flesh_bond" in m.aura_tags:
-			has_flesh_bond = true
-			break
-	if not has_flesh_bond:
-		return
-	if turn_manager:
-		turn_manager.draw_card()
-		_log("  Flesh Bond: drew a card.", _LogType.PLAYER)
+func _on_flesh_spent(amount: int) -> void:
+	flesh.on_spent(amount)
 
-## Seris — Forge Counter tick. Called when a Demon is sacrificed (Soul Forge talent).
-## Returns true if the counter hit its threshold (caller summons the Forged Demon and resets).
-func _forge_counter_tick(amount: int = 1) -> bool:
-	if amount <= 0:
-		return false
-	forge_counter += amount
-	_log("  Forge Counter +%d (%d/%d)" % [amount, forge_counter, forge_counter_threshold], _LogType.PLAYER)
-	_on_forge_changed()
-	if forge_counter >= forge_counter_threshold:
-		return true
-	return false
-
-## Seris — reset the Forge Counter (after Forged Demon summon).
-func _forge_counter_reset() -> void:
-	forge_counter = 0
-	_on_forge_changed()
-
-## Seris — public Forge Counter gain for declarative GAIN_FORGE_COUNTER steps and
-## any future passive sources. Wraps tick + auto-summon + reset so callers don't have
-## to repeat the threshold logic. No-op if Soul Forge is not active (Demon Forge
-## branch gate). Returns true if a Forged Demon was summoned.
-func _gain_forge_counter(amount: int = 1) -> bool:
-	if amount <= 0 or not _has_talent("soul_forge"):
-		return false
-	var summoned := false
-	# Loop in case amount > threshold (e.g. Forgeborn Tyrant's +3 with threshold 2 → multi-summon).
-	while amount > 0:
-		var step := mini(amount, forge_counter_threshold)
-		amount -= step
-		if _forge_counter_tick(step):
-			_log("  Soul Forge: threshold reached.", _LogType.PLAYER)
-			_summon_forged_demon()
-			_forge_counter_reset()
-			summoned = true
-	return summoned
-
-## UI hook for Flesh/Forge counter changes. Handlers (e.g. Fleshbind) call the
-## scene's _gain_flesh / _spend_flesh / _forge_counter_tick which in turn call
-## these hooks. Keeping them as scene methods means sim handlers can reuse the
-## same call sites without needing UI references.
 func _on_flesh_changed() -> void:
-	if _pip_bar:
-		_pip_bar.update_flesh()
-	if _player_hero_panel and _player_hero_panel.resource_bar:
-		_player_hero_panel.resource_bar.refresh()
+	flesh.on_changed()
+
+func _forge_counter_tick(amount: int = 1) -> bool:
+	return forge.tick(amount)
+
+func _forge_counter_reset() -> void:
+	forge.reset()
+
+func _gain_forge_counter(amount: int = 1) -> bool:
+	return forge.gain(amount)
 
 func _on_forge_changed() -> void:
-	if _player_hero_panel and _player_hero_panel.resource_bar:
-		_player_hero_panel.resource_bar.refresh()
+	forge.on_changed()
 
 ## Seris — fires for every friendly Demon SACRIFICE emit (not combat deaths).
 ## Handles Forge Counter ticks, Fiend Offering, and the auto Forged Demon summon.
