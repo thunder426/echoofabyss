@@ -73,7 +73,7 @@ var game_over_panel: Panel
 var game_over_label: Label
 var restart_button: Button
 var combat_log := CombatLog.new()
-var _large_preview: CardVisual = null
+# _large_preview moved into LargePreview.gd (large_preview.visual)
 
 ## Popup stagger — popups near the same position get offset vertically so they don't overlap.
 const _POPUP_STACK_THRESHOLD := 50.0  # pixels — popups within this distance stack
@@ -246,6 +246,12 @@ var forge: Forge = null
 ## slot highlighting. CombatScene keeps thin facades for play-card flow.
 var targeting: Targeting = null
 
+## Bottom-left card preview shown on hand/board hover.
+var large_preview: LargePreview = null
+
+## "Your next spell will be COUNTERED" warning label.
+var counter_warning: CounterWarning = null
+
 ## Passive-configurable stats — set by CombatSetup from the registry at combat start.
 var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
 var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
@@ -283,7 +289,7 @@ var _player_spell_counter: int = 0
 var _enemy_spell_counter: int = 0
 
 ## Persistent warning label shown when the player's next spell will be countered.
-var _counter_warning_label: Label = null
+# _counter_warning_label moved into CounterWarning.gd (counter_warning.label)
 
 ## Transient prompt label shown during on-play target selection (required or
 ## optional). Text comes from MinionCardData.on_play_target_prompt. Shared
@@ -395,6 +401,8 @@ func _ready() -> void:
 	flesh = Flesh.new(self)
 	forge = Forge.new(self)
 	targeting = Targeting.new(self)
+	large_preview = LargePreview.new(self)
+	counter_warning = CounterWarning.new(self)
 	_find_nodes()
 	_connect_buff_signal()
 	_register_buff_preludes()
@@ -446,7 +454,7 @@ func _ready() -> void:
 	_setup_second_wind_indicator(ui_root)
 	_pip_bar = PipBar.new()
 	_pip_bar.setup(self, ui_root, essence_label, mana_label)
-	_setup_large_preview()
+	large_preview.setup()
 	turn_manager.start_combat(deck)
 	_setup_triggers()
 	_setup_relics()
@@ -517,22 +525,8 @@ func _find_nodes() -> void:
 	for i in 5:
 		player_slots.append($UI/PlayerBoard.get_child(i) as BoardSlot)
 		enemy_slots.append($UI/EnemyBoard.get_child(i) as BoardSlot)
-	# Counter-spell warning label (hidden by default)
-	_counter_warning_label = Label.new()
-	_counter_warning_label.text = "⚠ Your next spell will be COUNTERED!"
-	_counter_warning_label.add_theme_font_override("font", DAMAGE_FONT)
-	_counter_warning_label.add_theme_font_size_override("font_size", 18)
-	_counter_warning_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35, 1.0))
-	_counter_warning_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.8))
-	_counter_warning_label.add_theme_constant_override("shadow_offset_x", 2)
-	_counter_warning_label.add_theme_constant_override("shadow_offset_y", 2)
-	_counter_warning_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_counter_warning_label.anchors_preset = Control.PRESET_CENTER_TOP
-	_counter_warning_label.position = Vector2(960 - 220, 460)
-	_counter_warning_label.size = Vector2(440, 30)
-	_counter_warning_label.z_index = 90
-	_counter_warning_label.visible = false
-	$UI.add_child(_counter_warning_label)
+	# Counter-spell warning label — owned by CounterWarning helper.
+	counter_warning.setup()
 	# On-play target-selection prompt — owned by Targeting helper.
 	targeting.setup()
 
@@ -3068,10 +3062,10 @@ func _refresh_hand_spell_costs() -> void:
 		hand_display.refresh_relic_cost_preview(relic_red, relic_red)
 		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana, relic_red, relic_red)
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
-	if _large_preview and _large_preview.visible:
+	if large_preview.is_visible():
 		var extra := -(_hovered_hand_visual.card_inst.cost_delta) if _hovered_hand_visual != null and _hovered_hand_visual.card_inst != null else 0
-		_large_preview.apply_cost_discount(net_discount + relic_red + extra)
-		_large_preview.apply_relic_cost_preview(relic_red, relic_red)
+		large_preview.visual.apply_cost_discount(net_discount + relic_red + extra)
+		large_preview.visual.apply_relic_cost_preview(relic_red, relic_red)
 
 ## Effective mana cost for a player spell after applying board discount and tax penalty.
 func _effective_spell_cost(spell: SpellCardData) -> int:
@@ -4704,40 +4698,17 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 # Large card preview (hover over hand cards or board slots)
 # ---------------------------------------------------------------------------
 
-func _setup_large_preview() -> void:
-	var ui_root := get_node_or_null("UI")
-	if not ui_root:
-		return
-	_large_preview = CARD_VISUAL_SCENE.instantiate() as CardVisual
-	_large_preview.apply_size_mode("combat_preview")
-	_large_preview.z_index      = 20
-	_large_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_large_preview.visible      = false
-	ui_root.add_child(_large_preview)
-	# $UI is a CanvasLayer — children use screen-space position, not anchors
-	var vp_size := get_viewport().get_visible_rect().size
-	var ps      := _large_preview.size
-	_large_preview.position = Vector2(16.0, vp_size.y - ps.y - 16.0)
-
 func _show_large_preview(card_data: CardData, source_visual: CardVisual = null) -> void:
-	if not _large_preview or not card_data:
-		return
-	_large_preview.setup(card_data)
-	_large_preview.enable_tooltip()
-	var extra := -(source_visual.card_inst.cost_delta) if source_visual != null and source_visual.card_inst != null else 0
-	_large_preview.apply_cost_discount(_spell_mana_discount() + _relic_cost_reduction + extra)
-	_large_preview.apply_relic_cost_preview(_relic_cost_reduction, _relic_cost_reduction)
-	_large_preview.visible = true
+	large_preview.show_card(card_data, source_visual)
 
 func _hide_large_preview() -> void:
-	if _large_preview:
-		_large_preview.visible = false
+	large_preview.hide_card()
 
 func _on_board_slot_hover_enter(slot: BoardSlot) -> void:
 	if slot.minion and slot.minion.card_data:
-		_show_large_preview(slot.minion.card_data)
-		if _large_preview:
-			_large_preview.override_stat_display(slot.minion.spawn_atk, slot.minion.spawn_health)
+		large_preview.show_card(slot.minion.card_data)
+		if large_preview.visual != null:
+			large_preview.visual.override_stat_display(slot.minion.spawn_atk, slot.minion.spawn_health)
 
 func _on_enemy_hero_button_pressed() -> void:
 	if not turn_manager.is_player_turn or selected_attacker == null:
@@ -5341,30 +5312,7 @@ func _show_spell_countered_anim(card: CardData) -> void:
 
 ## Show or hide the counter-spell warning label based on current counter state.
 func _update_counter_warning() -> void:
-	if not _counter_warning_label:
-		return
-	var should_show: bool = _player_spell_counter > 0
-	if should_show and not _counter_warning_label.visible:
-		_counter_warning_label.visible = true
-		_counter_warning_label.modulate = Color(1, 1, 1, 0)
-		var tw := create_tween()
-		tw.tween_property(_counter_warning_label, "modulate:a", 1.0, 0.3)
-		# Subtle pulse loop
-		var pulse := create_tween().set_loops()
-		pulse.tween_property(_counter_warning_label, "modulate:a", 0.5, 0.8) \
-			.set_trans(Tween.TRANS_SINE)
-		pulse.tween_property(_counter_warning_label, "modulate:a", 1.0, 0.8) \
-			.set_trans(Tween.TRANS_SINE)
-		_counter_warning_label.set_meta("pulse_tween", pulse)
-	elif not should_show and _counter_warning_label.visible:
-		if _counter_warning_label.has_meta("pulse_tween"):
-			var pulse: Tween = _counter_warning_label.get_meta("pulse_tween")
-			if pulse and pulse.is_valid():
-				pulse.kill()
-			_counter_warning_label.remove_meta("pulse_tween")
-		var tw := create_tween()
-		tw.tween_property(_counter_warning_label, "modulate:a", 0.0, 0.25)
-		tw.tween_callback(func() -> void: _counter_warning_label.visible = false)
+	counter_warning.update()
 
 ## Wrapper: apply spell damage to a minion + show flash and damage popup.
 ## info is optional — when omitted, defaults to (SPELL, NONE) per call-site convention.
