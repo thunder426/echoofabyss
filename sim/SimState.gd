@@ -418,14 +418,13 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		if _relic_hero_immune:
 			return  # Bone Shield: immune this turn
 		player_hp -= amount
-		if player_hp <= 0 and winner.is_empty():
-			winner = "enemy"
-			return
-		# Mirror live combat: fire ON_HERO_DAMAGED so handlers (traps, passives) react.
+		# Fire ON_HERO_DAMAGED for every landed hit — including lethal. Mirrors live combat.
 		var _pctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
 		_pctx.damage = amount
 		_pctx.damage_info = info
 		trigger_manager.fire(_pctx)
+		if player_hp <= 0 and winner.is_empty():
+			winner = "enemy"
 	else:
 		enemy_hp -= amount
 		if dmg_log_enabled:
@@ -436,6 +435,11 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 					else ("minion_atk" if src == Enums.DamageSource.MINION else "spell_onplay")
 				dmg_log.append({turn = _current_turn, amount = amount, source = source})
 			_pending_dmg_source = ""
+		# Fire ON_ENEMY_HERO_DAMAGED for every landed hit — including lethal.
+		var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
+		_ectx.damage = amount
+		_ectx.damage_info = info
+		trigger_manager.fire(_ectx)
 		if enemy_hp <= 0 and winner.is_empty():
 			# F15 Abyss Sovereign: intercept P1 death and transition to P2
 			# instead of ending the fight.
@@ -443,12 +447,6 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			if pt.attempt(self):
 				return
 			winner = "player"
-			return
-		# Mirror live combat: fire ON_ENEMY_HERO_DAMAGED so handlers can react.
-		var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
-		_ectx.damage = amount
-		_ectx.damage_info = info
-		trigger_manager.fire(_ectx)
 
 func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":

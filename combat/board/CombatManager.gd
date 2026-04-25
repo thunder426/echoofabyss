@@ -249,13 +249,6 @@ func _apply_crit(attacker: MinionInstance) -> int:
 			multiplier = scene.get("crit_multiplier")
 	return int(base_dmg * multiplier)
 
-## Apply spell damage scaled by dark_channeling crit (1.5x).
-## Called by the dark_channeling passive handler — NOT the normal spell path.
-func apply_crit_spell_damage(minion: MinionInstance, damage: int, multiplier: float) -> void:
-	if minion.has_spell_immune():
-		return
-	_deal_damage(minion, make_damage_info(int(damage * multiplier), Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "dark_channeling_crit"))
-
 # ---------------------------------------------------------------------------
 # Board helpers
 # ---------------------------------------------------------------------------

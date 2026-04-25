@@ -54,6 +54,7 @@ static func run_all() -> void:
 	_test_void_spell_emits_void_school()
 	_test_player_hero_damage_fires_trigger_with_info()
 	_test_enemy_hero_damage_fires_trigger_with_info()
+	_test_lethal_damage_still_fires_trigger()
 	_test_void_bolt_spell_path_is_spell_source()
 	_test_void_bolt_minion_emitted_path_is_minion_source()
 
@@ -508,6 +509,32 @@ static func _test_enemy_hero_damage_fires_trigger_with_info() -> void:
 				"school carried through trigger")
 		TestHarness.assert_true(Enums.has_school(probe.ctxs[0].damage_info.get("school"), Enums.DamageSchool.VOID),
 				"VOID_BOLT satisfies VOID lineage — '+X% void damage to enemy hero' would apply")
+
+static func _test_lethal_damage_still_fires_trigger() -> void:
+	# ON_HERO_DAMAGED / ON_ENEMY_HERO_DAMAGED must fire on EVERY landed hit, including
+	# the killing blow. Pre-fix, lethal damage skipped the trigger entirely — that
+	# blocked future "save from death" / telemetry handlers from seeing the fatal hit.
+	if not TestHarness.begin_test("lethal_damage / killing-blow damage still fires trigger"):
+		return
+	# Player lethal: 100 HP, 9999 damage → trigger must fire and winner is set.
+	var s1 := TestHarness.build_state({"player_hp": 100})
+	var probe1 := CtxCapture.new()
+	s1.trigger_manager.register(Enums.TriggerEvent.ON_HERO_DAMAGED, probe1.handle, 99)
+	s1.combat_manager.apply_hero_damage("player",
+			CombatManager.make_damage_info(9999, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "test"))
+	TestHarness.assert_eq(probe1.ctxs.size(), 1, "player-lethal fires trigger once")
+	if probe1.ctxs.size() == 1:
+		TestHarness.assert_eq(probe1.ctxs[0].damage_info.get("amount"), 9999,
+				"info carries the lethal amount")
+	TestHarness.assert_eq(s1.winner, "enemy", "winner set after lethal player damage")
+	# Enemy lethal: same shape on enemy side.
+	var s2 := TestHarness.build_state({"enemy_hp": 100})
+	var probe2 := CtxCapture.new()
+	s2.trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, probe2.handle, 99)
+	s2.combat_manager.apply_hero_damage("enemy",
+			CombatManager.make_damage_info(9999, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "test"))
+	TestHarness.assert_eq(probe2.ctxs.size(), 1, "enemy-lethal fires trigger once")
+	TestHarness.assert_eq(s2.winner, "player", "winner set after lethal enemy damage")
 
 static func _test_void_bolt_spell_path_is_spell_source() -> void:
 	# Spell-cast Void Bolt (no minion source) → SPELL source. Default behavior.

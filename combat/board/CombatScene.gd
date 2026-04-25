@@ -3843,18 +3843,31 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		player_hp -= amount
 		_player_hero_panel.update(player_hp, GameManager.player_hp_max)
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
+		# Fire ON_HERO_DAMAGED for every landed hit, including lethal — handlers
+		# can react to the killing blow (telemetry, future "save from death" cards).
+		var _pctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
+		_pctx.damage = amount
+		_pctx.damage_info = info
+		trigger_manager.fire(_pctx)
 		if player_hp <= 0:
 			_flash_hero("player", amount, _on_defeat, school, is_crit)
 		else:
 			_flash_hero("player", amount, Callable(), school, is_crit)
-			var _ctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
-			_ctx.damage = amount
-			_ctx.damage_info = info
-			trigger_manager.fire(_ctx)
 	else:
 		enemy_hp -= amount
 		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], _LogType.DAMAGE)
 		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+		# Fire ON_ENEMY_HERO_DAMAGED for every landed hit, including lethal.
+		# Symmetric counterpart to the player branch.
+		var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
+		_ectx.damage = amount
+		_ectx.damage_info = info
+		trigger_manager.fire(_ectx)
+		# Void Bolt passive trigger — keyed off school via lineage so any future
+		# VOID_BOLT-derived sub-school still triggers it. Fires on every Void Bolt
+		# hit including the killing blow, matching the trigger event semantics.
+		if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT) and _handlers:
+			_handlers._apply_void_bolt_passives()
 		if enemy_hp <= 0:
 			# F15 Abyss Sovereign: intercept P1 death and transition to P2.
 			# Transition mutates board/deck/passives synchronously, then we
@@ -3869,17 +3882,6 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			_flash_hero("enemy", amount, _on_victory, school, is_crit)
 		else:
 			_flash_hero("enemy", amount, Callable(), school, is_crit)
-			# Symmetric counterpart to the ON_HERO_DAMAGED fire in the player branch.
-			# Enables cards/passives to react to "enemy hero takes damage" events;
-			# carries the same damage_info shape so handlers can branch on school/source.
-			var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
-			_ectx.damage = amount
-			_ectx.damage_info = info
-			trigger_manager.fire(_ectx)
-			# Void Bolt passive trigger — keyed off school via lineage so any future
-			# VOID_BOLT-derived sub-school still triggers it.
-			if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT) and _handlers:
-				_handlers._apply_void_bolt_passives()
 
 func _on_hero_healed(target: String, amount: int) -> void:
 	if target == "player":
