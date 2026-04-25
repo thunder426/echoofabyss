@@ -42,7 +42,9 @@ func spend(amount: int) -> bool:
 	on_spent(amount)
 	return true
 
-## Post-spend hook — Flesh Bond aura (Abyssal Forge talent) draws a card per spend.
+## Post-spend hook — Flesh Bond aura (Abyssal Forge talent) draws a card per
+## spend. Per design: one draw per spend event, not scaled by the amount —
+## hence `_amount` is intentionally unused.
 func on_spent(_amount: int) -> void:
 	var has_flesh_bond := false
 	for m in _scene.player_board:

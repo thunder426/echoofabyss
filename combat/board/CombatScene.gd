@@ -3101,6 +3101,12 @@ func _apply_void_mark(stacks: int = 1) -> void:
 
 # Flesh / Forge facades — delegate to behavior modules. Names preserved so
 # external callers (handlers, EffectResolver) keep working unchanged.
+#
+# _on_flesh_spent / _on_flesh_changed / _on_forge_changed are kept as
+# duck-type stubs even though no real-game caller invokes them directly —
+# SimState mirrors the same shape (sim/SimState.gd) and removing them here
+# would break the protocol parity that lets EffectResolver treat scene
+# and SimState interchangeably.
 func _gain_flesh(amount: int = 1) -> void:
 	flesh.gain(amount)
 

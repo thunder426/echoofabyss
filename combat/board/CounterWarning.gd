@@ -10,8 +10,6 @@
 class_name CounterWarning
 extends RefCounted
 
-const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
-
 var _scene: Node2D = null
 var label: Label = null
 
@@ -24,7 +22,7 @@ func setup() -> void:
 		return
 	label = Label.new()
 	label.text = "⚠ Your next spell will be COUNTERED!"
-	label.add_theme_font_override("font", DAMAGE_FONT)
+	label.add_theme_font_override("font", _scene.DAMAGE_FONT)
 	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35, 1.0))
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.8))

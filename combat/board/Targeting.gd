@@ -14,8 +14,6 @@
 class_name Targeting
 extends RefCounted
 
-const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
-
 var _scene: Node2D = null
 var prompt_label: Label = null
 
@@ -27,7 +25,7 @@ func _init(scene: Node2D) -> void:
 func setup() -> void:
 	prompt_label = Label.new()
 	prompt_label.text = ""
-	prompt_label.add_theme_font_override("font", DAMAGE_FONT)
+	prompt_label.add_theme_font_override("font", _scene.DAMAGE_FONT)
 	prompt_label.add_theme_font_size_override("font_size", 18)
 	prompt_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55, 1.0))
 	prompt_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.85))
