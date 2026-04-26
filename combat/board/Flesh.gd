@@ -56,9 +56,6 @@ func on_spent(_amount: int) -> void:
 		_scene.turn_manager.draw_card()
 		_scene._log("  Flesh Bond: drew a card.", CombatLog.LogType.PLAYER)
 
-## UI hook — refresh the resource bar after any Flesh change.
-func on_changed() -> void:
-	if _scene._pip_bar != null:
-		_scene._pip_bar.update_flesh()
-	if _scene._player_hero_panel != null and _scene._player_hero_panel.resource_bar != null:
-		_scene._player_hero_panel.resource_bar.refresh()
+## (UI refresh on Flesh change is now handled by CombatScene._on_state_flesh_changed,
+## a subscriber to CombatState.flesh_changed. The old Flesh.on_changed() hook
+## is gone — this comment marks where it used to live.)

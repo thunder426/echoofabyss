@@ -63,6 +63,12 @@ signal traps_changed(side: String)
 ## re-renders the environment card display. `env` may be null (cleared).
 signal environment_changed(env: EnvironmentCardData)
 
+## Emitted by `_spell_dmg` after damage is applied to a minion target. Live
+## combat subscribes to spawn the damage popup + slot flash; sim has no
+## subscriber. `damage` is the pre-bonus amount the call site passed (not
+## including _player_spell_damage_bonus added inside _spell_dmg).
+signal spell_damage_dealt(target: MinionInstance, damage: int)
+
 ## Emitted after a minion has been removed from its side's board (post-erase).
 ## `slot_index` is the slot it occupied (or -1 if not found). External
 ## subscribers use this rather than CombatManager.minion_vanished so the data
@@ -292,6 +298,513 @@ func _pre_player_spell_cast(_spell: SpellCardData) -> void:
 		_player_spell_damage_bonus = total_stacks * 50
 	else:
 		_player_spell_damage_bonus = 0
+
+## Legacy effect_id resolution path. No spell currently sets effect_id
+## directly (all use declarative effect_steps), but the Void Resonance recast
+## still falls back here for completeness.
+func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: String = "player") -> void:
+	if _hardcoded == null:
+		return
+	var ctx := EffectContext.make(self, owner)
+	ctx.chosen_target = target
+	_hardcoded.resolve(effect_id, ctx)
+
+## Seris — called after a player spell's effect resolves. Handles the Void
+## Resonance (Seris capstone) double-cast: if the player still has ≥5 Flesh
+## AFTER any cost the spell itself deducted, consume all 5 and recursively
+## resolve the spell's effect once more targeting the same minion.
+func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> void:
+	if _spell_cast_depth == 1 \
+			and _has_talent("void_resonance_seris") \
+			and player_flesh >= 5 \
+			and not _double_cast_in_progress:
+		_double_cast_in_progress = true
+		if _spend_flesh(5):
+			_log("  Void Resonance: recasting %s." % spell.card_name, 1)  # PLAYER
+			# If the original target is dead / gone, per design the recast fizzles but Flesh is still spent.
+			if target == null or (is_instance_valid(target) and target.current_health > 0):
+				if not spell.effect_steps.is_empty():
+					var ctx := EffectContext.make(self, "player")
+					ctx.chosen_target = target
+					ctx.source_card_id = spell.id
+					EffectResolver.run(spell.effect_steps, ctx)
+				else:
+					_resolve_spell_effect(spell.effect_id, target)
+		_double_cast_in_progress = false
+	_spell_cast_depth = maxi(0, _spell_cast_depth - 1)
+	if _spell_cast_depth == 0:
+		_player_spell_damage_bonus = 0
+
+## Compose the full player spell cast: pre-cast bookkeeping, effect resolution,
+## post-cast bookkeeping (Void Resonance recast). Called by CombatScene's spell
+## callsites at vfx impact_hit. `target` may be null for AoE / untargeted spells.
+## The trigger fire (ON_PLAYER_SPELL_CAST) is left to the caller since live
+## combat fires it at different points per callsite (inside resolve_damage for
+## AoE; after VFX completes for targeted) — preserving existing timing.
+func cast_player_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void:
+	_pre_player_spell_cast(spell)
+	if not spell.effect_steps.is_empty():
+		var ctx := EffectContext.make(self, "player")
+		ctx.chosen_target = target
+		ctx.source_card_id = spell.id
+		EffectResolver.run(spell.effect_steps, ctx)
+	else:
+		_resolve_spell_effect(spell.effect_id, target)
+	_post_player_spell_cast(spell, target)
+
+## Compose a player hero-targeted spell cast (the spell hits the enemy hero
+## directly). Bypasses EffectResolver: damage is summed from DAMAGE_MINION
+## steps with their conditions evaluated, plus _player_spell_damage_bonus.
+## The first contributing step's damage_school wins. _post_player_spell_cast
+## still runs so Void Resonance recast applies.
+func cast_player_hero_spell(spell: SpellCardData) -> void:
+	_pre_player_spell_cast(spell)
+	var base_dmg: int = 0
+	var school: int = Enums.DamageSchool.NONE
+	for step in spell.effect_steps:
+		var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
+		if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
+			var ctx := EffectContext.make(self, "player")
+			if ConditionResolver.check_all(s.conditions, ctx, null):
+				base_dmg += s.amount
+				if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
+					if ConditionResolver.check_all(s.bonus_conditions, ctx, null):
+						base_dmg += s.bonus_amount
+				if school == Enums.DamageSchool.NONE:
+					school = s.damage_school
+	var total: int = base_dmg + _player_spell_damage_bonus
+	_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], 1)  # PLAYER
+	combat_manager.apply_hero_damage("enemy",
+			CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, school, null, spell.id))
+	_post_player_spell_cast(spell, null)
+
+## Entry point for EffectResolver HARDCODED steps — delegates to the
+## HardcodedEffects resolver. Both scene and sim assign _hardcoded in their
+## setup; this method works uniformly across both surfaces.
+func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
+	if _hardcoded == null:
+		return
+	_hardcoded.resolve(id, ctx)
+
+## Optional VFX-aware summon delegate. Live combat assigns scene's VFX-rich
+## `_summon_token` here in CombatScene._ready so EffectResolver SUMMON steps
+## fired through state-created EffectContexts (e.g. cast_player_targeted_spell
+## resolving a spell with effect_steps that include SUMMON) still get the
+## proper sigil/champion VFX. Sim leaves it unset and falls through to pure
+## logic in `_summon_token` below.
+var _summon_delegate: Callable = Callable()
+
+## Generic token summon used by EffectResolver SUMMON steps and by sim profiles.
+## Routes through `_summon_delegate` when set (live combat with VFX); otherwise
+## runs the pure-logic path (sim, headless tests).
+func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+	if _summon_delegate.is_valid():
+		_summon_delegate.call(card_id, owner, token_atk, token_hp, token_shield)
+		return
+	_summon_token_pure(card_id, owner, token_atk, token_hp, token_shield)
+
+## Pure-logic summon: find an empty slot, instantiate the token (with optional
+## stat overrides), append + place, emit `minion_summoned`, fire the
+## ON_*_MINION_SUMMONED trigger. No VFX, no async. Sim calls this directly
+## via inheritance; live combat reaches it only when scene's VFX-rich
+## `_summon_token` is unavailable (shouldn't normally happen).
+func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+	var base := CardDatabase.get_card(card_id)
+	if base == null or not (base is MinionCardData):
+		return
+	var board := player_board if owner == "player" else enemy_board
+	var slots := player_slots if owner == "player" else enemy_slots
+	var slot: BoardSlot = null
+	for s in slots:
+		if s.is_empty():
+			slot = s
+			break
+	if slot == null:
+		return  # board full
+	var mc := (base as MinionCardData).duplicate() as MinionCardData
+	if token_atk > 0:    mc.atk        = token_atk
+	if token_hp > 0:     mc.health     = token_hp
+	if token_shield > 0: mc.shield_max = token_shield
+	var instance := MinionInstance.create(mc, owner)
+	board.append(instance)
+	slot.place_minion(instance)
+	minion_summoned.emit(owner, instance, slot.index)
+	if trigger_manager != null:
+		var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" \
+			else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+		var ctx := EventContext.make(event, owner)
+		ctx.minion = instance
+		ctx.card   = mc
+		trigger_manager.fire(ctx)
+
+## Apply spell damage to a single minion target. Adds _player_spell_damage_bonus
+## (Void Amplification — scaled per friendly Demon Corruption stack at cast
+## time) to the call-site's amount, then routes through combat_manager to
+## apply damage. Emits `spell_damage_dealt` so live combat can spawn the flash
+## + damage popup; sim has no subscriber and so just applies the damage.
+##
+## Both callers pass the PRE-bonus damage; the bonus is added once here.
+func _spell_dmg(target: MinionInstance, amount: int, info: Dictionary = {}) -> void:
+	if target == null:
+		return
+	var total: int = amount + _player_spell_damage_bonus
+	if info.is_empty():
+		info = CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE)
+	else:
+		info = info.duplicate()
+		info["amount"] = total
+	combat_manager.apply_damage_to_minion(target, info)
+	spell_damage_dealt.emit(target, amount)
+
+## Seris — tick the Forge Counter by `amount`. Logs the new value and returns
+## true if the counter has reached threshold (caller is responsible for
+## triggering the auto-summon and calling `_forge_counter_reset`). UI updates
+## via the forge_changed signal that the property setter emits.
+func _forge_counter_tick(amount: int = 1) -> bool:
+	if amount <= 0:
+		return false
+	forge_counter += amount
+	_log("  Forge Counter +%d (%d/%d)" % [amount, forge_counter, forge_counter_threshold], 1)  # PLAYER
+	return forge_counter >= forge_counter_threshold
+
+## Seris — reset the Forge Counter to 0 (after a Forged Demon auto-summon).
+func _forge_counter_reset() -> void:
+	forge_counter = 0
+
+## Public Forge Counter gain for declarative GAIN_FORGE_COUNTER steps and any
+## passive sources. Wraps tick + auto-summon + reset so callers don't repeat
+## the threshold logic. No-op if Soul Forge is not active. Returns true if at
+## least one Forged Demon was summoned this call.
+func _gain_forge_counter(amount: int = 1) -> bool:
+	if amount <= 0 or not _has_talent("soul_forge"):
+		return false
+	var summoned := false
+	# Loop in case amount > threshold (e.g. Forgeborn Tyrant's +3 with threshold 2 → multi-summon).
+	while amount > 0:
+		var step := mini(amount, forge_counter_threshold)
+		amount -= step
+		if _forge_counter_tick(step):
+			_log("  Soul Forge: threshold reached.", 1)
+			_summon_forged_demon()
+			_forge_counter_reset()
+			summoned = true
+	return summoned
+
+## Seris/Abyssal Forge — auras that may be granted to a freshly-summoned
+## Forged Demon. Default: one random aura. With ≥5 Flesh: spend all 5 and
+## grant all three.
+const _FORGED_DEMON_AURAS: Array[String] = ["void_growth", "void_pulse", "flesh_bond"]
+
+## Grant Abyssal Forge auras to the given Forged Demon. With ≥5 Flesh:
+## spend all 5 and grant all three; otherwise grant a single random aura.
+func _grant_forged_demon_auras(forged: MinionInstance) -> void:
+	if forged == null:
+		return
+	if player_flesh >= 5 and _spend_flesh(5):
+		forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
+		_log("  Abyssal Forge: Forged Demon granted all three auras.", 1)  # PLAYER
+	else:
+		var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
+		forged.aura_tags = [roll]
+		_log("  Abyssal Forge: Forged Demon granted %s." % roll, 1)
+
+## Summon a Forged Demon and, if Abyssal Forge is active, grant aura(s).
+## Used by Soul Forge counter threshold + sim's _gain_forge_counter.
+func _summon_forged_demon() -> void:
+	_summon_token("forged_demon", "player")
+	# Find the freshly summoned Forged Demon (last entry on the player board that matches).
+	var forged: MinionInstance = null
+	for i in range(player_board.size() - 1, -1, -1):
+		var m: MinionInstance = player_board[i]
+		if m.card_data.id == "forged_demon":
+			forged = m
+			break
+	if forged == null:
+		return  # board full; summon failed silently per design
+	if _has_talent("abyssal_forge"):
+		_grant_forged_demon_auras(forged)
+
+## Seris — Soul Forge sacrifice tick. Called from CombatHandlers /
+## SerisPlayerProfile when a friendly Demon is sacrificed. Handles two
+## talent-gated reactions: Fiend Offering (sacrificed Grafted Fiend → spend
+## 2 Flesh → Lesser Demon) and Soul Forge counter tick → auto-summon Forged
+## Demon at threshold.
+func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
+	if minion == null or minion.owner != "player":
+		return
+	if not (minion.card_data is MinionCardData):
+		return
+	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		return
+	# Fiend Offering — sacrificed a Grafted Fiend, spend 2 Flesh → Lesser Demon.
+	# Auto-spends when affordable (no opt-out UI yet); board-full still consumes Flesh.
+	if _has_talent("fiend_offering") and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags:
+		if _spend_flesh(2):
+			_log("  Fiend Offering: +1 Lesser Demon attempt.", 1)
+			_summon_token("lesser_demon", "player")
+	if not _has_talent("soul_forge"):
+		return
+	# Forge Counter ticks; at threshold auto-summon Forged Demon and reset.
+	if _forge_counter_tick(1):
+		_log("  Soul Forge: threshold reached.", 1)
+		_summon_forged_demon()
+		_forge_counter_reset()
+
+## Seris — Soul Forge activated ability. Spend 3 Flesh → summon Grafted Fiend.
+## Returns true if a summon attempt was made (Flesh was spent). No-op if the
+## talent isn't active, the player can't afford it, or the board is full.
+## (Board-full path consumes nothing — contrast with sacrifice auto-summons,
+## where Flesh is still spent on board-full.)
+func _soul_forge_activate() -> bool:
+	if not _has_talent("soul_forge"):
+		return false
+	if player_flesh < 3:
+		return false
+	# Check for an empty slot before spending — active uses should not waste Flesh.
+	var has_slot := false
+	for slot in player_slots:
+		if slot.is_empty():
+			has_slot = true
+			break
+	if not has_slot:
+		_log("  Soul Forge: board full — no fiend summoned.", 1)
+		return false
+	if not _spend_flesh(3):
+		return false
+	_log("  Soul Forge: summoning Grafted Fiend.", 1)
+	_summon_token("grafted_fiend", "player")
+	return true
+
+## Register a rune's aura handlers with the trigger manager and run any
+## on-place steps. Stores Array[{event, handler}] per rune in _rune_aura_handlers
+## so _remove_rune_aura can unregister symmetrically. `owner` decides which
+## TriggerEvent to subscribe to (mirror for enemy side).
+func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
+	if trigger_manager == null:
+		return
+	var entries: Array = []
+	# Primary handler — mirror trigger for enemy side
+	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
+		var trigger: int = rune.aura_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_trigger as Enums.TriggerEvent)
+		var h := func(event_ctx: EventContext):
+			var ctx := EffectContext.make(self, owner)
+			ctx.trigger_minion = event_ctx.minion
+			ctx.from_rune = true
+			ctx.source_rune = rune
+			EffectResolver.run(rune.aura_effect_steps, ctx)
+		trigger_manager.register(trigger, h, 20)
+		entries.append({event = trigger, handler = h})
+		# Extra handler — same effect_steps, fires on a second event (e.g. sacrifice in
+		# addition to death so Blood/Soul Rune react to ON LEAVE removals).
+		if rune.aura_extra_trigger >= 0:
+			var extra_trigger: int = rune.aura_extra_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_extra_trigger as Enums.TriggerEvent)
+			trigger_manager.register(extra_trigger, h, 20)
+			entries.append({event = extra_trigger, handler = h})
+	# Secondary handler (e.g. Soul Rune per-turn reset)
+	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
+		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
+		var h2 := func(event_ctx: EventContext):
+			var ctx := EffectContext.make(self, owner)
+			ctx.trigger_minion = event_ctx.minion
+			ctx.source_rune = rune
+			EffectResolver.run(rune.aura_secondary_steps, ctx)
+		trigger_manager.register(sec_trigger, h2, 20)
+		entries.append({event = sec_trigger, handler = h2})
+	# On-place steps run immediately at placement (e.g. Dominion Rune existing-minion sweep)
+	if not rune.aura_on_place_steps.is_empty():
+		var ctx := EffectContext.make(self, owner)
+		EffectResolver.run(rune.aura_on_place_steps, ctx)
+	if not entries.is_empty():
+		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
+
+## Consume the required runes and cast the ritual effect. Exact rune type
+## matches are consumed first; wildcard runes fill remaining gaps. Each rune
+## instance is consumed at most once (tracked by index, removed in reverse).
+## Emits `traps_changed` for "player" so live UI refreshes the slot panel.
+func _fire_ritual(ritual: RitualData) -> void:
+	var consumed_indices: Array[int] = []
+	for req in ritual.required_runes:
+		var found := false
+		# Try exact match first
+		for i in active_traps.size():
+			if i in consumed_indices:
+				continue
+			var trap := active_traps[i] as TrapCardData
+			if trap.is_rune and not trap.is_wildcard_rune and trap.rune_type == req:
+				consumed_indices.append(i)
+				found = true
+				break
+		# Fall back to wildcard rune
+		if not found:
+			for i in active_traps.size():
+				if i in consumed_indices:
+					continue
+				var trap := active_traps[i] as TrapCardData
+				if trap.is_rune and trap.is_wildcard_rune:
+					consumed_indices.append(i)
+					break
+	# Remove consumed runes in reverse index order so earlier indices stay valid
+	consumed_indices.sort()
+	consumed_indices.reverse()
+	for i in consumed_indices:
+		var trap := active_traps[i] as TrapCardData
+		_remove_rune_aura(trap)
+		active_traps.remove_at(i)
+	traps_changed.emit("player")
+	_log("★ RITUAL — %s!" % ritual.ritual_name, 1)  # PLAYER
+	var ritual_ctx := EffectContext.make(self, "player")
+	EffectResolver.run(ritual.effect_steps, ritual_ctx)
+	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
+	if trigger_manager != null:
+		var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
+		trigger_manager.fire(fired_ctx)
+
+## Void Bolt damage per Void Mark stack. Modifiable by CombatSetup at start
+## (deepened_curse talent doubles the per-stack damage to 40).
+func _void_mark_damage_per_stack() -> int:
+	return void_mark_damage_per_stack
+
+## Sacrifice a minion: NOT death — fires ON_LEAVE steps, ON_CORRUPTION_REMOVED
+## (if any stacks), and ON_*_MINION_SACRIFICED but NOT ON_*_MINION_DIED.
+## Removes the minion from its board and clears its slot (unless the slot is
+## frozen for an ongoing animation — scene's animation flow finishes the clear).
+## Live combat's _sacrifice_minion wrapper captures the slot reference first
+## and queues the death animation after this call returns.
+func _sacrifice_minion(minion: MinionInstance) -> void:
+	if minion == null:
+		return
+	# Step 1 — declarative ON LEAVE steps run while the minion is still on its slot.
+	var card_data := minion.card_data as MinionCardData
+	if card_data != null and not card_data.on_leave_effect_steps.is_empty():
+		var leave_ctx := EffectContext.make(self, minion.owner)
+		leave_ctx.source         = minion
+		leave_ctx.source_card_id = card_data.id
+		EffectResolver.run(card_data.on_leave_effect_steps, leave_ctx)
+	# Step 2 — corruption removal still fires (Corrupt Detonation reads "by any means").
+	if trigger_manager != null:
+		var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
+		if pre_corruption > 0:
+			var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+			rm_ctx.minion = minion
+			rm_ctx.damage = pre_corruption
+			trigger_manager.fire(rm_ctx)
+		# Step 3 — sacrifice event for board-wide listeners.
+		var sac_event := Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED if minion.owner == "player" \
+			else Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED
+		var sac_ctx := EventContext.make(sac_event, minion.owner)
+		sac_ctx.minion = minion
+		trigger_manager.fire(sac_ctx)
+	# Step 4 — remove from board. Clear the slot unless it's frozen (live combat
+	# leaves frozen slots intact so the death animation can play first).
+	if minion.owner == "player":
+		player_board.erase(minion)
+		for slot in player_slots:
+			if slot.minion == minion:
+				if not slot.freeze_visuals:
+					slot.minion = null
+				break
+	else:
+		enemy_board.erase(minion)
+		for slot in enemy_slots:
+			if slot.minion == minion:
+				if not slot.freeze_visuals:
+					slot.minion = null
+				break
+	_log("  %s was sacrificed" % minion.card_data.card_name, 6)  # DEATH
+
+## Apply Void Bolt damage to the enemy hero, scaled by current Void Marks.
+## CONVENTION: ALL Void Bolt damage in the game must go through this function
+## so that talents like deepened_curse and future modifiers apply automatically.
+## Void bolt passives fire automatically in _on_hero_damaged when type == VOID_BOLT.
+## is_minion_emitted: caller asserts this Void Bolt is a minion attack/effect (e.g.
+## void_manifestation talent retag of basic attack, piercing_void retag of on-play).
+## Default false → SPELL source for spell-cast / triggered-passive paths.
+##
+## Live combat's _deal_void_bolt_damage wrapper fires + awaits the projectile
+## VFX before calling this so damage syncs with bolt impact.
+func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
+	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
+	var total: int = base_damage + bonus
+	if bonus > 0:
+		_log("  Void Bolt: %d dmg (base %d + %d from %d marks)" % [total, base_damage, bonus, enemy_void_marks], 1)  # PLAYER
+	else:
+		_log("  Void Bolt: %d damage." % total, 1)
+	var base_source: String = _pending_dmg_source
+	if base_source.is_empty():
+		base_source = "void_rune" if from_rune else "void_bolt_spell"
+	_pending_dmg_source = base_source
+	# Split log: base damage + mark bonus separately (sim diagnostic; live combat ignores).
+	if dmg_log_enabled:
+		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
+		if bonus > 0:
+			dmg_log.append({turn = _current_turn, amount = bonus, source = "void_mark"})
+		_pending_dmg_source = "__logged__"  # signal _on_hero_damaged to skip logging
+	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
+	combat_manager.apply_hero_damage("enemy",
+			CombatManager.make_damage_info(total, src, Enums.DamageSchool.VOID_BOLT, source_minion, base_source))
+	_void_bolt_total_dmg += total
+
+## Apply enemy-cast Void Bolt damage to the player hero. Does not participate
+## in Void Marks (those only apply to the enemy hero). Live combat's wrapper
+## fires + awaits the projectile VFX before calling this.
+func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
+	_log("  Void Bolt: %d damage." % base_damage, 2)  # ENEMY
+	var base_source: String = _pending_dmg_source
+	if base_source.is_empty():
+		base_source = "enemy_void_bolt"
+	_pending_dmg_source = base_source
+	if dmg_log_enabled:
+		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
+		_pending_dmg_source = "__logged__"
+	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
+	combat_manager.apply_hero_damage("player",
+			CombatManager.make_damage_info(base_damage, src, Enums.DamageSchool.VOID_BOLT, source_minion, base_source))
+
+## Fire matching non-rune traps for the given trigger event (both player and
+## enemy). Skips player traps when `_player_traps_blocked` is set (enemy-side
+## relic / Phase Disruptor trap-block effects). Mirror-translates the trigger
+## for enemy traps. Removes non-reusable traps after firing.
+func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = null) -> void:
+	# Player traps
+	if not _player_traps_blocked:
+		for trap in active_traps.duplicate():
+			if trap.is_rune:
+				continue
+			if trap.trigger != trigger:
+				continue
+			var ctx := EffectContext.make(self, "player")
+			ctx.trigger_minion = triggering_minion
+			EffectResolver.run(trap.effect_steps, ctx)
+			if not trap.reusable:
+				active_traps.erase(trap)
+	# Enemy traps (mirror trigger: player events → enemy equivalents)
+	var enemy_trigger: int = Enums.mirror_trigger(trigger as Enums.TriggerEvent)
+	for trap in enemy_active_traps.duplicate():
+		if trap.is_rune:
+			continue
+		if trap.trigger != enemy_trigger:
+			continue
+		var ctx := EffectContext.make(self, "enemy")
+		ctx.trigger_minion = triggering_minion
+		EffectResolver.run(trap.effect_steps, ctx)
+		if not trap.reusable:
+			enemy_active_traps.erase(trap)
+
+## Compose an enemy spell cast resolution. The pre/post-cast hooks (Seris
+## Void Amplification / Void Resonance) are player-only and not invoked here.
+## The trigger ON_ENEMY_SPELL_CAST fires before this method (Null Seal can
+## cancel via _spell_cancelled; caller short-circuits in that case).
+func cast_enemy_spell(spell: SpellCardData, chosen) -> void:
+	if not spell.effect_steps.is_empty():
+		var ectx := EffectContext.make(self, "enemy")
+		ectx.source_card_id = spell.id
+		if chosen is MinionInstance:
+			ectx.chosen_target = chosen
+		else:
+			ectx.chosen_object = chosen
+		EffectResolver.run(spell.effect_steps, ectx)
+	elif not spell.effect_id.is_empty():
+		_resolve_spell_effect(spell.effect_id, null, "enemy")
 
 ## Seris — Corrupt Flesh core application. Pure logic shared by the scene
 ## (called from _seris_corrupt_apply_target after a valid click) and sim
@@ -788,3 +1301,16 @@ var trigger_manager: TriggerManager = null
 ## _on_flesh_spent). Decks/hands themselves still live on TurnManager/SimState
 ## per the Phase 4 plan.
 var turn_manager = null
+
+## Hardcoded-effect resolver. Live combat creates one in CombatScene._ready
+## and assigns it through the forwarding property; sim creates one in
+## SimState.setup. Used by _resolve_spell_effect for legacy effect_id spells,
+## and by EffectResolver via ctx.scene._resolve_hardcoded for HARDCODED steps.
+var _hardcoded: HardcodedEffects = null
+
+## Combat-manager instance — owns hero/minion damage application, attack
+## resolution, and minion-vanished signaling. Live combat creates one in
+## CombatScene._ready (forwarded through the property); sim creates one in
+## SimState.setup. State methods that apply damage (e.g. cast_player_hero_spell)
+## read combat_manager directly.
+var combat_manager: CombatManager = null

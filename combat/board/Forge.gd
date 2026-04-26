@@ -52,7 +52,6 @@ func gain(amount: int = 1) -> bool:
 			summoned = true
 	return summoned
 
-## UI hook — refresh the resource bar after any Forge change.
-func on_changed() -> void:
-	if _scene._player_hero_panel != null and _scene._player_hero_panel.resource_bar != null:
-		_scene._player_hero_panel.resource_bar.refresh()
+## (UI refresh on Forge change is now handled by CombatScene._on_state_forge_changed,
+## a subscriber to CombatState.forge_changed. The old Forge.on_changed() hook
+## is gone — this comment marks where it used to live.)

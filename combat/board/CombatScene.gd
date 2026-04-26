@@ -96,11 +96,6 @@ var restart_button: Button
 var combat_log := CombatLog.new()
 # _large_preview moved into LargePreview.gd (large_preview.visual)
 
-## Popup stagger — popups near the same position get offset vertically so they don't overlap.
-const _POPUP_STACK_THRESHOLD := 50.0  # pixels — popups within this distance stack
-const _POPUP_STACK_OFFSET := 30.0     # pixels — vertical offset per stacked popup
-var _recent_popups: Array = []        # Array[{center: Vector2, time: float}]
-
 ## True while an enemy summon card reveal is on screen — EnemyAI waits on this before its next action.
 var _enemy_summon_reveal_active: bool = false
 signal enemy_summon_reveal_done()
@@ -121,17 +116,6 @@ signal on_play_vfx_done()
 ## player can parse what just died before the next action.
 var _active_death_anims: int = 0
 signal death_anims_done()
-
-## True while a player spell's VFX is mid-flight. Effect resolution runs
-## inside the VFX completion callback (await vfx_controller.play_spell), so
-## anything that mutates turn state (like End Turn) must wait until the VFX
-## resolves — otherwise enemies that the spell would have killed can still
-## attack on the immediately-following enemy turn. Cleared after the VFX
-## callback returns; emits player_spell_done. Phase 4 of the CombatState
-## refactor will collapse this by mutating state immediately and letting VFX
-## play independently.
-var _player_spell_active: bool = false
-signal player_spell_done()
 
 ## Re-entrancy guard for _do_end_turn — set true while we're awaiting in-flight
 ## VFX and tearing down the turn. Prevents a second click from queuing another
@@ -159,7 +143,12 @@ var _prev_mana:    int = -1
 # Internal state
 # ---------------------------------------------------------------------------
 
-var combat_manager := CombatManager.new()
+## Forwarded to state.combat_manager so CombatState methods can apply damage
+## via the same instance. Initialized in _ready so state's getter returns the
+## live instance throughout the scene's lifetime.
+var combat_manager: CombatManager:
+	get: return state.combat_manager
+	set(v): state.combat_manager = v
 
 ## Central event dispatcher — populated by _setup_triggers() in _ready().
 ## Forwarded to state.trigger_manager so CombatState methods (rune handling
@@ -168,7 +157,9 @@ var trigger_manager: TriggerManager:
 	get: return state.trigger_manager
 	set(v): state.trigger_manager = v
 var _handlers: CombatHandlers
-var _hardcoded: HardcodedEffects
+var _hardcoded: HardcodedEffects:
+	get: return state._hardcoded
+	set(v): state._hardcoded = v
 var _relic_runtime: RelicRuntime
 var _relic_effects: RelicEffects
 var _relic_bar: RelicBar
@@ -179,6 +170,16 @@ var _relic_bar: RelicBar
 var vfx_controller: VfxController = null
 var _vfx_layer: CanvasLayer = null
 var _vfx_shake_root: Control = null
+
+## Compound VFX (sigil summons, summon reveals, death animations, projectiles
+## etc.) live on the bridge so this scene file isn't 6,000 lines of `create_tween`
+## chains. Set up in _ready alongside vfx_controller. Scene methods that used
+## to inline VFX delegate via vfx_bridge.X(...).
+var vfx_bridge: CombatVFXBridge = null
+
+## Click/hover/select/target chain owner. Scene's `_on_*` signal handlers
+## stay as thin wrappers that delegate here. See CombatInputHandler.gd.
+var input_handler: CombatInputHandler = null
 
 ## Relic state flags (set by relic effects, consumed by combat logic) — forwarded to state.
 var _relic_hero_immune: bool:
@@ -590,9 +591,14 @@ var _champion_vh_summoned: bool:
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
+	combat_manager = CombatManager.new()
 	trigger_manager = TriggerManager.new()
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
+	# Register VFX-rich _summon_token so EffectResolver SUMMON steps fired
+	# through state-created EffectContexts route into scene (sigils, champion
+	# entrance, etc.). Sim leaves this unset → state's pure logic path runs.
+	state._summon_delegate = _summon_token
 	flesh = Flesh.new(self)
 	forge = Forge.new(self)
 	targeting = Targeting.new(self)
@@ -613,10 +619,9 @@ func _ready() -> void:
 	# panels, pip bar) so connecting before those exist is safe.
 	state.hp_changed.connect(_on_state_hp_changed)
 	state.void_marks_changed.connect(_on_state_void_marks_changed)
-	state.damage_dealt.connect(_on_state_damage_dealt)
+	state.spell_damage_dealt.connect(_on_state_spell_damage_dealt)
 	state.combat_log.connect(_on_state_combat_log)
 	state.minion_stats_changed.connect(_on_state_minion_stats_changed)
-	state.minion_died.connect(_on_state_minion_died)
 	state.flesh_changed.connect(_on_state_flesh_changed)
 	state.forge_changed.connect(_on_state_forge_changed)
 	state.traps_changed.connect(_on_state_traps_changed)
@@ -714,6 +719,14 @@ func _find_nodes() -> void:
 	_vfx_layer              = $VfxLayer
 	_vfx_shake_root         = $VfxLayer/VfxShakeRoot
 	vfx_controller.setup(self, _vfx_layer, _vfx_shake_root)
+	vfx_bridge = CombatVFXBridge.new()
+	vfx_bridge.name = "VfxBridge"
+	add_child(vfx_bridge)
+	vfx_bridge.setup(self, state, vfx_controller)
+	input_handler = CombatInputHandler.new()
+	input_handler.name = "InputHandler"
+	add_child(input_handler)
+	input_handler.setup(self, state)
 	essence_label          = $UI/EssenceLabel
 	mana_label             = $UI/ManaLabel
 	end_turn_essence_button = $UI/EndTurnPanel/EndTurnEssenceButton
@@ -838,16 +851,12 @@ func _connect_trap_and_env_hover() -> void:
 		env_slot.mouse_exited.connect(_hide_large_preview)
 
 func _on_trap_slot_hover(idx: int) -> void:
-	if idx < active_traps.size():
-		_show_large_preview(active_traps[idx])
+	if input_handler != null:
+		input_handler.on_trap_slot_hover(idx)
 
 func _on_enemy_trap_slot_hover(idx: int) -> void:
-	var traps: Array = enemy_ai.active_traps if enemy_ai else []
-	if idx < traps.size():
-		var trap: TrapCardData = traps[idx] as TrapCardData
-		# Only show preview for runes (face-up), not concealed traps
-		if trap.is_rune:
-			_show_large_preview(trap)
+	if input_handler != null:
+		input_handler.on_enemy_trap_slot_hover(idx)
 
 # ---------------------------------------------------------------------------
 # Turn events
@@ -1018,12 +1027,11 @@ func _do_end_turn(growth: String = "") -> void:
 	elif growth == "mana":
 		turn_manager.grow_mana_max()
 		last_player_growth = "mana"
-	# Drain any in-flight player-side VFX before relinquishing the turn.
-	# Loop because resolving one VFX can start the next (death anims after
-	# spell resolves, etc).
-	while _player_spell_active or _on_play_vfx_active or _active_death_anims > 0:
-		if _player_spell_active:
-			await player_spell_done
+	# Drain any in-flight on-play VFX or death animations before relinquishing
+	# the turn. Spell VFX no longer gates here — P4B mutates state before the
+	# spell's projectile flight, so kills land regardless of when end-turn
+	# fires. Loop because resolving one VFX can start the next.
+	while _on_play_vfx_active or _active_death_anims > 0:
 		if _on_play_vfx_active:
 			await on_play_vfx_done
 		if _active_death_anims > 0:
@@ -1048,165 +1056,39 @@ func _do_end_turn(growth: String = "") -> void:
 # Hand card selection
 # ---------------------------------------------------------------------------
 
+## Hand-card chain delegated to input_handler. Scene wrappers preserve the
+## external API (signal connections in _connect_ui still target these methods).
 func _on_hand_card_selected(inst: CardInstance) -> void:
-	# Guard: card plays are only valid on the player's turn
-	if not turn_manager.is_player_turn:
-		return
-	selected_attacker = null
-	_clear_all_highlights()
-	pending_play_card = inst
-	if inst.card_data is SpellCardData:
-		_begin_spell_select(inst.card_data as SpellCardData)
-	elif inst.card_data is TrapCardData:
-		_try_play_trap(inst.card_data as TrapCardData)
-	elif inst.card_data is EnvironmentCardData:
-		_try_play_environment(inst.card_data as EnvironmentCardData)
-	elif inst.card_data is MinionCardData:
-		_begin_minion_select(inst.card_data as MinionCardData)
+	if input_handler != null:
+		input_handler.on_hand_card_selected(inst)
 
-## Cancel a pending card selection: clear state and deselect hand.
 func _cancel_card_select() -> void:
-	_pip_bar.stop_blink()
-	pending_play_card = null
-	pending_minion_target = null
-	_awaiting_minion_target = false
-	_clear_all_highlights()
-	if hand_display:
-		hand_display.deselect_current()
+	if input_handler != null:
+		input_handler.cancel_card_select()
 
-## Hand card hover — show large preview and cost blink.
-## Suppressed entirely while another card is pending a target selection.
 func _on_hand_card_hovered(card_data: CardData, visual: CardVisual) -> void:
-	_hovered_hand_visual = visual
-	if pending_play_card != null:
-		return   # targeting in progress — don't interrupt with another card's preview
-	_show_large_preview(card_data, visual)
-	if turn_manager and turn_manager.is_player_turn:
-		_start_pip_blink_for_card(card_data)
+	if input_handler != null:
+		input_handler.on_hand_card_hovered(card_data, visual)
 
-## Hand card unhover — hide preview and stop blink (unless a targeted card is still pending).
 func _on_hand_card_unhovered() -> void:
-	_hovered_hand_visual = null
-	_hide_large_preview()
-	if pending_play_card == null:
-		_pip_bar.stop_blink()
+	if input_handler != null:
+		input_handler.on_hand_card_unhovered()
 
-## Compute and start the pip blink preview for any card type.
-## Used by hover preview and as a fallback when a targeted card is clicked.
 func _start_pip_blink_for_card(card_data: CardData) -> void:
-	if not turn_manager:
-		return
-	var ess_spend := 0
-	var mna_spend := 0
-	var ess_gain  := 0
-	var mna_gain  := 0
-	if card_data is SpellCardData:
-		var spell := card_data as SpellCardData
-		mna_spend = _effective_spell_cost(spell)
-		for step: Dictionary in spell.effect_steps:
-			if step.get("type") != "CONVERT_RESOURCE":
-				continue
-			var amount: int    = step.get("amount", 0)
-			var from: String   = step.get("convert_from", "")
-			var to: String     = step.get("convert_to", "")
-			var available: int = turn_manager.mana - mna_spend if from == "mana" \
-					else turn_manager.essence - ess_spend
-			var actual: int    = mini(amount, maxi(available, 0))
-			if from == "mana":   mna_spend += actual
-			elif from == "essence": ess_spend += actual
-			if to == "essence": ess_gain += actual
-			elif to == "mana":  mna_gain += actual
-	elif card_data is MinionCardData:
-		var mc := card_data as MinionCardData
-		var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
-		ess_spend = maxi(0, mc.essence_cost - _peek_fiendish_pact_discount(mc))
-		mna_spend = maxi(0, mc.mana_cost + extra_mana)
-	elif card_data is TrapCardData:
-		mna_spend = _effective_trap_cost(card_data as TrapCardData)
-	elif card_data is EnvironmentCardData:
-		mna_spend = (card_data as EnvironmentCardData).cost
-	# Dark Mirror: reduce both costs for preview
-	if _relic_cost_reduction > 0:
-		ess_spend = maxi(0, ess_spend - _relic_cost_reduction)
-		mna_spend = maxi(0, mna_spend - _relic_cost_reduction)
-	if not turn_manager.can_afford(ess_spend, mna_spend):
-		return
-	_pip_bar.start_blink(ess_spend, mna_spend, ess_gain, mna_gain)
+	if input_handler != null:
+		input_handler.start_pip_blink_for_card(card_data)
 
-## Handle a spell card being selected from hand.
-## Instant spells cast immediately (cost preview shown on hover).
-## Targeted spells enter pending state and highlight valid targets.
 func _begin_spell_select(spell: SpellCardData) -> void:
-	if not turn_manager.can_afford(0, _effective_spell_cost(spell)):
-		_cancel_card_select()
-		return
-	if not _player_can_afford_sparks(spell.void_spark_cost):
-		_cancel_card_select()
-		return
-	if spell.requires_target:
-		_start_pip_blink_for_card(spell)   # ensure blink runs even if card wasn't hovered
-		_highlight_spell_targets(spell)
-	else:
-		_try_play_spell(spell)
+	if input_handler != null:
+		input_handler.begin_spell_select(spell)
 
-## Handle a minion card being selected from hand.
-## Checks affordability and board space, then highlights valid placement/target slots.
 func _begin_minion_select(mc: MinionCardData) -> void:
-	# Check affordability (Void Crystal relic bypasses cost for the first card)
-	var extra_mana := 1 if (_card_has_tag(mc, "base_void_imp") and _has_talent("piercing_void")) else 0
-	var ess_cost := maxi(0, mc.essence_cost - _peek_fiendish_pact_discount(mc))
-	if not turn_manager.can_afford(ess_cost, maxi(0, mc.mana_cost + extra_mana)):
-		_cancel_card_select()
-		return
-	if not _player_can_afford_sparks(mc.void_spark_cost):
-		_cancel_card_select()
-		return
-	# Check board space before highlighting
-	if not player_slots.any(func(s: BoardSlot) -> bool: return s.is_empty()):
-		_cancel_card_select()
-		return
-	_start_pip_blink_for_card(mc)   # ensure blink runs even if card wasn't hovered
-	var has_targets: bool = _has_valid_minion_on_play_targets_for(_effective_target_type(mc))
-	var is_optional: bool = _effective_target_optional(mc)
-	var is_required: bool = mc.on_play_requires_target and not is_optional
-	if is_required and has_targets:
-		# Mandatory target — targets only; player must pick one before placement.
-		_awaiting_minion_target = true
-		_highlight_minion_on_play_targets(mc)
-		_show_target_prompt(_effective_target_prompt(mc))
-	elif is_optional and has_targets:
-		# Optional target — highlight targets (yellow) AND empty slots (green).
-		# Click a target to resolve effect + show placement; click a slot to
-		# summon without the effect.
-		_awaiting_minion_target = true
-		_clear_all_highlights()
-		var t_type: String = _effective_target_type(mc)
-		var yellow := Color(1.0, 0.9, 0.2, 1.0)
-		var yellow_picker := func(_s: BoardSlot) -> Color: return yellow
-		if t_type in ["enemy_minion", "corrupted_enemy_minion"]:
-			_highlight_slots(enemy_slots,
-				func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, t_type),
-				yellow_picker)
-		if t_type in ["friendly_minion", "friendly_minion_other", "friendly_demon"]:
-			_highlight_slots(player_slots,
-				func(s): return not s.is_empty() and _is_valid_minion_on_play_target(s.minion, t_type),
-				yellow_picker)
-		_highlight_slots(player_slots, func(s): return s.is_empty())
-		_show_target_prompt(_effective_target_prompt(mc))
-	else:
-		# No valid targets (or card doesn't need one) — go straight to placement.
-		# Effect will fire but resolve with null target (logs "no targets" and skips).
-		_awaiting_minion_target = false
-		_highlight_empty_player_slots()
+	if input_handler != null:
+		input_handler.begin_minion_select(mc)
 
 func _on_hand_card_deselected() -> void:
-	_pip_bar.stop_blink()
-	pending_play_card = null
-	pending_minion_target = null
-	_awaiting_minion_target = false
-	_hide_target_prompt()
-	_tear_down_trap_env_targeting()
-	_clear_all_highlights()
+	if input_handler != null:
+		input_handler.on_hand_card_deselected()
 
 # ---------------------------------------------------------------------------
 # Spell / Trap / Environment play
@@ -1236,24 +1118,33 @@ func _try_play_spell(spell: SpellCardData) -> void:
 		_show_spell_countered_anim(spell)
 		_update_counter_warning()
 		return
-	# Show large card preview; resolve effects on impact so damage visuals sync
+	# P4B: invert resolve-at-impact for AoE / untargeted spells. Freeze every
+	# enemy minion slot so the wave can play over still-visible minions before
+	# their death animations fire. State mutates immediately; popups capture
+	# and drain at vfx.impact_hit (or, for plague-style VFX that ignores
+	# resolve_damage, at the safety drain after VfxController returns). After
+	# VFX finishes, unfreeze slots + flush deferred deaths so kills animate.
 	_show_card_cast_anim(spell, false, func() -> void:
-		var resolve_damage := func(_i: int) -> void:
-			_pre_player_spell_cast(spell)
-			if not spell.effect_steps.is_empty():
-				var ctx := EffectContext.make(self, "player")
-				ctx.source_card_id = spell.id
-				EffectResolver.run(spell.effect_steps, ctx)
-			else:
-				_resolve_spell_effect(spell.effect_id, null)
-			_post_player_spell_cast(spell, null)
-			var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-			spell_ctx.card = spell
-			trigger_manager.fire(spell_ctx)
-		_player_spell_active = true
-		await vfx_controller.play_spell(spell.id, "player", null, resolve_damage)
-		_player_spell_active = false
-		player_spell_done.emit()
+		var frozen_slots: Array[BoardSlot] = []
+		for s in enemy_slots:
+			if s.minion != null:
+				s.freeze_visuals = true
+				frozen_slots.append(s)
+		_capturing_spell_popups = true
+		state.cast_player_targeted_spell(spell, null)
+		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
+		spell_ctx.card = spell
+		trigger_manager.fire(spell_ctx)
+		_capturing_spell_popups = false
+		var on_impact := func(_i: int) -> void: _drain_pending_spell_popups()
+		await vfx_controller.play_spell(spell.id, "player", null, on_impact)
+		_drain_pending_spell_popups()
+		# Unfreeze any slots we froze; refresh + flush so death animations play.
+		for s in frozen_slots:
+			if is_instance_valid(s):
+				s.freeze_visuals = false
+				s._refresh_visuals()
+		_flush_deferred_deaths()
 	)
 
 func _try_play_trap(trap: TrapCardData) -> void:
@@ -1366,97 +1257,19 @@ func _rune_type_name(rune_type: int) -> String:
 # Player input — board slot clicks
 # ---------------------------------------------------------------------------
 
+## Slot click chain delegated to input_handler. Scene wrappers kept so signal
+## connections in _connect_board_slots stay pointing at scene methods.
 func _on_player_slot_clicked_empty(slot: BoardSlot) -> void:
-	# If a minion card is pending to be played, place it here.
-	# For targeted cards, pending_minion_target holds the player's chosen target
-	# (set when they clicked a valid target slot before choosing placement).
-	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
-		var mc := pending_play_card.card_data as MinionCardData
-		# Still waiting for a target? — slot clicks are blocked UNLESS the card's
-		# target is optional, in which case the slot click bypasses targeting and
-		# the minion summons without the effect resolving.
-		if _awaiting_minion_target and not _effective_target_optional(mc):
-			return
-		var inst_to_play := pending_play_card
-		var on_play_target := pending_minion_target
-		pending_minion_target = null
-		pending_play_card = null
-		_awaiting_minion_target = false
-		_hide_target_prompt()
-		_clear_all_highlights()
-		_try_play_minion_animated(inst_to_play, slot, on_play_target)
+	if input_handler != null:
+		input_handler.on_player_slot_clicked_empty(slot)
 
-func _on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -> void:
-	if not turn_manager.is_player_turn:
-		return
-	# Seris — Corrupt Flesh activated ability targeting mode.
-	if _seris_corrupt_targeting:
-		_seris_corrupt_apply_target(minion)
-		return
-	# If a targeted spell is waiting for a target, apply it
-	if pending_play_card != null and pending_play_card.card_data is SpellCardData:
-		var spell := pending_play_card.card_data as SpellCardData
-		if spell.requires_target and _is_valid_spell_target(minion, spell.target_type):
-			_apply_targeted_spell(spell, minion)
-			return
-	# If a targeted minion card is waiting for a friendly target, store it and show placement slots.
-	# If the minion card is pending but NOT awaiting a target (board was shown), block attacker
-	# selection so clicking an occupied slot doesn't accidentally select an attacker.
-	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
-		var mc := pending_play_card.card_data as MinionCardData
-		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, _effective_target_type(mc)):
-			pending_minion_target = minion
-			_awaiting_minion_target = false
-			_highlight_empty_player_slots()
-			_mark_selected_target(minion)
-			_show_target_prompt("Target selected. Choose a slot.")
-		return  # swallow the click — don't fall through to attacker selection
-	# Select this minion as the attacker if it can attack
-	if minion.can_attack():
-		selected_attacker = minion
-		_highlight_valid_attack_targets()
-	else:
-		selected_attacker = null
-		_clear_all_highlights()
+func _on_player_slot_clicked_occupied(slot: BoardSlot, minion: MinionInstance) -> void:
+	if input_handler != null:
+		input_handler.on_player_slot_clicked_occupied(slot, minion)
 
-func _on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
-	if not turn_manager.is_player_turn:
-		return
-	# If a relic is awaiting a target, resolve it
-	if _pending_relic_target != "":
-		_resolve_relic_target_minion(minion)
-		return
-	# If a targeted spell that can hit enemy minions is pending, apply it here
-	if pending_play_card != null and pending_play_card.card_data is SpellCardData:
-		var spell := pending_play_card.card_data as SpellCardData
-		if spell.requires_target and _is_valid_spell_target(minion, spell.target_type):
-			_apply_targeted_spell(spell, minion)
-			return
-	# If a targeted minion card is waiting for an enemy target, store it and show placement slots
-	if pending_play_card != null and pending_play_card.card_data is MinionCardData:
-		var mc := pending_play_card.card_data as MinionCardData
-		if _awaiting_minion_target and _is_valid_minion_on_play_target(minion, _effective_target_type(mc)):
-			pending_minion_target = minion
-			_awaiting_minion_target = false
-			_highlight_empty_player_slots()
-			_mark_selected_target(minion)
-			_show_target_prompt("Target selected. Choose a slot.")
-			return
-	if selected_attacker == null:
-		return
-	# Enforce Guard — must attack a Guard minion if one exists
-	if CombatManager.board_has_taunt(enemy_board) and not minion.has_guard():
-		return  # Invalid target
-	_log("Your %s attacks enemy %s" % [selected_attacker.card_data.card_name, minion.card_data.card_name])
-	_anim_pre_hp   = minion.current_health
-	_anim_atk_slot = _find_slot_for(selected_attacker)
-	_anim_def_slot = _find_slot_for(minion)
-	if _anim_atk_slot: _anim_atk_slot.freeze_visuals = true
-	if _anim_def_slot: _anim_def_slot.freeze_visuals = true
-	combat_manager.resolve_minion_attack(selected_attacker, minion)
-	selected_attacker = null
-	_clear_all_highlights()
-	_enemy_hero_panel.show_attackable(false)
+func _on_enemy_slot_clicked(slot: BoardSlot, minion: MinionInstance) -> void:
+	if input_handler != null:
+		input_handler.on_enemy_slot_clicked(slot, minion)
 
 # ---------------------------------------------------------------------------
 # Minion play
@@ -1816,32 +1629,9 @@ var _spell_cast_depth: int:
 func _pre_player_spell_cast(spell: SpellCardData) -> void:
 	state._pre_player_spell_cast(spell)
 
-## Seris — called after a player spell's effect resolves. Handles the Void
-## Resonance (Seris capstone) double-cast: if the player still has ≥5 Flesh
-## AFTER any cost the spell itself deducted, consume all 5 and recursively
-## resolve the spell's effect once more targeting the same minion.
+## Delegated to CombatState — handles Void Resonance recast at outermost cast level.
 func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> void:
-	# Only try double-cast at the outermost cast level, and only once per cast.
-	if _spell_cast_depth == 1 \
-			and _has_talent("void_resonance_seris") \
-			and player_flesh >= 5 \
-			and not _double_cast_in_progress:
-		_double_cast_in_progress = true
-		if _spend_flesh(5):
-			_log("  Void Resonance: recasting %s." % spell.card_name, _LogType.PLAYER)
-			# If the original target is dead / gone, per design the recast fizzles but Flesh is still spent.
-			if target == null or (is_instance_valid(target) and target.current_health > 0):
-				if not spell.effect_steps.is_empty():
-					var ctx := EffectContext.make(self, "player")
-					ctx.chosen_target = target
-					ctx.source_card_id = spell.id
-					EffectResolver.run(spell.effect_steps, ctx)
-				else:
-					_resolve_spell_effect(spell.effect_id, target)
-		_double_cast_in_progress = false
-	_spell_cast_depth = maxi(0, _spell_cast_depth - 1)
-	if _spell_cast_depth == 0:
-		_player_spell_damage_bonus = 0
+	state._post_player_spell_cast(spell, target)
 
 ## Reentrancy guard so the recast doesn't itself trigger another recast.
 var _double_cast_in_progress: bool:
@@ -2066,124 +1856,8 @@ func _pack_chain_anchor(from: BoardSlot, toward: BoardSlot) -> Vector2:
 	var offset: float = min(from.size.x, from.size.y) * 0.35
 	return from_center + dir * offset
 
-## Dramatic entrance sequence for champion token summons.
-## Shows card reveal → banner → screen shake → gold flash → place minion → fire trigger.
-func _champion_summon_sequence(card: MinionCardData, instance: MinionInstance, slot: BoardSlot) -> void:
-	var owner: String = instance.owner
-
-	# 1+2. Card reveal + "CHAMPION" banner shown together, held longer
-	AudioManager.play_sfx("res://assets/audio/sfx/minions/champion_summon.wav")
-	await _show_champion_reveal_with_banner(card)
-	if not is_inside_tree(): slot.place_minion(instance); return
-
-	# 3. Place the minion on the slot
-	slot.place_minion(instance)
-	_log("  %s summoned!" % card.card_name, _LogType.PLAYER)
-
-	# 4. Fire summon trigger
-	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-	var ctx := EventContext.make(event, owner)
-	ctx.minion = instance
-	ctx.card   = card
-	trigger_manager.fire(ctx)
-
-	# 5. Screen shake — shake the landed slot so the impact reads locally.
-	await _champion_screen_shake(slot)
-
-	# 6. Gold flash on the slot + expanded ripple
-	_champion_slot_flash(slot)
-	_spawn_slot_ripple(slot, 8, true)
-
-## Card reveal + "CHAMPION" banner shown together, held long enough to read.
-func _show_champion_reveal_with_banner(card: CardData) -> void:
-	var vp := get_viewport().get_visible_rect().size
-
-	# --- Card visual (offset above center so banner can sit below it) ---
-	var visual: CardVisual = CARD_VISUAL_SCENE.instantiate()
-	visual.apply_size_mode("combat_preview")
-	visual.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	visual.z_index       = 20
-	visual.z_as_relative = false
-	visual.modulate      = Color(0, 0, 0, 0)
-	$UI.add_child(visual)
-	visual.setup(card)
-	# Anchor card so its top is ~60px from the top edge (with minimum padding safety)
-	var card_top_y: float = max(60.0, vp.y * 0.08)
-	visual.position = Vector2(vp.x / 2.0 - visual.size.x / 2.0, card_top_y)
-
-	# --- Banner (below the card, with a small gap) ---
-	var banner_y: float = card_top_y + visual.size.y + 30.0
-	var bg := ColorRect.new()
-	bg.color = Color(0.0, 0.0, 0.0, 0.0)
-	bg.set_size(Vector2(vp.x, 80))
-	bg.position = Vector2(0, banner_y)
-	bg.z_index = 25
-	bg.z_as_relative = false
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	$UI.add_child(bg)
-
-	var title := Label.new()
-	title.text = "★  C H A M P I O N  ★"
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", Color(1.0, 0.82, 0.25, 0.0))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	title.position = Vector2(-200, 8)
-	title.set_size(Vector2(400, 30))
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(title)
-
-	var name_lbl := Label.new()
-	name_lbl.text = card.card_name
-	name_lbl.add_theme_font_size_override("font_size", 16)
-	name_lbl.add_theme_color_override("font_color", Color(0.90, 0.75, 0.50, 0.0))
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	name_lbl.position = Vector2(-200, 42)
-	name_lbl.set_size(Vector2(400, 25))
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(name_lbl)
-
-	# --- Fade in (card + banner together) ---
-	var t1 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t1.tween_property(visual, "modulate", Color(1.2, 1.05, 0.75, 1.0), 0.3)
-	t1.tween_property(bg, "color:a", 0.75, 0.3)
-	t1.tween_property(title, "theme_override_colors/font_color:a", 1.0, 0.35)
-	t1.tween_property(name_lbl, "theme_override_colors/font_color:a", 1.0, 0.4)
-	await t1.finished
-	if not is_inside_tree(): visual.queue_free(); bg.queue_free(); return
-
-	# --- Hold (longer than before) ---
-	await get_tree().create_timer(2.8).timeout
-	if not is_inside_tree(): visual.queue_free(); bg.queue_free(); return
-
-	# --- Fade out together ---
-	var t2 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t2.tween_property(visual, "modulate:a", 0.0, 0.35)
-	t2.tween_property(bg, "modulate:a", 0.0, 0.35)
-	await t2.finished
-	visual.queue_free()
-	bg.queue_free()
-
-## Screen shake for champion entrance. Heavy impact with decay.
-## Target MUST be a Node2D/Control with a real position — pass the slot the
-## champion landed on. Shaking $UI (a CanvasLayer) no-ops.
-func _champion_screen_shake(target: Node) -> void:
-	await ScreenShakeEffect.shake(target, self, 18.0, 14)
-
-## Gold flash overlay on a slot when a champion lands.
-func _champion_slot_flash(slot: BoardSlot) -> void:
-	var flash := ColorRect.new()
-	flash.color = Color(1.0, 0.82, 0.25, 0.6)
-	flash.set_size(slot.size)
-	flash.global_position = slot.global_position
-	flash.z_index = 3
-	flash.z_as_relative = false
-	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	$UI.add_child(flash)
-	var tw := create_tween().set_trans(Tween.TRANS_SINE)
-	tw.tween_property(flash, "color:a", 0.0, 0.5)
-	tw.tween_callback(flash.queue_free)
+## Champion entrance VFX (banner reveal, screen shake, gold flash) live on
+## vfx_bridge — see CombatVFXBridge.champion_summon_sequence and friends.
 
 ## Placeholder for data-driven on-death effects (not yet implemented).
 ## Called by CombatHandlers.on_minion_died_death_effect via has_method check.
@@ -2210,288 +1884,20 @@ func _corrupt_minion(minion: MinionInstance) -> void:
 		slot.blink_corruption_status()
 		slot.flash_atk_debuff()
 
-## Pulse the Abyss Cultist Patrol champion's slot with an emerald corruption
-## aura (rim glow + smoke wisps + sonic shimmer). Fires each time the aura
-## triggers an instant detonation, so the player learns the visual link
-## "champion pulses -> my corrupted minion blows up."
+## Champion / passive / on-play VFX delegated to vfx_bridge. External callers
+## (HardcodedEffects, CombatHandlers) keep using these scene wrappers via
+## `_scene.has_method("X")` guards.
 func _play_champion_acp_aura_pulse() -> void:
-	var champion: MinionInstance = null
-	for m in enemy_board:
-		if (m as MinionInstance).card_data.id == "champion_abyss_cultist_patrol":
-			champion = m
-			break
-	if champion == null:
-		return
-	var slot: BoardSlot = _find_slot_for(champion)
-	if slot == null:
-		return
-	vfx_controller.spawn(ChampionAuraCorruptionPulseVFX.create(slot))
+	if vfx_bridge != null:
+		vfx_bridge.play_champion_acp_aura_pulse()
 
-## Detonate Corruption on a list of minions in parallel. Each target spawns a
-## CorruptionDetonationVFX; on impact_hit, `on_impact.call(minion, stacks)` runs
-## so the caller can remove stacks + refresh the slot + apply damage synced to
-## the visible burst. Missing slots fall back to immediate application.
-##
-## Freezes each target slot's visuals so lethal damage keeps the card card
-## parked under the burst — any deaths queue into _deferred_death_slots and
-## flush once the last VFX finishes.
-##
-## Gates enemy actions: sets `_on_play_vfx_active` while detonations play and
-## emits `on_play_vfx_done` when the last one finishes, so EnemyAI.commit_*
-## awaits the full animation before the next enemy action.
-##
-## targets: Array of Dictionary { "minion": MinionInstance, "stacks": int }.
-## on_impact: Callable(minion: MinionInstance, stacks: int) -> void.
 func _play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
-	var spawnable: Array = []
-	for t in targets:
-		var m: MinionInstance = t["minion"]
-		var stacks: int = t["stacks"]
-		var slot: BoardSlot = _find_slot_for(m)
-		if slot == null:
-			on_impact.call(m, stacks)
-		else:
-			spawnable.append({"minion": m, "stacks": stacks, "slot": slot})
-	if spawnable.is_empty():
-		return
+	if vfx_bridge != null:
+		vfx_bridge.play_corruption_detonations(targets, on_impact)
 
-	_on_play_vfx_active = true
-	var remaining_ref: Array = [spawnable.size()]
-
-	for s in spawnable:
-		var m: MinionInstance = s["minion"]
-		var stacks: int = s["stacks"]
-		var slot: BoardSlot = s["slot"]
-		slot.freeze_visuals = true
-		var vfx := CorruptionDetonationVFX.create(slot, stacks)
-		vfx.impact_hit.connect(func(_i: int) -> void:
-			on_impact.call(m, stacks)
-		, CONNECT_ONE_SHOT)
-		vfx.finished.connect(func() -> void:
-			if is_instance_valid(slot):
-				slot.freeze_visuals = false
-				slot._refresh_visuals()
-			remaining_ref[0] -= 1
-			if remaining_ref[0] <= 0:
-				_flush_deferred_deaths()
-				_on_play_vfx_active = false
-				on_play_vfx_done.emit()
-		, CONNECT_ONE_SHOT)
-		vfx_controller.spawn(vfx)
-
-## Feral Reinforcement (Act 2 passive) — a radiant violet halo erupts from
-## the summoned Human's slot, then a face-down card arcs toward the enemy hero
-## panel's hand indicator and lands with a pulse on the hand count.
-## The card identity stays hidden (face-down) — the player shouldn't know which
-## Feral Imp the enemy drew.
-## Blocking: sets `_on_play_vfx_active` and emits `on_play_vfx_done` when the
-## full animation finishes, so the EnemyAI awaits it before its next action
-## (same pattern as Frenzied Imp Hurl in _play_frenzied_imp_hurl_vfx).
-func _play_feral_reinforcement_vfx(source: MinionInstance, _imp_card: CardData) -> void:
-	if source == null:
-		return
-	var slot: BoardSlot = _find_slot_for(source)
-	if slot == null or _enemy_hero_panel == null:
-		return
-	var ui_root: Node = get_node_or_null("UI")
-	if ui_root == null:
-		return
-	_on_play_vfx_active = true
-
-	var start_pos: Vector2 = slot.global_position + slot.size * 0.5
-	var end_pos: Vector2   = _enemy_hero_panel.global_position + _enemy_hero_panel.size * 0.5
-
-	# 1) Origin halo: soft radial gradient at the source slot, additive-blended,
-	#    violet tint. Same procedural softcircle pattern CastingWindupVFX uses
-	#    for its charge-up glow — no geometry, just diffuse outward light.
-	const HALO_TINT := Color(0.90, 0.35, 1.00, 1.0)  # violet
-	var origin_halo := _make_radial_halo(320.0, HALO_TINT)
-	origin_halo.position = start_pos - origin_halo.size * 0.5
-	origin_halo.z_index  = 17
-	origin_halo.z_as_relative = false
-	ui_root.add_child(origin_halo)
-	origin_halo.modulate.a = 0.0
-	var oh_tw := create_tween().set_trans(Tween.TRANS_SINE)
-	oh_tw.tween_property(origin_halo, "modulate:a", 0.85, 0.36).set_ease(Tween.EASE_OUT)
-	oh_tw.tween_property(origin_halo, "modulate:a", 0.0, 1.10).set_ease(Tween.EASE_IN)
-	oh_tw.tween_callback(origin_halo.queue_free)
-
-	# 2) Feral surge mark scorch on the slot (brief, tinted red).
-	const TEX_SURGE: Texture2D = preload("res://assets/art/fx/feral_surge_mark.png")
-	var mark := TextureRect.new()
-	mark.texture       = TEX_SURGE
-	mark.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
-	mark.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	mark.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	mark.z_index       = 17
-	mark.z_as_relative = false
-	mark.modulate      = Color(1.0, 0.35, 0.45, 0.0)
-	var mark_size := slot.size * 0.9
-	mark.size          = mark_size
-	mark.position      = slot.global_position + (slot.size - mark_size) * 0.5
-	mark.pivot_offset  = mark_size * 0.5
-	mark.rotation      = randf_range(-0.25, 0.25)
-	mark.scale         = Vector2(0.7, 0.7)
-	ui_root.add_child(mark)
-	var mark_tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
-	mark_tw.tween_property(mark, "modulate:a", 0.7, 0.24).set_ease(Tween.EASE_OUT)
-	mark_tw.tween_property(mark, "scale", Vector2(1.05, 1.05), 0.50).set_ease(Tween.EASE_OUT)
-	mark_tw.chain()
-	mark_tw.tween_property(mark, "modulate:a", 0.0, 1.0).set_ease(Tween.EASE_IN)
-	mark_tw.tween_callback(mark.queue_free)
-
-	# 3) Face-down card fly-in — identity hidden so the player doesn't see which
-	#    Feral Imp was drawn. Procedural card back (dark panel + violet border +
-	#    glyph), arcs on a parabolic path toward the enemy hero panel. A soft
-	#    additive halo rides behind the card, emitting outward light as it flies.
-	var card_back := _make_feral_card_back()
-	card_back.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-	card_back.z_index        = 22
-	card_back.z_as_relative  = false
-	ui_root.add_child(card_back)
-	card_back.pivot_offset   = card_back.size * 0.5
-	var start_scale := Vector2(0.55, 0.55)
-	var end_scale   := Vector2(0.22, 0.22)
-	card_back.scale          = start_scale
-	card_back.modulate       = Color(1.0, 1.0, 1.0, 0.0)
-	# pivot_offset = size/2, so visual center stays at position + size/2 regardless of scale.
-	card_back.position       = start_pos - card_back.size * 0.5
-
-	var card_halo := _make_radial_halo(280.0, HALO_TINT)
-	card_halo.z_index        = 21  # behind the card (22), above board
-	card_halo.z_as_relative  = false
-	card_halo.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-	card_halo.modulate.a     = 0.0
-	ui_root.add_child(card_halo)
-
-	# Arc path: parabolic midpoint lifted above the straight line.
-	var mid_pos: Vector2 = start_pos.lerp(end_pos, 0.5)
-	mid_pos.y += -140.0
-
-	var fly_duration: float = 1.10
-	var t := create_tween().set_parallel(true)
-	t.tween_property(card_back, "modulate:a", 1.0, 0.24).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.tween_property(card_halo, "modulate:a", 0.75, 0.30).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.tween_property(card_back, "scale", end_scale, fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t.tween_property(card_halo, "scale", Vector2(0.45, 0.45), fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t.tween_property(card_back, "rotation", randf_range(-0.35, 0.35), fly_duration * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.parallel().tween_property(card_back, "rotation", 0.0, fly_duration * 0.5).set_delay(fly_duration * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	card_halo.scale = Vector2.ONE
-	var arc_callable := func(p: float) -> void:
-		if not is_instance_valid(card_back): return
-		var a: Vector2 = start_pos.lerp(mid_pos, p)
-		var b: Vector2 = mid_pos.lerp(end_pos, p)
-		var pt: Vector2 = a.lerp(b, p)
-		card_back.position = pt - card_back.size * 0.5
-		if is_instance_valid(card_halo):
-			card_halo.position = pt - card_halo.size * 0.5
-	t.tween_method(arc_callable, 0.0, 1.0, fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.chain().tween_property(card_back, "modulate:a", 0.0, 0.30).set_ease(Tween.EASE_IN)
-	t.parallel().tween_property(card_halo, "modulate:a", 0.0, 0.36).set_ease(Tween.EASE_IN)
-	t.tween_callback(card_back.queue_free)
-	t.tween_callback(card_halo.queue_free)
-	t.tween_callback(func() -> void:
-		if _enemy_hero_panel and is_instance_valid(_enemy_hero_panel):
-			_pulse_enemy_hand_indicator()
-	)
-	await t.finished
-	_on_play_vfx_active = false
-	on_play_vfx_done.emit()
-
-## Procedural face-down card back used by Feral Reinforcement (and reusable for
-## any "hidden card goes to enemy hand" effect). Dark panel + violet border +
-## centered claw/imp glyph.
-func _make_feral_card_back() -> Control:
-	var root := Control.new()
-	root.custom_minimum_size = Vector2(160, 240)
-	root.size = Vector2(160, 240)
-
-	var bg := Panel.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var bg_style := StyleBoxFlat.new()
-	bg_style.bg_color     = Color(0.08, 0.03, 0.10, 1.0)
-	bg_style.border_color = Color(0.75, 0.25, 0.95, 1.0)
-	bg_style.set_border_width_all(3)
-	bg_style.set_corner_radius_all(8)
-	bg_style.shadow_color = Color(0.60, 0.20, 0.90, 0.55)
-	bg_style.shadow_size  = 10
-	bg.add_theme_stylebox_override("panel", bg_style)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(bg)
-
-	var inner := Panel.new()
-	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	inner.offset_left = 8; inner.offset_right = -8
-	inner.offset_top  = 8; inner.offset_bottom = -8
-	var inner_style := StyleBoxFlat.new()
-	inner_style.bg_color     = Color(0.14, 0.05, 0.18, 1.0)
-	inner_style.border_color = Color(0.45, 0.15, 0.60, 0.9)
-	inner_style.set_border_width_all(1)
-	inner_style.set_corner_radius_all(5)
-	inner.add_theme_stylebox_override("panel", inner_style)
-	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(inner)
-
-	var glyph := Label.new()
-	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	glyph.text = "✦"
-	glyph.add_theme_font_size_override("font_size", 96)
-	glyph.add_theme_color_override("font_color", Color(0.95, 0.65, 1.0, 1.0))
-	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	glyph.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	inner.add_child(glyph)
-	return root
-
-## Soft radial-gradient halo — additive-blended, tinted. Used behind the
-## face-down card in Feral Reinforcement so it emits diffuse outward light
-## (same procedural softcircle pattern as CastingWindupVFX's glow halo).
-## `diameter` is the on-screen halo size in pixels.
-func _make_radial_halo(diameter: float, tint: Color) -> TextureRect:
-	var tr := TextureRect.new()
-	tr.texture        = _get_radial_halo_texture()
-	tr.expand_mode    = TextureRect.EXPAND_IGNORE_SIZE
-	tr.stretch_mode   = TextureRect.STRETCH_SCALE
-	tr.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-	tr.size           = Vector2(diameter, diameter)
-	tr.pivot_offset   = tr.size * 0.5
-	tr.modulate       = tint
-	var mat := CanvasItemMaterial.new()
-	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	tr.material       = mat
-	return tr
-
-## Cached procedural softcircle texture — white RGB, smoothstep-biased alpha
-## falloff from bright center to 0 at the edge. Reused across all halo calls.
-static var _radial_halo_tex: ImageTexture = null
-
-static func _get_radial_halo_texture() -> ImageTexture:
-	if _radial_halo_tex != null:
-		return _radial_halo_tex
-	const SIZE := 256
-	var img := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
-	var centre: float = float(SIZE) * 0.5
-	for y in SIZE:
-		for x in SIZE:
-			var dx: float = (float(x) - centre) / centre
-			var dy: float = (float(y) - centre) / centre
-			var r: float  = sqrt(dx * dx + dy * dy)
-			var a: float  = clampf(1.0 - r, 0.0, 1.0)
-			a = a * a * (3.0 - 2.0 * a)  # smoothstep
-			a = a * a  # bias further toward bright-centre / soft-outer
-			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
-	_radial_halo_tex = ImageTexture.create_from_image(img)
-	return _radial_halo_tex
-
-## Brief gold pulse on the enemy hand count label — used when a card is added
-## to the enemy hand by a passive (Feral Reinforcement and similar).
-func _pulse_enemy_hand_indicator() -> void:
-	if _enemy_hero_panel == null:
-		return
-	_enemy_hero_panel.pivot_offset = _enemy_hero_panel.size * 0.5
-	var tw := create_tween().set_trans(Tween.TRANS_BACK)
-	tw.tween_property(_enemy_hero_panel, "modulate", Color(1.6, 1.3, 0.6, 1.0), 0.10).set_ease(Tween.EASE_OUT)
-	tw.tween_property(_enemy_hero_panel, "modulate", Color.WHITE, 0.35).set_ease(Tween.EASE_IN_OUT)
+func _play_feral_reinforcement_vfx(source: MinionInstance, imp_card: CardData) -> void:
+	if vfx_bridge != null:
+		await vfx_bridge.play_feral_reinforcement_vfx(source, imp_card)
 
 ## Return a random living enemy minion, or null if the board is empty.
 func _find_random_enemy_minion() -> MinionInstance:
@@ -2646,25 +2052,25 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 			board.append(instance)
 			state.minion_summoned.emit(owner, instance, slot.index)
 			# Champion tokens get a dramatic entrance (fire-and-forget — places minion on slot after animation)
-			if data.is_champion:
-				_champion_summon_sequence(data, instance, slot)
+			if data.is_champion and vfx_bridge != null:
+				vfx_bridge.champion_summon_sequence(data, instance, slot)
 			else:
 				# Void Spark tokens get the spark summon sigil VFX (covers
 				# brood_imp on-death, soul_rune, and other spark sources).
 				# Reserve the slot synchronously (so back-to-back SUMMONs land
 				# in distinct slots) then reveal the minion after the sigil.
-				if card_id == "void_spark" and vfx_controller != null:
-					_summon_spark_with_sigil(instance, data, slot, owner)
+				if card_id == "void_spark" and vfx_bridge != null:
+					vfx_bridge.summon_spark_with_sigil(instance, data, slot, owner)
 					return
 				# Void Demon tokens (Void Spawning, Fleshcraft Ritual) get the
 				# purple ARCANE sigil + inward spark burst on reveal.
-				if card_id == "void_demon" and vfx_controller != null:
-					_summon_demon_with_sigil(instance, data, slot, owner)
+				if card_id == "void_demon" and vfx_bridge != null:
+					vfx_bridge.summon_demon_with_sigil(instance, data, slot, owner)
 					return
 				# Brood Imp tokens (Matriarch's Broodling on-death) get the
 				# dark-green BROOD_DARK sigil + green/black inward spark burst.
-				if card_id == "brood_imp" and vfx_controller != null:
-					_summon_brood_imp_with_sigil(instance, data, slot, owner)
+				if card_id == "brood_imp" and vfx_bridge != null:
+					vfx_bridge.summon_brood_imp_with_sigil(instance, data, slot, owner)
 					return
 				slot.place_minion(instance)
 				_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
@@ -2674,110 +2080,6 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 				ctx.card   = data
 				trigger_manager.fire(ctx)
 			return
-
-## Play SPARK sigil VFX, then reveal the summoned spark after the VFX ends.
-## The slot is reserved immediately (minion occupies it, visuals frozen) so
-## back-to-back SUMMON steps (e.g. Brood Imp's 2 sparks) land in distinct
-## slots. Each summon plays its own sigil in parallel.
-func _summon_spark_with_sigil(instance: MinionInstance, data: MinionCardData,
-		slot: BoardSlot, owner: String) -> void:
-	# Reserve the slot synchronously — is_empty() now returns false for it.
-	slot.freeze_visuals = true
-	slot.place_minion(instance)
-
-	# Spawn sigil and wait for it to finish before revealing the minion.
-	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.SPARK)
-	vfx_controller.spawn(sigil)
-	await sigil.finished
-	if not is_inside_tree():
-		return
-
-	# Reveal the minion — refresh visuals now that the sigil has collapsed,
-	# then fade the slot in so the spark materialises rather than popping.
-	slot.freeze_visuals = false
-	slot.modulate.a = 0.0
-	slot._refresh_visuals()
-	var fade := create_tween()
-	fade.tween_property(slot, "modulate:a", 1.0, 0.35) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
-	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-	var ctx   := EventContext.make(event, owner)
-	ctx.minion = instance
-	ctx.card   = data
-	trigger_manager.fire(ctx)
-
-
-## Play purple ARCANE sigil VFX for a Void Demon token, then a short inward
-## spark burst while the slot fades in. Mirrors _summon_spark_with_sigil but
-## uses the Void Spawning visual language (purple rings + violet sparks).
-func _summon_demon_with_sigil(instance: MinionInstance, data: MinionCardData,
-		slot: BoardSlot, owner: String) -> void:
-	slot.freeze_visuals = true
-	slot.place_minion(instance)
-
-	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.ARCANE_PURPLE)
-	vfx_controller.spawn(sigil)
-	await sigil.finished
-	if not is_inside_tree():
-		return
-
-	# Spark burst plays over an EMPTY-looking slot — sparks stream in from
-	# all edges and converge to center. Demon fades in only after the last
-	# spark has landed and disappeared.
-	var burst := VoidDemonSparkBurstVFX.create(slot)
-	vfx_controller.spawn(burst)
-	await burst.finished
-	if not is_inside_tree():
-		return
-
-	slot.freeze_visuals = false
-	slot.modulate.a = 0.0
-	slot._refresh_visuals()
-	var fade := create_tween()
-	fade.tween_property(slot, "modulate:a", 1.0, 0.35) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
-	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-	var ctx   := EventContext.make(event, owner)
-	ctx.minion = instance
-	ctx.card   = data
-	trigger_manager.fire(ctx)
-
-
-## Play dark-green BROOD_DARK sigil VFX for a Brood Imp token summoned from
-## Matriarch's Broodling on-death, then a green/black inward spark burst while
-## the slot fades in. Mirrors _summon_demon_with_sigil.
-func _summon_brood_imp_with_sigil(instance: MinionInstance, data: MinionCardData,
-		slot: BoardSlot, owner: String) -> void:
-	slot.freeze_visuals = true
-	slot.place_minion(instance)
-
-	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.BROOD_DARK)
-	vfx_controller.spawn(sigil)
-	await sigil.finished
-	if not is_inside_tree():
-		return
-
-	var burst := BroodImpSparkBurstVFX.create(slot)
-	vfx_controller.spawn(burst)
-	await burst.finished
-	if not is_inside_tree():
-		return
-
-	slot.freeze_visuals = false
-	slot.modulate.a = 0.0
-	slot._refresh_visuals()
-	var fade := create_tween()
-	fade.tween_property(slot, "modulate:a", 1.0, 0.35) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
-	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-	var ctx   := EventContext.make(event, owner)
-	ctx.minion = instance
-	ctx.card   = data
-	trigger_manager.fire(ctx)
-
 
 ## Aura-source minions play a one-shot breathing halo on their own summon to
 ## advertise "I project an aura" without the noise of a persistent effect.
@@ -2926,15 +2228,12 @@ func _setup_relics() -> void:
 	_relic_bar.relic_unhovered.connect(_on_relic_unhovered)
 
 func _on_relic_hovered(effect_id: String) -> void:
-	match effect_id:
-		"relic_refill_mana":
-			# Show mana gain preview: +2 mana (capped at max)
-			var gain: int = mini(2, turn_manager.mana_max - turn_manager.mana)
-			if gain > 0:
-				_pip_bar.start_blink(0, 0, 0, gain)
+	if input_handler != null:
+		input_handler.on_relic_hovered(effect_id)
 
 func _on_relic_unhovered() -> void:
-	_pip_bar.stop_blink()
+	if input_handler != null:
+		input_handler.on_relic_unhovered()
 
 func _on_relic_activated(index: int) -> void:
 	if not turn_manager.is_player_turn:
@@ -3007,139 +2306,51 @@ func _cancel_relic_targeting() -> void:
 
 ## Fired when player clicks the enemy hero panel while relic targeting is active.
 func _on_relic_target_hero_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton and event.pressed):
-		return
-	if _pending_relic_target == "":
-		return
-	if event.button_index == MOUSE_BUTTON_LEFT:
-		_resolve_relic_target_hero()
-	elif event.button_index == MOUSE_BUTTON_RIGHT:
-		_cancel_relic_targeting()
+	if input_handler != null:
+		input_handler.on_relic_target_hero_input(event)
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_F12:
-			_cheat.toggle()
-		elif event.keycode == KEY_ESCAPE and _cheat.visible:
-			_cheat.toggle()
-			get_viewport().set_input_as_handled()
-	# Right-click cancels relic targeting, spell targeting, or minion placement
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-		if _pending_relic_target != "":
-			_cancel_relic_targeting()
-			get_viewport().set_input_as_handled()
-		elif pending_play_card != null:
-			_cancel_card_select()
-			get_viewport().set_input_as_handled()
-		elif selected_attacker != null:
-			selected_attacker = null
-			_clear_all_highlights()
-			_enemy_hero_panel.show_attackable(false)
-			get_viewport().set_input_as_handled()
+	if input_handler != null:
+		input_handler.handle_input(event)
 
-## Entry point for EffectResolver HARDCODED steps — delegates to HardcodedEffects.
+## Delegated to CombatState — entry point for EffectResolver HARDCODED steps.
 func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
-	_hardcoded.resolve(id, ctx)
+	state._resolve_hardcoded(id, ctx)
 
 ## Legacy shim for spells that still use effect_id instead of effect_steps.
 func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: String = "player") -> void:
-	var ctx := EffectContext.make(self, owner)
-	ctx.chosen_target = target
-	_hardcoded.resolve(effect_id, ctx)
+	state._resolve_spell_effect(effect_id, target, owner)
 
 ## Summon a 100/100 Void Spark into the first empty player slot.
 func _summon_void_spark() -> void:
 	_summon_token("void_spark", "player")
 
-## Spawn the Brood Call portal VFX at the first empty slot that will receive
-## the summoned imp. Awaits the full VFX (ramp → hold → collapse) so the token
-## is placed after the portal has closed.
+## Delegated to vfx_bridge — preserves the external entry point used by
+## HardcodedEffects.brood_call. Kept as a thin async wrapper so callers can
+## still `await scene._play_brood_call_vfx(...)` unchanged.
 func _play_brood_call_vfx(owner: String) -> void:
-	if vfx_controller == null:
-		return
-	var slots: Array = player_slots if owner == "player" else enemy_slots
-	var target_slot: BoardSlot = null
-	for s: BoardSlot in slots:
-		if s.is_empty():
-			target_slot = s
-			break
-	if target_slot == null:
-		return
-	var vfx := SummonSigilVFX.create(target_slot, SummonSigilVFX.Flavor.BROOD)
-	vfx_controller.spawn(vfx)
-	await vfx.finished
+	if vfx_bridge != null:
+		await vfx_bridge.play_brood_call_vfx(owner)
 
-## Spawn the Grafted Butcher ON PLAY VFX — graft tether from the sacrificed
-## minion's slot into the Butcher, engorge flash, then a crimson cleaver wave
-## sweeps across the enemy board. Awaits `impact_hit` so the caller can apply
-## 200 AoE damage synced to the wave's peak. Awaits `finished` so the visual
-## settles before returning.
+## Delegated to vfx_bridge — Grafted Butcher ON PLAY graft + cleaver wave.
 func _play_grafted_butcher_vfx(butcher: MinionInstance,
 		sac_center: Vector2, butcher_owner: String) -> void:
-	if vfx_controller == null:
-		return
-	var butcher_slot: BoardSlot = _find_slot_for(butcher) if butcher else null
-	var butcher_panel: Control = butcher_slot
-	var target_board: Control = $UI/EnemyBoard if butcher_owner == "player" else $UI/PlayerBoard
-	var target_slots: Array = _get_opponent_occupied_slots(butcher_owner)
-	var vfx := GraftedButcherVFX.create(butcher_panel, sac_center, target_board, target_slots)
-	vfx_controller.spawn(vfx)
-	await vfx.impact_hit
+	if vfx_bridge != null:
+		await vfx_bridge.play_grafted_butcher_vfx(butcher, sac_center, butcher_owner)
 
-## Spawn the Pack Frenzy warcry VFX from the caster's hero panel, sweeping
-## across the given friendly Feral Imp slots. Awaits `impact_hit` so the caller
-## can apply buffs synced to the first imp ignition. Returns after the wave
-## reaches the imps — lingering visuals continue in the background.
+## Delegated to vfx_bridge — Pack Frenzy warcry sweep.
 func _play_pack_frenzy_vfx(owner: String, target_slots: Array,
 		is_matriarch: bool) -> void:
-	if vfx_controller == null or target_slots.is_empty():
-		return
-	var caster_panel: Control = _player_hero_panel if owner == "player" else _enemy_hero_panel
-	if caster_panel == null:
-		return
-	var vfx := PackFrenzyVFX.create(caster_panel, target_slots, is_matriarch)
-	vfx_controller.spawn(vfx)
-	# Track the live VFX so the enemy AI / turn flow can wait for it to finish
-	# before continuing (see VfxController._play_pack_frenzy).
-	_pack_frenzy_active_vfx = vfx
-	vfx.finished.connect(func() -> void:
-		if _pack_frenzy_active_vfx == vfx:
-			_pack_frenzy_active_vfx = null,
-		CONNECT_ONE_SHOT)
-	await vfx.impact_hit
+	if vfx_bridge != null:
+		await vfx_bridge.play_pack_frenzy_vfx(owner, target_slots, is_matriarch)
 
-## The currently-playing Pack Frenzy VFX, or null. Read by VfxController so it
-## can await the full visual (including glyphs + linger sparks) before
-## returning from play_spell — otherwise the enemy's next action would start
-## mid-VFX.
-var _pack_frenzy_active_vfx: PackFrenzyVFX = null
+## (`_pack_frenzy_active_vfx` lives on vfx_bridge. VfxController reads it via
+## `_combat.vfx_bridge._pack_frenzy_active_vfx` to await the lingering visual.)
 
-## Spawn an ATK buff chevron next to a minion's ATK label. Used by Pack Frenzy
-## since its VFX owns the full buff visual (the generic BuffApplyVFX — which
-## normally spawns the chevron — is filtered out for source="pack_frenzy").
+## Delegated to vfx_bridge — ATK buff chevron used by Pack Frenzy.
 func _spawn_atk_chevron(minion: MinionInstance) -> void:
-	if minion == null or not is_instance_valid(minion):
-		return
-	var slot: BoardSlot = _find_slot_for(minion)
-	if slot == null or slot.minion != minion:
-		return
-	var lbl: Label = slot._atk_label
-	if lbl == null:
-		return
-	var chevron := preload("res://combat/effects/BuffChevronVFX.gd").new()
-	slot.add_child(chevron)
-	var chevron_size := Vector2(14, 16)
-	var font: Font = lbl.get_theme_font("font")
-	var font_size: int = lbl.get_theme_font_size("font_size")
-	var text_width: float = font.get_string_size(lbl.text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size).x
-	var text_left_x: float = lbl.position.x + (lbl.size.x - text_width) * 0.5
-	var text_right_x: float = text_left_x + text_width
-	var y_offset: float = lbl.size.y * 0.5 - chevron_size.y * 0.5
-	var gap: float = 2.0
-	chevron.position = Vector2(text_right_x + gap, lbl.position.y + y_offset)
-	chevron.set_size(chevron_size)
-	chevron.play()
+	if vfx_bridge != null:
+		vfx_bridge.spawn_atk_chevron(minion)
 
 ## Pulse the lifedrain icon on a minion's status bar to highlight the grant
 ## from the Imp Matriarch's Ancient Frenzy aura. Fire-and-forget.
@@ -3328,9 +2539,9 @@ func _spell_mana_discount() -> int:
 		discount += m.card_data.mana_cost_discount
 	return discount
 
-## Void Bolt damage per Void Mark stack. Set by CombatSetup (deepened_curse → 40).
+## Delegated to CombatState — Void Bolt damage per Void Mark stack.
 func _void_mark_damage_per_stack() -> int:
-	return void_mark_damage_per_stack
+	return state._void_mark_damage_per_stack()
 
 ## Add Void Mark stacks to the enemy hero.
 ## Apply Void Mark stacks. State handles HP-marker mutation + log; scene
@@ -3341,17 +2552,10 @@ func _apply_void_mark(stacks: int = 1) -> void:
 		var vfx := VoidMarkApplyVFX.create(_enemy_status_panel)
 		vfx_controller.spawn(vfx)
 
-# Flesh / Forge facades — delegate to behavior modules. Names preserved so
-# external callers (handlers, EffectResolver) keep working unchanged.
-#
-# _on_flesh_spent / _on_flesh_changed / _on_forge_changed are kept as
-# duck-type stubs even though no real-game caller invokes them directly —
-# SimState mirrors the same shape (sim/SimState.gd) and removing them here
-# would break the protocol parity that lets EffectResolver treat scene
-# and SimState interchangeably.
-## Flesh primitives — delegated to CombatState. The state setter on
-## player_flesh emits flesh_changed which refreshes Seris's resource bar.
-## _on_flesh_spent fires Flesh Bond card draw via state.turn_manager.draw_card.
+# Flesh / Forge facades — delegate to CombatState primitives. The state
+# setters emit flesh_changed / forge_changed which refresh Seris's resource
+# bar via the _on_state_*_changed subscribers. Wrappers preserved for
+# external callers (handlers, EffectResolver).
 func _gain_flesh(amount: int = 1) -> void:
 	state._gain_flesh(amount)
 
@@ -3360,9 +2564,6 @@ func _spend_flesh(amount: int) -> bool:
 
 func _on_flesh_spent(amount: int) -> void:
 	state._on_flesh_spent(amount)
-
-func _on_flesh_changed() -> void:
-	flesh.on_changed()
 
 func _forge_counter_tick(amount: int = 1) -> bool:
 	return forge.tick(amount)
@@ -3373,9 +2574,6 @@ func _forge_counter_reset() -> void:
 func _gain_forge_counter(amount: int = 1) -> bool:
 	return forge.gain(amount)
 
-func _on_forge_changed() -> void:
-	forge.on_changed()
-
 ## Seris — fires for every friendly Demon SACRIFICE emit (not combat deaths).
 ## Handles Forge Counter ticks, Fiend Offering, and the auto Forged Demon summon.
 ## Silently no-ops for non-Seris runs (no soul_forge talent).
@@ -3383,45 +2581,13 @@ func _on_forge_changed() -> void:
 ## Board-full rule: if an auto-summon would land but no slot is free, Flesh/
 ## counter costs are still paid — the summon just fails silently. This matches
 ## the user-facing "reduce flesh as well" decision so over-boarding isn't free.
-func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
-	if minion == null or minion.owner != "player":
-		return
-	if not (minion.card_data is MinionCardData):
-		return
-	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
-		return
+## Delegated to CombatState — Fiend Offering + Soul Forge counter tick.
+func _on_demon_sacrificed(minion: MinionInstance, source_tag: String) -> void:
+	state._on_demon_sacrificed(minion, source_tag)
 
-	# Fiend Offering — sacrificed a Grafted Fiend, spend 2 Flesh → Lesser Demon.
-	# Auto-spends when affordable (no opt-out UI yet); board-full still consumes Flesh.
-	if _has_talent("fiend_offering") and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags:
-		if _spend_flesh(2):
-			_log("  Fiend Offering: +1 Lesser Demon attempt.", _LogType.PLAYER)
-			_summon_token("lesser_demon", "player")
-
-	if not _has_talent("soul_forge"):
-		return
-
-	# Forge Counter ticks; at threshold auto-summon Forged Demon and reset.
-	if _forge_counter_tick(1):
-		_log("  Soul Forge: threshold reached.", _LogType.PLAYER)
-		_summon_forged_demon()
-		_forge_counter_reset()
-
-## Summon a Forged Demon and, if Abyssal Forge is active, grant a random aura
-## (or all three if the player opts to spend 5 Flesh).
+## Delegated to CombatState — summons Forged Demon and applies Abyssal Forge auras.
 func _summon_forged_demon() -> void:
-	_summon_token("forged_demon", "player")
-	# Find the freshly summoned Forged Demon (last entry on the player board that matches).
-	var forged: MinionInstance = null
-	for i in range(player_board.size() - 1, -1, -1):
-		var m: MinionInstance = player_board[i]
-		if m.card_data.id == "forged_demon":
-			forged = m
-			break
-	if forged == null:
-		return  # board full; summon failed silently per design
-	if _has_talent("abyssal_forge"):
-		_grant_forged_demon_auras(forged)
+	state._summon_forged_demon()
 
 ## Seris — Corrupt Flesh activated ability. Entry point from SerisResourceBar button.
 ## Toggles targeting mode; player clicks a friendly Demon to apply Corruption.
@@ -3461,42 +2627,10 @@ func _seris_corrupt_apply_target(minion: MinionInstance) -> void:
 func _seris_corrupt_reset_turn() -> void:
 	state._seris_corrupt_reset_turn()
 
-## Seris — Soul Forge activated ability. Spend 3 Flesh → summon a Grafted Fiend.
-## Called from the SerisResourceBar's Forge button. Per design: no-op if the
-## talent isn't active, the player can't afford it, or the board is full
-## (board-full consumes nothing — contrast with sacrifice auto-summons where
-## Flesh is still spent).
+## Delegated to CombatState — Soul Forge activated ability (button handler in
+## SerisResourceBar). Returns ignored by callers; state version returns bool.
 func _soul_forge_activate() -> void:
-	if not _has_talent("soul_forge"):
-		return
-	if player_flesh < 3:
-		return
-	# Check for an empty slot before spending — active clicks should not waste
-	# Flesh the way passive sacrifice auto-summons do.
-	var has_slot := false
-	for slot in player_slots:
-		if slot.is_empty():
-			has_slot = true
-			break
-	if not has_slot:
-		_log("  Soul Forge: board full — no fiend summoned.", _LogType.PLAYER)
-		return
-	if not _spend_flesh(3):
-		return
-	_log("  Soul Forge: summoning Grafted Fiend.", _LogType.PLAYER)
-	_summon_token("grafted_fiend", "player")
-
-## Abyssal Forge (capstone) — grant auras to a freshly summoned Forged Demon.
-## Default: one random aura. If the player has >=5 Flesh, spend all 5 and grant all three.
-const _FORGED_DEMON_AURAS: Array[String] = ["void_growth", "void_pulse", "flesh_bond"]
-func _grant_forged_demon_auras(forged: MinionInstance) -> void:
-	if player_flesh >= 5 and _spend_flesh(5):
-		forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
-		_log("  Abyssal Forge: Forged Demon granted all three auras.", _LogType.PLAYER)
-	else:
-		var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
-		forged.aura_tags = [roll]
-		_log("  Abyssal Forge: Forged Demon granted %s." % roll, _LogType.PLAYER)
+	state._soul_forge_activate()
 
 ## Pre-death hook — delegated to CombatState (Seris's deathless_flesh talent).
 func _try_save_from_death(minion: MinionInstance) -> bool:
@@ -3530,49 +2664,22 @@ func _heal_minion_full(minion: MinionInstance) -> void:
 ##   4. Erase from board and clear slot. Death animation is reused for visuals.
 ##
 ## Skips: ON_*_MINION_DIED, on_death_effect_steps, on-death icon VFX, granted_on_death_effects.
+## Delegated to CombatState — runs ON LEAVE / corruption-removed / sacrifice
+## triggers, removes from board, clears slot.minion (skipping frozen slots),
+## logs DEATH. Scene captures dead_slot beforehand to queue the death animation
+## after state mutates.
 func _sacrifice_minion(minion: MinionInstance) -> void:
 	if minion == null:
 		return
-	# Capture slot for the death animation BEFORE we touch the board.
 	var dead_slot: BoardSlot = null
 	var search_slots := player_slots if minion.owner == "player" else enemy_slots
 	for s in search_slots:
 		if s.minion == minion:
 			dead_slot = s
 			break
-	# Step 1 — declarative ON LEAVE steps run while the minion is still on its slot.
-	var card_data := minion.card_data as MinionCardData
-	if card_data != null and not card_data.on_leave_effect_steps.is_empty():
-		var leave_ctx := EffectContext.make(self, minion.owner)
-		leave_ctx.source         = minion
-		leave_ctx.source_card_id = card_data.id
-		EffectResolver.run(card_data.on_leave_effect_steps, leave_ctx)
-	# Step 2 — corruption removal still fires (Corrupt Detonation reads "by any means").
-	var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
-	if pre_corruption > 0:
-		var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
-		rm_ctx.minion = minion
-		rm_ctx.damage = pre_corruption
-		trigger_manager.fire(rm_ctx)
-	# Step 3 — fire the sacrifice event for board-wide listeners.
-	var sac_event := Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED if minion.owner == "player" \
-		else Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED
-	var sac_ctx := EventContext.make(sac_event, minion.owner)
-	sac_ctx.minion = minion
-	trigger_manager.fire(sac_ctx)
-	# Step 4 — remove from board and play death animation. We do NOT fire ON_*_MINION_DIED.
-	var slot_is_frozen := dead_slot != null and dead_slot.freeze_visuals
-	if minion.owner == "player":
-		player_board.erase(minion)
-		if not slot_is_frozen:
-			_clear_slot_for(minion, player_slots)
-		if hand_display:
-			hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
-	else:
-		enemy_board.erase(minion)
-		if not slot_is_frozen:
-			_clear_slot_for(minion, enemy_slots)
-	_log("  %s was sacrificed" % minion.card_data.card_name, _LogType.DEATH)
+	state._sacrifice_minion(minion)
+	if hand_display:
+		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	_refresh_hand_spell_costs()
 	if dead_slot:
 		if dead_slot.freeze_visuals:
@@ -3594,100 +2701,39 @@ func _add_kill_stacks(minion: MinionInstance, count: int = 1) -> void:
 ## is_minion_emitted: caller asserts this Void Bolt is a minion attack/effect (e.g.
 ## void_manifestation talent retag of basic attack, piercing_void retag of on-play).
 ## Default false → SPELL source for spell-cast / triggered-passive paths.
+## Live-combat wrapper around CombatState._deal_void_bolt_damage — fires the
+## projectile VFX and awaits impact before delegating to state for the
+## (logging, dmg_log split, hero damage application) logic. Sim path skips
+## the projectile entirely; state-internal logic is the source of truth.
 func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
-	var bonus := enemy_void_marks * _void_mark_damage_per_stack()
-	var total := base_damage + bonus
-	if bonus > 0:
-		_log("  Void Bolt: %d dmg (base %d + %d from %d marks)" % [total, base_damage, bonus, enemy_void_marks], _LogType.PLAYER)
-	else:
-		_log("  Void Bolt: %d damage." % total, _LogType.PLAYER)
-	# Fire projectile and wait for it to arrive before applying damage.
-	# The projectile owns both cast and impact SFX internally.
 	var bolt := _fire_void_bolt_projectile(source_minion, from_rune)
 	if bolt != null and is_inside_tree():
 		await bolt.impact_hit
-	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
-	combat_manager.apply_hero_damage("enemy",
-			CombatManager.make_damage_info(total, src, Enums.DamageSchool.VOID_BOLT, source_minion, "void_bolt"))
+	state._deal_void_bolt_damage(base_damage, source_minion, from_rune, is_minion_emitted)
 
-## Spawn and fly a void bolt projectile to the enemy hero panel.
-## Returns the bolt node (or null if not spawned) so caller can await impact_hit.
+## Delegated to vfx_bridge — fires the player's void bolt projectile.
 func _fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune: bool = false) -> VoidBoltProjectile:
-	if not is_inside_tree():
+	if vfx_bridge == null:
 		return null
-	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	# Determine source position
-	var from_pos: Vector2
-	if source_minion != null:
-		# Fire from the minion's board slot
-		var found := false
-		for slot in player_slots:
-			if (slot as BoardSlot).minion == source_minion:
-				from_pos = (slot as BoardSlot).global_position + (slot as BoardSlot).size / 2.0
-				found = true
-				break
-		if not found:
-			from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
-	elif from_rune:
-		# Fire from the void rune's trap slot
-		var rune_pos := _find_void_rune_slot_position()
-		if rune_pos != Vector2.ZERO:
-			from_pos = rune_pos
-		else:
-			from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
-	else:
-		# Default: center-bottom (player hero area)
-		from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
-	# Target: enemy status panel center
-	var to_pos: Vector2
-	if _enemy_status_panel:
-		to_pos = _enemy_status_panel.global_position + _enemy_status_panel.size / 2.0
-	else:
-		to_pos = Vector2(vp_size.x / 2.0, 80)
-	var bolt := VoidBoltProjectile.create(from_pos, to_pos)
-	vfx_controller.spawn(bolt)
-	return bolt
+	return vfx_bridge.fire_void_bolt_projectile(source_minion, from_rune)
 
 ## Enemy-cast Void Bolt — fires a projectile from the enemy minion's slot (or
 ## enemy hero area) to the player hero panel, then applies damage on impact.
 ## Does not participate in Void Marks (those only apply to the enemy hero).
 ## is_minion_emitted: see _deal_void_bolt_damage. Default false (SPELL source).
+## Live-combat wrapper — fires enemy projectile VFX, awaits impact, delegates
+## to state for log + damage application.
 func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
-	_log("  Void Bolt: %d damage." % base_damage, _LogType.ENEMY)
 	var bolt := _fire_enemy_void_bolt_projectile(source_minion)
 	if bolt != null and is_inside_tree():
 		await bolt.impact_hit
-	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
-	combat_manager.apply_hero_damage("player",
-			CombatManager.make_damage_info(base_damage, src, Enums.DamageSchool.VOID_BOLT, source_minion, "void_bolt"))
+	state._deal_enemy_void_bolt_damage(base_damage, source_minion, is_minion_emitted)
 
-## Spawn a void bolt projectile flying from enemy side down to the player hero.
+## Delegated to vfx_bridge — fires the enemy's void bolt projectile.
 func _fire_enemy_void_bolt_projectile(source_minion: MinionInstance = null) -> VoidBoltProjectile:
-	if not is_inside_tree():
+	if vfx_bridge == null:
 		return null
-	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var from_pos: Vector2
-	if source_minion != null:
-		var found := false
-		for slot in enemy_slots:
-			if (slot as BoardSlot).minion == source_minion:
-				from_pos = (slot as BoardSlot).global_position + (slot as BoardSlot).size / 2.0
-				found = true
-				break
-		if not found:
-			from_pos = Vector2(vp_size.x / 2.0, 200)
-	elif _enemy_hero_panel:
-		from_pos = _enemy_hero_panel.global_position + _enemy_hero_panel.size / 2.0
-	else:
-		from_pos = Vector2(vp_size.x / 2.0, 200)
-	var to_pos: Vector2
-	if _player_status_panel:
-		to_pos = _player_status_panel.global_position + _player_status_panel.size / 2.0
-	else:
-		to_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
-	var bolt := VoidBoltProjectile.create(from_pos, to_pos)
-	vfx_controller.spawn(bolt)
-	return bolt
+	return vfx_bridge.fire_enemy_void_bolt_projectile(source_minion)
 
 ## Cycles through void rune slots so multiple runes alternate firing.
 var _void_rune_fire_index: int:
@@ -3885,25 +2931,11 @@ func _on_state_void_marks_changed(side: String, _value: int) -> void:
 	if side == "enemy" and _enemy_hero_panel:
 		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 
-## Subscriber to CombatState.damage_dealt — currently a no-op for live combat
-## (existing damage flow still spawns popups directly). Sim's dmg_log will be
-## migrated to subscribe here in Phase 3, replacing the SimState-internal
-## _pending_dmg_source plumbing.
-func _on_state_damage_dealt(_source: String, _target: String, _amount: int, _school: int, _was_crit: bool) -> void:
-	pass
-
 ## Subscriber to CombatState.combat_log — forwards to the on-screen CombatLog.
 ## Lets handlers and effects log via state without holding a scene reference.
 func _on_state_combat_log(msg: String, log_type: int) -> void:
 	if combat_log:
 		combat_log.write(msg, log_type)
-
-## Subscriber to CombatState.minion_died — currently a no-op for live combat
-## (death animation + trigger event firing already happens in _on_minion_vanished).
-## External logic listeners (sim profiles, relic handlers) can subscribe here
-## without needing a CombatManager reference.
-func _on_state_minion_died(_side: String, _minion: MinionInstance, _slot_index: int) -> void:
-	pass
 
 ## Subscriber to CombatState.flesh_changed — refreshes Seris's resource bar.
 ## Replaces the old Flesh.on_changed() callback chain.
@@ -3954,7 +2986,10 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		_pctx.damage_info = info
 		trigger_manager.fire(_pctx)
 		if player_hp <= 0:
+			# Lethal — flash immediately so the defeat flow runs without delay.
 			_flash_hero("player", amount, _on_defeat, school, is_crit)
+		elif _capturing_spell_popups:
+			_pending_hero_popups.append({kind = "damage", target = "player", amount = amount, school = school, is_crit = is_crit})
 		else:
 			_flash_hero("player", amount, Callable(), school, is_crit)
 	else:
@@ -3977,6 +3012,8 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			# Transition mutates board/deck/passives synchronously, then we
 			# defer a forced end-of-player-turn so the current damage/attack
 			# resolution can unwind cleanly before control flips to enemy.
+			# Lethal — flash immediately (skip queue) so the transition /
+			# victory flow doesn't get visually disjointed from the kill.
 			var pt = preload("res://combat/board/PhaseTransition.gd")
 			if pt.attempt(self):
 				_flash_hero("enemy", amount, Callable(), school, is_crit)
@@ -3984,6 +3021,8 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 				call_deferred("_force_end_player_turn_for_phase_transition")
 				return
 			_flash_hero("enemy", amount, _on_victory, school, is_crit)
+		elif _capturing_spell_popups:
+			_pending_hero_popups.append({kind = "damage", target = "enemy", amount = amount, school = school, is_crit = is_crit})
 		else:
 			_flash_hero("enemy", amount, Callable(), school, is_crit)
 
@@ -3991,11 +3030,17 @@ func _on_hero_healed(target: String, amount: int) -> void:
 	# hp_changed signal handles panel refreshes for both sides.
 	if target == "player":
 		player_hp = mini(player_hp + amount, GameManager.player_hp_max)
-		_flash_hero_heal("player", amount)
+		if _capturing_spell_popups:
+			_pending_hero_popups.append({kind = "heal", target = "player", amount = amount})
+		else:
+			_flash_hero_heal("player", amount)
 		_log("  You heal %d HP  (HP: %d)" % [amount, player_hp], _LogType.HEAL)
 	elif target == "enemy":
 		enemy_hp = mini(enemy_hp + amount, enemy_hp_max)
-		_flash_hero_heal("enemy", amount)
+		if _capturing_spell_popups:
+			_pending_hero_popups.append({kind = "heal", target = "enemy", amount = amount})
+		else:
+			_flash_hero_heal("enemy", amount)
 		_log("  Enemy heals %d HP  (HP: %d)" % [amount, enemy_hp], _LogType.ENEMY)
 
 # ---------------------------------------------------------------------------
@@ -4064,145 +3109,47 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 	_clear_all_highlights()
 	var captured_target: MinionInstance = target
 	_show_card_cast_anim(spell, false, func() -> void:
-		var resolve_damage := func(_i: int) -> void:
-			_pre_player_spell_cast(spell)
-			if not spell.effect_steps.is_empty():
-				var ctx := EffectContext.make(self, "player")
-				ctx.chosen_target = captured_target
-				ctx.source_card_id = spell.id
-				EffectResolver.run(spell.effect_steps, ctx)
-			else:
-				_resolve_spell_effect(spell.effect_id, captured_target)
-			_post_player_spell_cast(spell, captured_target)
-		_player_spell_active = true
-		await vfx_controller.play_spell(spell.id, "player", captured_target, resolve_damage)
-		_player_spell_active = false
-		player_spell_done.emit()
+		# P4B: invert the resolve-at-impact pattern. Freeze the target slot BEFORE
+		# mutating state so _on_minion_vanished sees freeze_visuals=true and defers
+		# the death animation (slot.minion stays set, slot visual stays). Capture
+		# popups so they sync with VFX impact instead of firing at mutation time.
+		# Then mutate state immediately — kills land before any await.
+		var target_slot: BoardSlot = _find_slot_for(captured_target)
+		if target_slot != null:
+			target_slot.freeze_visuals = true
+		_capturing_spell_popups = true
+		state.cast_player_targeted_spell(spell, captured_target)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
 		trigger_manager.fire(spell_ctx)
+		_capturing_spell_popups = false
+		# Drain queued popups at vfx.impact_hit so they appear when projectile lands.
+		var on_impact := func(_i: int) -> void: _drain_pending_spell_popups()
+		await vfx_controller.play_spell(spell.id, "player", captured_target, on_impact)
 	)
 
 ## Fired when player clicks the enemy hero panel while targeting a spell with "enemy_minion_or_hero".
 func _on_enemy_hero_spell_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
-		return
-	if pending_play_card == null or not pending_play_card.card_data is SpellCardData:
-		return
-	var spell := pending_play_card.card_data as SpellCardData
-	if not _pay_card_cost(0, _effective_spell_cost(spell)):
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	_log("You cast: %s → Enemy Hero" % spell.card_name)
-	turn_manager.remove_from_hand(pending_play_card)
-	if hand_display:
-		hand_display.remove_card(pending_play_card)
-		hand_display.deselect_current()
-	pending_play_card = null
-	_clear_all_highlights()
-	_show_card_cast_anim(spell, false, func() -> void:
-		var resolve_damage := func(_i: int) -> void:
-			_pre_player_spell_cast(spell)
-			# Compute damage using the same bonus_amount/bonus_conditions logic as EffectResolver._amount.
-			# Pick up damage_school from the step too — this hero-targeted path bypasses
-			# EffectResolver entirely, so the school must be re-read here or it's lost.
-			var base_dmg: int = 0
-			var school: int = Enums.DamageSchool.NONE
-			for step in spell.effect_steps:
-				var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
-				if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
-					var ctx := EffectContext.make(self, "player")
-					if ConditionResolver.check_all(s.conditions, ctx, null):
-						base_dmg += s.amount
-						if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
-							if ConditionResolver.check_all(s.bonus_conditions, ctx, null):
-								base_dmg += s.bonus_amount
-						# First contributing damage step's school wins. (All damage steps
-						# on a spell typically share a school; if not, that's a card design
-						# question, not a plumbing concern.)
-						if school == Enums.DamageSchool.NONE:
-							school = s.damage_school
-			var total: int = base_dmg + _player_spell_damage_bonus
-			_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], _LogType.PLAYER)
-			combat_manager.apply_hero_damage("enemy",
-					CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, school, null, spell.id))
-			_post_player_spell_cast(spell, null)
-		_player_spell_active = true
-		await vfx_controller.play_spell(spell.id, "player", _enemy_status_panel, resolve_damage)
-		_player_spell_active = false
-		player_spell_done.emit()
-		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-		spell_ctx.card = spell
-		trigger_manager.fire(spell_ctx)
-	)
+	if input_handler != null:
+		input_handler.on_enemy_hero_spell_input(event)
 
 
 # ---------------------------------------------------------------------------
 # Cyclone / trap-or-env targeting
 # ---------------------------------------------------------------------------
 
-## Stored gui_input connections so they can be disconnected cleanly.
-var _active_trap_env_connections: Array = []  # Array[{node: Control, cb: Callable}]
-
+## Cyclone trap-or-env targeting delegated to input_handler.
 func _setup_trap_env_targeting() -> void:
-	_tear_down_trap_env_targeting()
-	for i in trap_slot_panels.size():
-		if i < active_traps.size():
-			var cb := func(ev: InputEvent) -> void: _on_trap_env_input(ev, i, null)
-			trap_slot_panels[i].gui_input.connect(cb)
-			_active_trap_env_connections.append({node = trap_slot_panels[i], cb = cb})
-			trap_slot_panels[i].modulate = Color(1.3, 1.3, 0.5)
-	var env_slot := trap_env_display.env_slot
-	if env_slot and active_environment:
-		var env := active_environment
-		var cb := func(ev: InputEvent) -> void: _on_trap_env_input(ev, -1, env)
-		env_slot.gui_input.connect(cb)
-		_active_trap_env_connections.append({node = env_slot, cb = cb})
-		env_slot.modulate = Color(1.3, 1.3, 0.5)
+	if input_handler != null:
+		input_handler.setup_trap_env_targeting()
 
 func _tear_down_trap_env_targeting() -> void:
-	for c in _active_trap_env_connections:
-		if is_instance_valid(c.node):
-			if c.node.gui_input.is_connected(c.cb):
-				c.node.gui_input.disconnect(c.cb)
-			c.node.modulate = Color.WHITE
-	_active_trap_env_connections.clear()
+	if input_handler != null:
+		input_handler.tear_down_trap_env_targeting()
 
 func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
-	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
-		return
-	if pending_play_card == null or not pending_play_card.card_data is SpellCardData:
-		return
-	var spell := pending_play_card.card_data as SpellCardData
-	if not _pay_card_cost(0, _effective_spell_cost(spell)):
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	turn_manager.remove_from_hand(pending_play_card)
-	pending_play_card = null
-	_tear_down_trap_env_targeting()
-	if hand_display:
-		hand_display.deselect_current()
-	if trap_idx >= 0 and trap_idx < active_traps.size():
-		var trap := active_traps[trap_idx]
-		_log("You cast: %s → %s" % [spell.card_name, trap.card_name])
-		if trap.is_rune:
-			_remove_rune_aura(trap)
-		active_traps.erase(trap)
-		_update_trap_display()
-		_log("  Cyclone: %s removed." % trap.card_name, _LogType.PLAYER)
-	elif env_data != null and active_environment == env_data:
-		_log("You cast: %s → %s" % [spell.card_name, active_environment.card_name])
-		_log("  Cyclone: %s dispelled." % active_environment.card_name, _LogType.PLAYER)
-		_unregister_env_rituals()
-		active_environment = null
-		_update_environment_display()
-	_show_card_cast_anim(spell, false, func() -> void:
-		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-		spell_ctx.card = spell
-		trigger_manager.fire(spell_ctx)
-	)
+	if input_handler != null:
+		input_handler.on_trap_env_input(event, trap_idx, env_data)
 
 # ---------------------------------------------------------------------------
 # Trap helpers
@@ -4309,45 +3256,10 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 			vfx_controller.spawn(cd_vfx)
 
 ## Centre-screen card reveal when an enemy summons a minion.
-## Uses the same "combat_preview" size mode as the hover preview.
-## Returns after the fade-out so callers can await it.
+## Delegated to vfx_bridge — big-card reveal of an enemy summon.
 func _show_enemy_summon_reveal(card: CardData) -> void:
-	_enemy_summon_reveal_active = true
-	var visual: CardVisual = CARD_VISUAL_SCENE.instantiate()
-	visual.apply_size_mode("combat_preview")
-	visual.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	visual.z_index       = 20
-	visual.z_as_relative = false
-	visual.modulate.a    = 0.0
-	$UI.add_child(visual)
-	visual.setup(card)
-	# Centre on screen
-	var vp := get_viewport().get_visible_rect().size
-	visual.position     = vp / 2.0 - visual.size / 2.0
-	visual.pivot_offset = visual.size * 0.5
-	visual.scale        = Vector2(0.65, 0.65)
-
-	# Fade in + scale-pop (parallel), matching spell preview feel.
-	var t1 := create_tween().set_parallel(true)
-	t1.tween_property(visual, "modulate:a", 1.0, 0.22) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t1.tween_property(visual, "scale", Vector2(1.0, 1.0), 0.22) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	await t1.finished
-	if not is_inside_tree(): visual.queue_free(); _enemy_summon_reveal_active = false; enemy_summon_reveal_done.emit(); return
-
-	# Hold
-	await get_tree().create_timer(0.9).timeout
-	if not is_inside_tree(): visual.queue_free(); _enemy_summon_reveal_active = false; enemy_summon_reveal_done.emit(); return
-
-	# Fade out
-	var t2 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t2.tween_property(visual, "modulate:a", 0.0, 0.22)
-	await t2.finished
-	visual.queue_free()
-	_enemy_summon_reveal_active = false
-	# Do NOT emit enemy_summon_reveal_done here — _enemy_summon_reveal_then_land emits
-	# it after slot.place_minion() so the AI never acts before the minion is on the board.
+	if vfx_bridge != null:
+		await vfx_bridge.show_enemy_summon_reveal(card)
 
 ## Called by EnemyAI's enemy_spell_cast signal.
 func _on_enemy_spell_cast(spell: SpellCardData) -> void:
@@ -4375,22 +3287,33 @@ func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	# Capture chosen target before animation; dispatch to the correct EffectContext field by type.
 	var chosen = enemy_ai.spell_chosen_target
 	enemy_ai.spell_chosen_target = null
-	# Show large card preview; resolve effects on impact so damage visuals sync
+	# P4B: invert resolve-at-impact for enemy spell cast. Freeze the targeted
+	# minion slot (or all player slots for AoE) before state mutates so death
+	# animations defer until vfx finishes. Popups capture and drain at impact.
 	_show_card_cast_anim(spell, true, func() -> void:
-		# Build the damage-resolution callable so VfxController can fire it at
-		# the impact moment of the chosen spell's VFX.
-		var resolve_damage := func(_i: int) -> void:
-			if not spell.effect_steps.is_empty():
-				var ectx := EffectContext.make(self, "enemy")
-				ectx.source_card_id = spell.id
-				if chosen is MinionInstance:
-					ectx.chosen_target = chosen
-				else:
-					ectx.chosen_object = chosen
-				EffectResolver.run(spell.effect_steps, ectx)
-			elif not spell.effect_id.is_empty():
-				_resolve_spell_effect(spell.effect_id, null, "enemy")
-		await vfx_controller.play_spell(spell.id, "enemy", chosen, resolve_damage)
+		var frozen_slots: Array[BoardSlot] = []
+		if chosen is MinionInstance:
+			var slot: BoardSlot = _find_slot_for(chosen)
+			if slot != null:
+				slot.freeze_visuals = true
+				frozen_slots.append(slot)
+		else:
+			# AoE / non-minion target — freeze every player minion slot.
+			for s in player_slots:
+				if s.minion != null:
+					s.freeze_visuals = true
+					frozen_slots.append(s)
+		_capturing_spell_popups = true
+		state.cast_enemy_spell(spell, chosen)
+		_capturing_spell_popups = false
+		var on_impact := func(_i: int) -> void: _drain_pending_spell_popups()
+		await vfx_controller.play_spell(spell.id, "enemy", chosen, on_impact)
+		_drain_pending_spell_popups()
+		for s in frozen_slots:
+			if is_instance_valid(s):
+				s.freeze_visuals = false
+				s._refresh_visuals()
+		_flush_deferred_deaths()
 		_enemy_spell_cast_active = false
 		enemy_spell_cast_done.emit()
 	)
@@ -4448,49 +3371,9 @@ func _unregister_env_aura(env: EnvironmentCardData) -> void:
 		EffectResolver.run(env.on_replace_effect_steps, ctx)
 
 ## Register persistent aura event handlers for a newly placed rune.
-## _rune_aura_handlers stores Array[{event, handler}] per rune so _remove_rune_aura
-## can unregister them without a match block.
-## Each rune declares its trigger(s) and effect_steps in CardDatabase — no match needed here.
+## Delegated to CombatState — registers rune aura handlers and runs on-place steps.
 func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
-	var entries: Array = []
-
-	# Primary handler — mirror trigger for enemy side
-	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
-		var trigger: int = rune.aura_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_trigger as Enums.TriggerEvent)
-		var h := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, owner)
-			ctx.trigger_minion = event_ctx.minion
-			ctx.from_rune = true
-			ctx.source_rune = rune
-			EffectResolver.run(rune.aura_effect_steps, ctx)
-		trigger_manager.register(trigger, h, 20)
-		entries.append({event = trigger, handler = h})
-
-		# Extra handler — same effect_steps, fires on a second event (e.g. sacrifice in
-		# addition to death so Blood/Soul Rune react to ON LEAVE removals).
-		if rune.aura_extra_trigger >= 0:
-			var extra_trigger: int = rune.aura_extra_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_extra_trigger as Enums.TriggerEvent)
-			trigger_manager.register(extra_trigger, h, 20)
-			entries.append({event = extra_trigger, handler = h})
-
-	# Secondary handler (e.g. Soul Rune per-turn reset)
-	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
-		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
-		var h2 := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, owner)
-			ctx.trigger_minion = event_ctx.minion
-			ctx.source_rune = rune
-			EffectResolver.run(rune.aura_secondary_steps, ctx)
-		trigger_manager.register(sec_trigger, h2, 20)
-		entries.append({event = sec_trigger, handler = h2})
-
-	# On-place steps run immediately at placement (e.g. Dominion Rune existing-minion sweep)
-	if not rune.aura_on_place_steps.is_empty():
-		var ctx := EffectContext.make(self, owner)
-		EffectResolver.run(rune.aura_on_place_steps, ctx)
-
-	if not entries.is_empty():
-		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
+	state._apply_rune_aura(rune, owner)
 
 ## Pure logic — delegated to CombatState.
 func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
@@ -4523,48 +3406,15 @@ func _rune_aura_multiplier() -> int:
 func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 	return state._runes_satisfy(runes, required)
 
-## Consume the required runes and cast the ritual effect.
-## Exact rune type matches are consumed first; wildcard runes fill remaining gaps.
-## Each rune instance is consumed at most once — tracked by index to avoid duplicates.
+## Delegated to CombatState — rune consumption + effect resolution. Scene
+## handles UI cleanup (rune-glow tweens) since traps_changed signal subscribers
+## don't know about glow state.
 func _fire_ritual(ritual: RitualData) -> void:
-	var consumed_indices: Array[int] = []
-	for req in ritual.required_runes:
-		var found := false
-		# Try exact match first
-		for i in active_traps.size():
-			if i in consumed_indices:
-				continue
-			var trap := active_traps[i] as TrapCardData
-			if trap.is_rune and not trap.is_wildcard_rune and trap.rune_type == req:
-				consumed_indices.append(i)
-				found = true
-				break
-		# Fall back to wildcard rune
-		if not found:
-			for i in active_traps.size():
-				if i in consumed_indices:
-					continue
-				var trap := active_traps[i] as TrapCardData
-				if trap.is_rune and trap.is_wildcard_rune:
-					consumed_indices.append(i)
-					break
-	# Remove consumed runes in reverse index order so earlier indices stay valid
-	consumed_indices.sort()
-	consumed_indices.reverse()
-	for i in consumed_indices:
-		var trap := active_traps[i] as TrapCardData
-		_remove_rune_aura(trap)
-		active_traps.remove_at(i)
-	# Stop all glow tweens before refreshing — prevents stale glow on repurposed slots
-	for i in trap_slot_panels.size():
-		trap_env_display.stop_rune_glow(i)
-	_update_trap_display()
-	_log("★ RITUAL — %s!" % ritual.ritual_name, _LogType.PLAYER)
-	var ritual_ctx := EffectContext.make(self, "player")
-	EffectResolver.run(ritual.effect_steps, ritual_ctx)
-	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
-	var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
-	trigger_manager.fire(fired_ctx)
+	state._fire_ritual(ritual)
+	# Stop all glow tweens after consumption — prevents stale glow on repurposed slots
+	if trap_env_display != null:
+		for i in trap_slot_panels.size():
+			trap_env_display.stop_rune_glow(i)
 
 
 ## Create a StyleBoxFlat with uniform border/corner settings.
@@ -4930,41 +3780,12 @@ func _hide_large_preview() -> void:
 	large_preview.hide_card()
 
 func _on_board_slot_hover_enter(slot: BoardSlot) -> void:
-	if slot.minion and slot.minion.card_data:
-		large_preview.show_card(slot.minion.card_data)
-		if large_preview.visual != null:
-			large_preview.visual.override_stat_display(slot.minion.spawn_atk, slot.minion.spawn_health)
+	if input_handler != null:
+		input_handler.on_board_slot_hover_enter(slot)
 
 func _on_enemy_hero_button_pressed() -> void:
-	if not turn_manager.is_player_turn or selected_attacker == null:
-		return
-	if CombatManager.board_has_taunt(enemy_board):
-		return
-	if not selected_attacker.can_attack_hero():
-		return
-	# Void Manifestation: Void Imp clan minions deal Void Bolt damage to enemy hero
-	if _minion_has_tag(selected_attacker, "void_imp") and _has_talent("void_manifestation"):
-		var atk := selected_attacker.effective_atk()
-		_log("Your %s attacks Enemy Hero with a Void Bolt!" % selected_attacker.card_data.card_name, _LogType.PLAYER)
-		selected_attacker.attack_count += 1
-		selected_attacker.state = Enums.MinionState.EXHAUSTED
-		_refresh_slot_for(selected_attacker)
-		var attacker_ref := selected_attacker
-		selected_attacker = null
-		_clear_all_highlights()
-		_enemy_hero_panel.show_attackable(false)
-		# void_manifestation talent retags Void Imp clan basic attack — MINION source.
-		await _deal_void_bolt_damage(atk, attacker_ref, false, true)
-		return
-	_log("Your %s attacks Enemy Hero" % selected_attacker.card_data.card_name)
-	var _hero_atk_slot := _find_slot_for(selected_attacker)
-	var _hero_attacker_ref: MinionInstance = selected_attacker
-	combat_manager.resolve_minion_attack_hero(selected_attacker, "enemy")
-	if _hero_atk_slot and _enemy_status_panel:
-		_play_hero_attack_anim(_hero_atk_slot, _enemy_status_panel, _hero_attacker_ref)
-	selected_attacker = null
-	_clear_all_highlights()
-	_enemy_hero_panel.show_attackable(false)
+	if input_handler != null:
+		await input_handler.on_enemy_hero_button_pressed()
 
 # ---------------------------------------------------------------------------
 # Win / loss
@@ -5161,130 +3982,26 @@ func _sweep_dead_minions() -> void:
 			if slot.minion.current_health <= 0 or not enemy_board.has(slot.minion):
 				slot.remove_minion()
 
-## Flash + dissolve upward death animation.
-## Spawns a ghost overlay in $UI so the HBoxContainer layout is never disturbed.
-## pos must be passed explicitly — do NOT read slot.global_position here, as the slot
-## may have just been reparented and layout recalculation is deferred to the next frame.
+## Death animation system delegated to vfx_bridge. Scene keeps thin wrappers
+## so external callers (VfxController via _combat._flush_deferred_deaths,
+## CombatHandlers via _scene._minion_has_on_death) don't need to know about
+## the bridge. State (_active_death_anims, _deferred_death_slots,
+## _pending_on_death_vfx, _pending_sacrifice_ghost_delay) stays on scene
+## since multiple non-VFX paths write to it.
 func _animate_minion_death(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
-	_active_death_anims += 1
-	await _animate_minion_death_body(slot, pos, dead_minion)
-	_active_death_anims -= 1
-	if _active_death_anims <= 0:
-		_active_death_anims = 0
-		death_anims_done.emit()
+	if vfx_bridge != null:
+		await vfx_bridge.animate_minion_death(slot, pos, dead_minion)
 
-func _animate_minion_death_body(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
-	# If this death was a sacrifice, wait for the ritual VFX to reach its
-	# shatter beat before starting the ghost rise — the soul leaves with
-	# the motes, not while the sigil is still blooming.
-	if dead_minion != null:
-		var id: int = dead_minion.get_instance_id()
-		if _pending_sacrifice_ghost_delay.has(id):
-			var delay: float = float(_pending_sacrifice_ghost_delay[id])
-			_pending_sacrifice_ghost_delay.erase(id)
-			if delay > 0.0:
-				await get_tree().create_timer(delay).timeout
-				if not is_inside_tree():
-					return
-	var sz := slot.size
-	# White flash layer — briefly bright, then transitions to soft purple as it rises
-	var ghost := ColorRect.new()
-	ghost.color = Color(1.0, 1.0, 1.0, 0.85)
-	ghost.z_index = 5
-	ghost.z_as_relative = false
-	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	$UI.add_child(ghost)
-	ghost.set_size(sz)
-	ghost.pivot_offset = sz / 2.0
-	ghost.global_position = pos
-
-	# Step 1 — white flash: hold briefly then fade
-	var t1 := create_tween().set_trans(Tween.TRANS_SINE)
-	t1.tween_property(ghost, "modulate:a", 0.0, 0.20)
-	await t1.finished
-	if not is_inside_tree(): ghost.queue_free(); return
-
-	ghost.queue_free()
-
-	# Soul-rise: textured ghost sprite drifts upward while fading out
-	var soul := TextureRect.new()
-	soul.texture = load("res://assets/art/fx/ghost_card_soul.png")
-	soul.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	soul.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	soul.z_index = 5
-	soul.z_as_relative = false
-	soul.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	soul.modulate = Color(1.0, 1.0, 1.0, 0.9)
-	$UI.add_child(soul)
-	var soul_sz := sz * 0.4
-	soul.set_size(soul_sz)
-	soul.pivot_offset = soul_sz / 2.0
-	soul.global_position = pos + (sz - soul_sz) / 2.0
-
-	var t2 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t2.tween_property(soul, "global_position:y", soul.global_position.y - 50.0, 0.65)
-	t2.tween_property(soul, "modulate:a", 0.0, 0.65)
-	await t2.finished
-	if is_instance_valid(soul):
-		soul.queue_free()
-
-	# On-death icon VFX — show if the dead minion had on-death effects
-	if dead_minion != null and _minion_has_on_death(dead_minion):
-		if not is_inside_tree(): return
-		var icon_vfx := OnDeathIconVFX.create(pos, sz)
-		vfx_controller.spawn(icon_vfx)
-		await icon_vfx.finished
-		# Void-Touched Imp: AoE death explosion VFX before damage resolves
-		if dead_minion.card_data.id == "void_touched_imp":
-			if not is_inside_tree(): return
-			var origin_center: Vector2 = pos + sz * 0.5
-			var opponent_slots: Array = _get_opponent_occupied_slots(dead_minion.owner)
-			var opponent_board: Control = $UI/EnemyBoard if dead_minion.owner == "player" else $UI/PlayerBoard
-			var death_vfx := VoidTouchedImpDeathVFX.create(origin_center, opponent_slots, opponent_board)
-			vfx_controller.spawn(death_vfx)
-			await death_vfx.impact_hit
-			if not is_inside_tree(): return
-		# Resolve deferred on-death effects now that the icon has faded
-		_resolve_deferred_on_death(dead_minion)
-
-
-## Returns true if a minion has any on-death effects (steps or granted).
 func _minion_has_on_death(minion: MinionInstance) -> bool:
-	if minion.card_data is MinionCardData:
-		var card := minion.card_data as MinionCardData
-		if not card.on_death_effect_steps.is_empty():
-			return true
-		if not card.on_death_effect.is_empty():
-			return true
-	if not minion.granted_on_death_effects.is_empty():
-		return true
-	return false
+	return vfx_bridge != null and vfx_bridge.minion_has_on_death(minion)
 
-
-## Resolve on-death effects that were deferred for the icon VFX.
 func _resolve_deferred_on_death(minion: MinionInstance) -> void:
-	_pending_on_death_vfx.erase(minion)
-	if not is_inside_tree():
-		return
-	if _handlers:
-		_handlers._resolve_on_death(minion)
+	if vfx_bridge != null:
+		vfx_bridge.resolve_deferred_on_death(minion)
 
-## Fire death animations queued during freeze_visuals. Called by VfxController
-## after a damaging spell VFX finishes, and by _restore_slot_from_lunge after
-## a lunge completes. Captured positions are used so the ghost lines up with
-## the slot's original spot (not its post-lunge location).
 func _flush_deferred_deaths() -> void:
-	if _deferred_death_slots.is_empty():
-		return
-	var pending := _deferred_death_slots.duplicate()
-	_deferred_death_slots.clear()
-	for entry in pending:
-		var slot: BoardSlot = entry.slot
-		# Slot visuals were held during the lunge freeze — now that the attacker
-		# has returned to origin, clear the art so the ghost rises from an empty slot.
-		if slot != null and slot.minion != null:
-			slot.remove_minion()
-		_animate_minion_death(slot, entry.pos, entry.get("minion"))
+	if vfx_bridge != null:
+		vfx_bridge.flush_deferred_deaths()
 
 func _clear_all_highlights() -> void:
 	targeting.clear_all_highlights()
@@ -5416,262 +4133,106 @@ func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control, attacker: 
 
 
 func _flash_slot(slot: BoardSlot) -> void:
-	var tw := slot.create_tween()
-	tw.tween_property(slot, "modulate", Color(1.8, 0.30, 0.30, 1.0), 0.06)
-	tw.tween_property(slot, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
+	if vfx_bridge != null:
+		vfx_bridge.flash_slot(slot)
 
 ## Show a large centred card visual when a spell/trap/environment is cast or triggered.
-## Animates in → calls on_impact → holds → fades out.
-## Pass Callable() for on_impact when there are no effects to delay.
+## Delegated to vfx_bridge — animates the card preview during cast.
 func _show_card_cast_anim(card: CardData, is_enemy: bool, on_impact: Callable) -> void:
-	# Spell-only casting windup glyph at the caster position.
-	if card is SpellCardData:
-		_spawn_casting_windup(is_enemy)
-	var cv: CardVisual = CARD_VISUAL_SCENE.instantiate() as CardVisual
-	cv.apply_size_mode("combat_preview")
-	cv.z_index = 100
-	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	$UI.add_child(cv)
-	# setup() must be called AFTER add_child so _ready() has run and child nodes exist
-	cv.setup(card)
-	# Centre on screen
-	var vp      := get_viewport().get_visible_rect().size
-	var card_sz := Vector2(336.0, 504.0)
-	cv.position     = (vp - card_sz) * 0.5
-	cv.pivot_offset = card_sz * 0.5
-	cv.modulate = Color(1.0, 1.0, 1.0, 0.0)  # start transparent, natural colours
-	cv.scale = Vector2(0.65, 0.65)
-	var tw := create_tween()
-	# Animate in
-	tw.set_parallel(true)
-	tw.tween_property(cv, "modulate:a", 1.0, 0.22)
-	tw.tween_property(cv, "scale", Vector2(1.0, 1.0), 0.22) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.set_parallel(false)
-	# Hold so player can read the card
-	tw.tween_interval(0.63)
-	# Animate out
-	tw.tween_property(cv, "modulate:a", 0.0, 0.22)
-	tw.tween_callback(cv.queue_free)
-	# Impact (VFX + damage) fires after preview fades so it isn't covered
-	tw.tween_callback(on_impact)
+	if vfx_bridge != null:
+		vfx_bridge.show_card_cast_anim(card, is_enemy, on_impact)
 
-## Spawn the faction-themed casting windup glyph at the caster position.
-## Player: bottom-centre of the viewport, above the hand zone.
-## Enemy: centred on the enemy hero panel.
-func _spawn_casting_windup(is_enemy: bool) -> void:
-	var faction: String
-	var center: Vector2
-	if is_enemy:
-		# Faction by act — Act 1 feral, Act 2 corrupted, Act 3/4 abyss.
-		var act: int = GameManager.get_current_act() if GameManager else 3
-		match act:
-			1: faction = "feral"
-			2: faction = "corrupted"
-			_: faction = "abyss"
-		if _enemy_hero_panel and _enemy_hero_panel.is_inside_tree():
-			center = _enemy_hero_panel.global_position + _enemy_hero_panel.size * 0.5
-		else:
-			var vp := get_viewport().get_visible_rect().size
-			center = Vector2(vp.x * 0.5, 120.0)
-	else:
-		faction = "void"
-		var vp2 := get_viewport().get_visible_rect().size
-		center = Vector2(vp2.x * 0.5, vp2.y - 100.0)
-	var windup := CastingWindupVFX.create(faction, center, is_enemy)
-	vfx_controller.spawn(windup)
-
-## Show a "COUNTERED!" animation: card appears, gets a red overlay + shake, then fizzles out.
+## Delegated to vfx_bridge — "COUNTERED!" reveal + shake + fizzle.
 func _show_spell_countered_anim(card: CardData) -> void:
-	var cv: CardVisual = CARD_VISUAL_SCENE.instantiate() as CardVisual
-	cv.apply_size_mode("combat_preview")
-	cv.z_index = 100
-	cv.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	$UI.add_child(cv)
-	cv.setup(card)
-	var vp := get_viewport().get_visible_rect().size
-	var card_sz := Vector2(336.0, 504.0)
-	var center_pos := (vp - card_sz) * 0.5
-	cv.position     = center_pos
-	cv.pivot_offset = card_sz * 0.5
-	cv.modulate = Color(1.0, 1.0, 1.0, 0.0)
-	cv.scale = Vector2(0.65, 0.65)
-	# "COUNTERED!" text overlay
-	var counter_lbl := Label.new()
-	counter_lbl.text = "COUNTERED!"
-	counter_lbl.add_theme_font_override("font", DAMAGE_FONT)
-	counter_lbl.add_theme_font_size_override("font_size", 36)
-	counter_lbl.add_theme_color_override("font_color", Color(1.0, 0.15, 0.15, 1.0))
-	counter_lbl.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
-	counter_lbl.add_theme_constant_override("shadow_offset_x", 3)
-	counter_lbl.add_theme_constant_override("shadow_offset_y", 3)
-	counter_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	counter_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	counter_lbl.set_anchors_preset(Control.PRESET_CENTER)
-	counter_lbl.size = Vector2(336, 60)
-	counter_lbl.position = Vector2(0, 220)
-	counter_lbl.modulate = Color(1, 1, 1, 0)
-	cv.add_child(counter_lbl)
-	# Animate in
-	var tw := create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(cv, "modulate:a", 1.0, 0.22)
-	tw.tween_property(cv, "scale", Vector2(1.0, 1.0), 0.22) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.set_parallel(false)
-	tw.tween_interval(0.12)
-	# Flash red tint + show COUNTERED text
-	tw.tween_callback(func() -> void:
-		counter_lbl.modulate = Color(1, 1, 1, 1)
-	)
-	tw.set_parallel(true)
-	tw.tween_property(cv, "modulate", Color(1.0, 0.3, 0.3, 1.0), 0.15)
-	tw.tween_property(counter_lbl, "scale", Vector2(1.2, 1.2), 0.15) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.set_parallel(false)
-	# Shake
-	var base_x := cv.position.x
-	for i in 4:
-		var offset_x := 12.0 if i % 2 == 0 else -12.0
-		tw.tween_property(cv, "position:x", base_x + offset_x, 0.05)
-	tw.tween_property(cv, "position:x", base_x, 0.05)
-	# Hold briefly
-	tw.tween_interval(0.5)
-	# Fizzle out — shrink + fade
-	tw.set_parallel(true)
-	tw.tween_property(cv, "modulate:a", 0.0, 0.35)
-	tw.tween_property(cv, "scale", Vector2(0.7, 0.7), 0.35) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.set_parallel(false)
-	tw.tween_callback(cv.queue_free)
+	if vfx_bridge != null:
+		vfx_bridge.show_spell_countered_anim(card)
 
 ## Show or hide the counter-spell warning label based on current counter state.
 func _update_counter_warning() -> void:
 	counter_warning.update()
 
-## Wrapper: apply spell damage to a minion + show flash and damage popup.
-## info is optional — when omitted, defaults to (SPELL, NONE) per call-site convention.
+## Delegated to CombatState — applies damage and emits spell_damage_dealt.
+## VFX (flash + popup) handled by _on_state_spell_damage_dealt subscriber.
 func _spell_dmg(target: MinionInstance, damage: int, info: Dictionary = {}) -> void:
-	var slot := _find_slot_for(target)
-	var total := damage + _player_spell_damage_bonus
-	if info.is_empty():
-		info = CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE)
-	else:
-		info = info.duplicate()
-		info["amount"] = total
-	combat_manager.apply_damage_to_minion(target, info)
-	_refresh_slot_for(target)
-	if slot:
-		_flash_slot(slot)
-		_spawn_damage_popup(slot.get_global_rect().get_center(), damage)
+	state._spell_dmg(target, damage, info)
 
-## Flash a hero status panel and show a damage number.
-## on_done (optional) is called after the flash animation completes.
-## school is a DamageSchool int — VOID_BOLT (and any future VOID_BOLT sub-school) flashes purple.
-func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), school: int = Enums.DamageSchool.NONE, is_crit: bool = false) -> void:
-	var panel := _player_status_panel if target == "player" else _enemy_status_panel
-	if panel == null:
-		if on_done.is_valid():
-			on_done.call()
+## P4B: while a player spell is mid-resolution (state mutates inside
+## scene's wrapper BEFORE the VFX projectile lands), queue popup + flash
+## events so they fire at vfx.impact_hit instead of immediately. This
+## preserves the "damage popup appears when projectile hits" UX after
+## inverting the resolve-at-impact pattern. Cleared when the VFX dispatcher
+## drains the queue.
+var _capturing_spell_popups: bool = false
+var _pending_spell_popups: Array = []  # Array[{slot: BoardSlot, damage: int}]
+## Hero popups queued during inverted spell flow — same purpose as
+## _pending_spell_popups but for hero-target damage / heal that flows through
+## combat_manager.hero_damaged / hero_healed (not spell_damage_dealt). Drained
+## alongside minion popups at vfx.impact_hit. Lethal damage skips the queue
+## so the defeat / victory flow can fire immediately.
+var _pending_hero_popups: Array = []  # Array[{kind, target, amount, school, is_crit}]
+
+## Subscriber to CombatState.spell_damage_dealt — spawns the slot flash and
+## damage popup that live combat shows after a spell hit. Sim has no subscriber.
+## When `_capturing_spell_popups` is set (P4B inverted spell flow), the popup
+## is queued and drained at VFX impact_hit instead.
+func _on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
+	if target == null:
 		return
-	var flash_color: Color
-	if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT):
-		flash_color = Color(1.2, 0.40, 1.8, 1.0)  # Purple flash for void bolt
-	else:
-		flash_color = Color(1.8, 0.30, 0.30, 1.0)  # Red flash for normal damage
-	var tw := create_tween()
-	tw.tween_property(panel, "modulate", flash_color, 0.06)
-	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
-	if on_done.is_valid():
-		tw.tween_callback(on_done)
-	var txt := "-%d!" % amount if is_crit else "-%d" % amount
-	_spawn_popup(panel.get_global_rect().get_center(), txt, _dmg_color(school), is_crit)
+	var slot := _find_slot_for(target)
+	if slot == null:
+		return
+	if _capturing_spell_popups:
+		_pending_spell_popups.append({slot = slot, damage = damage})
+		return
+	_flash_slot(slot)
+	_spawn_damage_popup(slot.get_global_rect().get_center(), damage)
+
+## Drain queued spell popups (minion + hero) — called from spell VFX
+## controllers' resolve_damage callback at impact_hit so popups sync with
+## projectile arrival even though state mutated earlier.
+func _drain_pending_spell_popups() -> void:
+	for p in _pending_spell_popups:
+		var slot: BoardSlot = p.slot
+		if slot != null and is_instance_valid(slot):
+			_flash_slot(slot)
+			_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage)
+	_pending_spell_popups.clear()
+	for hp in _pending_hero_popups:
+		if hp.kind == "heal":
+			_flash_hero_heal(hp.target, hp.amount)
+		else:
+			_flash_hero(hp.target, hp.amount, Callable(), hp.school, hp.is_crit)
+	_pending_hero_popups.clear()
+
+## Drain ONE queued spell-damage popup matched to the given slot. Used by
+## per-minion-impact VFX (e.g. Abyssal Plague's wave) so each popup fires when
+## the wave actually touches that minion's slot, instead of all draining at
+## the end of the VFX. Returns true if a popup was found and spawned.
+func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
+	if slot == null:
+		return false
+	for i in _pending_spell_popups.size():
+		var p: Dictionary = _pending_spell_popups[i]
+		if p.slot == slot:
+			_pending_spell_popups.remove_at(i)
+			if is_instance_valid(slot):
+				_flash_slot(slot)
+				_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage)
+			return true
+	return false
+
+## Hero/minion flash + popup primitives all delegated to vfx_bridge.
+func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), school: int = Enums.DamageSchool.NONE, is_crit: bool = false) -> void:
+	if vfx_bridge != null:
+		vfx_bridge.flash_hero(target, amount, on_done, school, is_crit)
 
 func _flash_hero_heal(target: String, amount: int) -> void:
-	var panel := _player_status_panel if target == "player" else _enemy_status_panel
-	if panel == null:
-		return
-	var tw := create_tween()
-	tw.tween_property(panel, "modulate", Color(0.30, 1.6, 0.40, 1.0), 0.06)
-	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
-	_spawn_popup(panel.get_global_rect().get_center(), "+%d" % amount, Color(0.30, 0.90, 0.40, 1.0))
+	if vfx_bridge != null:
+		vfx_bridge.flash_hero_heal(target, amount)
 
-func _dmg_color(school: int) -> Color:
-	if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT):
-		return Color(0.75, 0.30, 1.0, 1.0)
-	return Color(1.0, 0.22, 0.22, 1.0)
-
-## Spawn a popup immediately. If another popup is near the same position,
-## offset this one downward so they don't overlap.
-func _spawn_popup(center: Vector2, text: String, color: Color, is_crit: bool = false) -> void:
-	# Clean up expired entries
-	var now := Time.get_ticks_msec() / 1000.0
-	_recent_popups = _recent_popups.filter(func(e: Dictionary) -> bool:
-		return now - (e.time as float) < 1.0)
-	# Count how many recent popups are near this position
-	var stack_count := 0
-	for entry in _recent_popups:
-		if (entry.center as Vector2).distance_to(center) < _POPUP_STACK_THRESHOLD:
-			stack_count += 1
-	_recent_popups.append({"center": center, "time": now})
-	# Offset position downward for stacked popups
-	var offset_center := center + Vector2(0, stack_count * _POPUP_STACK_OFFSET)
-	_spawn_floating_popup(offset_center, text, color, is_crit)
-
-func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color, is_crit: bool = false) -> void:
-	var lbl := Label.new()
-	lbl.text = text
-	var font_size: int = 44 if is_crit else 28
-	lbl.add_theme_font_size_override("font_size", font_size)
-	lbl.add_theme_color_override("font_color", color)
-	lbl.add_theme_font_override("font", DAMAGE_FONT)
-	if is_crit:
-		lbl.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
-		lbl.add_theme_constant_override("shadow_offset_x", 3)
-		lbl.add_theme_constant_override("shadow_offset_y", 3)
-	lbl.z_index = 200
-	var popup_parent: Node = get_node_or_null("PopupLayer")
-	if popup_parent == null:
-		popup_parent = $UI
-	popup_parent.add_child(lbl)
-	# Pivot around text centre so pulse scales in-place.
-	var text_size: Vector2 = lbl.get_minimum_size()
-	lbl.size = text_size
-	lbl.pivot_offset = text_size * 0.5
-	lbl.position = screen_center - text_size * 0.5 + Vector2(randf_range(-12.0, 12.0), 0.0)
-	if is_crit:
-		# Crit: rise slower, linger longer, with a pulsing scale.
-		var rise_end_y_c := maxf(lbl.position.y - 60.0, 16.0)
-		var tw := create_tween()
-		tw.set_parallel(true)
-		tw.tween_property(lbl, "position:y", rise_end_y_c, 2.6) \
-			.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
-		tw.tween_property(lbl, "modulate:a", 1.0, 0.4)
-		# Single pop-in pulse for crit.
-		var pop := create_tween()
-		pop.tween_property(lbl, "scale", Vector2(1.5, 1.5), 0.12) \
-			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		pop.tween_property(lbl, "scale", Vector2(1.0, 1.0), 0.18) \
-			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-		# Hold + fade out (extra linger for crits).
-		var fade := create_tween()
-		fade.tween_interval(2.2)
-		fade.tween_property(lbl, "modulate:a", 0.0, 0.9)
-		fade.tween_callback(lbl.queue_free)
-	else:
-		var tw := create_tween()
-		tw.set_parallel(true)
-		var rise_end_y := maxf(lbl.position.y - 90.0, 16.0)
-		tw.tween_property(lbl, "position:y", rise_end_y, 1.6) \
-			.set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
-		tw.tween_property(lbl, "modulate:a", 1.0, 0.9)
-		tw.chain().tween_property(lbl, "modulate:a", 0.0, 0.7)
-		tw.chain().tween_callback(lbl.queue_free)
-
-## Minion damage popups.
 func _spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = false) -> void:
-	var txt := "-%d!" % damage if is_crit else "-%d" % damage
-	_spawn_popup(screen_center, txt, Color(1.0, 0.22, 0.22, 1.0), is_crit)
+	if vfx_bridge != null:
+		vfx_bridge.spawn_damage_popup(screen_center, damage, is_crit)
 
 # ---------------------------------------------------------------------------
 # Enemy attack visuals

@@ -116,7 +116,7 @@ var enemy_ai_profile: String = ""
 # Shared combat manager — both agents use this
 # ---------------------------------------------------------------------------
 
-var combat_manager: CombatManager
+## (`combat_manager` inherited from CombatState — assigned in setup() below.)
 
 ## (`trigger_manager` inherited from CombatState — wired by SimTriggerSetup
 ## after SimState.setup() / by CombatScene._ready in live combat.)
@@ -130,7 +130,7 @@ var combat_manager: CombatManager
 ## instance in setup(). Untyped on the parent so both SimTurnManager (sim) and
 ## TurnManager (live) fit.)
 var enemy_ai: SimEnemyAgent       ## set by CombatSim after creating the agent
-var _hardcoded: HardcodedEffects  ## set up in setup()
+## (`_hardcoded` inherited from CombatState — assigned in setup() below.)
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -306,45 +306,10 @@ func _consume_fiendish_pact_discount() -> void:
 		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
 			inst.cost_delta = 0
 
-func _spell_dmg(minion: MinionInstance, amount: int, info: Dictionary = {}) -> void:
-	var total := amount + _player_spell_damage_bonus
-	if info.is_empty():
-		info = CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE)
-	else:
-		info = info.duplicate()
-		info["amount"] = total
-	combat_manager.apply_damage_to_minion(minion, info)
+## (`_spell_dmg` inherited from CombatState.)
 
-func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	var base := CardDatabase.get_card(card_id)
-	if base == null or not (base is MinionCardData):
-		return
-	var board := player_board if owner == "player" else enemy_board
-	var slots := player_slots if owner == "player" else enemy_slots
-	# Find an empty slot
-	var slot: BoardSlot = null
-	for s in slots:
-		if s.is_empty():
-			slot = s
-			break
-	if slot == null:
-		return  # board full
-	# Duplicate card data to override stats without corrupting the original
-	var mc := (base as MinionCardData).duplicate() as MinionCardData
-	if token_atk > 0:    mc.atk        = token_atk
-	if token_hp > 0:     mc.health     = token_hp
-	if token_shield > 0: mc.shield_max = token_shield
-	var instance := MinionInstance.create(mc, owner)
-	board.append(instance)
-	slot.place_minion(instance)
-	minion_summoned.emit(owner, instance, slot.index)
-	if trigger_manager != null:
-		var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" \
-			else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-		var ctx := EventContext.make(event, owner)
-		ctx.minion = instance
-		ctx.card   = mc
-		trigger_manager.fire(ctx)
+## (`_summon_token` inherited from CombatState — pure-logic version since sim
+## doesn't register a _summon_delegate.)
 
 ## (`_corrupt_minion` and `_apply_void_mark` inherited from CombatState.)
 
@@ -352,141 +317,18 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 ## Flesh Bond's draw routes through state.turn_manager.draw_card(), which on
 ## sim is SimTurnManager.draw_card() → _draw_player(1).)
 
-func _forge_counter_tick(amount: int = 1) -> bool:
-	if amount <= 0:
-		return false
-	forge_counter += amount
-	return forge_counter >= forge_counter_threshold
-
-func _forge_counter_reset() -> void:
-	forge_counter = 0
-
-## Sim mirror of CombatScene._summon_forged_demon — summons + applies Abyssal Forge auras.
-func _summon_forged_demon() -> void:
-	_summon_token("forged_demon", "player")
-	var forged: MinionInstance = null
-	for i in range(player_board.size() - 1, -1, -1):
-		var m: MinionInstance = player_board[i]
-		if m.card_data.id == "forged_demon":
-			forged = m
-			break
-	if forged != null and _has_talent("abyssal_forge"):
-		if player_flesh >= 5 and _spend_flesh(5):
-			forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
-		else:
-			var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
-			forged.aura_tags = [roll]
-
-## Sim mirror of CombatScene._gain_forge_counter.
-func _gain_forge_counter(amount: int = 1) -> bool:
-	if amount <= 0 or not _has_talent("soul_forge"):
-		return false
-	var summoned := false
-	while amount > 0:
-		var step := mini(amount, forge_counter_threshold)
-		amount -= step
-		if _forge_counter_tick(step):
-			_summon_forged_demon()
-			_forge_counter_reset()
-			summoned = true
-	return summoned
-
-func _on_flesh_changed() -> void:
-	pass
+## (`_forge_counter_tick`, `_forge_counter_reset`, `_gain_forge_counter`,
+## `_summon_forged_demon`, `_grant_forged_demon_auras` inherited from CombatState.)
 
 ## (`_heal_minion` and `_heal_minion_full` inherited from CombatState.)
 
-## Sim mirror of CombatScene._sacrifice_minion. Sacrifice is NOT death — fires ON LEAVE
-## and ON_*_MINION_SACRIFICED but NOT ON_*_MINION_DIED.
-func _sacrifice_minion(minion: MinionInstance) -> void:
-	if minion == null:
-		return
-	# Step 1 — declarative ON LEAVE steps.
-	var card_data := minion.card_data as MinionCardData
-	if card_data != null and not card_data.on_leave_effect_steps.is_empty():
-		var leave_ctx := EffectContext.make(self, minion.owner)
-		leave_ctx.source         = minion
-		leave_ctx.source_card_id = card_data.id
-		EffectResolver.run(card_data.on_leave_effect_steps, leave_ctx)
-	# Step 2 — corruption removal still fires.
-	if trigger_manager != null:
-		var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
-		if pre_corruption > 0:
-			var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
-			rm_ctx.minion = minion
-			rm_ctx.damage = pre_corruption
-			trigger_manager.fire(rm_ctx)
-		# Step 3 — sacrifice event.
-		var sac_event := Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED if minion.owner == "player" \
-			else Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED
-		var sac_ctx := EventContext.make(sac_event, minion.owner)
-		sac_ctx.minion = minion
-		trigger_manager.fire(sac_ctx)
-	# Step 4 — silent removal.
-	player_board.erase(minion)
-	enemy_board.erase(minion)
-	for slot in player_slots:
-		if slot.minion == minion:
-			slot.minion = null
-			break
-	for slot in enemy_slots:
-		if slot.minion == minion:
-			slot.minion = null
-			break
+## (`_sacrifice_minion` inherited from CombatState.)
 
 ## (`_add_kill_stacks` inherited from CombatState.)
 
-func _on_forge_changed() -> void:
-	pass
+## (`_on_demon_sacrificed` and `_FORGED_DEMON_AURAS` inherited from CombatState.)
 
-## Seris — mirror of CombatScene._on_demon_sacrificed. Same mechanics, no UI/log.
-const _FORGED_DEMON_AURAS: Array[String] = ["void_growth", "void_pulse", "flesh_bond"]
-func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
-	if minion == null or minion.owner != "player":
-		return
-	if not (minion.card_data is MinionCardData):
-		return
-	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
-		return
-	if _has_talent("fiend_offering") and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags:
-		if _spend_flesh(2):
-			_summon_token("lesser_demon", "player")
-	if not _has_talent("soul_forge"):
-		return
-	if _forge_counter_tick(1):
-		_summon_forged_demon()
-		_forge_counter_reset()
-
-## Seris — mirror of CombatScene._pre_player_spell_cast. Computes the Void
-## (`_pre_player_spell_cast` inherited from CombatState — Void Amplification
-## damage bonus calculation.)
-
-## Seris — mirror of CombatScene._post_player_spell_cast. Handles Void Resonance
-## double-cast at the outermost cast level only. No VFX side effects in sim.
-func _post_player_spell_cast(spell: SpellCardData, target) -> void:
-	if _spell_cast_depth == 1 \
-			and _has_talent("void_resonance_seris") \
-			and player_flesh >= 5 \
-			and not _double_cast_in_progress:
-		_double_cast_in_progress = true
-		if _spend_flesh(5):
-			var target_alive: bool = target == null or (target is MinionInstance and (target as MinionInstance).current_health > 0)
-			if target_alive:
-				_sim_resolve_spell(spell, target)
-		_double_cast_in_progress = false
-	_spell_cast_depth = maxi(0, _spell_cast_depth - 1)
-	if _spell_cast_depth == 0:
-		_player_spell_damage_bonus = 0
-
-## Sim-local re-resolve helper — runs the spell's effect steps a second time
-## for Void Resonance. Mirrors SimPlayerAgent._resolve_spell's effect-step path.
-func _sim_resolve_spell(spell: SpellCardData, target) -> void:
-	if spell.effect_steps.is_empty():
-		return
-	var ctx := EffectContext.make(self, "player")
-	ctx.chosen_target = target
-	ctx.source_card_id = spell.id
-	EffectResolver.run(spell.effect_steps, ctx)
+## (`_pre_player_spell_cast` and `_post_player_spell_cast` inherited from CombatState.)
 
 ## Forwards BuffSystem.corruption_removed into this sim's TriggerManager so
 ## Corrupt Detonation (and other ON_CORRUPTION_REMOVED listeners) fire during sims.
@@ -512,25 +354,11 @@ func teardown() -> void:
 var _debug_soul_forge_fires: int = 0
 var _debug_corrupt_flesh_fires: int = 0
 
-## Seris — Soul Forge activated-ability mirror. Called by SerisPlayerProfile.
-## Same checks and effects as CombatScene._soul_forge_activate: spend 3 Flesh,
-## summon Grafted Fiend. Returns true if the summon attempt was made (Flesh spent).
+## Seris — Soul Forge wrapper for SerisPlayerProfile. Calls inherited
+## state._soul_forge_activate and increments the diagnostic counter on success.
 func _soul_forge_activate() -> bool:
-	if not _has_talent("soul_forge"):
+	if not super._soul_forge_activate():
 		return false
-	if player_flesh < 3:
-		return false
-	# Check for empty slot before spending — active uses should not waste Flesh
-	var has_slot := false
-	for slot in player_slots:
-		if slot.minion == null:
-			has_slot = true
-			break
-	if not has_slot:
-		return false
-	if not _spend_flesh(3):
-		return false
-	_summon_token("grafted_fiend", "player")
 	_debug_soul_forge_fires += 1
 	return true
 
@@ -545,43 +373,8 @@ func _seris_corrupt_activate(target: MinionInstance) -> bool:
 
 ## (`_seris_corrupt_reset_turn` and `_try_save_from_death` inherited from CombatState.)
 
-## is_minion_emitted: when true, the emitted DamageInfo carries MINION source instead
-## of SPELL — used by talent paths (void_manifestation, piercing_void) that retag a
-## minion attack/effect into a Void Bolt. Default false preserves spell-cast and
-## triggered-passive semantics. Mirrors CombatScene._deal_void_bolt_damage.
-func _deal_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, _from_rune: bool = false, is_minion_emitted: bool = false) -> void:
-	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
-	var total: int = base_damage + bonus
-	# Determine base source label
-	var base_source: String = _pending_dmg_source
-	if base_source.is_empty():
-		base_source = "void_rune" if _from_rune else "void_bolt_spell"
-	_pending_dmg_source = base_source  # pass to _on_hero_damaged for total hit
-	# Split log: base damage + mark bonus separately
-	if dmg_log_enabled:
-		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
-		if bonus > 0:
-			dmg_log.append({turn = _current_turn, amount = bonus, source = "void_mark"})
-		_pending_dmg_source = "__logged__"  # signal _on_hero_damaged to skip logging
-	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
-	combat_manager.apply_hero_damage("enemy",
-			CombatManager.make_damage_info(total, src, Enums.DamageSchool.VOID_BOLT, _source_minion, base_source))
-	_void_bolt_total_dmg += total
-
-func _deal_enemy_void_bolt_damage(base_damage: int, _source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
-	var base_source: String = _pending_dmg_source
-	if base_source.is_empty():
-		base_source = "enemy_void_bolt"
-	_pending_dmg_source = base_source
-	if dmg_log_enabled:
-		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
-		_pending_dmg_source = "__logged__"
-	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
-	combat_manager.apply_hero_damage("player",
-			CombatManager.make_damage_info(base_damage, src, Enums.DamageSchool.VOID_BOLT, _source_minion, base_source))
-
-func _void_mark_damage_per_stack() -> int:
-	return void_mark_damage_per_stack
+## (`_deal_void_bolt_damage`, `_deal_enemy_void_bolt_damage`, and
+## `_void_mark_damage_per_stack` inherited from CombatState.)
 
 var debug_log_enabled: bool = false
 
@@ -645,45 +438,14 @@ func _resolve_void_devourer_sacrifice(_devourer: MinionInstance, _owner: String)
 ## `_unregister_env_rituals`, `_rune_aura_multiplier`, `_minion_has_tag`,
 ## `_has_talent` all inherited from CombatState.)
 
-func _resolve_hardcoded(hardcoded_id: String, ctx: EffectContext) -> void:
-	_hardcoded.resolve(hardcoded_id, ctx)
+## (`_resolve_hardcoded` inherited from CombatState.)
 
 # ---------------------------------------------------------------------------
 # Rune / trap / ritual / environment infrastructure
 # ---------------------------------------------------------------------------
 
 ## Register persistent aura handlers for a newly placed rune.
-func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
-	var entries: Array = []
-	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
-		# Mirror trigger for enemy side (e.g. ON_PLAYER_MINION_SUMMONED → ON_ENEMY_MINION_SUMMONED)
-		var trigger: int = rune.aura_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_trigger as Enums.TriggerEvent)
-		var h := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, owner)
-			ctx.trigger_minion = event_ctx.minion
-			ctx.from_rune = true
-			ctx.source_rune = rune
-			EffectResolver.run(rune.aura_effect_steps, ctx)
-		trigger_manager.register(trigger, h, 20)
-		entries.append({event = trigger, handler = h})
-		if rune.aura_extra_trigger >= 0:
-			var extra_trigger: int = rune.aura_extra_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_extra_trigger as Enums.TriggerEvent)
-			trigger_manager.register(extra_trigger, h, 20)
-			entries.append({event = extra_trigger, handler = h})
-	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
-		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
-		var h2 := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, owner)
-			ctx.trigger_minion = event_ctx.minion
-			ctx.source_rune = rune
-			EffectResolver.run(rune.aura_secondary_steps, ctx)
-		trigger_manager.register(sec_trigger, h2, 20)
-		entries.append({event = sec_trigger, handler = h2})
-	if not rune.aura_on_place_steps.is_empty():
-		var ctx := EffectContext.make(self, owner)
-		EffectResolver.run(rune.aura_on_place_steps, ctx)
-	if not entries.is_empty():
-		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
+## (`_apply_rune_aura` inherited from CombatState.)
 
 ## Register 2-rune ritual handlers for the given environment.
 func _register_env_rituals(env: EnvironmentCardData) -> void:
@@ -700,59 +462,15 @@ func _unregister_env_aura(env: EnvironmentCardData) -> void:
 		var ctx := EffectContext.make(self, "player")
 		EffectResolver.run(env.on_replace_effect_steps, ctx)
 
-## Fire matching non-rune traps for the given trigger event (both player and enemy).
-func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = null) -> void:
-	# Player traps
-	if not _player_traps_blocked:
-		for trap in active_traps.duplicate():
-			if trap.is_rune:
-				continue
-			if trap.trigger != trigger:
-				continue
-			var ctx := EffectContext.make(self, "player")
-			ctx.trigger_minion = triggering_minion
-			EffectResolver.run(trap.effect_steps, ctx)
-			if not trap.reusable:
-				active_traps.erase(trap)
-	# Enemy traps (mirror trigger: player events → enemy equivalents)
-	var enemy_trigger: int = Enums.mirror_trigger(trigger as Enums.TriggerEvent)
-	for trap in enemy_active_traps.duplicate():
-		if trap.is_rune:
-			continue
-		if trap.trigger != enemy_trigger:
-			continue
-		var ctx := EffectContext.make(self, "enemy")
-		ctx.trigger_minion = triggering_minion
-		EffectResolver.run(trap.effect_steps, ctx)
-		if not trap.reusable:
-			enemy_active_traps.erase(trap)
+## (`_check_and_fire_traps` inherited from CombatState.)
 
 ## (`_runes_satisfy` inherited from CombatState.)
 
-## Consume the required runes and cast the ritual effect.
-## Exact matches consumed first; wildcard runes fill remaining gaps.
+## Sim wrapper — increments diagnostic counter then runs inherited
+## state._fire_ritual (rune consumption + effect resolution + ON_RITUAL_FIRED).
 func _fire_ritual(ritual: RitualData) -> void:
 	_player_ritual_count += 1
-	for req in ritual.required_runes:
-		var consumed := false
-		for i in active_traps.size():
-			if active_traps[i].is_rune and not (active_traps[i] as TrapCardData).is_wildcard_rune and active_traps[i].rune_type == req:
-				_remove_rune_aura(active_traps[i])
-				active_traps.remove_at(i)
-				consumed = true
-				break
-		if not consumed:
-			for i in active_traps.size():
-				if active_traps[i].is_rune and (active_traps[i] as TrapCardData).is_wildcard_rune:
-					_remove_rune_aura(active_traps[i])
-					active_traps.remove_at(i)
-					break
-	var ritual_ctx := EffectContext.make(self, "player")
-	EffectResolver.run(ritual.effect_steps, ritual_ctx)
-	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
-	if trigger_manager:
-		var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
-		trigger_manager.fire(fired_ctx)
+	super._fire_ritual(ritual)
 
 ## Draw a random Rune card from the player's deck into hand, applying -1 cost via cost_delta.
 func _draw_rune_from_deck() -> void:

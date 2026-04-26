@@ -74,7 +74,7 @@ func play_spell(spell_id: String, caster_side: String, target: Variant, resolve_
 			# that effect chain; then we await the tracked VFX so the enemy
 			# AI's next move waits for the full visual to finish.
 			resolve_damage.call(0)
-			var vfx: PackFrenzyVFX = _combat._pack_frenzy_active_vfx
+			var vfx: PackFrenzyVFX = _combat.vfx_bridge._pack_frenzy_active_vfx if _combat.vfx_bridge != null else null
 			if vfx != null and is_instance_valid(vfx):
 				await vfx.finished
 		_:
@@ -156,9 +156,12 @@ func _play_void_screech(caster_side: String, resolve_damage: Callable) -> void:
 	await vfx.finished
 
 func _play_abyssal_plague(caster_side: String) -> void:
-	# Plague damage is staggered per-minion, timed to the visual wave front.
-	# The VFX itself fires a per-minion callback at arrival (impact_count=0),
-	# so damage resolves from inside the VFX rather than via impact_hit gating.
+	# P4B: scene's wrapper mutates state (corrupt + damage all enemies via
+	# EffectResolver running plague's effect_steps) BEFORE this VFX spawns,
+	# queueing one damage popup per touched minion. The wave plays visually
+	# and per_minion_cb fires when the wave-front reaches each minion — at
+	# that moment we drain that minion's queued popup so the floating number
+	# appears in sync with the wave touching the slot (not all at the end).
 	var all_slots: Array = _combat.enemy_slots if caster_side == "player" else _combat.player_slots
 	var occupied: Array = []
 	for s in all_slots:
@@ -166,15 +169,12 @@ func _play_abyssal_plague(caster_side: String) -> void:
 			occupied.append(s)
 	var caster_panel: Control = _combat._player_status_panel if caster_side == "player" else _combat._enemy_status_panel
 	var combat := _combat
-	# Plague's EffectStep declares damage_school=VOID, but this VFX path bypasses
-	# EffectResolver so the school must be re-stated here. Keep in sync with the
-	# abyssal_plague spell definition in CardDatabase.gd.
-	var plague_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "abyssal_plague")
 	var per_minion_cb := func(m: MinionInstance) -> void:
-		if m == null or m.current_health <= 0:
+		if m == null:
 			return
-		combat._corrupt_minion(m)
-		combat._spell_dmg(m, 100, plague_info)
+		var slot: BoardSlot = combat._find_slot_for(m)
+		if slot != null:
+			combat._drain_pending_spell_popup_for_slot(slot)
 	var vfx := AbyssalPlagueVFX.create(caster_panel, caster_side, all_slots, occupied, per_minion_cb)
 	_vfx_layer.add_child(vfx)
 	await vfx.finished
