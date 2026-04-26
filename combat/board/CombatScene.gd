@@ -181,6 +181,12 @@ var vfx_bridge: CombatVFXBridge = null
 ## stay as thin wrappers that delegate here. See CombatInputHandler.gd.
 var input_handler: CombatInputHandler = null
 
+## Signal-driven UI refresh subscribers (state / CombatManager / TurnManager
+## / BuffSystem signals → hero panel / pip bar / combat log / trap display
+## updates). Scene's `_on_*` subscribers stay as thin wrappers that delegate
+## here so signal connections don't have to change. See CombatUI.gd.
+var combat_ui: CombatUI = null
+
 ## Relic state flags (set by relic effects, consumed by combat logic) — forwarded to state.
 var _relic_hero_immune: bool:
 	get: return state._relic_hero_immune
@@ -727,6 +733,10 @@ func _find_nodes() -> void:
 	input_handler.name = "InputHandler"
 	add_child(input_handler)
 	input_handler.setup(self, state)
+	combat_ui = CombatUI.new()
+	combat_ui.name = "CombatUI"
+	add_child(combat_ui)
+	combat_ui.setup(self, state)
 	essence_label          = $UI/EssenceLabel
 	mana_label             = $UI/ManaLabel
 	end_turn_essence_button = $UI/EndTurnPanel/EndTurnEssenceButton
@@ -944,39 +954,14 @@ func _on_turn_ended(is_player_turn: bool) -> void:
 		enemy_ai.spell_cost_penalty = 0
 		_player_traps_blocked = false
 
+## Resource pip / label refresh delegated to combat_ui.
 func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
-	if essence_label:
-		essence_label.text = "%d/%d" % [essence, essence_max]
-	if mana_label:
-		mana_label.text = "%d/%d" % [mana, mana_max]
-	if hand_display:
-		hand_display.refresh_playability(essence, mana, _relic_cost_reduction, _relic_cost_reduction)
-	_refresh_hand_spell_costs()
-	if _pip_bar:
-		_pip_bar.update(essence, essence_max, mana, mana_max)
-		# Pulse the column border to signal gain (green) or spend (red/orange)
-		if _prev_essence >= 0 and essence != _prev_essence:
-			_pip_bar.pulse_col(true, essence > _prev_essence)
-		if _prev_mana >= 0 and mana != _prev_mana:
-			_pip_bar.pulse_col(false, mana > _prev_mana)
-	_prev_essence = essence
-	_prev_mana    = mana
-	# NOTE: end-turn button mode is NOT updated here — temp gains (gain_mana, gain_essence)
-	# also fire this signal and must not flip the button layout.
-	# Use _refresh_end_turn_mode() only when permanent max values change.
+	if combat_ui != null:
+		combat_ui.on_resources_changed(essence, essence_max, mana, mana_max)
 
-## Update end-turn panel layout based on permanent resource max values.
-## Call only after grow_essence_max / grow_mana_max or at turn start.
 func _refresh_end_turn_mode() -> void:
-	var at_cap := (turn_manager.essence_max + turn_manager.mana_max) >= TurnManager.COMBINED_RESOURCE_CAP
-	if end_turn_essence_button:
-		end_turn_essence_button.visible = not at_cap
-	if end_turn_mana_button:
-		end_turn_mana_button.visible = not at_cap
-	if has_node("UI/EndTurnPanel/ETSubLabel"):
-		$UI/EndTurnPanel/ETSubLabel.visible = not at_cap
-	if end_turn_button:
-		end_turn_button.visible = at_cap
+	if combat_ui != null:
+		combat_ui.refresh_end_turn_mode()
 
 func _on_card_drawn(inst: CardInstance) -> void:
 	if hand_display:
@@ -995,9 +980,8 @@ func _on_card_generated(inst: CardInstance) -> void:
 	trigger_manager.fire(ctx)
 
 func _on_card_anim_finished() -> void:
-	if hand_display:
-		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana, _relic_cost_reduction, _relic_cost_reduction)
-		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
+	if combat_ui != null:
+		combat_ui.on_card_anim_finished()
 
 func _on_end_turn_essence_pressed() -> void:
 	_do_end_turn("essence")
@@ -2504,21 +2488,11 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 func _has_talent(id: String) -> bool:
 	return state._has_talent(id)
 
-## Refresh hand card cost display and large preview to reflect the current board discount.
+## Refresh hand card cost displays / playability glows / preview overlay.
+## Delegated to combat_ui.
 func _refresh_hand_spell_costs() -> void:
-	var net_discount := _spell_mana_discount() - player_spell_cost_penalty
-	var relic_red := _relic_cost_reduction
-	if hand_display:
-		# Non-minion cards: mana discount includes relic reduction
-		hand_display.refresh_spell_costs(net_discount + relic_red)
-		# Minion cards: show essence and mana reductions from Dark Mirror
-		hand_display.refresh_relic_cost_preview(relic_red, relic_red)
-		hand_display.refresh_playability(turn_manager.essence, turn_manager.mana, relic_red, relic_red)
-		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
-	if large_preview.is_visible():
-		var extra := -(_hovered_hand_visual.card_inst.cost_delta) if _hovered_hand_visual != null and _hovered_hand_visual.card_inst != null else 0
-		large_preview.visual.apply_cost_discount(net_discount + relic_red + extra)
-		large_preview.visual.apply_relic_cost_preview(relic_red, relic_red)
+	if combat_ui != null:
+		combat_ui.refresh_hand_spell_costs()
 
 ## Effective mana cost for a player spell after applying board discount and tax penalty.
 func _effective_spell_cost(spell: SpellCardData) -> int:
@@ -2916,54 +2890,35 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 ## Note: enemy_void_marks and enemy_ai aren't HP-related, so the existing
 ## _enemy_hero_panel.update(...) calls on those paths still need to stay until
 ## void_marks_changed has its own signal.
-func _on_state_hp_changed(side: String, new_hp: int, mx: int, _delta: int) -> void:
-	if side == "player":
-		if _player_hero_panel:
-			_player_hero_panel.update(new_hp, mx)
-	else:
-		if _enemy_hero_panel:
-			_enemy_hero_panel.update(new_hp, mx, enemy_ai, enemy_void_marks)
+## State-signal subscribers delegated to combat_ui. Scene's wrappers preserve
+## the signal-connection target so the wiring in _connect_ui doesn't change.
+func _on_state_hp_changed(side: String, new_hp: int, mx: int, delta: int) -> void:
+	if combat_ui != null:
+		combat_ui.on_state_hp_changed(side, new_hp, mx, delta)
 
-## Subscriber to CombatState.void_marks_changed — refreshes the enemy hero
-## panel so the stack count visual stays current without scattered manual
-## `_enemy_hero_panel.update(...)` calls at every void mark mutation.
-func _on_state_void_marks_changed(side: String, _value: int) -> void:
-	if side == "enemy" and _enemy_hero_panel:
-		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+func _on_state_void_marks_changed(side: String, value: int) -> void:
+	if combat_ui != null:
+		combat_ui.on_state_void_marks_changed(side, value)
 
-## Subscriber to CombatState.combat_log — forwards to the on-screen CombatLog.
-## Lets handlers and effects log via state without holding a scene reference.
 func _on_state_combat_log(msg: String, log_type: int) -> void:
-	if combat_log:
-		combat_log.write(msg, log_type)
+	if combat_ui != null:
+		combat_ui.on_state_combat_log(msg, log_type)
 
-## Subscriber to CombatState.flesh_changed — refreshes Seris's resource bar.
-## Replaces the old Flesh.on_changed() callback chain.
-func _on_state_flesh_changed(_value: int, _max_value: int) -> void:
-	if _pip_bar != null:
-		_pip_bar.update_flesh()
-	if _player_hero_panel != null and _player_hero_panel.resource_bar != null:
-		_player_hero_panel.resource_bar.refresh()
+func _on_state_flesh_changed(value: int, max_value: int) -> void:
+	if combat_ui != null:
+		combat_ui.on_state_flesh_changed(value, max_value)
 
-## Subscriber to CombatState.forge_changed — refreshes Seris's resource bar.
-## Replaces the old Forge.on_changed() callback chain.
-func _on_state_forge_changed(_value: int, _threshold: int) -> void:
-	if _pip_bar != null:
-		_pip_bar.update_flesh()
-	if _player_hero_panel != null and _player_hero_panel.resource_bar != null:
-		_player_hero_panel.resource_bar.refresh()
+func _on_state_forge_changed(value: int, threshold: int) -> void:
+	if combat_ui != null:
+		combat_ui.on_state_forge_changed(value, threshold)
 
-## Subscriber to CombatState.traps_changed — refreshes the trap/rune slot
-## panel for the affected side.
 func _on_state_traps_changed(side: String) -> void:
-	if trap_env_display:
-		trap_env_display.update_traps_for(side)
+	if combat_ui != null:
+		combat_ui.on_state_traps_changed(side)
 
-## Subscriber to CombatState.environment_changed — refreshes the env card
-## display.
-func _on_state_environment_changed(_env: EnvironmentCardData) -> void:
-	if trap_env_display:
-		trap_env_display.update_environment()
+func _on_state_environment_changed(env: EnvironmentCardData) -> void:
+	if combat_ui != null:
+		combat_ui.on_state_environment_changed(env)
 
 func _on_hero_damaged(target: String, info: Dictionary) -> void:
 	if _combat_ended:
@@ -3885,14 +3840,9 @@ func _on_restart_pressed() -> void:
 func _refresh_slot_for(minion: MinionInstance) -> void:
 	state._refresh_slot_for(minion)
 
-## Subscriber to CombatState.minion_stats_changed — finds the minion's slot and
-## triggers a visual re-render.
 func _on_state_minion_stats_changed(minion: MinionInstance) -> void:
-	var slots := player_slots if minion.owner == "player" else enemy_slots
-	for slot in slots:
-		if slot.minion == minion:
-			slot._refresh_visuals()
-			return
+	if combat_ui != null:
+		combat_ui.on_state_minion_stats_changed(minion)
 
 func _update_champion_progress(current: int, total: int) -> void:
 	if _enemy_hero_panel != null:
@@ -4171,21 +4121,9 @@ var _pending_spell_popups: Array = []  # Array[{slot: BoardSlot, damage: int}]
 ## so the defeat / victory flow can fire immediately.
 var _pending_hero_popups: Array = []  # Array[{kind, target, amount, school, is_crit}]
 
-## Subscriber to CombatState.spell_damage_dealt — spawns the slot flash and
-## damage popup that live combat shows after a spell hit. Sim has no subscriber.
-## When `_capturing_spell_popups` is set (P4B inverted spell flow), the popup
-## is queued and drained at VFX impact_hit instead.
 func _on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
-	if target == null:
-		return
-	var slot := _find_slot_for(target)
-	if slot == null:
-		return
-	if _capturing_spell_popups:
-		_pending_spell_popups.append({slot = slot, damage = damage})
-		return
-	_flash_slot(slot)
-	_spawn_damage_popup(slot.get_global_rect().get_center(), damage)
+	if combat_ui != null:
+		combat_ui.on_state_spell_damage_dealt(target, damage)
 
 ## Drain queued spell popups (minion + hero) — called from spell VFX
 ## controllers' resolve_damage callback at impact_hit so popups sync with
