@@ -11,18 +11,35 @@ const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
 # Node references — resolved automatically in _find_nodes()
 # ---------------------------------------------------------------------------
 
-var turn_manager: TurnManager
+# ---------------------------------------------------------------------------
+# Pure data layer — fields below are forwarded to a shared CombatState so the
+# headless simulator (SimState extends CombatState) and live combat operate on
+# the same shape. See design/refactors/COMBAT_STATE_MANIFEST.md.
+# ---------------------------------------------------------------------------
+var state: CombatState = CombatState.new()
+
+## Forwarded to state.turn_manager (untyped Object) so CombatState methods
+## (e.g. _on_flesh_spent → Flesh Bond draw) hit the same instance live + sim.
+var turn_manager: TurnManager:
+	get: return state.turn_manager
+	set(v): state.turn_manager = v
 var enemy_ai: EnemyAI
 
 ## Most recent player resource-growth choice ("" | "essence" | "mana").
 ## Set by the end-turn buttons; read by F15 abyssal_mandate passive.
-var last_player_growth: String = ""
+var last_player_growth: String:
+	get: return state.last_player_growth
+	set(v): state.last_player_growth = v
 
 ## F15 Abyss Sovereign phase marker (1 = P1, 2 = P2). Flips to 2 via
 ## PhaseTransition when P1 HP hits 0. Non-F15 fights leave this at 1.
-var _sovereign_phase: int = 1
+var _sovereign_phase: int:
+	get: return state._sovereign_phase
+	set(v): state._sovereign_phase = v
 ## Turn number at which the P1→P2 transition fired. 0 = never transitioned.
-var _sovereign_transition_turn: int = 0
+var _sovereign_transition_turn: int:
+	get: return state._sovereign_transition_turn
+	set(v): state._sovereign_transition_turn = v
 
 ## Stub hook for the Phase 2 transition VFX (screen darken, banner, portrait
 ## swap, etc.). Called by PhaseTransition after state has been reset. Leave
@@ -50,8 +67,12 @@ func _force_end_player_turn_for_phase_transition() -> void:
 	# End the turn — turn_manager will emit turn_ended(true) then turn_started(false),
 	# which routes through _on_turn_started and kicks off enemy_ai.run_turn().
 	turn_manager.end_player_turn()
-var player_slots: Array[BoardSlot] = []
-var enemy_slots: Array[BoardSlot] = []
+var player_slots: Array[BoardSlot]:
+	get: return state.player_slots
+	set(v): state.player_slots = v
+var enemy_slots: Array[BoardSlot]:
+	get: return state.enemy_slots
+	set(v): state.enemy_slots = v
 
 # UI nodes
 var essence_label: Label
@@ -101,11 +122,29 @@ signal on_play_vfx_done()
 var _active_death_anims: int = 0
 signal death_anims_done()
 
+## True while a player spell's VFX is mid-flight. Effect resolution runs
+## inside the VFX completion callback (await vfx_controller.play_spell), so
+## anything that mutates turn state (like End Turn) must wait until the VFX
+## resolves — otherwise enemies that the spell would have killed can still
+## attack on the immediately-following enemy turn. Cleared after the VFX
+## callback returns; emits player_spell_done. Phase 4 of the CombatState
+## refactor will collapse this by mutating state immediately and letting VFX
+## play independently.
+var _player_spell_active: bool = false
+signal player_spell_done()
+
+## Re-entrancy guard for _do_end_turn — set true while we're awaiting in-flight
+## VFX and tearing down the turn. Prevents a second click from queuing another
+## end_player_turn() while the first is still in progress.
+var _end_turn_in_progress: bool = false
+
 # Enemy hero status panel
 var _enemy_hero_panel: EnemyHeroPanel = null
 var _enemy_status_panel: Control = null   ## alias → _enemy_hero_panel (backward-compat)
 var _enemy_panel_bg: Panel = null         ## alias → _enemy_hero_panel.highlight_panel
-var enemy_hp_max: int = 0
+var enemy_hp_max: int:
+	get: return state.enemy_hp_max
+	set(v): state.enemy_hp_max = v
 
 # Player hero status panel
 var _player_hero_panel: PlayerHeroPanel = null
@@ -123,7 +162,11 @@ var _prev_mana:    int = -1
 var combat_manager := CombatManager.new()
 
 ## Central event dispatcher — populated by _setup_triggers() in _ready().
-var trigger_manager: TriggerManager
+## Forwarded to state.trigger_manager so CombatState methods (rune handling
+## etc.) can access the same instance without holding a scene reference.
+var trigger_manager: TriggerManager:
+	get: return state.trigger_manager
+	set(v): state.trigger_manager = v
 var _handlers: CombatHandlers
 var _hardcoded: HardcodedEffects
 var _relic_runtime: RelicRuntime
@@ -137,18 +180,32 @@ var vfx_controller: VfxController = null
 var _vfx_layer: CanvasLayer = null
 var _vfx_shake_root: Control = null
 
-## Relic state flags (set by relic effects, consumed by combat logic)
-var _relic_hero_immune: bool = false    ## Bone Shield: ignore damage this turn
-var _relic_cost_reduction: int = 0      ## Dark Mirror: reduce next card cost
-var _relic_extra_turn: bool = false     ## Void Hourglass: take extra turn
+## Relic state flags (set by relic effects, consumed by combat logic) — forwarded to state.
+var _relic_hero_immune: bool:
+	get: return state._relic_hero_immune
+	set(v): state._relic_hero_immune = v
+var _relic_cost_reduction: int:
+	get: return state._relic_cost_reduction
+	set(v): state._relic_cost_reduction = v
+var _relic_extra_turn: bool:
+	get: return state._relic_extra_turn
+	set(v): state._relic_extra_turn = v
 
 # Live boards
-var player_board: Array[MinionInstance] = []
-var enemy_board: Array[MinionInstance] = []
+var player_board: Array[MinionInstance]:
+	get: return state.player_board
+	set(v): state.player_board = v
+var enemy_board: Array[MinionInstance]:
+	get: return state.enemy_board
+	set(v): state.enemy_board = v
 
-# Player HP
-var player_hp: int = 30
-var enemy_hp: int = 30
+# Hero HP
+var player_hp: int:
+	get: return state.player_hp
+	set(v): state.player_hp = v
+var enemy_hp: int:
+	get: return state.enemy_hp
+	set(v): state.enemy_hp = v
 
 # Currently selected attacker (if player clicked one of their minions)
 var selected_attacker: MinionInstance = null
@@ -183,18 +240,26 @@ var _awaiting_minion_target: bool = false
 var _pending_relic_target: String = ""
 var _pending_relic_index: int = -1  ## Index into RelicRuntime.relics — used for refund on cancel
 
-# Active global environment
-var active_environment: EnvironmentCardData = null
+# Active global environment — forwarded to state.active_environment.
+var active_environment: EnvironmentCardData:
+	get: return state.active_environment
+	set(v): state.active_environment = v
 
-# Active traps and runes (shared pool, max 3 slots)
-var active_traps: Array[TrapCardData] = []
+# Active traps and runes (shared pool, max 3 slots) — forwarded to state.active_traps.
+var active_traps: Array[TrapCardData]:
+	get: return state.active_traps
+	set(v): state.active_traps = v
 # Callables registered for the current environment's 2-rune rituals.
 # Cleared and re-populated whenever the active environment changes.
-var _env_ritual_handlers: Array[Callable] = []
+var _env_ritual_handlers: Array[Callable]:
+	get: return state._env_ritual_handlers
+	set(v): state._env_ritual_handlers = v
 # TriggerManager Callables registered per rune placement.
 # Stored as an Array of {rune_id, entries} so two runes of the same type each
 # get an independent entry and can be individually unregistered.
-var _rune_aura_handlers: Array = []  # Array[{rune_id: String, entries: Array}]
+var _rune_aura_handlers: Array:
+	get: return state._rune_aura_handlers
+	set(v): state._rune_aura_handlers = v
 
 # ---------------------------------------------------------------------------
 # Relic state — reset each combat
@@ -208,34 +273,50 @@ var _rune_aura_handlers: Array = []  # Array[{rune_id: String, entries: Array}]
 # ---------------------------------------------------------------------------
 
 ## Void Mark stacks on the enemy hero (accumulate through the run)
-var enemy_void_marks: int = 0
+var enemy_void_marks: int:
+	get: return state.enemy_void_marks
+	set(v): state.enemy_void_marks = v
 
 ## Seris — active spell damage bonus from void_amplification, set at the start of a
 ## player spell cast (sum of Corruption stacks across friendly Demons * 50) and
 ## cleared after resolution. `_spell_dmg` adds it to every spell-damage target hit.
-var _player_spell_damage_bonus: int = 0
+var _player_spell_damage_bonus: int:
+	get: return state._player_spell_damage_bonus
+	set(v): state._player_spell_damage_bonus = v
 
 ## Seris — Corrupt Flesh activated ability. `_seris_corrupt_targeting` is true while
 ## the player is picking a friendly Demon to corrupt; `_seris_corrupt_used_this_turn`
 ## enforces the 1-per-turn cap. Reset to false on each ON_PLAYER_TURN_START.
 var _seris_corrupt_targeting: bool = false
-var _seris_corrupt_used_this_turn: bool = false
+var _seris_corrupt_used_this_turn: bool:
+	get: return state._seris_corrupt_used_this_turn
+	set(v): state._seris_corrupt_used_this_turn = v
 
 ## Seris — Flesh counter. Gains 1 per friendly Demon death (Fleshbind passive), capped at player_flesh_max.
 ## Resets each combat (CombatScene is re-instantiated). Spent by Seris talent effects.
-var player_flesh:     int = 0
-var player_flesh_max: int = 5
+var player_flesh: int:
+	get: return state.player_flesh
+	set(v): state.player_flesh = v
+var player_flesh_max: int:
+	get: return state.player_flesh_max
+	set(v): state.player_flesh_max = v
 
 ## Seris — Fiendish Pact pending Mana discount. Set by the Fiendish Pact spell,
 ## consumed when the next Demon is played (capped at that card's mana_cost).
 ## Cleared at player turn start along with cost_delta.
-var _fiendish_pact_pending: int = 0
+var _fiendish_pact_pending: int:
+	get: return state._fiendish_pact_pending
+	set(v): state._fiendish_pact_pending = v
 
 ## Seris — Forge Counter (Demon Forge branch). Incremented when a Demon is sacrificed; at threshold
 ## the Soul Forge talent auto-summons a Forged Demon and resets the counter.
 ## Threshold is set by CombatSetup from the talent registry (forge_momentum reduces it from 3 to 2).
-var forge_counter:            int = 0
-var forge_counter_threshold:  int = 3
+var forge_counter: int:
+	get: return state.forge_counter
+	set(v): state.forge_counter = v
+var forge_counter_threshold: int:
+	get: return state.forge_counter_threshold
+	set(v): state.forge_counter_threshold = v
 
 ## Behavior modules for Flesh/Forge primitives. Vars above stay on scene
 ## (SimState mirror constraint); these classes own only the gain/spend logic.
@@ -252,41 +333,47 @@ var large_preview: LargePreview = null
 ## "Your next spell will be COUNTERED" warning label.
 var counter_warning: CounterWarning = null
 
-## Passive-configurable stats — set by CombatSetup from the registry at combat start.
-var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
-var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
-
-## True until the first hit lands on the player (Shadow Veil: ignore first damage)
-## (Removed: _shadow_veil_spent — old Shadow Veil replaced by Bone Shield activated relic)
+## Passive-configurable stats — forwarded to state (set by CombatSetup from registry).
+var void_mark_damage_per_stack: int:
+	get: return state.void_mark_damage_per_stack
+	set(v): state.void_mark_damage_per_stack = v
+var rune_aura_multiplier: int:
+	get: return state.rune_aura_multiplier
+	set(v): state.rune_aura_multiplier = v
 
 ## Set to true the moment victory/defeat is triggered — prevents re-entrant damage/scene calls
-var _combat_ended: bool = false
+var _combat_ended: bool:
+	get: return state._combat_ended
+	set(v): state._combat_ended = v
 
-## Pending spell cost penalty to apply to the enemy on their next turn (from Spell Taxer).
-var _spell_tax_for_enemy_turn: int = 0
-
-## Pending spell cost penalty to apply to the player on their next turn (from enemy Spell Taxer).
-var _spell_tax_for_player_turn: int = 0
-
-## When true, the player's current mana is set to 0 at the start of their next turn (Void Rift Lord).
-var _void_mana_drain_pending: bool = false
-
-## Active spell cost penalty for the player this turn (applied at turn start, cleared at turn end).
-var player_spell_cost_penalty: int = 0
-
-## Set to true by Silence Trap to skip the enemy spell's effect resolution.
-var _spell_cancelled: bool = false
-
-## When true, enemy traps cannot trigger (set by Saboteur Adept, cleared at player turn end).
-var _enemy_traps_blocked: bool = false
-
-## When true, player traps cannot trigger (set by enemy Saboteur Adept, cleared at enemy turn end).
-var _player_traps_blocked: bool = false
-
-## Spell counter: when > 0, next spell cast by this side is cancelled and counter decrements.
-## Set by Phase Disruptor ON PLAY (COUNTER_SPELL effect).
-var _player_spell_counter: int = 0
-var _enemy_spell_counter: int = 0
+## Cost penalties / once-per-turn / spell counter flags — all forwarded to state.
+var _spell_tax_for_enemy_turn: int:
+	get: return state._spell_tax_for_enemy_turn
+	set(v): state._spell_tax_for_enemy_turn = v
+var _spell_tax_for_player_turn: int:
+	get: return state._spell_tax_for_player_turn
+	set(v): state._spell_tax_for_player_turn = v
+var _void_mana_drain_pending: bool:
+	get: return state._void_mana_drain_pending
+	set(v): state._void_mana_drain_pending = v
+var player_spell_cost_penalty: int:
+	get: return state.player_spell_cost_penalty
+	set(v): state.player_spell_cost_penalty = v
+var _spell_cancelled: bool:
+	get: return state._spell_cancelled
+	set(v): state._spell_cancelled = v
+var _enemy_traps_blocked: bool:
+	get: return state._enemy_traps_blocked
+	set(v): state._enemy_traps_blocked = v
+var _player_traps_blocked: bool:
+	get: return state._player_traps_blocked
+	set(v): state._player_traps_blocked = v
+var _player_spell_counter: int:
+	get: return state._player_spell_counter
+	set(v): state._player_spell_counter = v
+var _enemy_spell_counter: int:
+	get: return state._enemy_spell_counter
+	set(v): state._enemy_spell_counter = v
 
 ## Persistent warning label shown when the player's next spell will be countered.
 # _counter_warning_label moved into CounterWarning.gd (counter_warning.label)
@@ -297,13 +384,19 @@ var _enemy_spell_counter: int = 0
 # _target_prompt_label moved into Targeting.gd (targeting.prompt_label)
 
 ## Prevents Soul Rune from firing more than once per enemy turn.
-var _soul_rune_fires_this_turn: int = 0
+var _soul_rune_fires_this_turn: int:
+	get: return state._soul_rune_fires_this_turn
+	set(v): state._soul_rune_fires_this_turn = v
 
 ## Void Imps summoned by Imp Overload that must die at end of the player's turn.
-var _temp_imps: Array[MinionInstance] = []
+var _temp_imps: Array[MinionInstance]:
+	get: return state._temp_imps
+	set(v): state._temp_imps = v
 
 ## True once Imp Evolution has added a Senior Void Imp this turn; reset on turn start.
-var imp_evolution_used_this_turn: bool = false
+var imp_evolution_used_this_turn: bool:
+	get: return state.imp_evolution_used_this_turn
+	set(v): state.imp_evolution_used_this_turn = v
 
 ## Currently hovered hand card visual — used for pip-blink cost preview.
 var _hovered_hand_visual: CardVisual = null
@@ -312,83 +405,185 @@ var _hovered_hand_visual: CardVisual = null
 # Enemy passive state — populated from GameManager.current_enemy.passives
 # ---------------------------------------------------------------------------
 
-## Active passive IDs for the current encounter.
-var _active_enemy_passives: Array[String] = []
+## Active passive IDs for the current encounter — forwarded to state.
+var _active_enemy_passives: Array[String]:
+	get: return state._active_enemy_passives
+	set(v): state._active_enemy_passives = v
 
-## Act 4 passive stats — set dynamically by CombatSetup via scene.set().
-var _vp_pre_crit_stacks: int = 0
-var _spirit_conscription_fired: bool = false
-var crit_multiplier: float = 2.0
-var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
-var _enemy_crits_consumed: int = 0  ## Total enemy crits consumed (for champion tracking)
-var _player_crits_consumed: int = 0
-var _last_crit_attacker: MinionInstance = null  ## Set by _apply_crit for post-crit processing
-var _last_attack_was_crit: bool = false  ## Transient: true if the most recent attack consumed a crit
-## Set by CombatManager.resolve_minion_attack / resolve_minion_attack_hero for the duration of
-## the attack; read by death-trigger firing so ctx.attacker can be populated. Cleared after.
-var _last_attacker: MinionInstance = null
-var _dark_channeling_active: bool = false
-var _dark_channeling_multiplier: float = 1.0
-var _dark_channeling_amp_count: int = 0
-var _dark_channeling_amp_by_spell: Dictionary = {}  ## spell_id -> count
-var _dark_channeling_dmg_by_spell: Dictionary = {}  ## spell_id -> extra damage from amp
+## Act 4 passive / crit / Dark Channeling state — all forwarded to state.
+var _vp_pre_crit_stacks: int:
+	get: return state._vp_pre_crit_stacks
+	set(v): state._vp_pre_crit_stacks = v
+var _spirit_conscription_fired: bool:
+	get: return state._spirit_conscription_fired
+	set(v): state._spirit_conscription_fired = v
+var crit_multiplier: float:
+	get: return state.crit_multiplier
+	set(v): state.crit_multiplier = v
+var enemy_crit_multiplier: float:
+	get: return state.enemy_crit_multiplier
+	set(v): state.enemy_crit_multiplier = v
+var _enemy_crits_consumed: int:
+	get: return state._enemy_crits_consumed
+	set(v): state._enemy_crits_consumed = v
+var _player_crits_consumed: int:
+	get: return state._player_crits_consumed
+	set(v): state._player_crits_consumed = v
+var _last_crit_attacker: MinionInstance:
+	get: return state._last_crit_attacker
+	set(v): state._last_crit_attacker = v
+var _last_attack_was_crit: bool:
+	get: return state._last_attack_was_crit
+	set(v): state._last_attack_was_crit = v
+var _last_attacker: MinionInstance:
+	get: return state._last_attacker
+	set(v): state._last_attacker = v
+var _dark_channeling_active: bool:
+	get: return state._dark_channeling_active
+	set(v): state._dark_channeling_active = v
+var _dark_channeling_multiplier: float:
+	get: return state._dark_channeling_multiplier
+	set(v): state._dark_channeling_multiplier = v
+var _dark_channeling_amp_count: int:
+	get: return state._dark_channeling_amp_count
+	set(v): state._dark_channeling_amp_count = v
+var _dark_channeling_amp_by_spell: Dictionary:
+	get: return state._dark_channeling_amp_by_spell
+	set(v): state._dark_channeling_amp_by_spell = v
+var _dark_channeling_dmg_by_spell: Dictionary:
+	get: return state._dark_channeling_dmg_by_spell
+	set(v): state._dark_channeling_dmg_by_spell = v
 
-## Enemy champion state — set dynamically by CombatSetup via scene.set().
-var _champion_summon_count: int = 0
-var _corruption_detonation_times: int = 0
-var _ritual_invoke_times: int = 0
-var _handler_spark_buff_times: int = 0
-var _smoke_veil_fires: int = 0
-var _smoke_veil_damage_prevented: int = 0
-var _abyssal_plague_fires: int = 0
-var _abyssal_plague_kills: int = 0
-var _champion_rip_attack_ids: Array = []
-var _champion_rip_summoned: bool = false
-var _champion_cb_death_count: int = 0
-var _champion_cb_summoned: bool = false
-var _champion_im_frenzy_count: int = 0
-var _champion_im_summoned: bool = false
+## Enemy champion state — all forwarded to state. CombatSetup mutates via
+## scene.set("_champion_X", val) which routes through the property setter.
+var _champion_summon_count: int:
+	get: return state._champion_summon_count
+	set(v): state._champion_summon_count = v
+var _corruption_detonation_times: int:
+	get: return state._corruption_detonation_times
+	set(v): state._corruption_detonation_times = v
+var _ritual_invoke_times: int:
+	get: return state._ritual_invoke_times
+	set(v): state._ritual_invoke_times = v
+var _handler_spark_buff_times: int:
+	get: return state._handler_spark_buff_times
+	set(v): state._handler_spark_buff_times = v
+var _smoke_veil_fires: int:
+	get: return state._smoke_veil_fires
+	set(v): state._smoke_veil_fires = v
+var _smoke_veil_damage_prevented: int:
+	get: return state._smoke_veil_damage_prevented
+	set(v): state._smoke_veil_damage_prevented = v
+var _abyssal_plague_fires: int:
+	get: return state._abyssal_plague_fires
+	set(v): state._abyssal_plague_fires = v
+var _abyssal_plague_kills: int:
+	get: return state._abyssal_plague_kills
+	set(v): state._abyssal_plague_kills = v
+var _champion_rip_attack_ids: Array:
+	get: return state._champion_rip_attack_ids
+	set(v): state._champion_rip_attack_ids = v
+var _champion_rip_summoned: bool:
+	get: return state._champion_rip_summoned
+	set(v): state._champion_rip_summoned = v
+var _champion_cb_death_count: int:
+	get: return state._champion_cb_death_count
+	set(v): state._champion_cb_death_count = v
+var _champion_cb_summoned: bool:
+	get: return state._champion_cb_summoned
+	set(v): state._champion_cb_summoned = v
+var _champion_im_frenzy_count: int:
+	get: return state._champion_im_frenzy_count
+	set(v): state._champion_im_frenzy_count = v
+var _champion_im_summoned: bool:
+	get: return state._champion_im_summoned
+	set(v): state._champion_im_summoned = v
 # Act 2 champion state
-var _champion_acp_stacks_consumed: int = 0
-var _champion_acp_summoned: bool = false
-var _champion_vr_summoned: bool = false
-var _champion_ch_spark_count: int = 0
-var _champion_ch_summoned: bool = false
-var _champion_ch_aura_dmg: int = 0
-
+var _champion_acp_stacks_consumed: int:
+	get: return state._champion_acp_stacks_consumed
+	set(v): state._champion_acp_stacks_consumed = v
+var _champion_acp_summoned: bool:
+	get: return state._champion_acp_summoned
+	set(v): state._champion_acp_summoned = v
+var _champion_vr_summoned: bool:
+	get: return state._champion_vr_summoned
+	set(v): state._champion_vr_summoned = v
+var _champion_ch_spark_count: int:
+	get: return state._champion_ch_spark_count
+	set(v): state._champion_ch_spark_count = v
+var _champion_ch_summoned: bool:
+	get: return state._champion_ch_summoned
+	set(v): state._champion_ch_summoned = v
+var _champion_ch_aura_dmg: int:
+	get: return state._champion_ch_aura_dmg
+	set(v): state._champion_ch_aura_dmg = v
 ## Act 3 champion: Rift Stalker
-var _champion_rs_spark_dmg: int = 0
-var _champion_rs_summoned: bool = false
-
+var _champion_rs_spark_dmg: int:
+	get: return state._champion_rs_spark_dmg
+	set(v): state._champion_rs_spark_dmg = v
+var _champion_rs_summoned: bool:
+	get: return state._champion_rs_summoned
+	set(v): state._champion_rs_summoned = v
 ## Act 3 champion: Void Aberration
-var _champion_va_sparks_consumed: int = 0
-var _champion_va_summoned: bool = false
-
+var _champion_va_sparks_consumed: int:
+	get: return state._champion_va_sparks_consumed
+	set(v): state._champion_va_sparks_consumed = v
+var _champion_va_summoned: bool:
+	get: return state._champion_va_summoned
+	set(v): state._champion_va_summoned = v
 ## Act 4 champion: Void Scout
-var _champion_vs_crits_consumed: int = 0
-var _champion_vs_summoned: bool = false
-
+var _champion_vs_crits_consumed: int:
+	get: return state._champion_vs_crits_consumed
+	set(v): state._champion_vs_crits_consumed = v
+var _champion_vs_summoned: bool:
+	get: return state._champion_vs_summoned
+	set(v): state._champion_vs_summoned = v
 ## Act 4 champion: Void Warband
-var _champion_vw_spirits_consumed: int = 0
-var _champion_vw_summoned: bool = false
-var _vw_behemoth_plays: int = 0
-var _vw_bastion_plays: int = 0
-var _void_echo_fired_this_turn: bool = false
-var _vw_death_crit_grants: int = 0
-var _vw_behemoth_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
-var _vw_bastion_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
-
+var _champion_vw_spirits_consumed: int:
+	get: return state._champion_vw_spirits_consumed
+	set(v): state._champion_vw_spirits_consumed = v
+var _champion_vw_summoned: bool:
+	get: return state._champion_vw_summoned
+	set(v): state._champion_vw_summoned = v
+var _vw_behemoth_plays: int:
+	get: return state._vw_behemoth_plays
+	set(v): state._vw_behemoth_plays = v
+var _vw_bastion_plays: int:
+	get: return state._vw_bastion_plays
+	set(v): state._vw_bastion_plays = v
+var _void_echo_fired_this_turn: bool:
+	get: return state._void_echo_fired_this_turn
+	set(v): state._void_echo_fired_this_turn = v
+var _vw_death_crit_grants: int:
+	get: return state._vw_death_crit_grants
+	set(v): state._vw_death_crit_grants = v
+var _vw_behemoth_lost: Dictionary:
+	get: return state._vw_behemoth_lost
+	set(v): state._vw_behemoth_lost = v
+var _vw_bastion_lost: Dictionary:
+	get: return state._vw_bastion_lost
+	set(v): state._vw_bastion_lost = v
 ## Act 4 champion: Void Captain
-var _champion_vc_tc_cast: int = 0
-var _champion_vc_summoned: bool = false
-
+var _champion_vc_tc_cast: int:
+	get: return state._champion_vc_tc_cast
+	set(v): state._champion_vc_tc_cast = v
+var _champion_vc_summoned: bool:
+	get: return state._champion_vc_summoned
+	set(v): state._champion_vc_summoned = v
 ## Act 4 champion: Void Champion (F14)
-var _champion_vch_crit_kills: int = 0
-var _champion_vch_summoned: bool = false
-
+var _champion_vch_crit_kills: int:
+	get: return state._champion_vch_crit_kills
+	set(v): state._champion_vch_crit_kills = v
+var _champion_vch_summoned: bool:
+	get: return state._champion_vch_summoned
+	set(v): state._champion_vch_summoned = v
 ## Act 3 champion: Void Herald
-var _champion_vh_spark_cards_played: int = 0
-var _champion_vh_summoned: bool = false
+var _champion_vh_spark_cards_played: int:
+	get: return state._champion_vh_spark_cards_played
+	set(v): state._champion_vh_spark_cards_played = v
+var _champion_vh_summoned: bool:
+	get: return state._champion_vh_summoned
+	set(v): state._champion_vh_summoned = v
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -412,6 +607,20 @@ func _ready() -> void:
 	_connect_board_slots()
 	_connect_combat_manager()
 	_connect_ui()
+	# Connect state signal subscribers BEFORE the initial display refresh calls
+	# below — those calls emit traps_changed / environment_changed and would be
+	# lost otherwise. Subscribers null-check the UI nodes they touch (hero
+	# panels, pip bar) so connecting before those exist is safe.
+	state.hp_changed.connect(_on_state_hp_changed)
+	state.void_marks_changed.connect(_on_state_void_marks_changed)
+	state.damage_dealt.connect(_on_state_damage_dealt)
+	state.combat_log.connect(_on_state_combat_log)
+	state.minion_stats_changed.connect(_on_state_minion_stats_changed)
+	state.minion_died.connect(_on_state_minion_died)
+	state.flesh_changed.connect(_on_state_flesh_changed)
+	state.forge_changed.connect(_on_state_forge_changed)
+	state.traps_changed.connect(_on_state_traps_changed)
+	state.environment_changed.connect(_on_state_environment_changed)
 	_update_environment_display()
 	_update_trap_display()
 	_update_enemy_trap_display()
@@ -419,8 +628,15 @@ func _ready() -> void:
 	if not GameManager.run_active:
 		GameManager.start_new_run()
 
-	# HP resets to full at the start of every new combat
+	# HP resets to full at the start of every new combat.
+	state.player_hp_max = GameManager.player_hp_max
 	player_hp = GameManager.player_hp_max
+	# Mirror GameManager talents into state so _has_talent reads from a single
+	# source. Live combat is the writer; sim sets state.talents directly via
+	# CombatSim before turning the engine on. (Hero passives are loaded later
+	# in CombatSetup which already populates state.hero_passives if needed.)
+	state.talents.assign(GameManager.unlocked_talents)
+	state.player_hero_id = GameManager.current_hero
 
 	# Override enemy HP / name / fight number from current encounter
 	if GameManager.current_enemy != null:
@@ -450,7 +666,12 @@ func _ready() -> void:
 	if ui_root:
 		ui_root.add_child(_player_hero_panel)
 	_player_status_panel = _player_hero_panel
+	# Initial panel sync — the hp_changed signal already fired above (in
+	# `player_hp = GameManager.player_hp_max`) but the panels didn't exist yet,
+	# so push the values manually now. Future HP changes route through the
+	# signal subscriber.
 	_player_hero_panel.update(player_hp, GameManager.player_hp_max)
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 	_setup_second_wind_indicator(ui_root)
 	_pip_bar = PipBar.new()
 	_pip_bar.setup(self, ui_root, essence_label, mana_label)
@@ -609,11 +830,12 @@ func _connect_trap_and_env_hover() -> void:
 	for i in enemy_trap_slot_panels.size():
 		enemy_trap_slot_panels[i].mouse_entered.connect(_on_enemy_trap_slot_hover.bind(i))
 		enemy_trap_slot_panels[i].mouse_exited.connect(_hide_large_preview)
-	if environment_slot:
-		environment_slot.mouse_entered.connect(func() -> void:
+	var env_slot := trap_env_display.env_slot
+	if env_slot:
+		env_slot.mouse_entered.connect(func() -> void:
 			if active_environment:
 				_show_large_preview(active_environment))
-		environment_slot.mouse_exited.connect(_hide_large_preview)
+		env_slot.mouse_exited.connect(_hide_large_preview)
 
 func _on_trap_slot_hover(idx: int) -> void:
 	if idx < active_traps.size():
@@ -769,16 +991,50 @@ func _on_card_anim_finished() -> void:
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 
 func _on_end_turn_essence_pressed() -> void:
-	turn_manager.grow_essence_max()
-	last_player_growth = "essence"
-	_do_end_turn()
+	_do_end_turn("essence")
 
 func _on_end_turn_mana_pressed() -> void:
-	turn_manager.grow_mana_max()
-	last_player_growth = "mana"
-	_do_end_turn()
+	_do_end_turn("mana")
 
-func _do_end_turn() -> void:
+## End the player turn. If any animation/VFX is mid-flight (player spell, minion
+## on-play VFX, death animations), wait for it to finish first — otherwise the
+## enemy turn can begin before the spell's effect resolution lands, letting
+## enemies that the spell would have killed still take actions.
+##
+## `growth` is "essence", "mana", or "" — picks which resource pool grows on
+## turn end. Folded in here (rather than the button handlers) so the
+## re-entrancy guard covers spam-clicks during VFX.
+func _do_end_turn(growth: String = "") -> void:
+	if _end_turn_in_progress:
+		return
+	if not turn_manager.is_player_turn:
+		return
+	_end_turn_in_progress = true
+	# Apply resource growth immediately — the player picked it, the pip should
+	# reflect that choice while spell VFX completes.
+	if growth == "essence":
+		turn_manager.grow_essence_max()
+		last_player_growth = "essence"
+	elif growth == "mana":
+		turn_manager.grow_mana_max()
+		last_player_growth = "mana"
+	# Drain any in-flight player-side VFX before relinquishing the turn.
+	# Loop because resolving one VFX can start the next (death anims after
+	# spell resolves, etc).
+	while _player_spell_active or _on_play_vfx_active or _active_death_anims > 0:
+		if _player_spell_active:
+			await player_spell_done
+		if _on_play_vfx_active:
+			await on_play_vfx_done
+		if _active_death_anims > 0:
+			await death_anims_done
+	# Combat may have ended while we were awaiting (lethal spell on enemy hero).
+	if _combat_ended:
+		_end_turn_in_progress = false
+		return
+	if not turn_manager.is_player_turn:
+		_end_turn_in_progress = false
+		return
 	selected_attacker = null
 	pending_play_card = null
 	pending_minion_target = null
@@ -786,6 +1042,7 @@ func _do_end_turn() -> void:
 	if hand_display:
 		hand_display.deselect_current()
 	turn_manager.end_player_turn()
+	_end_turn_in_progress = false
 
 # ---------------------------------------------------------------------------
 # Hand card selection
@@ -993,7 +1250,10 @@ func _try_play_spell(spell: SpellCardData) -> void:
 			var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 			spell_ctx.card = spell
 			trigger_manager.fire(spell_ctx)
+		_player_spell_active = true
 		await vfx_controller.play_spell(spell.id, "player", null, resolve_damage)
+		_player_spell_active = false
+		player_spell_done.emit()
 	)
 
 func _try_play_trap(trap: TrapCardData) -> void:
@@ -1070,7 +1330,7 @@ func _try_play_environment(env: EnvironmentCardData) -> void:
 	)
 
 func _update_environment_display() -> void:
-	trap_env_display.update_environment()
+	state._update_environment_display()
 
 ## Build the hover tooltip text for an active environment card.
 ## Includes cost, passive, and ritual combinations if any.
@@ -1238,6 +1498,7 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 	trigger_manager.fire(play_ctx)
 	# Now officially join the board before ON_PLAYER_MINION_SUMMONED (summon triggers expect it present).
 	player_board.append(instance)
+	state.minion_summoned.emit("player", instance, slot.index)
 	var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
 	summon_ctx.minion = instance
 	summon_ctx.card   = card
@@ -1287,6 +1548,7 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 		play_ctx.target = on_play_target
 		trigger_manager.fire(play_ctx)
 		player_board.append(instance)
+		state.minion_summoned.emit("player", instance, slot.index)
 		var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
 		summon_ctx.minion = instance
 		summon_ctx.card   = card
@@ -1545,19 +1807,14 @@ func _exit_tree() -> void:
 ## friendly Demons * 50). Cleared by _post_player_spell_cast after resolution.
 ## Tracks re-entrancy via _spell_cast_depth so nested/recursive casts don't
 ## re-compute from partial state.
-var _spell_cast_depth: int = 0
-func _pre_player_spell_cast(_spell: SpellCardData) -> void:
-	_spell_cast_depth += 1
-	if _spell_cast_depth > 1:
-		return  # nested cast (e.g. void_resonance recast) uses the outer bonus
-	if _has_talent("void_amplification"):
-		var total_stacks: int = 0
-		for m in player_board:
-			if (m.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
-				total_stacks += BuffSystem.count_type(m, Enums.BuffType.CORRUPTION)
-		_player_spell_damage_bonus = total_stacks * 50
-	else:
-		_player_spell_damage_bonus = 0
+var _spell_cast_depth: int:
+	get: return state._spell_cast_depth
+	set(v): state._spell_cast_depth = v
+
+## Delegated to CombatState — sets _player_spell_damage_bonus from
+## void_amplification at the outermost cast level only.
+func _pre_player_spell_cast(spell: SpellCardData) -> void:
+	state._pre_player_spell_cast(spell)
 
 ## Seris — called after a player spell's effect resolves. Handles the Void
 ## Resonance (Seris capstone) double-cast: if the player still has ≥5 Flesh
@@ -1587,7 +1844,9 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 		_player_spell_damage_bonus = 0
 
 ## Reentrancy guard so the recast doesn't itself trigger another recast.
-var _double_cast_in_progress: bool = false
+var _double_cast_in_progress: bool:
+	get: return state._double_cast_in_progress
+	set(v): state._double_cast_in_progress = v
 
 ## Forward BuffSystem.corruption_removed into the TriggerManager as ON_CORRUPTION_REMOVED
 ## so corrupt_detonation and future listeners can react uniformly. ctx.minion = the minion,
@@ -1940,12 +2199,10 @@ func _resolve_on_death_effect(_minion: MinionInstance) -> void:
 # Abyss Order — Corruption helpers
 # ---------------------------------------------------------------------------
 
-## Apply one Corruption stack to a minion (each stack reduces ATK by 100).
+## Apply one Corruption stack to a minion. State handles BuffSystem + log + slot
+## refresh; scene wrapper adds the VFX + slot blink (UI-only).
 func _corrupt_minion(minion: MinionInstance) -> void:
-	var penalty := 100
-	BuffSystem.apply(minion, Enums.BuffType.CORRUPTION, penalty, "corruption", false, false)
-	_log("  %s is Corrupted! (−%d ATK)" % [minion.card_data.card_name, penalty], _LogType.ENEMY)
-	_refresh_slot_for(minion)
+	state._corrupt_minion(minion)
 	var slot: BoardSlot = _find_slot_for(minion)
 	if slot != null:
 		var vfx := CorruptionApplyVFX.create(slot)
@@ -2248,17 +2505,15 @@ func _find_random_corrupted_enemy() -> MinionInstance:
 # Owner-aware board helpers
 # ---------------------------------------------------------------------------
 
-## Return the board belonging to the given owner ("player" or "enemy").
+## Owner-aware board helpers — delegate to CombatState (pure data).
 func _friendly_board(owner: String) -> Array[MinionInstance]:
-	return player_board if owner == "player" else enemy_board
+	return state._friendly_board(owner)
 
-## Return the board belonging to the opponent of the given owner.
 func _opponent_board(owner: String) -> Array[MinionInstance]:
-	return enemy_board if owner == "player" else player_board
+	return state._opponent_board(owner)
 
-## Return the string identifier of the opponent ("player" → "enemy" and vice-versa).
 func _opponent_of(owner: String) -> String:
-	return "enemy" if owner == "player" else "player"
+	return state._opponent_of(owner)
 
 ## Return the deck belonging to the given owner.
 func _friendly_deck(owner: String) -> Array:
@@ -2274,15 +2529,9 @@ func _friendly_hand(owner: String) -> Array:
 	else:
 		return enemy_ai.hand if enemy_ai else []
 
-## Seris Starter — Fiendish Pact discount for a single Demon play.
-## Returns the Essence discount to subtract from this play's cost (0 if not applicable).
-## Does NOT consume the pending yet — call _consume_fiendish_pact_discount after the pay succeeds.
+## Seris Starter — Fiendish Pact discount peek. Delegated to CombatState.
 func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
-	if _fiendish_pact_pending <= 0:
-		return 0
-	if mc == null or mc.minion_type != Enums.MinionType.DEMON:
-		return 0
-	return mini(_fiendish_pact_pending, mc.essence_cost)
+	return state._peek_fiendish_pact_discount(mc)
 
 ## Consume the Fiendish Pact pending discount after a Demon is successfully played.
 ## Also clears the display-only cost_delta on any remaining Demon cards in hand,
@@ -2308,7 +2557,7 @@ func _add_to_owner_hand(owner: String, inst: CardInstance) -> void:
 
 ## Return the board slots belonging to the given owner.
 func _friendly_slots(owner: String) -> Array:
-	return player_slots if owner == "player" else enemy_slots
+	return state._friendly_slots(owner)
 
 ## Return the active traps belonging to the given owner.
 func _friendly_traps(owner: String) -> Array:
@@ -2395,6 +2644,7 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 				instance.current_shield = token_shield
 				BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token", false, false)
 			board.append(instance)
+			state.minion_summoned.emit(owner, instance, slot.index)
 			# Champion tokens get a dramatic entrance (fire-and-forget — places minion on slot after animation)
 			if data.is_champion:
 				_champion_summon_sequence(data, instance, slot)
@@ -2933,14 +3183,9 @@ func _pulse_lifedrain_icon(minion: MinionInstance) -> void:
 		tw.parallel().tween_property(icon, "scale", Vector2.ONE, 0.18) \
 				.set_trans(Tween.TRANS_SINE)
 
-## Return the most recently placed non-Echo Rune from active_traps (or null).
-## Used by Runic Echo and Echo Rune to copy the last placed Rune's effect.
+## Pure logic — delegated to CombatState.
 func _find_last_non_echo_rune() -> TrapCardData:
-	for i in range(active_traps.size() - 1, -1, -1):
-		var t := active_traps[i] as TrapCardData
-		if t.is_rune and t.id != "echo_rune":
-			return t
-	return null
+	return state._find_last_non_echo_rune()
 
 ## Summon a Void Spark Spirit token with the given ATK/HP into the first empty player slot.
 ## Used by Soul Rune aura (stats scale with rune stacks).
@@ -2965,14 +3210,10 @@ func _has_imp_overseer_on_board(owner: String = "player") -> bool:
 
 ## True if the MinionInstance has the given tag in its card_data.minion_tags.
 func _minion_has_tag(m: MinionInstance, tag: String) -> bool:
-	return tag in m.card_data.minion_tags
+	return state._minion_has_tag(m, tag)
 
-## True if the CardData (from hand/deck/ctx.card) has the given tag.
-## Returns false for non-minion cards.
 func _card_has_tag(card: CardData, tag: String) -> bool:
-	if card is MinionCardData:
-		return tag in (card as MinionCardData).minion_tags
-	return false
+	return state._card_has_tag(card, tag)
 
 ## Count minions on the player board that have the given tag.
 func _count_with_tag(tag: String) -> int:
@@ -3031,6 +3272,7 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 			instance.card_instance = inst
 			player_board.append(instance)
 			slot.place_minion(instance)
+			state.minion_summoned.emit("player", instance, slot.index)
 			if from_hand:
 				turn_manager.remove_from_hand(inst)
 				if hand_display:
@@ -3049,7 +3291,7 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 # ---------------------------------------------------------------------------
 
 func _has_talent(id: String) -> bool:
-	return GameManager.has_talent(id)
+	return state._has_talent(id)
 
 ## Refresh hand card cost display and large preview to reflect the current board discount.
 func _refresh_hand_spell_costs() -> void:
@@ -3091,10 +3333,10 @@ func _void_mark_damage_per_stack() -> int:
 	return void_mark_damage_per_stack
 
 ## Add Void Mark stacks to the enemy hero.
+## Apply Void Mark stacks. State handles HP-marker mutation + log; scene
+## wrapper adds the VFX (UI-only).
 func _apply_void_mark(stacks: int = 1) -> void:
-	enemy_void_marks += stacks
-	_log("  Void Mark x%d applied! (total: %d)" % [stacks, enemy_void_marks], _LogType.PLAYER)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	state._apply_void_mark(stacks)
 	if _enemy_status_panel and is_instance_valid(_enemy_status_panel):
 		var vfx := VoidMarkApplyVFX.create(_enemy_status_panel)
 		vfx_controller.spawn(vfx)
@@ -3107,14 +3349,17 @@ func _apply_void_mark(stacks: int = 1) -> void:
 # SimState mirrors the same shape (sim/SimState.gd) and removing them here
 # would break the protocol parity that lets EffectResolver treat scene
 # and SimState interchangeably.
+## Flesh primitives — delegated to CombatState. The state setter on
+## player_flesh emits flesh_changed which refreshes Seris's resource bar.
+## _on_flesh_spent fires Flesh Bond card draw via state.turn_manager.draw_card.
 func _gain_flesh(amount: int = 1) -> void:
-	flesh.gain(amount)
+	state._gain_flesh(amount)
 
 func _spend_flesh(amount: int) -> bool:
-	return flesh.spend(amount)
+	return state._spend_flesh(amount)
 
 func _on_flesh_spent(amount: int) -> void:
-	flesh.on_spent(amount)
+	state._on_flesh_spent(amount)
 
 func _on_flesh_changed() -> void:
 	flesh.on_changed()
@@ -3204,25 +3449,17 @@ func _seris_corrupt_activate() -> void:
 
 ## Applies Corrupt Flesh to the clicked minion. Called from _on_player_slot_clicked_occupied
 ## when _seris_corrupt_targeting is active. Non-Demon picks cancel targeting.
+## Pure logic delegated to CombatState; scene clears the targeting flag.
 func _seris_corrupt_apply_target(minion: MinionInstance) -> void:
 	_seris_corrupt_targeting = false
-	if minion == null or minion.owner != "player":
-		return
-	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+	if minion != null and (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
 		_log("  Corrupt Flesh: target must be a friendly Demon.", _LogType.PLAYER)
 		return
-	if not _spend_flesh(1):
-		return
-	var stacks: int = 2 if "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags else 1
-	for _i in stacks:
-		BuffSystem.apply(minion, Enums.BuffType.CORRUPTION, 100, "corrupt_flesh", false, false)
-	_seris_corrupt_used_this_turn = true
-	_log("  Corrupt Flesh: %d Corruption stack(s) applied to %s." % [stacks, minion.card_data.card_name], _LogType.PLAYER)
-	_refresh_slot_for(minion)
+	state._seris_corrupt_apply(minion)
 
 ## Reset the 1/turn limit. Registered via CombatSetup for ON_PLAYER_TURN_START.
 func _seris_corrupt_reset_turn() -> void:
-	_seris_corrupt_used_this_turn = false
+	state._seris_corrupt_reset_turn()
 
 ## Seris — Soul Forge activated ability. Spend 3 Flesh → summon a Grafted Fiend.
 ## Called from the SerisResourceBar's Forge button. Per design: no-op if the
@@ -3261,22 +3498,9 @@ func _grant_forged_demon_auras(forged: MinionInstance) -> void:
 		forged.aura_tags = [roll]
 		_log("  Abyssal Forge: Forged Demon granted %s." % roll, _LogType.PLAYER)
 
-## Pre-death hook — CombatManager asks "can this minion be saved?" before applying
-## death. Return true and set minion.current_health to a non-zero value to save it.
-## Seris's deathless_flesh talent spends 2 Flesh to save any friendly Grafted Fiend.
-## New talents with similar "would die" effects should extend this method.
+## Pre-death hook — delegated to CombatState (Seris's deathless_flesh talent).
 func _try_save_from_death(minion: MinionInstance) -> bool:
-	if minion == null or minion.owner != "player":
-		return false
-	if _has_talent("deathless_flesh") \
-			and minion.card_data is MinionCardData \
-			and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags \
-			and player_flesh >= 2:
-		_spend_flesh(2)
-		minion.current_health = 50
-		_log("  Deathless Flesh: %s saved (2 Flesh spent)." % minion.card_data.card_name, _LogType.PLAYER)
-		return true
-	return false
+	return state._try_save_from_death(minion)
 
 ## Siphon self-heal callback — CombatManager pings us so we can refresh the
 ## minion's HP display. Called from _siphon_self_heal after HP is updated.
@@ -3289,31 +3513,12 @@ func _on_minion_siphon_healed(minion: MinionInstance, healed: int) -> void:
 			if slot and is_instance_valid(slot):
 				slot._refresh_visuals()
 
-## Generic minion heal — restores HP up to the minion's effective max (base + HP_BONUS buffs).
-## Used by HEAL_MINION EffectStep. No-op if amount ≤ 0 or minion is already at full HP.
+## Pure logic — delegated to CombatState (logs + refresh via signals).
 func _heal_minion(minion: MinionInstance, amount: int) -> void:
-	if minion == null or amount <= 0 or minion.current_health <= 0:
-		return
-	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
-	var before := minion.current_health
-	minion.current_health = mini(minion.current_health + amount, hp_cap)
-	var healed := minion.current_health - before
-	if healed <= 0:
-		return
-	_log("  %s healed for %d HP" % [minion.card_data.card_name, healed], _LogType.PLAYER if minion.owner == "player" else _LogType.ENEMY)
-	_refresh_slot_for(minion)
+	state._heal_minion(minion, amount)
 
-## Restore a minion to full HP (effective max = base + HP_BONUS buffs). Used by HEAL_MINION_FULL.
 func _heal_minion_full(minion: MinionInstance) -> void:
-	if minion == null or minion.current_health <= 0:
-		return
-	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
-	if minion.current_health >= hp_cap:
-		return
-	var healed: int = hp_cap - minion.current_health
-	minion.current_health = hp_cap
-	_log("  %s healed to full (+%d HP)" % [minion.card_data.card_name, healed], _LogType.PLAYER if minion.owner == "player" else _LogType.ENEMY)
-	_refresh_slot_for(minion)
+	state._heal_minion_full(minion)
 
 ## Sacrifice flow (strict rule: sacrifice is NOT death — does not fire ON DEATH).
 ##
@@ -3375,28 +3580,9 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 		else:
 			_animate_minion_death(dead_slot, dead_slot.global_position, minion)
 
-## Seris — add kill stacks to a minion. Single entry point so both organic kills
-## (via on_enemy_died_grafted_constitution) and direct grants (Flesh Sacrament) run
-## the Fleshcraft talent reactions uniformly:
-##   • flesh_infusion active → +100 ATK / +100 HP per stack added
-##   • predatory_surge active and kill_stacks crosses 3 → grant SIPHON once
+## Pure logic — delegated to CombatState. Logs + slot refresh via signals.
 func _add_kill_stacks(minion: MinionInstance, count: int = 1) -> void:
-	if minion == null or count <= 0:
-		return
-	minion.kill_stacks += count
-	# flesh_infusion gates the kill-stack → stats conversion. The talent id is
-	# "flesh_infusion" (the Fleshcraft T0 / branch unlock); the old grafted_constitution
-	# talent id was merged into it. Buff source_tag stays "grafted_constitution" so UI
-	# and tests that filter by that tag keep working.
-	if _has_talent("flesh_infusion"):
-		BuffSystem.apply(minion, Enums.BuffType.ATK_BONUS, 100 * count, "grafted_constitution", false, false)
-		BuffSystem.apply_hp_gain(minion, 100 * count, "grafted_constitution", true)
-		_log("  Grafted Constitution: %s +%d/+%d (kills: %d)." % [minion.card_data.card_name, 100 * count, 100 * count, minion.kill_stacks], _LogType.PLAYER)
-	if _has_talent("predatory_surge") and minion.kill_stacks >= 3 \
-			and not BuffSystem.has_type(minion, Enums.BuffType.GRANT_SIPHON):
-		BuffSystem.apply(minion, Enums.BuffType.GRANT_SIPHON, 1, "predatory_surge", false, false)
-		_log("  Predatory Surge: %s gains Siphon." % minion.card_data.card_name, _LogType.PLAYER)
-	_refresh_slot_for(minion)
+	state._add_kill_stacks(minion, count)
 
 ## Deal Void Bolt damage to the enemy hero, scaled by current Void Marks.
 ## CONVENTION: ALL Void Bolt damage in the game must go through this function
@@ -3504,7 +3690,9 @@ func _fire_enemy_void_bolt_projectile(source_minion: MinionInstance = null) -> V
 	return bolt
 
 ## Cycles through void rune slots so multiple runes alternate firing.
-var _void_rune_fire_index: int = 0
+var _void_rune_fire_index: int:
+	get: return state._void_rune_fire_index
+	set(v): state._void_rune_fire_index = v
 
 ## Find the global center position of the next Void Rune trap slot.
 ## Cycles through all void runes so each one fires in turn.
@@ -3618,9 +3806,11 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 	# Capture slot position before clearing for the death animation
 	var dead_slot: BoardSlot = null
 	var search_slots := player_slots if minion.owner == "player" else enemy_slots
-	for s in search_slots:
-		if s.minion == minion:
-			dead_slot = s
+	var dead_slot_index: int = -1
+	for i in search_slots.size():
+		if search_slots[i].minion == minion:
+			dead_slot = search_slots[i]
+			dead_slot_index = i
 			break
 
 	# Locate the slot first so we can honour freeze_visuals — clearing a frozen
@@ -3638,6 +3828,9 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		enemy_board.erase(minion)
 		if not slot_is_frozen:
 			_clear_slot_for(minion, enemy_slots)
+	# Re-emit through state so logic listeners (sim profiles, future relic
+	# handlers) have a single chokepoint that doesn't depend on CombatManager.
+	state.minion_died.emit(minion.owner, minion, dead_slot_index)
 	_log("  %s died" % minion.card_data.card_name, _LogType.DEATH)
 	# If the minion has on-death effects, defer their resolution until after the
 	# death animation + on-death icon VFX so damage/summons play at the right time.
@@ -3671,6 +3864,75 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		else:
 			_animate_minion_death(dead_slot, dead_slot.global_position, minion)
 
+## Subscriber to CombatState.hp_changed — refreshes the appropriate hero panel
+## whenever HP mutates. Lets us drop scattered `_hero_panel.update(...)` calls
+## sprinkled through damage/heal paths; the signal does it for free.
+## Note: enemy_void_marks and enemy_ai aren't HP-related, so the existing
+## _enemy_hero_panel.update(...) calls on those paths still need to stay until
+## void_marks_changed has its own signal.
+func _on_state_hp_changed(side: String, new_hp: int, mx: int, _delta: int) -> void:
+	if side == "player":
+		if _player_hero_panel:
+			_player_hero_panel.update(new_hp, mx)
+	else:
+		if _enemy_hero_panel:
+			_enemy_hero_panel.update(new_hp, mx, enemy_ai, enemy_void_marks)
+
+## Subscriber to CombatState.void_marks_changed — refreshes the enemy hero
+## panel so the stack count visual stays current without scattered manual
+## `_enemy_hero_panel.update(...)` calls at every void mark mutation.
+func _on_state_void_marks_changed(side: String, _value: int) -> void:
+	if side == "enemy" and _enemy_hero_panel:
+		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+
+## Subscriber to CombatState.damage_dealt — currently a no-op for live combat
+## (existing damage flow still spawns popups directly). Sim's dmg_log will be
+## migrated to subscribe here in Phase 3, replacing the SimState-internal
+## _pending_dmg_source plumbing.
+func _on_state_damage_dealt(_source: String, _target: String, _amount: int, _school: int, _was_crit: bool) -> void:
+	pass
+
+## Subscriber to CombatState.combat_log — forwards to the on-screen CombatLog.
+## Lets handlers and effects log via state without holding a scene reference.
+func _on_state_combat_log(msg: String, log_type: int) -> void:
+	if combat_log:
+		combat_log.write(msg, log_type)
+
+## Subscriber to CombatState.minion_died — currently a no-op for live combat
+## (death animation + trigger event firing already happens in _on_minion_vanished).
+## External logic listeners (sim profiles, relic handlers) can subscribe here
+## without needing a CombatManager reference.
+func _on_state_minion_died(_side: String, _minion: MinionInstance, _slot_index: int) -> void:
+	pass
+
+## Subscriber to CombatState.flesh_changed — refreshes Seris's resource bar.
+## Replaces the old Flesh.on_changed() callback chain.
+func _on_state_flesh_changed(_value: int, _max_value: int) -> void:
+	if _pip_bar != null:
+		_pip_bar.update_flesh()
+	if _player_hero_panel != null and _player_hero_panel.resource_bar != null:
+		_player_hero_panel.resource_bar.refresh()
+
+## Subscriber to CombatState.forge_changed — refreshes Seris's resource bar.
+## Replaces the old Forge.on_changed() callback chain.
+func _on_state_forge_changed(_value: int, _threshold: int) -> void:
+	if _pip_bar != null:
+		_pip_bar.update_flesh()
+	if _player_hero_panel != null and _player_hero_panel.resource_bar != null:
+		_player_hero_panel.resource_bar.refresh()
+
+## Subscriber to CombatState.traps_changed — refreshes the trap/rune slot
+## panel for the affected side.
+func _on_state_traps_changed(side: String) -> void:
+	if trap_env_display:
+		trap_env_display.update_traps_for(side)
+
+## Subscriber to CombatState.environment_changed — refreshes the env card
+## display.
+func _on_state_environment_changed(_env: EnvironmentCardData) -> void:
+	if trap_env_display:
+		trap_env_display.update_environment()
+
 func _on_hero_damaged(target: String, info: Dictionary) -> void:
 	if _combat_ended:
 		return
@@ -3682,8 +3944,8 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		if _relic_hero_immune:
 			_log("  Bone Shield absorbs %d damage!" % amount, _LogType.PLAYER)
 			return
-		player_hp -= amount
-		_player_hero_panel.update(player_hp, GameManager.player_hp_max)
+		player_hp -= amount  # hp_changed signal updates _player_hero_panel
+		state.damage_dealt.emit(str(info.get("source_card", "")), "player", amount, school, is_crit)
 		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], _LogType.DAMAGE)
 		# Fire ON_HERO_DAMAGED for every landed hit, including lethal — handlers
 		# can react to the killing blow (telemetry, future "save from death" cards).
@@ -3696,9 +3958,9 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		else:
 			_flash_hero("player", amount, Callable(), school, is_crit)
 	else:
-		enemy_hp -= amount
+		enemy_hp -= amount  # hp_changed signal updates _enemy_hero_panel
+		state.damage_dealt.emit(str(info.get("source_card", "")), "enemy", amount, school, is_crit)
 		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], _LogType.DAMAGE)
-		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 		# Fire ON_ENEMY_HERO_DAMAGED for every landed hit, including lethal.
 		# Symmetric counterpart to the player branch.
 		var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
@@ -3726,14 +3988,13 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			_flash_hero("enemy", amount, Callable(), school, is_crit)
 
 func _on_hero_healed(target: String, amount: int) -> void:
+	# hp_changed signal handles panel refreshes for both sides.
 	if target == "player":
 		player_hp = mini(player_hp + amount, GameManager.player_hp_max)
-		_player_hero_panel.update(player_hp, GameManager.player_hp_max)
 		_flash_hero_heal("player", amount)
 		_log("  You heal %d HP  (HP: %d)" % [amount, player_hp], _LogType.HEAL)
 	elif target == "enemy":
 		enemy_hp = mini(enemy_hp + amount, enemy_hp_max)
-		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 		_flash_hero_heal("enemy", amount)
 		_log("  Enemy heals %d HP  (HP: %d)" % [amount, enemy_hp], _LogType.ENEMY)
 
@@ -3787,9 +4048,6 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 
 func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	return targeting.is_valid_spell_target(minion, target_type)
-		"enemy_minion_or_hero":   return true
-		"any_minion_or_enemy_hero": return true
-	return false
 
 ## Spend mana, resolve the effect on the target, then remove the card
 func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void:
@@ -3816,7 +4074,10 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 			else:
 				_resolve_spell_effect(spell.effect_id, captured_target)
 			_post_player_spell_cast(spell, captured_target)
+		_player_spell_active = true
 		await vfx_controller.play_spell(spell.id, "player", captured_target, resolve_damage)
+		_player_spell_active = false
+		player_spell_done.emit()
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
 		trigger_manager.fire(spell_ctx)
@@ -3867,7 +4128,10 @@ func _on_enemy_hero_spell_input(event: InputEvent) -> void:
 			combat_manager.apply_hero_damage("enemy",
 					CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, school, null, spell.id))
 			_post_player_spell_cast(spell, null)
+		_player_spell_active = true
 		await vfx_controller.play_spell(spell.id, "player", _enemy_status_panel, resolve_damage)
+		_player_spell_active = false
+		player_spell_done.emit()
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
 		trigger_manager.fire(spell_ctx)
@@ -3889,12 +4153,13 @@ func _setup_trap_env_targeting() -> void:
 			trap_slot_panels[i].gui_input.connect(cb)
 			_active_trap_env_connections.append({node = trap_slot_panels[i], cb = cb})
 			trap_slot_panels[i].modulate = Color(1.3, 1.3, 0.5)
-	if environment_slot and active_environment:
+	var env_slot := trap_env_display.env_slot
+	if env_slot and active_environment:
 		var env := active_environment
 		var cb := func(ev: InputEvent) -> void: _on_trap_env_input(ev, -1, env)
-		environment_slot.gui_input.connect(cb)
-		_active_trap_env_connections.append({node = environment_slot, cb = cb})
-		environment_slot.modulate = Color(1.3, 1.3, 0.5)
+		env_slot.gui_input.connect(cb)
+		_active_trap_env_connections.append({node = env_slot, cb = cb})
+		env_slot.modulate = Color(1.3, 1.3, 0.5)
 
 func _tear_down_trap_env_targeting() -> void:
 	for c in _active_trap_env_connections:
@@ -4145,16 +4410,17 @@ func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
 	_log("Enemy plays environment: %s" % env.card_name, _LogType.ENEMY)
 	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 
-# Facades to TrapEnvDisplay — kept so external callers (HardcodedEffects,
-# EffectResolver, RelicEffects) keep working unchanged.
+# Facades to CombatState's signal emit — external callers (HardcodedEffects,
+# EffectResolver, RelicEffects) keep working unchanged. Subscribers below do
+# the actual TrapEnvDisplay work.
 func _update_trap_display_for(owner: String) -> void:
-	trap_env_display.update_traps_for(owner)
+	state._update_trap_display_for(owner)
 
 func _update_trap_display() -> void:
-	trap_env_display.update_traps_for("player")
+	state._update_trap_display()
 
 func _update_enemy_trap_display() -> void:
-	trap_env_display.update_traps_for("enemy")
+	state._update_enemy_trap_display()
 
 # ---------------------------------------------------------------------------
 # Rune & Ritual system
@@ -4170,13 +4436,9 @@ func _register_env_rituals(env: EnvironmentCardData) -> void:
 		trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, h, 5)
 		trigger_manager.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h, 5)
 
-## Unregister all 2-rune ritual handlers for the current environment.
-## Called when the environment is replaced or destroyed.
+## Pure logic — delegated to CombatState.
 func _unregister_env_rituals() -> void:
-	for h in _env_ritual_handlers:
-		trigger_manager.unregister(Enums.TriggerEvent.ON_RUNE_PLACED, h)
-		trigger_manager.unregister(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h)
-	_env_ritual_handlers.clear()
+	state._unregister_env_rituals()
 
 ## Run teardown steps for the outgoing environment (e.g. remove persistent buffs).
 ## Called when the environment is replaced mid-turn so buffs don't linger.
@@ -4230,36 +4492,12 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	if not entries.is_empty():
 		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
 
-## Unregister aura handlers when a rune is removed (destroyed or consumed by ritual).
-## Finds the FIRST placement entry matching rune.id and removes only that one,
-## so two runes of the same type are handled independently.
+## Pure logic — delegated to CombatState.
 func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
-	for i in _rune_aura_handlers.size():
-		if _rune_aura_handlers[i].rune_id == rune.id:
-			for entry in _rune_aura_handlers[i].entries:
-				trigger_manager.unregister(entry.event, entry.handler)
-			_rune_aura_handlers.remove_at(i)
-			break
-	if not rune.aura_on_remove_steps.is_empty():
-		var ctx := EffectContext.make(self, owner)
-		EffectResolver.run(rune.aura_on_remove_steps, ctx)
+	state._remove_rune_aura(rune, owner)
 
-## Apply or remove one layer of the Dominion Rune's ATK aura on all friendly Demons.
-## active=true adds one bonus entry per-minion; active=false removes one entry per-minion,
-## preserving buffs from any other Dominion Runes still on the board.
-## amount is passed in from _apply_rune_aura so runic_attunement doubling is respected.
 func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
-	for m in player_board:
-		if m.card_data.minion_type == Enums.MinionType.DEMON:
-			if active:
-				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune", false, false)
-			else:
-				BuffSystem.remove_one_source(m, "dominion_rune")
-			_refresh_slot_for(m)
-	if active:
-		_log("  Dominion Rune: all friendly Demons gain +%d ATK." % amount, _LogType.PLAYER)
-	else:
-		_log("  Dominion Rune removed: all friendly Demons lose ATK bonus.", _LogType.PLAYER)
+	state._refresh_dominion_aura(active, amount)
 
 ## Talent: rune_caller — draw a random Rune from the player's deck, discounted by 1 mana via cost_delta.
 func _draw_rune_from_deck() -> void:
@@ -4281,28 +4519,9 @@ func _draw_rune_from_deck() -> void:
 func _rune_aura_multiplier() -> int:
 	return rune_aura_multiplier
 
-## Returns true if the rune board contains at least one of each required rune type.
-## Wildcard runes (is_wildcard_rune = true) can substitute for any missing type.
+## Pure logic — delegated to CombatState.
 func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
-	# Collect exact-match rune types and count wildcards
-	var available: Array[int] = []
-	var wildcards: int = 0
-	for r in runes:
-		var trap := r as TrapCardData
-		if trap.is_wildcard_rune:
-			wildcards += 1
-		else:
-			available.append(trap.rune_type)
-	# Check each requirement: exact match first, then spend a wildcard
-	var remaining_wildcards := wildcards
-	for req in required:
-		if req in available:
-			available.erase(req)  # consume one exact match
-		elif remaining_wildcards > 0:
-			remaining_wildcards -= 1  # wildcard fills the gap
-		else:
-			return false
-	return true
+	return state._runes_satisfy(runes, required)
 
 ## Consume the required runes and cast the ritual effect.
 ## Exact rune type matches are consumed first; wildcard runes fill remaining gaps.
@@ -4797,7 +5016,9 @@ func _on_defeat() -> void:
 	if game_over_panel:
 		game_over_panel.visible = true
 
-var _pending_revive: bool = false
+var _pending_revive: bool:
+	get: return state._pending_revive
+	set(v): state._pending_revive = v
 var _second_wind_indicator: Label = null
 
 func _setup_second_wind_indicator(ui_root: Node) -> void:
@@ -4837,7 +5058,15 @@ func _on_restart_pressed() -> void:
 # Visual helpers
 # ---------------------------------------------------------------------------
 
+## Public facade — handlers and effects call `_scene._refresh_slot_for(m)`.
+## Delegates to CombatState which emits `minion_stats_changed`; subscriber below
+## does the actual visual update.
 func _refresh_slot_for(minion: MinionInstance) -> void:
+	state._refresh_slot_for(minion)
+
+## Subscriber to CombatState.minion_stats_changed — finds the minion's slot and
+## triggers a visual re-render.
+func _on_state_minion_stats_changed(minion: MinionInstance) -> void:
 	var slots := player_slots if minion.owner == "player" else enemy_slots
 	for slot in slots:
 		if slot.minion == minion:
@@ -5483,8 +5712,11 @@ func _on_enemy_attacking_hero(attacker: MinionInstance) -> void:
 # effects, relics, EnemyAI, CheatPanel) don't need to know about the move.
 const _LogType := CombatLog.LogType
 
+## Public log facade — delegates to CombatState's signal so any caller (handlers,
+## effects, this scene) routes through the same chokepoint. Subscriber
+## `_on_state_combat_log` writes to the on-screen CombatLog UI.
 func _log(msg: String, type: int = CombatLog.LogType.PLAYER) -> void:
-	combat_log.write(msg, type)
+	state._log(msg, type)
 
 func _highlight_empty_player_slots() -> void:
 	targeting.highlight_empty_player_slots()

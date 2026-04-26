@@ -1,40 +1,32 @@
 ## SimState.gd
-## Headless simulation state — duck-types as CombatScene for EffectResolver.
+## Headless simulation state — extends CombatState for shared data, adds the
+## sim-specific behaviors (setup, profile-driven turns, diagnostic counters).
 ## No scene tree, no timers, no UI.  Pure game logic only.
 ##
 ## CombatSim creates one of these, builds two CombatAgents on top of it,
 ## and runs two CombatProfiles against each other.
 class_name SimState
-extends RefCounted
+extends CombatState
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-const BOARD_MAX          := 5
+# BOARD_MAX inherited from CombatState
 const PLAYER_HAND_MAX    := 10  ## matches TurnManager.HAND_SIZE_MAX
 const ENEMY_HAND_MAX     := 10  ## matches EnemyAI.HAND_MAX
 const COMBINED_RESOURCE_CAP := 11
 const ESSENCE_HARD_CAP   := 10
 
-# ---------------------------------------------------------------------------
-# Boards — shared by both agents
-# ---------------------------------------------------------------------------
-
-var player_board: Array[MinionInstance] = []
-var enemy_board:  Array[MinionInstance] = []
-
-## Pre-allocated BoardSlot placeholders (no scene tree — visuals never initialise).
-## Profiles call find_empty_slot() which returns one of these.
-var player_slots: Array[BoardSlot] = []
-var enemy_slots:  Array[BoardSlot] = []
+## Self-pointer so callers (handlers, effects, profiles) can use the same
+## `_scene.state.X` accessor whether `_scene` is a CombatScene (which composes
+## CombatState) or a SimState (which IS a CombatState).
+var state: CombatState:
+	get: return self
 
 # ---------------------------------------------------------------------------
-# Hero HP
+# Boards, hero HP, sovereign phase, _combat_ended, winner — inherited from CombatState
 # ---------------------------------------------------------------------------
-
-var player_hp: int = 3000
-var enemy_hp:  int = 2000
 
 # ---------------------------------------------------------------------------
 # Resources — profiles write these directly via agent.essence / agent.mana
@@ -84,117 +76,28 @@ var enemy_limited_cards: Array[String] = []
 # Traps / environment / void marks
 # ---------------------------------------------------------------------------
 
-var active_traps:       Array       = []   ## Array[TrapCardData] — player side
-var active_environment              = null ## EnvironmentCardData or null — player side
-var enemy_active_traps: Array       = []   ## Array[TrapCardData] — enemy side
-var enemy_active_environment        = null ## EnvironmentCardData or null — enemy side
-var enemy_void_marks:   int         = 0
+## Trap/env/rune fields (active_traps, active_environment, enemy_active_traps,
+## enemy_active_environment, enemy_void_marks, _rune_aura_handlers,
+## _env_ritual_handlers) inherited from CombatState.
 
-## Seris — Flesh counter (per-combat, capped). Mirrors CombatScene.player_flesh.
-var player_flesh:     int = 0
-var player_flesh_max: int = 5
+## Talent / hero / Seris state (player_flesh, player_flesh_max,
+## _fiendish_pact_pending, forge_counter, forge_counter_threshold,
+## _player_spell_damage_bonus, talents, hero_passives, player_hero_id) inherited
+## from CombatState.
 
-## Seris — Fiendish Pact pending Mana discount. Mirrors CombatScene._fiendish_pact_pending.
-var _fiendish_pact_pending: int = 0
-
-## Seris — Forge Counter (Demon Forge branch). Mirrors CombatScene.forge_counter.
-var forge_counter:           int = 0
-var forge_counter_threshold: int = 3
-
-## Mirrors CombatScene._last_attacker — populated during attack resolution so death
-## triggers can read the killer via ctx.attacker.
-var _last_attacker: MinionInstance = null
-
-## Identifies which hero the player is running as, so profiles can branch on
-## hero-specific activated abilities (Seris's Forge / Corrupt buttons). Matches
-## HeroDatabase ids ("lord_vael", "seris"). Defaults to Vael for back-compat with
-## existing sim callers that don't pass it.
-var player_hero_id: String = "lord_vael"
+## (`_last_attacker` inherited from CombatState — populated during attack
+## resolution so death triggers can read the killer via ctx.attacker.)
 
 ## Callable SimTriggerSetup registered on BuffSystem.bus() for corruption_removed.
 ## Stored so teardown() can cleanly disconnect and avoid cross-sim leaks.
 var _buff_bus_callable: Callable = Callable()
 
-## Mirrors CombatScene._player_spell_damage_bonus — set on ON_PLAYER_SPELL_CAST start,
-## cleared after resolution. _spell_dmg adds it to every spell-damage target hit.
-var _player_spell_damage_bonus: int = 0
-
-## Aura handlers registered for each active rune — Array[{rune_id, entries}]
-## where entries is Array[{event, handler}].
-var _rune_aura_handlers: Array = []
-
-## Ritual handlers registered for the current environment.
-var _env_ritual_handlers: Array = []
-
 # ---------------------------------------------------------------------------
-# Spell cost modifier (enemy side, mirrors EnemyAI)
+# Cost penalties / spell counters / once-per-turn flags / passive config /
+# crit + dark channeling / champion counters / diagnostics / relic flags —
+# all inherited from CombatState. SimState only retains the sim-specific
+# orchestration fields below.
 # ---------------------------------------------------------------------------
-
-var enemy_spell_cost_penalty:   int        = 0
-## Persistent flat mana-cost adjustment from an active aura (e.g. Void Ritualist
-## Prime champion reduces by 1). Negative = discount. Not reset per turn.
-var enemy_spell_cost_aura:      int        = 0
-var enemy_spell_cost_discounts: Dictionary = {}
-var enemy_essence_cost_discounts: Dictionary = {}
-## Flat enemy minion essence-cost aura (F15 Abyssal Mandate). Negative = cheaper.
-## Set when the player grows Essence; cleared at end of the following enemy turn.
-var enemy_minion_essence_cost_aura: int = 0
-
-## Pending spell tax applied at next turn start (set by Spell Taxer effect).
-var _spell_tax_for_enemy_turn:  int = 0
-var _spell_tax_for_player_turn: int = 0
-
-## Active player spell cost penalty this turn (applied at turn start, cleared at turn end).
-var player_spell_cost_penalty: int = 0
-
-## When true, enemy traps cannot trigger (set by Saboteur Adept, cleared at player turn end).
-var _enemy_traps_blocked: bool = false
-
-## When true, player traps cannot trigger (set by enemy Saboteur Adept, cleared at enemy turn end).
-var _player_traps_blocked: bool = false
-
-## Spell counter: when > 0, next spell cast by this side is cancelled and counter decrements.
-var _player_spell_counter: int = 0
-var _enemy_spell_counter: int = 0
-
-## Debug counters for sim tracking.
-var _ritual_sacrifice_count: int = 0   ## Enemy ritual_sacrifice passive fires
-var _detonation_count: int = 0         ## Enemy corrupt_authority imp detonation fires
-var _player_ritual_count: int = 0      ## Player ritual fires (e.g. Demon Ascendant)
-
-var _spark_spawned_count: int = 0     ## Void Sparks spawned on enemy board (human died)
-var _spark_transfer_count: int = 0    ## Void Spark transfers to player board
-var _champion_summon_count: int = 0   ## Enemy champion summons
-var _corruption_detonation_times: int = 0  ## Fight 4: corruption detonation events
-var _ritual_invoke_times: int = 0          ## Fight 5: ritual sacrifice triggers
-var _handler_spark_buff_times: int = 0     ## Fight 6: feral imp → spark ATK buff events
-var _smoke_veil_fires: int = 0        ## Smoke Veil trap activations
-var _smoke_veil_damage_prevented: int = 0  ## Total ATK blocked by Smoke Veil
-var _abyssal_plague_fires: int = 0    ## Abyssal Plague casts
-var _abyssal_plague_kills: int = 0    ## Enemy minions killed by Abyssal Plague
-var _void_bolt_spell_casts: int = 0   ## Void Bolt spell casts (not rune procs)
-var _void_bolt_total_dmg: int = 0     ## Total void bolt damage (spells + runes)
-var _void_imp_dmg: int = 0            ## Total damage from Void Imp on-play
-
-## Optional per-turn snapshot hook. Called at end of enemy turn with (state, turn).
-var turn_snapshot_callback: Callable = Callable()
-
-## Verbose damage log — populated when dmg_log_enabled = true.
-## Each entry: { turn: int, amount: int, source: String }
-var dmg_log_enabled: bool = false
-var dmg_log: Array = []
-var _current_turn: int = 0
-var _pending_dmg_source: String = ""
-
-## Most recent player resource-growth choice ("" | "essence" | "mana").
-## Written by _grow_player_resources; read by abyssal_mandate handler.
-var last_player_growth: String = ""
-
-## F15 Abyss Sovereign phase marker (1 = P1, 2 = P2). Always starts at 1; the
-## phase-transition helper flips it to 2. Non-F15 fights leave this alone.
-var _sovereign_phase: int = 1
-## Turn number at which the P1→P2 transition fired. 0 = never transitioned.
-var _sovereign_transition_turn: int = 0
 
 ## Active enemy CombatProfile reference — CombatSim re-reads this each turn so
 ## the F15 phase transition can swap profiles mid-run.
@@ -205,109 +108,9 @@ var _e_profile_factory: Callable = Callable()
 ## AI profile id currently driving the enemy (sim mirror of EnemyAI.ai_profile).
 var enemy_ai_profile: String = ""
 
-## Once-per-turn gate for feral_reinforcement passive.
-var _imp_caller_fired: bool = false
-var _soul_rune_fires_this_turn: int = 0
-
-## Relic state flags (set by RelicEffects, consumed by combat logic).
-var _relic_hero_immune: bool = false
-var _relic_cost_reduction: int = 0
-var _relic_extra_turn: bool = false
-
 # ---------------------------------------------------------------------------
-# Player talents (configure before running to simulate a talent build)
+# Sim result — `winner` inherited from CombatState
 # ---------------------------------------------------------------------------
-
-## Set of active talent IDs for the player. Example: ["piercing_void"]
-var talents: Array[String] = []
-
-## Hero passive IDs for the current hero. Set by CombatSim before SimTriggerSetup.setup().
-var hero_passives: Array[String] = []
-
-## Active passive IDs for the current enemy encounter (e.g. ["pack_instinct"]).
-## Set by CombatSim before calling SimTriggerSetup.setup().
-var enemy_passives: Array[String] = []
-
-## Passive-configurable stats — set by CombatSetup from the registry at combat start.
-var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
-var rune_aura_multiplier:       int = 1   ## runic_attunement sets this to 2
-
-## Imp Evolution once-per-turn gate — reset at the start of each player turn.
-var imp_evolution_used_this_turn: bool = false
-
-## Act 4 passive stats — set dynamically by CombatSetup via scene.set().
-var _vp_pre_crit_stacks: int = 0
-var _spirit_conscription_fired: bool = false
-var crit_multiplier: float = 2.0
-var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
-var _enemy_crits_consumed: int = 0
-var _player_crits_consumed: int = 0
-var _last_crit_attacker: MinionInstance = null
-var _last_attack_was_crit: bool = false
-var _dark_channeling_active: bool = false
-var _dark_channeling_multiplier: float = 1.0
-var _dark_channeling_amp_count: int = 0
-var _dark_channeling_amp_by_spell: Dictionary = {}  ## spell_id -> count
-var _dark_channeling_dmg_by_spell: Dictionary = {}  ## spell_id -> extra damage dealt by amp
-
-## Enemy champion state — set dynamically by CombatSetup via scene.set().
-var enemy_hp_max: int = 0
-var _champion_rip_attack_ids: Array = []
-var _champion_rip_summoned: bool = false
-var _champion_cb_death_count: int = 0
-var _champion_cb_summoned: bool = false
-var _champion_im_frenzy_count: int = 0
-var _champion_im_summoned: bool = false
-# Act 2 champion state
-var _champion_acp_stacks_consumed: int = 0
-var _champion_acp_summoned: bool = false
-var _champion_vr_summoned: bool = false
-var _champion_ch_spark_count: int = 0
-var _champion_ch_summoned: bool = false
-var _champion_ch_aura_dmg: int = 0
-# Act 3 champion state
-var _champion_rs_spark_dmg: int = 0
-var _champion_rs_summoned: bool = false
-# Act 3 champion: Void Aberration
-var _champion_va_sparks_consumed: int = 0
-var _champion_va_summoned: bool = false
-# Act 3 champion: Void Herald
-var _champion_vh_spark_cards_played: int = 0
-var _champion_vh_summoned: bool = false
-# Act 4 champion: Void Scout
-var _champion_vs_crits_consumed: int = 0
-var _champion_vs_summoned: bool = false
-# Act 4 champion: Void Captain
-var _champion_vc_tc_cast: int = 0
-var _champion_vc_summoned: bool = false
-# Act 4 champion: Void Champion
-var _champion_vch_crit_kills: int = 0
-var _champion_vch_summoned: bool = false
-# Act 4 champion: Void Ritualist Prime
-var _champion_vrp_spells_cast: int = 0
-var _champion_vrp_summoned: bool = false
-# Act 4 champion: Void Warband
-var _champion_vw_spirits_consumed: int = 0
-var _champion_vw_summoned: bool = false
-var _vw_behemoth_plays: int = 0   ## Void Behemoth plays by Warband profile
-var _vw_bastion_plays: int = 0    ## Bastion Colossus plays by Warband profile
-var _void_echo_fired_this_turn: bool = false ## Swarm capstone once-per-turn flag
-var _vw_death_crit_grants: int = 0 ## Spirit-death aura crit grants while champion alive
-## Death/loss tracking for Behemoth/Bastion (key = minion card id, value = count)
-## Causes: "consumed" (fuel), "damage" (spell/AoE), "combat" (minion attack), "survived"
-var _vw_behemoth_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
-var _vw_bastion_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
-var _rift_lord_plays: int = 0  ## Times Void Rift Lord was played
-var _hollow_sentinel_buffs: int = 0  ## Times Hollow Sentinel buffed sparks
-var _immune_dmg_prevented: int = 0  ## Total damage prevented by GRANT_IMMUNE
-var _rift_collapse_casts: int = 0   ## Rift Collapse casts by enemy
-var _rift_collapse_kills: int = 0   ## Player minions killed by Rift Collapse
-
-# ---------------------------------------------------------------------------
-# Sim result
-# ---------------------------------------------------------------------------
-
-var winner: String = ""  ## "player", "enemy", or "" while running
 
 # ---------------------------------------------------------------------------
 # Shared combat manager — both agents use this
@@ -315,15 +118,17 @@ var winner: String = ""  ## "player", "enemy", or "" while running
 
 var combat_manager: CombatManager
 
-## TriggerManager — wired by SimTriggerSetup after SimState.setup().
-var trigger_manager: TriggerManager = null
+## (`trigger_manager` inherited from CombatState — wired by SimTriggerSetup
+## after SimState.setup() / by CombatScene._ready in live combat.)
 
 # ---------------------------------------------------------------------------
 # Duck-typed scene sub-objects (EffectResolver accesses ctx.scene.turn_manager
 # and ctx.scene.enemy_ai)
 # ---------------------------------------------------------------------------
 
-var turn_manager: SimTurnManager  ## set up in setup()
+## (`turn_manager` inherited from CombatState — assigned to a SimTurnManager
+## instance in setup(). Untyped on the parent so both SimTurnManager (sim) and
+## TurnManager (live) fit.)
 var enemy_ai: SimEnemyAgent       ## set by CombatSim after creating the agent
 var _hardcoded: HardcodedEffects  ## set up in setup()
 
@@ -368,6 +173,11 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	combat_manager.hero_damaged.connect(_on_hero_damaged)
 	combat_manager.hero_healed.connect(_on_hero_healed)
 
+	# Subscribe to damage_dealt for dmg_log diagnostic capture. Replaces the
+	# inline `if dmg_log_enabled: dmg_log.append(...)` block in _on_hero_damaged
+	# so any future damage source emitting through state goes through one path.
+	damage_dealt.connect(_capture_damage_for_dmg_log)
+
 	# Turn manager proxy (for EffectResolver DRAW / GRANT_MANA etc.)
 	turn_manager = SimTurnManager.new()
 	turn_manager.setup(self)
@@ -380,11 +190,28 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	_draw_player(3)
 	_draw_enemy(5)
 
+## Subscriber to CombatState.damage_dealt — appends to dmg_log when enabled.
+## Skips entries marked "__logged__" (void bolt split-log already captured the
+## base + bonus components separately at the source — see _deal_void_bolt_damage).
+func _capture_damage_for_dmg_log(source: String, _target: String, amount: int, _school: int, _was_crit: bool) -> void:
+	if not dmg_log_enabled:
+		return
+	if source == "__logged__":
+		return
+	dmg_log.append({turn = _current_turn, amount = amount, source = source})
+
 # ---------------------------------------------------------------------------
 # Signal handlers — called by CombatManager
 # ---------------------------------------------------------------------------
 
 func _on_minion_vanished(minion: MinionInstance) -> void:
+	# Locate slot index for the minion_died signal payload before clearing.
+	var slot_index: int = -1
+	var search_slots := player_slots if minion.owner == "player" else enemy_slots
+	for i in search_slots.size():
+		if search_slots[i].minion == minion:
+			slot_index = i
+			break
 	player_board.erase(minion)
 	enemy_board.erase(minion)
 	# Clear the slot so it can be reused
@@ -396,6 +223,8 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		if slot.minion == minion:
 			slot.minion = null
 			break
+	# Re-emit through state — symmetric with CombatScene._on_minion_vanished.
+	minion_died.emit(minion.owner, minion, slot_index)
 	# Fire death trigger AFTER removal so passive recalculations see the correct board state
 	if trigger_manager != null:
 		var event := Enums.TriggerEvent.ON_PLAYER_MINION_DIED if minion.owner == "player" \
@@ -427,14 +256,15 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			winner = "enemy"
 	else:
 		enemy_hp -= amount
-		if dmg_log_enabled:
-			if _pending_dmg_source == "__logged__":
-				pass  # already split-logged in _deal_void_bolt_damage
-			else:
-				var source: String = _pending_dmg_source if not _pending_dmg_source.is_empty() \
-					else ("minion_atk" if src == Enums.DamageSource.MINION else "spell_onplay")
-				dmg_log.append({turn = _current_turn, amount = amount, source = source})
-			_pending_dmg_source = ""
+		# Emit damage_dealt — sim subscribes for dmg_log; live combat ignores.
+		# Source attribution: prefer DamageInfo.source_card, fall back to the
+		# legacy _pending_dmg_source plumbing, finally a generic label.
+		var src_label: String = str(info.get("source_card", ""))
+		if src_label.is_empty():
+			src_label = _pending_dmg_source if not _pending_dmg_source.is_empty() \
+				else ("minion_atk" if src == Enums.DamageSource.MINION else "spell_onplay")
+		damage_dealt.emit(src_label, "enemy", amount, info.get("school", Enums.DamageSchool.NONE), false)
+		_pending_dmg_source = ""
 		# Fire ON_ENEMY_HERO_DAMAGED for every landed hit — including lethal.
 		var _ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
 		_ectx.damage = amount
@@ -458,29 +288,13 @@ func _on_hero_healed(target: String, amount: int) -> void:
 # Scene API — called by EffectResolver
 # ---------------------------------------------------------------------------
 
-func _friendly_board(owner: String) -> Array:
-	return player_board if owner == "player" else enemy_board
-
-func _count_type_on_board(type: Enums.MinionType, owner: String) -> int:
-	var count := 0
-	for m in _friendly_board(owner):
-		if (m as MinionInstance).card_data.minion_type == type:
-			count += 1
-	return count
-
-func _opponent_board(owner: String) -> Array:
-	return enemy_board if owner == "player" else player_board
+## (`_friendly_board`, `_opponent_board`, `_count_type_on_board` inherited from
+## CombatState.)
 
 func _friendly_hand(owner: String) -> Array:
 	return player_hand if owner == "player" else enemy_hand
 
-## Seris Starter — Fiendish Pact discount peek (mirror of CombatScene).
-func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
-	if _fiendish_pact_pending <= 0:
-		return 0
-	if mc == null or mc.minion_type != Enums.MinionType.DEMON:
-		return 0
-	return mini(_fiendish_pact_pending, mc.essence_cost)
+## (`_peek_fiendish_pact_discount` inherited from CombatState.)
 
 func _consume_fiendish_pact_discount() -> void:
 	if _fiendish_pact_pending <= 0:
@@ -523,6 +337,7 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 	var instance := MinionInstance.create(mc, owner)
 	board.append(instance)
 	slot.place_minion(instance)
+	minion_summoned.emit(owner, instance, slot.index)
 	if trigger_manager != null:
 		var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" \
 			else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
@@ -531,35 +346,11 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 		ctx.card   = mc
 		trigger_manager.fire(ctx)
 
-func _corrupt_minion(target: MinionInstance) -> void:
-	BuffSystem.apply(target, Enums.BuffType.CORRUPTION, 100, "corruption", false, false)
+## (`_corrupt_minion` and `_apply_void_mark` inherited from CombatState.)
 
-func _apply_void_mark(amount: int) -> void:
-	enemy_void_marks += amount
-
-## Seris — mirrors CombatScene._gain_flesh. No UI side effects in sim.
-func _gain_flesh(amount: int = 1) -> void:
-	if amount <= 0:
-		return
-	player_flesh = min(player_flesh + amount, player_flesh_max)
-
-func _spend_flesh(amount: int) -> bool:
-	if amount <= 0 or player_flesh < amount:
-		return false
-	player_flesh -= amount
-	_on_flesh_spent(amount)
-	return true
-
-## Mirror of CombatScene._on_flesh_spent — Flesh Bond aura draws a card per spend.
-func _on_flesh_spent(_amount: int) -> void:
-	var has_flesh_bond := false
-	for m in player_board:
-		if "flesh_bond" in m.aura_tags:
-			has_flesh_bond = true
-			break
-	if not has_flesh_bond:
-		return
-	_draw_player(1)
+## (`_gain_flesh`, `_spend_flesh`, `_on_flesh_spent` inherited from CombatState.
+## Flesh Bond's draw routes through state.turn_manager.draw_card(), which on
+## sim is SimTurnManager.draw_card() → _draw_player(1).)
 
 func _forge_counter_tick(amount: int = 1) -> bool:
 	if amount <= 0:
@@ -603,19 +394,7 @@ func _gain_forge_counter(amount: int = 1) -> bool:
 func _on_flesh_changed() -> void:
 	pass
 
-## Sim mirror of CombatScene._heal_minion — HP math only, no logging / UI.
-func _heal_minion(minion: MinionInstance, amount: int) -> void:
-	if minion == null or amount <= 0 or minion.current_health <= 0:
-		return
-	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
-	minion.current_health = mini(minion.current_health + amount, hp_cap)
-
-## Sim mirror of CombatScene._heal_minion_full.
-func _heal_minion_full(minion: MinionInstance) -> void:
-	if minion == null or minion.current_health <= 0:
-		return
-	var hp_cap: int = minion.card_data.health + BuffSystem.sum_type(minion, Enums.BuffType.HP_BONUS)
-	minion.current_health = hp_cap
+## (`_heal_minion` and `_heal_minion_full` inherited from CombatState.)
 
 ## Sim mirror of CombatScene._sacrifice_minion. Sacrifice is NOT death — fires ON LEAVE
 ## and ON_*_MINION_SACRIFICED but NOT ON_*_MINION_DIED.
@@ -655,17 +434,7 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 			slot.minion = null
 			break
 
-## Sim mirror of CombatScene._add_kill_stacks.
-func _add_kill_stacks(minion: MinionInstance, count: int = 1) -> void:
-	if minion == null or count <= 0:
-		return
-	minion.kill_stacks += count
-	if _has_talent("flesh_infusion"):
-		BuffSystem.apply(minion, Enums.BuffType.ATK_BONUS, 100 * count, "grafted_constitution", false, false)
-		BuffSystem.apply_hp_gain(minion, 100 * count, "grafted_constitution", true)
-	if _has_talent("predatory_surge") and minion.kill_stacks >= 3 \
-			and not BuffSystem.has_type(minion, Enums.BuffType.GRANT_SIPHON):
-		BuffSystem.apply(minion, Enums.BuffType.GRANT_SIPHON, 1, "predatory_surge", false, false)
+## (`_add_kill_stacks` inherited from CombatState.)
 
 func _on_forge_changed() -> void:
 	pass
@@ -689,21 +458,8 @@ func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
 		_forge_counter_reset()
 
 ## Seris — mirror of CombatScene._pre_player_spell_cast. Computes the Void
-## Amplification damage bonus from friendly-Demon Corruption stacks.
-var _spell_cast_depth: int = 0
-var _double_cast_in_progress: bool = false
-func _pre_player_spell_cast(_spell: SpellCardData) -> void:
-	_spell_cast_depth += 1
-	if _spell_cast_depth > 1:
-		return
-	if _has_talent("void_amplification"):
-		var total_stacks: int = 0
-		for m in player_board:
-			if (m.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
-				total_stacks += BuffSystem.count_type(m, Enums.BuffType.CORRUPTION)
-		_player_spell_damage_bonus = total_stacks * 50
-	else:
-		_player_spell_damage_bonus = 0
+## (`_pre_player_spell_cast` inherited from CombatState — Void Amplification
+## damage bonus calculation.)
 
 ## Seris — mirror of CombatScene._post_player_spell_cast. Handles Void Resonance
 ## double-cast at the outermost cast level only. No VFX side effects in sim.
@@ -778,47 +534,16 @@ func _soul_forge_activate() -> bool:
 	_debug_soul_forge_fires += 1
 	return true
 
-## Seris — Corrupt Flesh activated-ability mirror. Targeted: caller selects
-## which friendly Demon to corrupt. 1/turn flag tracked here. Returns true if
-## Corruption was applied.
-var _seris_corrupt_used_this_turn: bool = false
+## Seris — Corrupt Flesh activated-ability for sim profiles. Wraps
+## state._seris_corrupt_apply with the diagnostic counter increment used by
+## BalanceSim's behavior reports.
 func _seris_corrupt_activate(target: MinionInstance) -> bool:
-	if not _has_talent("corrupt_flesh"):
+	if not _seris_corrupt_apply(target):
 		return false
-	if _seris_corrupt_used_this_turn:
-		return false
-	if player_flesh < 1:
-		return false
-	if target == null or target.owner != "player":
-		return false
-	if (target.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
-		return false
-	if not _spend_flesh(1):
-		return false
-	var stacks: int = 2 if "grafted_fiend" in (target.card_data as MinionCardData).minion_tags else 1
-	for _i in stacks:
-		BuffSystem.apply(target, Enums.BuffType.CORRUPTION, 100, "corrupt_flesh", false, false)
-	_seris_corrupt_used_this_turn = true
 	_debug_corrupt_flesh_fires += 1
 	return true
 
-## Seris — reset the Corrupt Flesh 1/turn flag at player turn start.
-## Called by the corrupt_flesh registry trigger via CombatHandlers.on_turn_start_corrupt_flesh_reset.
-func _seris_corrupt_reset_turn() -> void:
-	_seris_corrupt_used_this_turn = false
-
-## Seris — mirror of CombatScene._try_save_from_death. Same rules, no UI/log side effects.
-func _try_save_from_death(minion: MinionInstance) -> bool:
-	if minion == null or minion.owner != "player":
-		return false
-	if _has_talent("deathless_flesh") \
-			and minion.card_data is MinionCardData \
-			and "grafted_fiend" in (minion.card_data as MinionCardData).minion_tags \
-			and player_flesh >= 2:
-		_spend_flesh(2)
-		minion.current_health = 50
-		return true
-	return false
+## (`_seris_corrupt_reset_turn` and `_try_save_from_death` inherited from CombatState.)
 
 ## is_minion_emitted: when true, the emitted DamageInfo carries MINION source instead
 ## of SPELL — used by talent paths (void_manifestation, piercing_void) that retag a
@@ -864,8 +589,8 @@ func _log(_msg: Variant, _type: int = 0) -> void:
 	if debug_log_enabled:
 		print(_msg)
 
-func _refresh_slot_for(_target) -> void:
-	pass  # no UI
+## (`_refresh_slot_for` inherited from CombatState — emits minion_stats_changed
+## which has no subscribers in headless sim, so the call is a no-op here.)
 
 func _update_counter_warning() -> void:
 	pass  # no UI
@@ -882,8 +607,7 @@ func _spawn_void_imp_claw_vfx_at(_source_pos: Vector2, _owner_side: String) -> v
 func _find_slot_for(_minion) -> Variant:
 	return null  # no slots in headless sim; callers null-check
 
-func _opponent_of(owner: String) -> String:
-	return "enemy" if owner == "player" else "player"
+## (`_opponent_of` inherited from CombatState.)
 
 func _friendly_deck(owner: String) -> Array:
 	return player_deck if owner == "player" else enemy_deck
@@ -895,8 +619,7 @@ func _add_to_owner_hand(owner: String, inst: CardInstance) -> void:
 		if enemy_hand.size() < 10:
 			enemy_hand.append(inst)
 
-func _friendly_slots(owner: String) -> Array:
-	return player_slots if owner == "player" else enemy_slots
+## (`_friendly_slots` inherited from CombatState.)
 
 func _friendly_traps(owner: String) -> Array:
 	return active_traps if owner == "player" else enemy_active_traps
@@ -908,68 +631,19 @@ func _friendly_graveyard(owner: String) -> Array:
 func _opponent_traps(owner: String) -> Array:
 	return _friendly_traps(_opponent_of(owner))
 
-func _update_trap_display_for(_owner: String) -> void:
-	pass  # no UI in headless sim
+## (`_update_trap_display_for` inherited from CombatState — emits traps_changed
+## which has no subscribers in headless sim, so the call is a no-op.)
 
 func _find_random_enemy_minion() -> MinionInstance:
 	return _find_random_minion(enemy_board)
 
-func _find_random_minion(board: Array) -> MinionInstance:
-	if board.is_empty():
-		return null
-	return board[randi() % board.size()]
-
-func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
-	for m in player_board:
-		if (m as MinionInstance).card_data.minion_type == Enums.MinionType.DEMON:
-			if active:
-				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune", false, false)
-			else:
-				BuffSystem.remove_source(m, "dominion_rune")
-
-func _find_last_non_echo_rune() -> TrapCardData:
-	for i in range(active_traps.size() - 1, -1, -1):
-		var t := active_traps[i] as TrapCardData
-		if t.is_rune and t.id != "echo_rune":
-			return t
-	return null
-
 func _resolve_void_devourer_sacrifice(_devourer: MinionInstance, _owner: String) -> void:
 	pass  # complex effect — not simulated
 
-func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
-	for i in _rune_aura_handlers.size():
-		if _rune_aura_handlers[i].rune_id == rune.id:
-			for entry in _rune_aura_handlers[i].entries:
-				trigger_manager.unregister(entry.event, entry.handler)
-			_rune_aura_handlers.remove_at(i)
-			break
-	if not rune.aura_on_remove_steps.is_empty():
-		var ctx := EffectContext.make(self, owner)
-		EffectResolver.run(rune.aura_on_remove_steps, ctx)
-
-func _unregister_env_rituals() -> void:
-	for h in _env_ritual_handlers:
-		trigger_manager.unregister(Enums.TriggerEvent.ON_RUNE_PLACED, h)
-		trigger_manager.unregister(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h)
-	_env_ritual_handlers.clear()
-
-func _update_trap_display() -> void:
-	pass  # no UI
-
-func _update_environment_display() -> void:
-	pass  # no UI
-
-func _rune_aura_multiplier() -> int:
-	return rune_aura_multiplier
-
-func _minion_has_tag(minion: MinionInstance, tag: String) -> bool:
-	if minion.card_data is MinionCardData:
-		return tag in (minion.card_data as MinionCardData).minion_tags
-	return false
-
-func _has_talent(talent_id: String) -> bool:
-	return talent_id in talents
+## (`_update_trap_display`, `_update_environment_display`, `_find_random_minion`,
+## `_refresh_dominion_aura`, `_find_last_non_echo_rune`, `_remove_rune_aura`,
+## `_unregister_env_rituals`, `_rune_aura_multiplier`, `_minion_has_tag`,
+## `_has_talent` all inherited from CombatState.)
 
 func _resolve_hardcoded(hardcoded_id: String, ctx: EffectContext) -> void:
 	_hardcoded.resolve(hardcoded_id, ctx)
@@ -1053,25 +727,7 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 		if not trap.reusable:
 			enemy_active_traps.erase(trap)
 
-## Returns true if the rune board satisfies the ritual's required rune types.
-func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
-	var available: Array[int] = []
-	var wildcards: int = 0
-	for r in runes:
-		var trap := r as TrapCardData
-		if trap.is_wildcard_rune:
-			wildcards += 1
-		else:
-			available.append(trap.rune_type)
-	var remaining_wildcards := wildcards
-	for req in required:
-		if req in available:
-			available.erase(req)
-		elif remaining_wildcards > 0:
-			remaining_wildcards -= 1
-		else:
-			return false
-	return true
+## (`_runes_satisfy` inherited from CombatState.)
 
 ## Consume the required runes and cast the ritual effect.
 ## Exact matches consumed first; wildcard runes fill remaining gaps.
@@ -1119,14 +775,13 @@ func _summon_void_imp() -> void:
 ## Reference to the CombatHandlers instance — set by SimTriggerSetup for env rituals.
 var _handlers_ref: CombatHandlers = null
 
-## Aliases for duck-typing compatibility with CombatScene — used by Act 3 AI profiles.
-var _active_enemy_passives: Array[String]:
-	get: return enemy_passives
+## Duck-typing alias — Act 3 AI profiles read `_handlers` to fire rune handlers.
 var _handlers: CombatHandlers:
 	get: return _handlers_ref
 
-## Pending mana drain flag (Void Rift Lord). SimState applies at player turn start.
-var _void_mana_drain_pending: bool = false
+## (`_active_enemy_passives` and `_void_mana_drain_pending` inherited from
+## CombatState. SimTriggerSetup keeps `_active_enemy_passives` synced with the
+## sim-side `enemy_passives` field at setup time.)
 
 # ---------------------------------------------------------------------------
 # Card draw helpers

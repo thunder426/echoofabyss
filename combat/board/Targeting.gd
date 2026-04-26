@@ -83,7 +83,7 @@ func highlight_valid_attack_targets() -> void:
 	for slot in _scene.enemy_slots:
 		if slot.is_empty():
 			continue
-		var valid := (not has_taunt) or slot.minion.has_guard()
+		var valid: bool = (not has_taunt) or slot.minion.has_guard()
 		slot.set_highlight(BoardSlot.HighlightMode.VALID_TARGET if valid else BoardSlot.HighlightMode.INVALID)
 	_scene._enemy_hero_panel.show_attackable(not has_taunt and _scene.selected_attacker.can_attack_hero())
 

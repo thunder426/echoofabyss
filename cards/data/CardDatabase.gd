@@ -433,12 +433,13 @@ func _register_wanderer_cards() -> void:
 	flesh_surgeon.on_play_target_type     = "friendly_minion"
 	flesh_surgeon.on_play_target_prompt   = "Choose a friendly Grafted Fiend to mend."
 	flesh_surgeon.on_play_effect_steps = [
-		# Try to pay — all-or-nothing. If successful, apply the +200 HP max first so the heal-to-full uses the new cap.
+		# Try to pay — all-or-nothing. The heal always happens; the +200 max HP only if Flesh was spent.
 		{"type": "SPEND_FLESH", "amount": 1},
+		# Base effect: heal to current max first.
+		{"type": "HEAL_MINION_FULL", "scope": "SINGLE_CHOSEN_FRIENDLY"},
+		# Then raise max HP by 200 (does not refill — leaves the new buffer empty).
 		{"type": "BUFF_HP", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 200,
 			"source_tag": "flesh_surgeon", "conditions": ["flesh_spent_this_cast"]},
-		# Base effect — always heals the chosen target to its (possibly new) max HP.
-		{"type": "HEAL_MINION_FULL", "scope": "SINGLE_CHOSEN_FRIENDLY"},
 	]
 	flesh_surgeon.faction      = "abyss_order"
 	all.append(flesh_surgeon)
@@ -1551,9 +1552,9 @@ func _register_wanderer_cards() -> void:
 	soul_rune.aura_secondary_trigger   = Enums.TriggerEvent.ON_ENEMY_TURN_START
 	soul_rune.aura_secondary_steps     = [{"type": "HARDCODED", "hardcoded_id": "soul_rune_reset"}]
 	soul_rune.faction                  = "abyss_order"
-	soul_rune.art_path                 = "res://assets/art/traps/abyss_order/soul_rune.png"
+	soul_rune.art_path                 = "res://assets/art/traps/abyss_order/soul_rune_premium.png"
 	soul_rune.battlefield_art_path     = "res://assets/art/traps/abyss_order/soul_rune_battlefield.png"
-	soul_rune.rune_glow_color          = Color(0.08, 0.35, 0.12, 1)  # Dark green
+	soul_rune.rune_glow_color          = Color(0.35, 0.08, 0.55, 1)  # Dark purple
 	all.append(soul_rune)
 
 	# ---------------------------------------------------------------------------
@@ -1570,7 +1571,7 @@ func _register_wanderer_cards() -> void:
 	void_rune.aura_trigger     = Enums.TriggerEvent.ON_PLAYER_TURN_START
 	void_rune.aura_effect_steps = [{"type": "VOID_BOLT", "amount": 100, "multiplier_key": "rune_aura"}]
 	void_rune.faction          = "abyss_order"
-	void_rune.art_path             = "res://assets/art/traps/abyss_order/void_rune.png"
+	void_rune.art_path             = "res://assets/art/traps/abyss_order/void_rune_clean.png"
 	void_rune.battlefield_art_path = "res://assets/art/traps/abyss_order/void_rune_battlefield.png"
 	void_rune.rune_glow_color      = Color(0.35, 0.12, 0.55, 1)  # Dark purple
 	all.append(void_rune)
@@ -1586,7 +1587,7 @@ func _register_wanderer_cards() -> void:
 	blood_rune.aura_extra_trigger  = Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED
 	blood_rune.aura_effect_steps   = [{"type": "HEAL_HERO", "amount": 100, "multiplier_key": "rune_aura"}]
 	blood_rune.faction          = "abyss_order"
-	blood_rune.art_path             = "res://assets/art/traps/abyss_order/blood_rune.png"
+	blood_rune.art_path             = "res://assets/art/traps/abyss_order/blood_rune_clean.png"
 	blood_rune.battlefield_art_path = "res://assets/art/traps/abyss_order/blood_rune_battlefield.png"
 	blood_rune.rune_glow_color      = Color(0.55, 0.08, 0.08, 1)  # Dark red
 	all.append(blood_rune)
@@ -1603,7 +1604,7 @@ func _register_wanderer_cards() -> void:
 	dominion_rune.aura_on_place_steps  = [{"type": "HARDCODED", "hardcoded_id": "dominion_rune_place"}]
 	dominion_rune.aura_on_remove_steps = [{"type": "HARDCODED", "hardcoded_id": "dominion_rune_remove"}]
 	dominion_rune.faction           = "abyss_order"
-	dominion_rune.art_path              = "res://assets/art/traps/abyss_order/dominion_rune.png"
+	dominion_rune.art_path              = "res://assets/art/traps/abyss_order/dominion_rune_clean.png"
 	dominion_rune.battlefield_art_path  = "res://assets/art/traps/abyss_order/dominion_rune_battlefield.png"
 	dominion_rune.rune_glow_color       = Color(0.10, 0.20, 0.55, 1)  # Dark blue
 	all.append(dominion_rune)
@@ -1618,8 +1619,8 @@ func _register_wanderer_cards() -> void:
 	shadow_rune.aura_trigger     = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
 	shadow_rune.aura_effect_steps = [{"type": "CORRUPTION", "scope": "TRIGGER_MINION", "amount": 1, "multiplier_key": "rune_aura"}]
 	shadow_rune.faction          = "abyss_order"
-	shadow_rune.art_path             = "res://assets/art/traps/abyss_order/shadow_rune.png"
-	shadow_rune.battlefield_art_path = "res://assets/art/traps/abyss_order/shadow_rune_battlefield.png"
+	shadow_rune.art_path             = "res://assets/art/traps/abyss_order/shadow_rune_clean.png"
+	shadow_rune.battlefield_art_path = "res://assets/art/traps/abyss_order/shadow_rune_battlefield_v2.png"
 	shadow_rune.rune_glow_color      = Color(0.35, 0.35, 0.40, 1)  # Dark grey-white
 	all.append(shadow_rune)
 
@@ -1831,7 +1832,7 @@ func _register_wanderer_cards() -> void:
 	echo_rune.is_wildcard_rune   = true
 	echo_rune.aura_trigger       = Enums.TriggerEvent.ON_PLAYER_TURN_START
 	echo_rune.aura_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "echo_rune_fire"}]
-	echo_rune.art_path               = "res://assets/art/traps/abyss_order/echo_rune.png"
+	echo_rune.art_path               = "res://assets/art/traps/abyss_order/echo_rune_premium.png"
 	echo_rune.battlefield_art_path   = "res://assets/art/traps/abyss_order/echo_rune_battlefield.png"
 	echo_rune.rune_glow_color        = Color(0.20, 0.08, 0.35, 1)  # Dark black-purple
 	echo_rune.faction                = "abyss_order"

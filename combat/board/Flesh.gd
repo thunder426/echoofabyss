@@ -21,7 +21,8 @@ var _scene: Node2D = null
 func _init(scene: Node2D) -> void:
 	_scene = scene
 
-## Gain Flesh, clamped to player_flesh_max. Logs and refreshes UI.
+## Gain Flesh, clamped to player_flesh_max. Logs; UI refreshes via the
+## CombatState.flesh_changed signal that fires from the property setter.
 func gain(amount: int = 1) -> void:
 	if amount <= 0:
 		return
@@ -30,7 +31,6 @@ func gain(amount: int = 1) -> void:
 	if _scene.player_flesh == before:
 		return
 	_scene._log("  Flesh +%d (%d/%d)" % [_scene.player_flesh - before, _scene.player_flesh, _scene.player_flesh_max], CombatLog.LogType.PLAYER)
-	on_changed()
 
 ## Try to spend Flesh. Returns true on success. Callers must check the result.
 func spend(amount: int) -> bool:
@@ -38,7 +38,6 @@ func spend(amount: int) -> bool:
 		return false
 	_scene.player_flesh -= amount
 	_scene._log("  Flesh -%d (%d/%d)" % [amount, _scene.player_flesh, _scene.player_flesh_max], CombatLog.LogType.PLAYER)
-	on_changed()
 	on_spent(amount)
 	return true
 

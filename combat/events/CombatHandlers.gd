@@ -803,6 +803,7 @@ func _transfer_to_player_board(m: MinionInstance) -> bool:
 	m.owner = "player"
 	_scene.player_board.append(m)
 	target_slot.place_minion(m)
+	_scene.state.minion_summoned.emit("player", m, target_slot.index)
 	_scene._refresh_slot_for(m)
 	return true
 

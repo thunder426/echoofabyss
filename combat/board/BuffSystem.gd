@@ -98,17 +98,15 @@ static func apply(minion: MinionInstance, type: int, amount: int,
 		return  # dedupe: aura reapply or no-op grant — don't flash
 	bus().emit_signal("buff_applied", minion, type, atk_delta, hp_delta, source)
 
-## Direct HP increase that still participates in buff VFX.
-## HP is mutated on `current_health` directly (not a BuffEntry), so callers that
-## want the generic "minion got buffed" VFX to show an HP pulse must route
-## through here rather than incrementing `current_health` themselves.
+## Permanent HP buff: raises the minion's max HP by `amount` (via an HP_BONUS
+## buff entry, summed by callers that compute the cap) AND bumps current_health
+## by the same amount so the minion stays at full at the new cap.
 static func apply_hp_gain(minion: MinionInstance, amount: int,
 		source: String = "", emit_vfx: bool = true) -> void:
 	if minion == null or amount == 0:
 		return
+	apply(minion, Enums.BuffType.HP_BONUS, amount, source, false, emit_vfx)
 	minion.current_health += amount
-	if emit_vfx:
-		bus().emit_signal("buff_applied", minion, Enums.BuffType.HP_BONUS, 0, amount, source)
 
 ## Remove all buff entries that were applied by the named source.
 ## Used for aura cleanup (e.g. Dominion Rune removed from board).

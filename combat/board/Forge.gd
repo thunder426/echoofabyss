@@ -20,19 +20,18 @@ func _init(scene: Node2D) -> void:
 	_scene = scene
 
 ## Tick the Forge Counter. Returns true if it hit threshold (caller summons
-## the Forged Demon and calls reset()).
+## the Forged Demon and calls reset()). UI refreshes via the
+## CombatState.forge_changed signal that fires from the property setter.
 func tick(amount: int = 1) -> bool:
 	if amount <= 0:
 		return false
 	_scene.forge_counter += amount
 	_scene._log("  Forge Counter +%d (%d/%d)" % [amount, _scene.forge_counter, _scene.forge_counter_threshold], CombatLog.LogType.PLAYER)
-	on_changed()
 	return _scene.forge_counter >= _scene.forge_counter_threshold
 
 ## Reset to 0 (after a Forged Demon summon).
 func reset() -> void:
 	_scene.forge_counter = 0
-	on_changed()
 
 ## Public Forge Counter gain for declarative GAIN_FORGE_COUNTER steps and any
 ## future passive sources. Wraps tick + auto-summon + reset so callers don't

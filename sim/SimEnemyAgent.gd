@@ -108,6 +108,7 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	instance.card_instance = inst
 	sim.enemy_board.append(instance)
 	slot.place_minion(instance)
+	sim.minion_summoned.emit("enemy", instance, slot.index)
 	sim.enemy_hand.erase(inst)
 	inst.resolved_on_turn = sim._current_turn
 	sim.enemy_graveyard.append(inst)

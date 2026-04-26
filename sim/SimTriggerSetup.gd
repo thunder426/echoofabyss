@@ -10,6 +10,11 @@ func setup(sim: SimState) -> void:
 	h.setup(sim)
 	sim._handlers_ref = h
 
+	# Mirror the sim-side `enemy_passives` array into the live-side
+	# `_active_enemy_passives` field that CombatProfile reads via
+	# `agent.scene.get("_active_enemy_passives")`. Phase 5 collapses the two.
+	sim._active_enemy_passives.assign(sim.enemy_passives)
+
 	var tm := TriggerManager.new()
 	sim.trigger_manager = tm
 

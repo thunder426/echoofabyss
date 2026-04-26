@@ -380,6 +380,8 @@ func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	_send_to_graveyard(inst)
 	minion_play_chosen_target = chosen_target
 	minion_summoned.emit(instance, slot)
+	if scene != null and scene.state != null:
+		scene.state.minion_summoned.emit("enemy", instance, slot.index)
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
 	if not is_inside_tree(): return false
