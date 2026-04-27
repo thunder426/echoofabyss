@@ -208,26 +208,9 @@ func _apply_void_mark(amount: int) -> void:
 	enemy_void_marks += amount
 	_log("  Void Mark x%d applied! (total: %d)" % [amount, enemy_void_marks], 1)  # CombatLog.LogType.PLAYER = 1
 
-## Apply or remove ONE LAYER of the Dominion Rune ATK aura on all friendly
-## Demons. Multiple Dominion Runes stack, so `active=false` must remove only
-## a single entry per minion (remove_one_source) — preserving buffs from any
-## other Dominion Rune still on the board. `amount` is passed in so the
-## runic_attunement multiplier is respected. Logs + slot refresh via signals.
-func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
-	for m in player_board:
-		if (m as MinionInstance).card_data.minion_type == Enums.MinionType.DEMON:
-			if active:
-				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, amount, "dominion_rune", false, false)
-			else:
-				BuffSystem.remove_one_source(m, "dominion_rune")
-			_refresh_slot_for(m)
-	if active:
-		_log("  Dominion Rune: all friendly Demons gain +%d ATK." % amount, 1)  # PLAYER
-	else:
-		_log("  Dominion Rune removed: all friendly Demons lose ATK bonus.", 1)
-
-## Remove rune aura handlers + run aura_on_remove_steps for the rune.
-## Symmetric across scene/sim. `owner` defaults to "player" (scene caller).
+## Remove rune aura handlers, auto-strip source_tag buffs declared in aura_effect_steps,
+## then run any bespoke aura_on_remove_steps. Symmetric across scene/sim.
+## `owner` defaults to "player" (scene caller).
 func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	for i in _rune_aura_handlers.size():
 		if _rune_aura_handlers[i].rune_id == rune.id:
@@ -235,9 +218,33 @@ func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 				trigger_manager.unregister(entry.event, entry.handler)
 			_rune_aura_handlers.remove_at(i)
 			break
+	# Auto-cleanup: strip one layer of every source_tag declared in aura_effect_steps
+	# from both boards. One rune copy = one layer stripped, mirroring the prior bespoke
+	# Dominion teardown. No-op for runes whose aura steps don't carry a source_tag.
+	for tag in _harvest_aura_source_tags(rune):
+		for m in player_board:
+			BuffSystem.remove_one_source(m, tag)
+			_refresh_slot_for(m)
+		for m in enemy_board:
+			BuffSystem.remove_one_source(m, tag)
+			_refresh_slot_for(m)
 	if not rune.aura_on_remove_steps.is_empty():
 		var ctx := EffectContext.make(_get_scene_facade(), owner)
 		EffectResolver.run(rune.aura_on_remove_steps, ctx)
+
+## Collect distinct source_tag values from a rune's aura_effect_steps. Steps may be
+## stored as Dictionaries (CardDatabase data form) or EffectStep objects.
+func _harvest_aura_source_tags(rune: TrapCardData) -> Array[String]:
+	var tags: Array[String] = []
+	for step in rune.aura_effect_steps:
+		var tag: String = ""
+		if step is Dictionary:
+			tag = step.get("source_tag", "")
+		elif step is EffectStep:
+			tag = (step as EffectStep).source_tag
+		if tag != "" and not tags.has(tag):
+			tags.append(tag)
+	return tags
 
 ## Unregister all environment-ritual handlers (when env is replaced/cleared).
 func _unregister_env_rituals() -> void:
@@ -635,12 +642,39 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 			EffectResolver.run(rune.aura_secondary_steps, ctx)
 		trigger_manager.register(sec_trigger, h2, 20)
 		entries.append({event = sec_trigger, handler = h2})
-	# On-place steps run immediately at placement (e.g. Dominion Rune existing-minion sweep)
+	# Auto-backfill: for ON_*_MINION_SUMMONED auras, run aura_effect_steps once for each
+	# existing minion on the matching board, treating it as if it had just been summoned.
+	# Subsumes the old per-rune aura_on_place_steps for the common "buff existing matches"
+	# case (e.g. Dominion Rune). Runes that don't want this opt out via aura_backfill_on_place.
+	if rune.aura_backfill_on_place \
+			and rune.aura_trigger >= 0 \
+			and not rune.aura_effect_steps.is_empty() \
+			and _is_minion_summoned_trigger(rune.aura_trigger):
+		# Walk whichever board the (mirrored) trigger reads from. For an
+		# ON_PLAYER_MINION_SUMMONED rune that's the owner's own board; for an
+		# ON_ENEMY_MINION_SUMMONED rune (e.g. Shadow Rune, were it opted in),
+		# it's the opponent's board.
+		var backfill_owner: String = owner
+		if rune.aura_trigger == Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED:
+			backfill_owner = _opponent_of(owner)
+		for m in _friendly_board(backfill_owner):
+			var ctx := EffectContext.make(_get_scene_facade(), owner)
+			ctx.trigger_minion = m
+			ctx.from_rune = true
+			ctx.source_rune = rune
+			EffectResolver.run(rune.aura_effect_steps, ctx)
+	# Bespoke on-place steps — escape hatch for non-standard placement behavior.
 	if not rune.aura_on_place_steps.is_empty():
 		var ctx := EffectContext.make(_get_scene_facade(), owner)
 		EffectResolver.run(rune.aura_on_place_steps, ctx)
 	if not entries.is_empty():
 		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
+
+## True if the trigger fires on a minion entering the board (either side).
+## Used to gate aura_backfill_on_place to triggers where backfill has clear semantics.
+func _is_minion_summoned_trigger(trigger: int) -> bool:
+	return trigger == Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED \
+			or trigger == Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
 
 ## Consume the required runes and cast the ritual effect. Exact rune type
 ## matches are consumed first; wildcard runes fill remaining gaps. Each rune

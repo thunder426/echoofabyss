@@ -206,6 +206,50 @@ func update_traps_for(owner: String) -> void:
 			if art_container != null: art_container.visible = false
 			stop_rune_glow(i, owner)
 
+## Hide a slot's contents (art + label + glow tween + border) so the slot
+## reads as empty while the rune placement VFX plays into it. Display state
+## (active_traps) is unchanged — only the visuals are suppressed. Pair with
+## `reveal_slot_after_placement` to fade the art back in once the VFX ends.
+func hide_slot_for_placement(owner: String, slot_idx: int) -> void:
+	var panels: Array      = player_panels       if owner == "player" else enemy_panels
+	var labels: Array      = player_labels       if owner == "player" else enemy_labels
+	var arts: Array        = _player_arts        if owner == "player" else _enemy_arts
+	var containers: Array  = _player_art_containers if owner == "player" else _enemy_art_containers
+	if slot_idx < 0 or slot_idx >= panels.size():
+		return
+	stop_rune_glow(slot_idx, owner)
+	if slot_idx < arts.size() and arts[slot_idx] != null:
+		(arts[slot_idx] as TextureRect).modulate.a = 0.0
+	if slot_idx < containers.size() and containers[slot_idx] != null:
+		(containers[slot_idx] as CenterContainer).visible = false
+	if slot_idx < labels.size() and labels[slot_idx] != null:
+		(labels[slot_idx] as Label).visible = false
+	# Reset border to the empty-slot style so the slot doesn't pulse a rune
+	# glow color before the VFX has revealed it.
+	_scene._apply_empty_slot(panels[slot_idx], labels[slot_idx])
+
+## Restore the slot's persistent rendering and fade the art back in. Called
+## after the rune placement VFX finishes. Re-runs `update_traps_for` so the
+## slot picks up its real (rune-aware) styling, then tweens the art container
+## from alpha 0 to 1 over `fade_duration`.
+func reveal_slot_after_placement(owner: String, slot_idx: int, fade_duration: float = 0.25) -> void:
+	var arts: Array       = _player_arts             if owner == "player" else _enemy_arts
+	var containers: Array = _player_art_containers   if owner == "player" else _enemy_art_containers
+	# Re-render the slot from data — restores label/border/glow as appropriate.
+	update_traps_for(owner)
+	if slot_idx < 0 or slot_idx >= arts.size():
+		return
+	# If the slot ended up showing art, fade it in. Label-only slots (no
+	# battlefield art) stay snapped — fading a single label looks fragile.
+	var art: TextureRect = arts[slot_idx] as TextureRect
+	var container: CenterContainer = containers[slot_idx] as CenterContainer
+	if art == null or container == null or not container.visible:
+		return
+	art.modulate.a = 0.0
+	var tw := _scene.create_tween()
+	tw.tween_property(art, "modulate:a", 1.0, fade_duration) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
 func flash_slot(owner: String, slot_idx: int) -> void:
 	var panels := player_panels if owner == "player" else enemy_panels
 	if slot_idx >= 0 and slot_idx < panels.size():

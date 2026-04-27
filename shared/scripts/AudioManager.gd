@@ -136,13 +136,27 @@ func _on_button_click(btn: BaseButton) -> void:
 # ---------------------------------------------------------------------------
 
 const MAX_CONCURRENT_SFX := 16
+## Per-path debounce window in seconds. If the same SFX path was played
+## within this window, the new request is dropped. Prevents the
+## "phasey burst" when N identical VFX spawn in parallel (e.g. one
+## BuffApplyVFX per buffed minion firing buff_apply.wav simultaneously).
+## 80ms is short enough that intentionally rapid hits (sword combo, etc.)
+## still layer, but long enough to collapse a same-frame parallel burst.
+const SFX_DEBOUNCE_WINDOW: float = 0.08
 var _active_sfx_count: int = 0
+var _last_play_time: Dictionary = {}  # path: String -> last play time (sec)
 
 ## Play a one-shot sound effect. Automatically frees the player when done.
-## Skips playback if MAX_CONCURRENT_SFX is already reached.
+## Skips playback if MAX_CONCURRENT_SFX is already reached, or if the same
+## path was played within SFX_DEBOUNCE_WINDOW.
 func play_sfx(path: String, volume_db: float = 0.0) -> void:
 	if _active_sfx_count >= MAX_CONCURRENT_SFX:
 		return
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var last: float = _last_play_time.get(path, -1000.0)
+	if now - last < SFX_DEBOUNCE_WINDOW:
+		return
+	_last_play_time[path] = now
 	var stream: AudioStream = load(path)
 	if stream == null:
 		push_warning("AudioManager: could not load SFX '%s'" % path)

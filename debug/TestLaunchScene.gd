@@ -209,18 +209,18 @@ func _on_launch_pressed() -> void:
 ## Card Test — generic preset with enemy targets on board, infinite resources,
 ## and high HP. Claude command fills hand_input / enemy_hand_input before launch.
 func _preset_card_test() -> void:
-	_preset_ai_profile        = "cultist_patrol"
-	_preset_passives          = ["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"]
+	_preset_ai_profile        = "matriarch"
+	_preset_passives          = []
 	_hand_input.text          = "abyssal_plague, abyssal_plague, abyssal_plague"
 	_player_deck_input.text   = ""
-	_player_board_input.text  = "shadow_hound, shadow_hound, shadow_hound"
-	_enemy_hand_input.text    = "abyss_cultist, cult_fanatic, rabid_imp, imp_brawler"
+	_player_board_input.text  = ""
+	_enemy_hand_input.text    = "brood_call, brood_call, brood_call"
 	_enemy_board_input.text   = ""
 	_player_traps_input.text  = ""
 	_enemy_traps_input.text   = ""
-	_enemy_deck_input.text    = "abyss_cultist, cult_fanatic, rabid_imp, imp_brawler, abyss_cultist, cult_fanatic, rabid_imp, imp_brawler, abyss_cultist, cult_fanatic, rabid_imp, imp_brawler"
-	_preset_enemy_start_essence_max = 4
-	_preset_enemy_start_mana_max    = 0
+	_enemy_deck_input.text    = "brood_call, brood_call, brood_call, brood_call, brood_call, brood_call"
+	_preset_enemy_start_essence_max = 0
+	_preset_enemy_start_mana_max    = 2
 	_enemy_name_input.text    = "Card Test Dummy"
 	_player_hp_input.value    = 9999
 	_enemy_hp_input.value     = 9999

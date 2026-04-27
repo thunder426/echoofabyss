@@ -549,25 +549,75 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
 		_scene._update_counter_warning()
 
-## Rogue Imp Elder — true aura: each live Elder grants +100 ATK to every friendly
-## FERAL IMP on the same side (including other Elders). Recomputed on every
-## summon/death so the buff count always matches the live Elder count.
-## Symmetric: works for both player-owned and enemy-owned Elders.
-func on_minion_event_rogue_imp_elder_aura(ctx: EventContext) -> void:
-	_refresh_rogue_imp_elder_aura("player")
-	_refresh_rogue_imp_elder_aura("enemy")
+## Generic presence aura recompute. Fires on any minion summon/death/sacrifice on either
+## side. Walks both boards, finds every minion with non-empty presence_aura_steps, groups
+## the steps by source_tag per side, strips the tag from every minion on that side, then
+## re-runs the steps once per (side, source_tag) so multiplier_key="board_count" can scale
+## the amount against the number of sources alive. Replaces the old bespoke
+## _refresh_rogue_imp_elder_aura logic with a fully data-driven path that any minion can
+## opt into via MinionCardData.presence_aura_steps.
+func on_minion_event_presence_auras(ctx: EventContext) -> void:
+	# When the event minion itself is leaving (death/sacrifice), it may already be off
+	# the board. Capture the side it belonged to so we strip its source_tags below — the
+	# board walk alone won't find it once it's gone, and lingering buffs would stick.
+	var leaving_side: String = ""
+	var leaving_minion: MinionInstance = ctx.minion if ctx != null else null
+	if leaving_minion != null:
+		match ctx.event_type:
+			Enums.TriggerEvent.ON_PLAYER_MINION_DIED, Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED:
+				leaving_side = "player"
+			Enums.TriggerEvent.ON_ENEMY_MINION_DIED, Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED:
+				leaving_side = "enemy"
+	_refresh_presence_auras_for_side("player", leaving_minion if leaving_side == "player" else null)
+	_refresh_presence_auras_for_side("enemy",  leaving_minion if leaving_side == "enemy"  else null)
 
-func _refresh_rogue_imp_elder_aura(side: String) -> void:
+func _refresh_presence_auras_for_side(side: String, leaving: MinionInstance) -> void:
 	var board: Array[MinionInstance] = _scene._friendly_board(side)
-	var elder_count: int = 0
+	# (source_tag → steps) — first source on the side wins; multiple sources of the same
+	# kind share the tag and the count multiplier, so re-running the same steps is a no-op.
+	var groups: Dictionary = {}
+	for src in board:
+		var mc := src.card_data as MinionCardData
+		if mc == null or mc.presence_aura_steps.is_empty():
+			continue
+		for step in mc.presence_aura_steps:
+			var tag: String = _step_source_tag(step)
+			if tag == "":
+				continue  # presence auras require a source_tag for clean stripping
+			if not groups.has(tag):
+				groups[tag] = {"src": src, "steps": mc.presence_aura_steps}
+	# Always include the leaving minion's own tags in the strip set, even though it's no
+	# longer on the board — otherwise its lingering buffs would never get cleaned up.
+	var strip_tags: Dictionary = {}
+	for tag in groups.keys():
+		strip_tags[tag] = true
+	if leaving != null:
+		var lm := leaving.card_data as MinionCardData
+		if lm != null:
+			for step in lm.presence_aura_steps:
+				var tag: String = _step_source_tag(step)
+				if tag != "":
+					strip_tags[tag] = true
+	# Strip-then-apply (not interleaved) so cross-target counting stays consistent.
+	for tag in strip_tags.keys():
+		for m in board:
+			BuffSystem.remove_source(m, tag)
+	for tag in groups.keys():
+		var entry: Dictionary = groups[tag]
+		var ctx2 := EffectContext.make(_scene, side)
+		ctx2.source         = entry["src"]
+		ctx2.source_card_id = (entry["src"] as MinionInstance).card_data.id
+		EffectResolver.run(entry["steps"], ctx2)
 	for m in board:
-		if m.card_data.id == "rogue_imp_elder":
-			elder_count += 1
-	for m in board:
-		BuffSystem.remove_source(m, "rogue_imp_elder_aura")
-		if _scene._minion_has_tag(m, "feral_imp") and elder_count > 0:
-			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100 * elder_count, "rogue_imp_elder_aura", false, false)
 		_scene._refresh_slot_for(m)
+
+## Extract source_tag from a step that may be either a Dictionary or an EffectStep.
+func _step_source_tag(step) -> String:
+	if step is Dictionary:
+		return step.get("source_tag", "")
+	if step is EffectStep:
+		return (step as EffectStep).source_tag
+	return ""
 
 # ---------------------------------------------------------------------------
 # Enemy encounter passive handlers

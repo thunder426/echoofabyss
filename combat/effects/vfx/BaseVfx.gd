@@ -28,14 +28,34 @@ signal finished                ## Emitted when the visible effect has ended.
 ## 1 = single-hit (default). N = staggered AoE. 0 = apply/utility (no damage gate).
 var impact_count: int = 1
 
+## Global time scale — multiplied into every VfxSequence phase duration and
+## beat offset. 1.0 = real-time. Set via debug knob or settings.
+## Per-sequence override: `seq.time_scale`. Per-phase override: `phase.time_scale(s)`.
+static var time_scale: float = 1.0
+
+## Lazily-created sequence runner. Subclasses get one via `sequence()`.
+var _sequence: VfxSequence = null
+
 func _ready() -> void:
 	_play()
 
 ## Subclass entry point. Override this — not _ready.
+##
+## New-style: build a VfxSequence and call `seq.run([Phase.new(...), ...])`.
+## See ArcaneStrikeVFX for the canonical template.
+##
+## Old-style (still supported): hand-roll the timeline with awaits, emit
+## `impact_hit(i)` at the right frame, emit `finished`, and queue_free.
 func _play() -> void:
 	push_error("BaseVfx._play must be overridden by subclass")
 	finished.emit()
 	queue_free()
+
+## Get (or lazily create) this VFX's sequence runner. Call from `_play()`.
+func sequence() -> VfxSequence:
+	if _sequence == null:
+		_sequence = VfxSequence.new(self)
+	return _sequence
 
 ## Shake a node with a real position (BoardSlot, hero panel, or VfxShakeRoot).
 ## Never pass a CanvasLayer — moving a CanvasLayer.offset shakes every node in

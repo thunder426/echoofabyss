@@ -310,6 +310,12 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 	# Block summon spells if not enough board slots (respecting reserved slots for champion)
 	if _spell_needs_board_slot(spell) and agent.empty_slot_count() <= _reserved_slots():
 		return false
+	# Block single-target friendly buffs whose buff doesn't change any trade outcome.
+	# Only skips when the predicted attacker + target trade resolves identically with
+	# or without the buff (both die, attacker survives + target dies, etc.). When the
+	# buff has conditional steps or no clear trade target, we let it cast.
+	if _is_wasteful_single_target_friendly_buff(spell):
+		return false
 	var rules := _get_spell_rules()
 	if not rules.has(spell.id):
 		return true
@@ -366,6 +372,75 @@ func _spell_needs_board_slot(spell: SpellCardData) -> bool:
 			if hid in ["brood_call", "void_summoning"]:
 				return true
 	return false
+
+## True when `spell` is a single-target friendly buff whose ATK/HP buff would
+## not change the outcome of the buffed minion's predicted attack this turn.
+##
+## Conservative — bails out (returns false, i.e. let the spell cast) whenever:
+##   * any buff step has conditions or a multiplier (outcome depends on state we
+##     don't fully simulate here),
+##   * the picked target isn't a friendly minion,
+##   * the predicted attacker can't attack this turn or has no opponent minion
+##     to swing into (face damage still benefits from buffs).
+func _is_wasteful_single_target_friendly_buff(spell: SpellCardData) -> bool:
+	if spell.target_type != "friendly_minion" \
+			and spell.target_type != "friendly_void_imp" \
+			and spell.target_type != "friendly_feral_imp" \
+			and spell.target_type != "friendly_human" \
+			and spell.target_type != "friendly_demon":
+		return false
+	# Sum unconditional flat ATK / HP buffs targeting the chosen friendly.
+	var atk_buff: int = 0
+	var hp_buff: int  = 0
+	for raw in spell.effect_steps:
+		var step: EffectStep = EffectStep.from_dict(raw) if raw is Dictionary else raw as EffectStep
+		if step == null:
+			continue
+		if step.scope != EffectStep.TargetScope.SINGLE_CHOSEN_FRIENDLY:
+			continue
+		# Conditional / multiplier-driven buffs are too complex to evaluate here.
+		if step.conditions != null and not step.conditions.is_empty():
+			return false
+		if step.multiplier_key != "":
+			return false
+		match step.effect_type:
+			EffectStep.EffectType.BUFF_ATK:
+				atk_buff += step.amount
+			EffectStep.EffectType.BUFF_HP:
+				hp_buff += step.amount
+			_:
+				# Spell does something else (damage, heal, etc.) — let it cast.
+				return false
+	if atk_buff <= 0 and hp_buff <= 0:
+		return false
+	var attacker: MinionInstance = pick_spell_target(spell) as MinionInstance
+	if attacker == null or not attacker.can_attack():
+		return false
+	# No opponent minion to attack — buff still helps face damage / next turn defense.
+	if agent.opponent_board.is_empty():
+		return false
+	# Predict the target this attacker would hit. Guards override pick_swift_target
+	# so use the same precedence as the attack phase.
+	var guards: Array[MinionInstance] = CombatManager.get_taunt_minions(agent.opponent_board)
+	var target: MinionInstance
+	if not guards.is_empty():
+		target = _pick_best_guard(attacker, guards)
+	else:
+		target = agent.pick_swift_target(attacker)
+	if target == null:
+		return false
+	# Compare unbuffed vs buffed trade outcome. Outcome = (target_dies, attacker_dies).
+	var a_atk: int = attacker.effective_atk()
+	var a_hp:  int = attacker.current_health
+	var t_atk: int = target.effective_atk()
+	var t_hp:  int = target.current_health + target.current_shield
+	var unbuffed_target_dies: bool = a_atk >= t_hp
+	var unbuffed_attacker_dies: bool = t_atk >= a_hp
+	var buffed_target_dies: bool = (a_atk + atk_buff) >= t_hp
+	var buffed_attacker_dies: bool = t_atk >= (a_hp + hp_buff)
+	# Buff is wasteful when both outcomes are identical.
+	return unbuffed_target_dies == buffed_target_dies \
+			and unbuffed_attacker_dies == buffed_attacker_dies
 
 ## Return the target for a targeted spell.
 ## Default minion priority: killable targets (our damage >= their HP) → highest ATK.

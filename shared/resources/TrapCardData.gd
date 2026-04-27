@@ -46,10 +46,21 @@ extends CardData
 ## Steps run when the secondary aura trigger fires.
 @export var aura_secondary_steps: Array = []
 
-## Steps run once immediately when the rune is placed (e.g. Dominion Rune existing-minion sweep).
+## When true and aura_trigger is ON_*_MINION_SUMMONED, the system runs aura_effect_steps
+## once for each existing minion on the matching board at placement (the "minion-existence
+## aura" semantics: existing minions are treated as if they had just been summoned).
+## Defaults true. Runes whose ON_SUMMON aura should only affect future plays (e.g. Shadow
+## Rune, where existing minions never had a "play moment" to be corrupted) set this false.
+## Ignored for non-summon triggers (turn-start, death, etc. have no sensible backfill).
+@export var aura_backfill_on_place: bool = true
+
+## Optional: bespoke steps run once at placement, in addition to the automatic backfill.
+## Most runes leave this empty — the backfill above covers the common case.
 @export var aura_on_place_steps: Array = []
 
-## Steps run once when the rune is removed / destroyed (e.g. Dominion Rune buff teardown).
+## Optional: bespoke steps run once at removal, in addition to the automatic source_tag
+## sweep. Most runes leave this empty — auto-cleanup strips any buffs whose source_tag
+## appears in aura_effect_steps from both boards.
 @export var aura_on_remove_steps: Array = []
 
 ## If true, this rune acts as a wildcard — can substitute for any rune type in rituals.

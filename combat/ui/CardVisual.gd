@@ -50,11 +50,11 @@ const _FACTION_FRAME: Dictionary = {
 ## Tooltip layout config per faction. Keyed by card_data.faction; falls back to "default".
 const _FACTION_TOOLTIP_CFG: Dictionary = {
 	"abyss_order": {
-		"anchor":              Vector2(0.85, 0.15),
+		"anchor":              Vector2(0.92, 0.15),
 		"w_scale":             0.7,  "h_scale":    0.8,
 		"title_font":          15,   "body_font":  11,
-		"title_rect":          [0.15, 0.18, 0.85, 0.30],
-		"body_rect":           [0.15, 0.30, 0.85, 0.96],
+		"title_rect":          [0.15, 0.115, 0.85, 0.19],
+		"body_rect":           [0.15, 0.20, 0.85, 0.96],
 		"desc_keyword_color":  Color(0.75, 0.50, 1.00, 1.0),  # purple — on dark card box
 		"tooltip_keyword_color": Color(0.75, 0.50, 1.00, 1.0),  # purple — on dark tooltip panel
 		"race_color":          Color(0.75, 0.50, 1.00, 1.0),  # purple
@@ -91,82 +91,19 @@ const _FACTION_TOOLTIP_CFG: Dictionary = {
 
 ## Per-frame style config. Each entry is fully self-contained.
 const _FRAME_CONFIG: Dictionary = {
-	# ── Abyss Order dual-cost minion frame (essence + mana) ────────────────
-	"abyss_dual_minion": {
-		"path":         "res://assets/art/frames/abyss_order/abyss_dual_minion.png",
-		"minion_frame": true,
-		"layout": {
-			"art":     [0.08, 0.14, 0.92, 0.78],
-			"name":    [0.15, 0.09, 0.93, 0.14],
-			"race":    [0.05, 0.65, 0.95, 0.72],
-			"desc":    [0.17, 0.72, 0.85, 0.85],
-			"essence": [0.01, 0.05, 0.28, 0.18],
-			"mana":    [0.75, 0.05, 0.99, 0.18],
-			"atk":     [0.08, 0.87, 0.42, 0.94],
-			"hp":      [0.58, 0.87, 0.80, 0.94],
-		},
-		"fonts": {
-			"desc_normal": 14, "desc_bold": 15,
-			"shield": 11, "race": 15,
-			"essence": 28, "mana": 28, "atk": 20, "hp": 20,
-			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
-		},
-	},
-	# ── Abyss Order dual-cost minion frame (hand size) ──────────────────────
-	"abyss_dual_minion_small": {
-		"path":         "res://assets/art/frames/abyss_order/abyss_dual_minion.png",
-		"minion_frame": true,
-		"layout": {
-			"art":     [0.08, 0.14, 0.92, 0.78],
-			"name":    [0.15, 0.12, 0.93, 0.15],
-			"race":    [0.05, 0.72, 0.95, 0.72],
-			"desc":    [0.16, 0.76, 0.85, 0.85],
-			"essence": [0.01, 0.07, 0.28, 0.19],
-			"mana":    [0.26, 0.01, 0.54, 0.19],
-			"atk":     [0.10, 0.89, 0.42, 0.93],
-			"hp":      [0.58, 0.89, 0.81, 0.93],
-		},
-		"fonts": {
-			"desc_normal": 14, "desc_bold": 15,
-			"shield": 11, "race": 15,
-			"essence": 28, "mana": 18, "atk": 20, "hp": 20,
-			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
-		},
-	},
-	# ── Abyss Order minion frame (hand size) — less glowy variant ──────────
-	"abyss_minion_small": {
-		"path":         "res://assets/art/frames/abyss_order/abyss_minion_small.png",
-		"minion_frame": true,
-		"layout": {
-			"art":     [0.08, 0.14, 0.92, 0.78],
-			"name":    [0.15, 0.12, 0.93, 0.15],
-			"race":    [0.05, 0.72, 0.95, 0.72],
-			"desc":    [0.16, 0.76, 0.85, 0.85],
-			"essence": [0.01, 0.07, 0.28, 0.19],
-			"mana":    [0.26, 0.01, 0.54, 0.19],
-			"atk":     [0.10, 0.89, 0.42, 0.93],
-			"hp":      [0.58, 0.89, 0.81, 0.93],
-		},
-		"fonts": {
-			"desc_normal": 14, "desc_bold": 15,
-			"shield": 11, "race": 15,
-			"essence": 28, "mana": 18, "atk": 20, "hp": 20,
-			"name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]],
-		},
-	},
 	# ── Abyss Order minion frame — embedded stat panels, race tag bar ──────
 	"abyss_minion": {
-		"path":         "res://assets/art/frames/abyss_order/abyss_minion.png",
+		"path":         "res://assets/art/frames/abyss_order/abyss_minion_v4.png",
 		"minion_frame": true,
 		"layout": {
 			"art":     [0.08, 0.11, 0.92, 0.78],
-			"name":    [0.15, 0.06, 0.93, 0.11],
-			"race":    [0.05, 0.70, 0.95, 0.75],
-			"desc":    [0.16, 0.76, 0.85, 0.87],
-			"essence": [0.01, 0.06, 0.28, 0.11],
+			"name":    [0.20, 0.07, 0.95, 0.13],
+			"race":    [0.05, 0.14, 0.95, 0.19],
+			"desc":    [0.12, 0.71, 0.88, 0.87],
+			"essence": [0.01, 0.07, 0.28, 0.12],
 			"mana":    [0.26, 0.01, 0.54, 0.19],
-			"atk":     [0.09, 0.90, 0.42, 0.95],
-			"hp":      [0.56, 0.90, 0.81, 0.95],
+			"atk":     [0.04, 0.91, 0.35, 0.95],
+			"hp":      [0.60, 0.91, 0.85, 0.95],
 		},
 		"fonts": {
 			"desc_normal": 14, "desc_bold": 15,
@@ -177,34 +114,34 @@ const _FRAME_CONFIG: Dictionary = {
 	},
 	# ── Abyss Order spell frame ─────────────────────────────────────────────
 	"abyss_spell": {
-		"path":    "res://assets/art/frames/abyss_order/abyss_spell.png",
+		"path":    "res://assets/art/frames/abyss_order/abyss_spell_v2.png",
 		"layout": {
 			"art":  [0.05, 0.14, 0.95, 0.70],
-			"name": [0.15, 0.085, 0.93, 0.12],
-			"desc": [0.16, 0.73, 0.85, 0.85],
-			"mana": [0.05, 0.08, 0.20, 0.12],
+			"name": [0.20, 0.07, 0.95, 0.14],
+			"desc": [0.12, 0.73, 0.88, 0.85],
+			"mana": [0.06, 0.075, 0.20, 0.12],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
 	# ── Abyss Order trap frame ──────────────────────────────────────────────
 	"abyss_trap": {
-		"path":    "res://assets/art/frames/abyss_order/abyss_trap.png",
+		"path":    "res://assets/art/frames/abyss_order/abyss_trap_v2.png",
 		"layout": {
-			"art":  [0.05, 0.06, 0.95, 0.75],
-			"name": [0.15, 0.06, 0.93, 0.11],
-			"desc": [0.16, 0.72, 0.85, 0.90],
-			"mana": [0.06, 0.06, 0.20, 0.10],
+			"art":  [0.05, 0.14, 0.95, 0.70],
+			"name": [0.20, 0.07, 0.95, 0.14],
+			"desc": [0.12, 0.73, 0.88, 0.85],
+			"mana": [0.075, 0.07, 0.20, 0.12],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 25], [14, 22], [18, 20], [999, 18]] },
 	},
 	# ── Abyss Order environment frame ───────────────────────────────────────
 	"abyss_env": {
-		"path":    "res://assets/art/frames/abyss_order/abyss_environment.png",
+		"path":    "res://assets/art/frames/abyss_order/abyss_environment_v4.png",
 		"layout": {
-			"art":  [0.08, 0.08, 0.92, 0.72],
-			"name": [0.20, 0.05, 0.97, 0.10],
-			"desc": [0.16, 0.71, 0.88, 0.90],
-			"mana": [0.03, 0.04, 0.25, 0.10],
+			"art":  [0.05, 0.14, 0.95, 0.70],
+			"name": [0.20, 0.07, 0.95, 0.14],
+			"desc": [0.14, 0.73, 0.86, 0.85],
+			"mana": [0.08, 0.07, 0.20, 0.12],
 		},
 		"fonts": { "desc_normal": 14, "desc_bold": 15, "mana": 28, "name_tiers": [[10, 22], [14, 20], [18, 18], [999, 16]] },
 	},
@@ -361,6 +298,9 @@ var _glow_overlay: Panel = null
 var _type_glow: Panel = null
 var _type_glow_style: StyleBoxFlat = null
 var _type_glow_tween: Tween = null
+var _type_glow_alpha: float = 0.55  # shared by card halo and tooltip halo
+var _tooltip_glow: Panel = null
+var _tooltip_glow_style: StyleBoxFlat = null
 
 # Per-type glow tint — drawn as a StyleBoxFlat drop-shadow that bleeds outside
 # the card frame. Only shown on large previews (deck builder, combat hover/cast).
@@ -919,26 +859,36 @@ func _start_type_glow_pulse() -> void:
 	if _type_glow == null:
 		return
 	_stop_type_glow_pulse()
-	# Slow "breathing" — tween self_modulate.a so the shadow alpha cycles
-	# smoothly. Uses self_modulate so the per-type shadow_color stays intact.
-	_type_glow.self_modulate = Color(1, 1, 1, 0.55)
+	# Slow "breathing" via tween_method so the alpha drives both the card halo
+	# and the (optional) tooltip halo in lockstep — see _apply_glow_alpha.
+	_apply_glow_alpha(0.55)
 	_type_glow_tween = create_tween()
 	_type_glow_tween.set_loops()
 	_type_glow_tween.set_trans(Tween.TRANS_SINE)
 	_type_glow_tween.set_ease(Tween.EASE_IN_OUT)
-	_type_glow_tween.tween_property(_type_glow, "self_modulate:a", 1.0,  1.8)
-	_type_glow_tween.tween_property(_type_glow, "self_modulate:a", 0.55, 1.8)
+	_type_glow_tween.tween_method(_apply_glow_alpha, 0.55, 1.0,  1.8)
+	_type_glow_tween.tween_method(_apply_glow_alpha, 1.0,  0.55, 1.8)
 
 func _stop_type_glow_pulse() -> void:
 	if _type_glow_tween != null:
 		_type_glow_tween.kill()
 		_type_glow_tween = null
 
+## Apply the current pulse alpha to every halo node (card + tooltip).
+## Per-type shadow_color stays on the StyleBoxFlat; only self_modulate.a moves.
+func _apply_glow_alpha(a: float) -> void:
+	_type_glow_alpha = a
+	if _type_glow != null:
+		_type_glow.self_modulate = Color(1, 1, 1, a)
+	if _tooltip_glow != null and is_instance_valid(_tooltip_glow):
+		_tooltip_glow.self_modulate = Color(1, 1, 1, a)
+
 func _apply_type_glow_color(card_type: int) -> void:
-	if _type_glow_style == null:
-		return
 	var col: Color = _TYPE_GLOW_COLORS.get(card_type, Color(1, 1, 1, 0))
-	_type_glow_style.shadow_color = col
+	if _type_glow_style != null:
+		_type_glow_style.shadow_color = col
+	if _tooltip_glow_style != null:
+		_tooltip_glow_style.shadow_color = col
 
 ## Shrink desc font size until the content fits within the label's visible height.
 ## Called deferred so the label has completed layout and content_height is accurate.
@@ -1168,6 +1118,10 @@ func _remove_tooltip() -> void:
 	if _tooltip != null and is_instance_valid(_tooltip):
 		_tooltip.queue_free()
 	_tooltip = null
+	if _tooltip_glow != null and is_instance_valid(_tooltip_glow):
+		_tooltip_glow.queue_free()
+	_tooltip_glow = null
+	_tooltip_glow_style = null
 
 func _build_tooltip(keywords: Array, has_rituals: bool, spark_value: int = 0, spark_cost: int = 0) -> void:
 	_remove_tooltip()
@@ -1196,11 +1150,39 @@ func _build_tooltip(keywords: Array, has_rituals: bool, spark_value: int = 0, sp
 	_tooltip.clip_contents       = true
 	add_child(_tooltip)
 
+	# Pulsing per-type halo — sibling of _tooltip so its shadow can bleed
+	# outside the tooltip rect (which clips its own children). Drawn behind
+	# the tooltip via move_child. Alpha is driven by the same tween as the
+	# card's _type_glow via _apply_glow_alpha, so the two pulse in lockstep.
+	_tooltip_glow_style = StyleBoxFlat.new()
+	_tooltip_glow_style.draw_center                = false
+	_tooltip_glow_style.bg_color                   = Color(0, 0, 0, 0)
+	_tooltip_glow_style.corner_radius_top_left     = 6
+	_tooltip_glow_style.corner_radius_top_right    = 6
+	_tooltip_glow_style.corner_radius_bottom_left  = 6
+	_tooltip_glow_style.corner_radius_bottom_right = 6
+	_tooltip_glow_style.shadow_size                = int(round(tip_w * 0.11))
+	var _tip_glow_color: Color = _TYPE_GLOW_COLORS.get(
+		card_data.card_type, Color(1, 1, 1, 0)
+	) if card_data != null else Color(1, 1, 1, 0)
+	_tooltip_glow_style.shadow_color = _tip_glow_color
+
+	var _tip_inset_x: float = tip_w * 0.045
+	var _tip_inset_y: float = tip_h * 0.045
+	_tooltip_glow = Panel.new()
+	_tooltip_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tooltip_glow.position     = _tooltip.position + Vector2(_tip_inset_x, _tip_inset_y)
+	_tooltip_glow.size         = Vector2(tip_w - 2.0 * _tip_inset_x, tip_h - 2.0 * _tip_inset_y)
+	_tooltip_glow.add_theme_stylebox_override("panel", _tooltip_glow_style)
+	_tooltip_glow.self_modulate = Color(1, 1, 1, _type_glow_alpha)
+	add_child(_tooltip_glow)
+	move_child(_tooltip_glow, _tooltip.get_index())  # render behind _tooltip
+
 	# Background — explicit size, no anchors, so the layout engine can't override it
 	var bg := TextureRect.new()
 	var _tooltip_tex_path: String = "res://assets/art/frames/neutral/neutral_tooltip.png" \
 		if card_data != null and card_data.faction == "neutral" \
-		else "res://assets/art/frames/abyss_order/abyss_tooltip.png"
+		else "res://assets/art/frames/abyss_order/abyss_tooltip_v3.png"
 	bg.texture      = load(_tooltip_tex_path)
 	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE

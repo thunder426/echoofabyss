@@ -78,10 +78,6 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			_scene.set("_spell_cancelled", true)
 			_log("  Silence Trap: %s spell cancelled!" % _scene._opponent_of(ctx.owner), _LOG_TRAP)
 		# --- Rune effects ---
-		"dominion_rune_place":
-			_scene._refresh_dominion_aura(true, 100 * _scene._rune_aura_multiplier())
-		"dominion_rune_remove":
-			_scene._refresh_dominion_aura(false)
 		"soul_rune_death":
 			_soul_rune_death(ctx)
 		"soul_rune_reset":
@@ -226,8 +222,14 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 	if has_human:
 		for m in board:
 			if m.card_data.minion_type == Enums.MinionType.DEMON:
-				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
-				_scene._refresh_slot_for(m)
+				# Defer to BuffApplyVFX's chevron beat in live combat (state
+				# mutation aligned with visible value tween). Sim falls back to
+				# immediate apply via the null vfx_controller check.
+				if _scene.has_method("_request_buff_apply") and _scene.vfx_controller != null:
+					_scene._request_buff_apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant", false)
+				else:
+					BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
+					_scene._refresh_slot_for(m)
 	if has_demon:
 		for m in board:
 			if m.card_data.minion_type == Enums.MinionType.HUMAN:

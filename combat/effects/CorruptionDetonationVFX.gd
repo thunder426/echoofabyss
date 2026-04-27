@@ -4,66 +4,56 @@
 ## (Act 2, Fight 1) and the Cultist Patrol champion aura.
 ##
 ## Flow (per corrupted minion):
-##   Phase 1 - Icon charge (0.80s): grow + shake the live corruption_icon;
-##                                  shake intensity ramps until the burst.
-##   Phase 2 - Rupture     (0.44s): core flash + sonic distortion + perspective
-##                                  ring. impact_hit fires on the flash peak so
-##                                  the caller applies damage on the visible
-##                                  burst.
-##   Phase 3 - Dissipate   (0.70s): volumetric body layers, ejecta particles,
-##                                  smoke wisps, and a per-slot screen shake.
+##   Phase 1 - charge   (0.80s): grow + shake the live corruption_icon;
+##                               shake intensity ramps until the burst.
+##   Phase 2 - rupture  (0.44s): core flash + sonic distortion + perspective
+##                               ring. impact_hit fires on the flash peak so
+##                               the caller applies damage on the visible
+##                               burst (via .emits at FLASH_PEAK / DURATION).
+##   Phase 3 - dissipate(0.70s): volumetric body layers, ejecta particles,
+##                               smoke wisps, and a per-slot screen shake.
 ##
-## Stack scaling:
-##   stacks 1   - baseline
-##   stacks 3-4 - 1.25x sizes, more ejecta, medium shake
-##   stacks >=5 - 1.5x sizes, heaviest shake
+## Stack scaling (sizes/shake/ejecta) configured in `create()`.
 ##
 ## Spawn via VfxController.spawn(). The caller connects to impact_hit to apply
-## damage + refresh the slot at the right frame (see CombatScene._play_corruption_detonations).
+## damage + refresh the slot at the right frame.
 class_name CorruptionDetonationVFX
 extends BaseVfx
 
 const TEX_GLOW: Texture2D = preload("res://assets/art/fx/glow_soft.png")
 const SHADER_SONIC: Shader = preload("res://combat/effects/sonic_wave.gdshader")
 
-# ── Debug time scale ────────────────────────────────────────────────────────
-# 1.0 is the shipping speed. Raise this to slow the whole effect down for
-# tuning/debug; durations multiply by it and velocities divide by it.
-const DEBUG_TIME_SCALE: float = 1.0
-
 # ── Emerald / corruption palette ────────────────────────────────────────────
-const COLOR_CORE_FLASH: Color     = Color(1.0, 1.0, 0.90, 1.0)   # white-hot core
-const COLOR_VOID_BRIGHT: Color    = Color(0.78, 1.0, 0.70, 0.9)  # front body
-const COLOR_VOID_MID: Color       = Color(0.45, 0.85, 0.25, 0.7) # mid body
-const COLOR_VOID_DARK: Color      = Color(0.15, 0.65, 0.08, 0.6) # back body
-const COLOR_RING: Color           = Color(0.55, 1.0, 0.40, 0.85) # shockwave ring
+const COLOR_CORE_FLASH: Color     = Color(1.0, 1.0, 0.90, 1.0)
+const COLOR_VOID_BRIGHT: Color    = Color(0.78, 1.0, 0.70, 0.9)
+const COLOR_VOID_MID: Color       = Color(0.45, 0.85, 0.25, 0.7)
+const COLOR_VOID_DARK: Color      = Color(0.15, 0.65, 0.08, 0.6)
+const COLOR_RING: Color           = Color(0.55, 1.0, 0.40, 0.85)
 const COLOR_DISTORT_TINT: Color   = Color(0.25, 0.85, 0.20, 0.55)
 
-# Phase 1 — live-icon charge-up. Icon grows and shakes; once it reaches peak
-# size it stops growing but the shake keeps ramping until the explosion.
-# The icon is NOT faded out here — the explosion overpowers it visually and
-# the slot refresh on VFX.finished removes it for real.
-const ICON_HOT_TINT: Color      = Color(2.6, 3.0, 1.5, 1.0)   # bright toxic-green brighten
+# Phase 1
+const ICON_HOT_TINT: Color      = Color(2.6, 3.0, 1.5, 1.0)
 const ICON_PUNCH_SCALE: Vector2 = Vector2(2.3, 2.3)
-const ICON_GROW_TIME: float     = 0.44 * DEBUG_TIME_SCALE   # scale ramps up during this window
-const ICON_SHAKE_TIME: float    = 0.36 * DEBUG_TIME_SCALE   # at peak size; shake keeps ramping
-const PHASE1_DURATION: float    = ICON_GROW_TIME + ICON_SHAKE_TIME  # 0.80s at 1x
-const ICON_SHAKE_TICK: float    = 0.030 * DEBUG_TIME_SCALE  # ~33Hz shake update
-const ICON_SHAKE_AMP_START: float = 1.0   # px at t=0
-const ICON_SHAKE_AMP_MID: float   = 5.0   # px at end of grow phase
-const ICON_SHAKE_AMP_END: float   = 16.0  # px just before explosion
+const ICON_GROW_TIME: float     = 0.44
+const ICON_SHAKE_TIME: float    = 0.36
+const PHASE1_DURATION: float    = ICON_GROW_TIME + ICON_SHAKE_TIME  # 0.80
+const ICON_SHAKE_TICK: float    = 0.030
+const ICON_SHAKE_AMP_START: float = 1.0
+const ICON_SHAKE_AMP_MID: float   = 5.0
+const ICON_SHAKE_AMP_END: float   = 16.0
 
-# Phase 2 — rupture
+# Phase 2
 const CORE_SIZE_BASE: float         = 48.0
 const RING_MAX_RADIUS_BASE: float   = 95.0
 const DISTORT_RADIUS_PX_BASE: float = 130.0
-const FLASH_PEAK: float             = 0.10 * DEBUG_TIME_SCALE  # impact_hit fires here
-const DISTORT_DURATION: float       = 0.44 * DEBUG_TIME_SCALE
-const RING_DURATION: float          = 0.44 * DEBUG_TIME_SCALE
+const FLASH_PEAK: float             = 0.10  # impact_hit fires here within rupture
+const PHASE2_DURATION: float        = 0.44
 
-# Phase 3 — dissipate
+# Phase 3
 const BODY_SIZE_BASE: float  = 80.0
-const PHASE3_DURATION: float = 0.70 * DEBUG_TIME_SCALE
+const PHASE3_DURATION: float = 0.70
+
+const BEAT_RUPTURE := "rupture"
 
 var _slot: BoardSlot = null
 var _stacks: int = 1
@@ -103,8 +93,7 @@ func _play() -> void:
 
 	# Wait one frame so HBoxContainer in the status bar finishes laying out a
 	# freshly-added corruption icon. Without this, when corruption is applied
-	# in the same frame as the detonation fires (Cultist Patrol champion aura,
-	# Plague + corrupt_detonation chain, etc.), the icon's global_position is
+	# in the same frame as the detonation fires, the icon's global_position is
 	# still its initial pre-layout value and the pulse animates from the bar's
 	# leftmost edge instead of where the icon actually sits.
 	await get_tree().process_frame
@@ -114,51 +103,22 @@ func _play() -> void:
 		queue_free()
 		return
 
-	# ── Phase 1: pulse the live corruption icon on the status bar ──────────
-	_start_icon_pulse()
-	await get_tree().create_timer(PHASE1_DURATION).timeout
-	if not is_inside_tree():
-		impact_hit.emit(0)
-		finished.emit()
-		queue_free()
-		return
-
-	# ── Phase 2: rupture ───────────────────────────────────────────────────
-	_hide_charged_icon()
-	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_bolt_impact.wav")
-	_spawn_distortion()
-	_spawn_core_flash()
-	_spawn_ring()
-	await get_tree().create_timer(FLASH_PEAK).timeout
-	if not is_inside_tree():
-		finished.emit()
-		queue_free()
-		return
-	# Damage lands on the flash peak — caller removes corruption + refreshes
-	# the slot + applies spell damage inside this signal.
-	impact_hit.emit(0)
-
-	# ── Phase 3: dissipate ─────────────────────────────────────────────────
-	_spawn_body_layers()
-	_spawn_ejecta()
-	_spawn_smoke_wisps()
-	if _slot != null and _slot.is_inside_tree():
-		ScreenShakeEffect.shake(_slot, self, _shake_amp, _shake_ticks)
-
-	# Remainder of phase 2 plus all of phase 3
-	var remainder: float = (DISTORT_DURATION - FLASH_PEAK) + PHASE3_DURATION
-	await get_tree().create_timer(remainder).timeout
-	if is_instance_valid(_fx_layer):
-		_fx_layer.queue_free()
-	finished.emit()
-	queue_free()
+	var seq := sequence()
+	seq.on(BEAT_RUPTURE, _on_rupture)
+	seq.run([
+		VfxPhase.new("charge",    PHASE1_DURATION, _build_charge),
+		VfxPhase.new("rupture",   PHASE2_DURATION, _build_rupture) \
+			.emits(BEAT_RUPTURE, FLASH_PEAK / PHASE2_DURATION) \
+			.emits(VfxSequence.RESERVED_IMPACT_HIT, FLASH_PEAK / PHASE2_DURATION),
+		VfxPhase.new("dissipate", PHASE3_DURATION, _build_dissipate),
+	])
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Phase 1: live-icon pulse
 # ═════════════════════════════════════════════════════════════════════════════
 
-func _start_icon_pulse() -> void:
+func _build_charge(_duration: float) -> void:
 	var icon: Control = null
 	if _slot.has_method("get_corruption_icon_node"):
 		icon = _slot.get_corruption_icon_node()
@@ -166,36 +126,15 @@ func _start_icon_pulse() -> void:
 		return
 	var original_scale: Vector2 = icon.scale
 	icon.pivot_offset = icon.size * 0.5
-	# Grow + brighten during Phase 1A; then locked at peak size during 1B.
 	var tw := icon.create_tween().set_parallel(true)
 	tw.tween_property(icon, "modulate", ICON_HOT_TINT, ICON_GROW_TIME) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_property(icon, "scale", original_scale * ICON_PUNCH_SCALE, ICON_GROW_TIME) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	# Ramping shake runs on top of the tween for the full Phase 1 duration.
 	_run_icon_shake(icon)
 
 
-## Fade and hide the charged corruption icon on the status bar as the
-## explosion begins. The slot is frozen during the VFX so the normal refresh
-## won't rebuild the status bar; without this, the oversized icon would hang
-## under the burst until VFX.finished.
-func _hide_charged_icon() -> void:
-	if _slot == null or not is_instance_valid(_slot):
-		return
-	if not _slot.has_method("get_corruption_icon_node"):
-		return
-	var icon: Control = _slot.get_corruption_icon_node()
-	if icon == null or not is_instance_valid(icon):
-		return
-	var fade_time: float = 0.10 * DEBUG_TIME_SCALE
-	var tw := icon.create_tween()
-	tw.tween_property(icon, "modulate:a", 0.0, fade_time) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tw.tween_callback(icon.hide)
-
-
-## Fire-and-forget shake coroutine. Amplitude ramps from START -> MID across
+## Fire-and-forget shake coroutine — amplitude ramps from START -> MID across
 ## the grow window, then MID -> END across the shake-only window so the
 ## shake visibly intensifies as the icon locks at peak size.
 func _run_icon_shake(icon: Control) -> void:
@@ -218,6 +157,52 @@ func _run_icon_shake(icon: Control) -> void:
 		elapsed += ICON_SHAKE_TICK
 	if is_instance_valid(icon):
 		icon.position = origin
+
+
+func _hide_charged_icon() -> void:
+	if _slot == null or not is_instance_valid(_slot):
+		return
+	if not _slot.has_method("get_corruption_icon_node"):
+		return
+	var icon: Control = _slot.get_corruption_icon_node()
+	if icon == null or not is_instance_valid(icon):
+		return
+	var fade_time: float = 0.10
+	var tw := icon.create_tween()
+	tw.tween_property(icon, "modulate:a", 0.0, fade_time) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tw.tween_callback(icon.hide)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 2: rupture — distortion + core flash + ring all start together
+# ═════════════════════════════════════════════════════════════════════════════
+
+func _build_rupture(_duration: float) -> void:
+	_hide_charged_icon()
+	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_bolt_impact.wav")
+	_spawn_distortion()
+	_spawn_core_flash()
+	_spawn_ring()
+
+
+# Listener for the rupture beat — fires at FLASH_PEAK; spawns Phase 3 layers
+# and the per-slot shake. (We can't put these in _build_dissipate because
+# dissipate doesn't start until rupture has fully completed, but visually
+# the body layers + shake should appear at the impact moment, not after.)
+func _on_rupture() -> void:
+	_spawn_body_layers()
+	_spawn_ejecta()
+	_spawn_smoke_wisps()
+	if _slot != null and _slot.is_inside_tree():
+		ScreenShakeEffect.shake(_slot, self, _shake_amp, _shake_ticks)
+
+
+# Phase 3 builder — empty. The rupture beat already kicked off the visual
+# body work; this phase exists purely to keep the host alive while body
+# tweens / particles trail. Cleanup on phase end.
+func _build_dissipate(_duration: float) -> void:
+	pass
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -261,14 +246,18 @@ func _spawn_distortion() -> void:
 	rect.material = mat
 	_fx_layer.add_child(rect)
 
+	var fx_layer_ref := _fx_layer
 	var tw := create_tween().set_parallel(true)
 	tw.tween_method(func(p: float) -> void:
 			mat.set_shader_parameter("progress", p),
-			0.0, 1.0, DISTORT_DURATION).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			0.0, 1.0, PHASE2_DURATION).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tw.tween_method(func(a: float) -> void:
 			mat.set_shader_parameter("alpha_multiplier", a),
-			1.0, 0.0, DISTORT_DURATION * 0.35
-		).set_delay(DISTORT_DURATION * 0.65).set_trans(Tween.TRANS_SINE)
+			1.0, 0.0, PHASE2_DURATION * 0.35
+		).set_delay(PHASE2_DURATION * 0.65).set_trans(Tween.TRANS_SINE)
+	tw.chain().tween_callback(func() -> void:
+		if is_instance_valid(fx_layer_ref):
+			fx_layer_ref.queue_free())
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -288,15 +277,15 @@ func _spawn_core_flash() -> void:
 	add_child(flash)
 
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(flash, "scale", Vector2.ONE * (size_px * 1.6 / tex_size), 0.12 * DEBUG_TIME_SCALE) \
+	tw.tween_property(flash, "scale", Vector2.ONE * (size_px * 1.6 / tex_size), 0.12) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(flash, "modulate:a", 0.0, 0.32 * DEBUG_TIME_SCALE) \
-		.set_delay(0.08 * DEBUG_TIME_SCALE).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(flash, "modulate:a", 0.0, 0.32) \
+		.set_delay(0.08).set_trans(Tween.TRANS_SINE)
 	tw.chain().tween_callback(flash.queue_free)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Phase 2c: Perspective shockwave ring (Y-squashed)
+# Phase 2c: Perspective shockwave ring
 # ═════════════════════════════════════════════════════════════════════════════
 
 func _spawn_ring() -> void:
@@ -316,29 +305,29 @@ func _spawn_ring() -> void:
 
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(ring, "scale",
-		Vector2(target_scale_x, target_scale_y), RING_DURATION) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT).set_delay(0.04 * DEBUG_TIME_SCALE)
-	tw.tween_property(ring, "modulate:a", 0.0, 0.28 * DEBUG_TIME_SCALE) \
-		.set_delay(RING_DURATION - 0.20 * DEBUG_TIME_SCALE).set_trans(Tween.TRANS_SINE)
+		Vector2(target_scale_x, target_scale_y), PHASE2_DURATION) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT).set_delay(0.04)
+	tw.tween_property(ring, "modulate:a", 0.0, 0.28) \
+		.set_delay(PHASE2_DURATION - 0.20).set_trans(Tween.TRANS_SINE)
 	tw.chain().tween_callback(ring.queue_free)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Phase 3a: Volumetric body (3 staggered depth sprites)
+# Phase 3a: Volumetric body
 # ═════════════════════════════════════════════════════════════════════════════
 
 func _spawn_body_layers() -> void:
 	var body_size: float = BODY_SIZE_BASE * _scale_mult
 	var configs: Array = [
-		{"delay": 0.00 * DEBUG_TIME_SCALE, "color": COLOR_VOID_DARK,   "size_mult": 0.85, "growth": 1.45,
+		{"delay": 0.00, "color": COLOR_VOID_DARK,   "size_mult": 0.85, "growth": 1.45,
 		 "offset": Vector2(randf_range(-6, 6), randf_range(2, 6)),
-		 "fade_time": 0.60 * DEBUG_TIME_SCALE, "rotation": randf_range(-0.3, 0.3)},
-		{"delay": 0.04 * DEBUG_TIME_SCALE, "color": COLOR_VOID_MID,    "size_mult": 1.00, "growth": 1.50,
+		 "fade_time": 0.60, "rotation": randf_range(-0.3, 0.3)},
+		{"delay": 0.04, "color": COLOR_VOID_MID,    "size_mult": 1.00, "growth": 1.50,
 		 "offset": Vector2(randf_range(-4, 4), randf_range(-2, 2)),
-		 "fade_time": 0.50 * DEBUG_TIME_SCALE, "rotation": randf_range(-0.2, 0.2)},
-		{"delay": 0.08 * DEBUG_TIME_SCALE, "color": COLOR_VOID_BRIGHT, "size_mult": 1.10, "growth": 1.60,
+		 "fade_time": 0.50, "rotation": randf_range(-0.2, 0.2)},
+		{"delay": 0.08, "color": COLOR_VOID_BRIGHT, "size_mult": 1.10, "growth": 1.60,
 		 "offset": Vector2(randf_range(-5, 5), randf_range(-6, -2)),
-		 "fade_time": 0.40 * DEBUG_TIME_SCALE, "rotation": randf_range(-0.25, 0.25)},
+		 "fade_time": 0.40, "rotation": randf_range(-0.25, 0.25)},
 	]
 	for cfg in configs:
 		var color: Color     = cfg["color"] as Color
@@ -364,7 +353,7 @@ func _spawn_body_layers() -> void:
 
 		var end_scale: float = start_scale * growth
 		var tw := create_tween().set_parallel(true)
-		tw.tween_property(sprite, "modulate:a", color.a, 0.08 * DEBUG_TIME_SCALE).set_delay(delay)
+		tw.tween_property(sprite, "modulate:a", color.a, 0.08).set_delay(delay)
 		tw.tween_property(sprite, "scale", Vector2.ONE * end_scale, fade_time) \
 			.set_delay(delay).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		tw.tween_property(sprite, "modulate:a", 0.0, fade_time * 0.6) \
@@ -373,14 +362,14 @@ func _spawn_body_layers() -> void:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Phase 3b: Hot ejecta particles (bright emerald sparks)
+# Phase 3b: Hot ejecta
 # ═════════════════════════════════════════════════════════════════════════════
 
 func _spawn_ejecta() -> void:
 	var burst := CPUParticles2D.new()
 	burst.emitting = true
 	burst.amount = _ejecta_count
-	burst.lifetime = 0.52 * DEBUG_TIME_SCALE
+	burst.lifetime = 0.52
 	burst.one_shot = true
 	burst.explosiveness = 1.0
 	burst.local_coords = true
@@ -390,10 +379,10 @@ func _spawn_ejecta() -> void:
 	burst.emission_sphere_radius = 6.0
 	burst.direction = Vector2(0, 0)
 	burst.spread = 180.0
-	burst.initial_velocity_min = 55.0 / DEBUG_TIME_SCALE
-	burst.initial_velocity_max = (120.0 * _scale_mult) / DEBUG_TIME_SCALE
-	burst.damping_min = 75.0 / DEBUG_TIME_SCALE
-	burst.damping_max = 150.0 / DEBUG_TIME_SCALE
+	burst.initial_velocity_min = 55.0
+	burst.initial_velocity_max = 120.0 * _scale_mult
+	burst.damping_min = 75.0
+	burst.damping_max = 150.0
 	burst.gravity = Vector2.ZERO
 
 	burst.scale_amount_min = 0.07
@@ -411,14 +400,14 @@ func _spawn_ejecta() -> void:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Phase 3c: Smoke wisps (dark-emerald residue)
+# Phase 3c: Smoke wisps
 # ═════════════════════════════════════════════════════════════════════════════
 
 func _spawn_smoke_wisps() -> void:
 	var wisps := CPUParticles2D.new()
 	wisps.emitting = true
 	wisps.amount = 8
-	wisps.lifetime = 0.84 * DEBUG_TIME_SCALE
+	wisps.lifetime = 0.84
 	wisps.one_shot = true
 	wisps.explosiveness = 0.85
 	wisps.randomness = 0.5
@@ -429,11 +418,11 @@ func _spawn_smoke_wisps() -> void:
 	wisps.emission_sphere_radius = 10.0
 	wisps.direction = Vector2(0, 0)
 	wisps.spread = 180.0
-	wisps.initial_velocity_min = 10.0 / DEBUG_TIME_SCALE
-	wisps.initial_velocity_max = 27.5 / DEBUG_TIME_SCALE
-	wisps.gravity = Vector2(0, -15.0 / DEBUG_TIME_SCALE)
-	wisps.damping_min = 10.0 / DEBUG_TIME_SCALE
-	wisps.damping_max = 20.0 / DEBUG_TIME_SCALE
+	wisps.initial_velocity_min = 10.0
+	wisps.initial_velocity_max = 27.5
+	wisps.gravity = Vector2(0, -15.0)
+	wisps.damping_min = 10.0
+	wisps.damping_max = 20.0
 
 	wisps.scale_amount_min = 0.22
 	wisps.scale_amount_max = 0.48
@@ -452,7 +441,6 @@ func _spawn_smoke_wisps() -> void:
 # Procedural textures
 # ═════════════════════════════════════════════════════════════════════════════
 
-## 64x64 donut ring — soft inner/outer edges for the perspective shockwave.
 static func _make_ring_texture() -> ImageTexture:
 	var size: int = 64
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
@@ -473,7 +461,6 @@ static func _make_ring_texture() -> ImageTexture:
 	return ImageTexture.create_from_image(img)
 
 
-## 32x32 soft radial circle — particle texture.
 static func _make_soft_circle() -> ImageTexture:
 	var size: int = 32
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)

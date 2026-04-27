@@ -117,6 +117,12 @@ signal on_play_vfx_done()
 var _active_death_anims: int = 0
 signal death_anims_done()
 
+## Generic gate registry for NEW VFX categories. The four signals/flags above
+## predate this and are awaited externally (EnemyAI). For any new gating need,
+## call `vfx_gate.begin("name")` / `end("name")` — `_do_end_turn` already
+## drains the gate so no edits to the await loop are required.
+var vfx_gate: VfxGate = VfxGate.new()
+
 ## Re-entrancy guard for _do_end_turn — set true while we're awaiting in-flight
 ## VFX and tearing down the turn. Prevents a second click from queuing another
 ## end_player_turn() while the first is still in progress.
@@ -1013,12 +1019,15 @@ func _do_end_turn(growth: String = "") -> void:
 	# Drain any in-flight on-play VFX or death animations before relinquishing
 	# the turn. Spell VFX no longer gates here — P4B mutates state before the
 	# spell's projectile flight, so kills land regardless of when end-turn
-	# fires. Loop because resolving one VFX can start the next.
-	while _on_play_vfx_active or _active_death_anims > 0:
+	# fires. Loop because resolving one VFX can start the next. vfx_gate
+	# covers any future gate types registered without touching this loop.
+	while _on_play_vfx_active or _active_death_anims > 0 or vfx_gate.is_any_active():
 		if _on_play_vfx_active:
 			await on_play_vfx_done
 		if _active_death_anims > 0:
 			await death_anims_done
+		if vfx_gate.is_any_active():
+			await vfx_gate.idle
 	# Combat may have ended while we were awaiting (lethal spell on enemy hero).
 	if _combat_ended:
 		_end_turn_in_progress = false
@@ -1155,18 +1164,31 @@ func _try_play_trap(trap: TrapCardData) -> void:
 		_log("You set trap: %s" % trap.card_name)
 	active_traps.append(trap)
 	_update_trap_display()
+	# Hide the rune slot immediately so the slot reads as empty during the
+	# card preview and the placement VFX. play_rune_placement_vfx fades the
+	# art back in once the VFX finishes.
+	if trap.is_rune:
+		vfx_bridge.hide_rune_slot_for_placement(trap, "player")
 	turn_manager.remove_from_hand(pending_play_card)
 	if hand_display:
 		hand_display.remove_card(pending_play_card)
 		hand_display.deselect_current()
 	pending_play_card = null
-	# Show card preview (traps have no immediate effects — they fire on trigger)
-	_show_card_cast_anim(trap, false, func() -> void: pass)
+	# Show card preview (traps have no immediate effects — they fire on trigger).
+	# For runes, defer the placement VFX into the post-preview callback so the
+	# halo isn't covered by the centered card preview while it animates.
+	if trap.is_rune:
+		_show_card_cast_anim(trap, false, func() -> void:
+			vfx_bridge.play_rune_placement_vfx(trap, "player"))
+	else:
+		_show_card_cast_anim(trap, false, func() -> void: pass)
 	# Fire placement event
 	var place_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_TRAP_PLACED, "player")
 	place_ctx.card = trap
 	trigger_manager.fire(place_ctx)
-	# Runes: register persistent aura handlers, then fire ON_RUNE_PLACED for ritual checks
+	# Runes: register persistent aura handlers, then fire ON_RUNE_PLACED for ritual checks.
+	# These fire immediately (not gated on the preview/VFX) so ritual triggers
+	# resolve in the same frame as the placement.
 	if trap.is_rune:
 		_apply_rune_aura(trap)
 		var rune_ctx := EventContext.make(Enums.TriggerEvent.ON_RUNE_PLACED, "player")
@@ -1571,15 +1593,15 @@ func _register_buff_preludes() -> void:
 	BuffVfxRegistry.register_palette("dark_command",
 			DarkCommandPreludeVFX.PALETTE)
 
-## Subscribe to BuffSystem.bus() so every on-play / spell buff fires the
-## generic BuffApplyVFX. Auras and setup grants pass emit_vfx=false at the
-## call site, so they never reach here.
+## Subscribe to BuffSystem.bus() for corruption_removed (gameplay trigger).
+## buff_applied is no longer subscribed — VFX-driven buffs flow through
+## _request_buff_apply (called by EffectResolver / HardcodedEffects directly),
+## and silent buffs use emit_vfx=false at the call site so they never need
+## a VFX listener.
 func _connect_buff_signal() -> void:
 	var bus: Object = BuffSystem.bus()
 	if bus == null:
 		return
-	if not bus.is_connected("buff_applied", _on_buff_applied):
-		bus.connect("buff_applied", _on_buff_applied)
 	if not bus.is_connected("corruption_removed", _on_corruption_removed):
 		bus.connect("corruption_removed", _on_corruption_removed)
 
@@ -1587,8 +1609,6 @@ func _connect_buff_signal() -> void:
 ## connection must be torn down or it'll point at a freed receiver next run.
 func _exit_tree() -> void:
 	var bus: Object = BuffSystem.bus()
-	if bus != null and bus.is_connected("buff_applied", _on_buff_applied):
-		bus.disconnect("buff_applied", _on_buff_applied)
 	if bus != null and bus.is_connected("corruption_removed", _on_corruption_removed):
 		bus.disconnect("corruption_removed", _on_corruption_removed)
 	var sac_bus: Object = SacrificeSystem.bus()
@@ -1657,6 +1677,14 @@ func _connect_sacrifice_signal() -> void:
 ## tuned per-source later if a prelude adds extra windup time.
 var _pending_sacrifice_ghost_delay: Dictionary = {}
 
+## Slots that are mid-sacrifice and must NOT be auto-unfrozen by the
+## generic spell-cast wrapper (_apply_targeted_spell etc.). _schedule_sacrifice_unfreeze
+## owns the unfreeze for these slots — it waits for the dagger animation to
+## complete before clearing the art and flushing deferred deaths. Keys are
+## BoardSlot refs; values are unused (used as a set). Cleaned up when the
+## scheduled unfreeze runs.
+var _sacrifice_locked_slots: Dictionary = {}
+
 ## Spawn a SacrificeVFX on the sacrificed minion's slot. No coalescing —
 ## each sacrifice is its own distinct ritual event (Void Devourer emitting
 ## twice spawns two parallel VFX on two slots, which is what we want).
@@ -1688,6 +1716,9 @@ func _on_sacrifice_occurred(minion: MinionInstance, source_tag: String) -> void:
 	# would otherwise wipe the art before the blade even lands. Unfreeze when
 	# the blade starts fading, and fade the card out to match the drain beat.
 	slot.freeze_visuals = true
+	# Lock the slot from the generic spell-cast wrapper's auto-unfreeze.
+	# _schedule_sacrifice_unfreeze owns the unfreeze for sacrifices.
+	_sacrifice_locked_slots[slot] = true
 	_schedule_sacrifice_unfreeze(slot, SacrificeVFX.MINION_VISIBLE_DURATION)
 	var prelude: Callable = SacrificeVfxRegistry.build_prelude(source_tag, slot, minion)
 	var vfx := SacrificeVFX.create(slot, prelude)
@@ -1720,6 +1751,7 @@ func _schedule_sacrifice_unfreeze(slot: BoardSlot, delay: float) -> void:
 		return
 	slot.freeze_visuals = false
 	slot._refresh_visuals()
+	_sacrifice_locked_slots.erase(slot)
 	# Restore the art's alpha for the next minion that occupies this slot;
 	# _refresh_visuals hides it behind visible=false but modulate persists.
 	if art != null and is_instance_valid(art):
@@ -1743,36 +1775,59 @@ func _schedule_sacrifice_unfreeze(slot: BoardSlot, delay: float) -> void:
 ##     one VFX with combined deltas (e.g. Dark Empowerment's +ATK + +HP).
 ##   • Different sources hitting the same minion in the same frame get their
 ##     own VFX so per-source preludes don't collide.
-## Each entry value: { "minion": MinionInstance, "source": String,
-##                     "atk": int, "hp": int }
-var _pending_buff_vfx: Dictionary = {}
+## Pending buff requests from EffectResolver — keyed by "minion_id|source_tag"
+## so multiple BUFF_ATK + BUFF_HP steps from the same source on the same
+## minion aggregate into one BuffApplyVFX. Each entry value:
+##   { "minion": MinionInstance, "source": String,
+##     "intents": Array[{ "buff_type": int, "amount": int, "is_hp_gain": bool }] }
+## Drained next frame by _flush_buff_requests.
+var _pending_buff_requests: Dictionary = {}
 
-## Coalesce signals by (minion, source_tag) and schedule one VFX per bucket.
-func _on_buff_applied(minion: MinionInstance, _buff_type: int,
-		atk_delta: int, hp_delta: int, source_tag: String) -> void:
+## Public entry from EffectResolver. EffectResolver calls this for every
+## BUFF_ATK / BUFF_HP step instead of mutating state directly. We aggregate
+## the requests by (minion, source_tag) and spawn ONE BuffApplyVFX per bucket
+## next frame; the VFX itself calls BuffSystem.apply at its chevron beat.
+##
+## This means state mutation happens AT the visible moment (chevron + scale
+## pulse + value tween), not at cast time. No more cast-time auto-tween that
+## fights the chevron-time tween.
+##
+## buff_type is the BuffType enum value. is_hp_gain distinguishes BUFF_HP
+## (which uses apply_hp_gain to bump current_health) from ATK_BONUS / HP_BONUS
+## (which use plain apply).
+func _request_buff_apply(minion: MinionInstance, buff_type: int,
+		amount: int, source_tag: String, is_hp_gain: bool) -> void:
 	if minion == null or not is_instance_valid(minion):
 		return
-	if vfx_controller == null:
-		return
-	# Pack Frenzy owns its full buff visual — skip the generic blessing surge.
+	# Pack Frenzy owns its full buff visual — apply state immediately, skip
+	# the generic blessing surge entirely. PackFrenzyVFX handles the tween/chevron.
 	if source_tag == "pack_frenzy":
+		if is_hp_gain:
+			BuffSystem.apply_hp_gain(minion, amount, source_tag)
+		else:
+			BuffSystem.apply(minion, buff_type, amount, source_tag)
+		_refresh_slot_for(minion)
 		return
 	var key: String = "%d|%s" % [minion.get_instance_id(), source_tag]
-	var agg: Dictionary = _pending_buff_vfx.get(key, {
-		"minion": minion, "source": source_tag, "atk": 0, "hp": 0
+	var agg: Dictionary = _pending_buff_requests.get(key, {
+		"minion": minion, "source": source_tag, "intents": []
 	})
-	agg["atk"] = int(agg["atk"]) + atk_delta
-	agg["hp"]  = int(agg["hp"])  + hp_delta
-	var was_empty: bool = _pending_buff_vfx.is_empty()
-	_pending_buff_vfx[key] = agg
+	(agg["intents"] as Array).append({
+		"buff_type": buff_type, "amount": amount, "is_hp_gain": is_hp_gain,
+	})
+	var was_empty: bool = _pending_buff_requests.is_empty()
+	_pending_buff_requests[key] = agg
 	if was_empty:
-		call_deferred("_flush_buff_vfx")
+		call_deferred("_flush_buff_requests")
 
-## Spawn one BuffApplyVFX per bucket with aggregated deltas, then clear.
-## Looks up a per-source prelude in BuffVfxRegistry; empty Callable = skip.
-func _flush_buff_vfx() -> void:
-	var pending: Dictionary = _pending_buff_vfx
-	_pending_buff_vfx = {}
+## Spawn one BuffApplyVFX per bucket. The VFX takes ownership of the buff
+## intents — at its chevron beat it calls BuffSystem.apply for each, which
+## mutates state and fires buff_applied + minion_stats_changed naturally.
+func _flush_buff_requests() -> void:
+	var pending: Dictionary = _pending_buff_requests
+	_pending_buff_requests = {}
+	# Build the spawn list first so we can count it for the AI gate.
+	var to_spawn: Array = []
 	for key in pending.keys():
 		var agg: Dictionary = pending[key]
 		var m: MinionInstance = agg["minion"] as MinionInstance
@@ -1781,15 +1836,46 @@ func _flush_buff_vfx() -> void:
 		var slot: BoardSlot = _find_slot_for(m)
 		if slot == null or slot.minion != m:
 			continue
-		var atk_d: int = int(agg["atk"])
-		var hp_d:  int = int(agg["hp"])
+		var atk_d: int = 0
+		var hp_d:  int = 0
+		for intent in agg["intents"]:
+			var bt: int = intent["buff_type"]
+			var amt: int = intent["amount"]
+			var is_hp: bool = intent["is_hp_gain"]
+			if is_hp:
+				hp_d += amt
+			elif bt == Enums.BuffType.ATK_BONUS or bt == Enums.BuffType.TEMP_ATK:
+				atk_d += amt
 		if atk_d == 0 and hp_d == 0:
 			continue
-		var src:     String     = String(agg["source"])
-		var prelude: Callable   = BuffVfxRegistry.build_prelude(src, slot, atk_d, hp_d)
-		var palette: Dictionary = BuffVfxRegistry.get_palette(src)
-		var vfx := BuffApplyVFX.create(slot, atk_d, hp_d, prelude, palette)
+		to_spawn.append({"minion": m, "slot": slot, "src": String(agg["source"]),
+			"intents": agg["intents"], "atk_d": atk_d, "hp_d": hp_d})
+	if to_spawn.is_empty():
+		return
+	# AI gating — block enemy AI until the LAST VFX in this batch finishes.
+	_on_play_vfx_active = true
+	_active_buff_vfx_count = to_spawn.size()
+	for s in to_spawn:
+		var prelude: Callable   = BuffVfxRegistry.build_prelude(s["src"], s["slot"], s["atk_d"], s["hp_d"])
+		var palette: Dictionary = BuffVfxRegistry.get_palette(s["src"])
+		var vfx := BuffApplyVFX.create(s["slot"], s["atk_d"], s["hp_d"], prelude, palette)
+		# Attach source tag to each intent so BuffApplyVFX can pass it to BuffSystem.apply.
+		for intent in s["intents"]:
+			intent["_source_tag"] = s["src"]
+		vfx.set_buff_intents(s["minion"], s["intents"], self)
+		vfx.finished.connect(_on_buff_vfx_finished, CONNECT_ONE_SHOT)
 		vfx_controller.spawn(vfx)
+
+## Called when each BuffApplyVFX completes. Releases the AI gate when the
+## last one in the batch finishes.
+var _active_buff_vfx_count: int = 0
+
+func _on_buff_vfx_finished() -> void:
+	_active_buff_vfx_count -= 1
+	if _active_buff_vfx_count <= 0:
+		_active_buff_vfx_count = 0
+		_on_play_vfx_active = false
+		on_play_vfx_done.emit()
 
 ## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
 ## procedural chevron to the right of it, both timed to coincide with the chain
@@ -1871,12 +1957,19 @@ func _resolve_on_death_effect(_minion: MinionInstance) -> void:
 ## wave touches each minion, so corruption "lands" with the wave instead of all
 ## flashing at cast time. Final drain runs after VFX completes.
 func _corrupt_minion(minion: MinionInstance) -> void:
-	state._corrupt_minion(minion)
-	var slot: BoardSlot = _find_slot_for(minion)
-	if slot == null:
+	if minion == null:
 		return
-	if _capturing_spell_popups:
-		_pending_corruption_visuals.append(slot)
+	# When a wave/per-minion VFX is gating spell popups, defer the entire
+	# state mutation (BuffSystem.apply for CORRUPTION) to wave-touch. State
+	# mutating at the visible moment means the cascading signals
+	# (minion_stats_changed → label tween) fire naturally with no special-case
+	# label workarounds. Without capture, mutate immediately and play the VFX.
+	var slot: BoardSlot = _find_slot_for(minion)
+	if _capturing_spell_popups and slot != null:
+		_pending_corruption_apply.append({"slot": slot, "minion": minion})
+		return
+	state._corrupt_minion(minion)
+	if slot == null:
 		return
 	_play_corruption_apply_visual(slot)
 
@@ -2062,22 +2155,11 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 			if data.is_champion and vfx_bridge != null:
 				vfx_bridge.champion_summon_sequence(data, instance, slot)
 			else:
-				# Void Spark tokens get the spark summon sigil VFX (covers
-				# brood_imp on-death, soul_rune, and other spark sources).
-				# Reserve the slot synchronously (so back-to-back SUMMONs land
-				# in distinct slots) then reveal the minion after the sigil.
-				if card_id == "void_spark" and vfx_bridge != null:
-					vfx_bridge.summon_spark_with_sigil(instance, data, slot, owner)
-					return
-				# Void Demon tokens (Void Spawning, Fleshcraft Ritual) get the
-				# purple ARCANE sigil + inward spark burst on reveal.
-				if card_id == "void_demon" and vfx_bridge != null:
-					vfx_bridge.summon_demon_with_sigil(instance, data, slot, owner)
-					return
-				# Brood Imp tokens (Matriarch's Broodling on-death) get the
-				# dark-green BROOD_DARK sigil + green/black inward spark burst.
-				if card_id == "brood_imp" and vfx_bridge != null:
-					vfx_bridge.summon_brood_imp_with_sigil(instance, data, slot, owner)
+				# Token-VFX dispatch lives in CardVfxRegistry. When a registered
+				# handler runs (sigil summons for spark/demon/brood_imp), the
+				# bridge places the minion AND fires ON_*_MINION_SUMMONED via
+				# _reveal_after_sigil — so we short-circuit the default path.
+				if CardVfxRegistry.try_play_token_summon(vfx_bridge, card_id, instance, data, slot, owner):
 					return
 				slot.place_minion(instance)
 				_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
@@ -2091,17 +2173,9 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 ## Aura-source minions play a one-shot breathing halo on their own summon to
 ## advertise "I project an aura" without the noise of a persistent effect.
 ## Strictly on-summon: never fires on aura refresh or when another source of
-## the same aura enters play. Card-id gated (only minions listed here).
+## the same aura enters play. Per-card dispatch lives in CardVfxRegistry.
 func _maybe_spawn_aura_pulse(card: CardData, slot: BoardSlot) -> void:
-	if card == null or slot == null or vfx_controller == null:
-		return
-	match card.id:
-		"rogue_imp_elder":
-			vfx_controller.spawn(AuraBreathingPulseVFX.create(slot))
-		"champion_abyss_cultist_patrol":
-			# Same VFX used when the aura triggers on-detonation — playing it
-			# on summon teaches the player what to watch for before the first trigger.
-			vfx_controller.spawn(ChampionAuraCorruptionPulseVFX.create(slot))
+	CardVfxRegistry.play_summon_aura_pulse(vfx_controller, card, slot)
 
 
 ## Count minions of a given type on the specified owner's board.
@@ -3108,10 +3182,14 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 		# Empowerment's BUFF_ATK / BUFF_HP) mutate state but the slot's ATK/HP
 		# labels don't repaint until something else unfreezes (e.g. the minion
 		# attacking next turn). Mirrors the unfreeze step in `_try_play_spell`.
-		if target_slot != null and is_instance_valid(target_slot):
+		# Skip sacrifice-locked slots — _schedule_sacrifice_unfreeze owns the
+		# unfreeze timing for those (waits for the dagger to land + drain to
+		# play before clearing the art).
+		if target_slot != null and is_instance_valid(target_slot) \
+				and not _sacrifice_locked_slots.has(target_slot):
 			target_slot.freeze_visuals = false
 			target_slot._refresh_visuals()
-		_flush_deferred_deaths()
+			_flush_deferred_deaths()
 	)
 
 ## Fired when player clicks the enemy hero panel while targeting a spell with "enemy_minion_or_hero".
@@ -3225,21 +3303,32 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 	if slot:
 		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
 		slot.place_minion(minion)
-	# ON_PLAY effects are resolved by CombatHandlers.on_enemy_minion_played_effect registered in _setup_triggers().
+	if not is_inside_tree():
+		enemy_summon_reveal_done.emit()
+		return
+	if slot:
+		# Play the landing punch + ripple, then await it BEFORE firing
+		# ON_ENEMY_MINION_SUMMONED. Otherwise reactive VFX (e.g. Corrupt
+		# Authority detonations) start while the imp is still mid-punch and
+		# look like they fire before the imp arrives.
+		await _animate_enemy_landing(slot, total_cost, is_champion)
+		if not is_inside_tree():
+			enemy_summon_reveal_done.emit()
+			return
+		# Per-card reveal extras (e.g. Corrupted Death passive on Void-Touched
+		# Imp) live in CardVfxRegistry — passive gating handled there.
+		CardVfxRegistry.play_enemy_summon_reveal_extra(vfx_controller, minion, slot, _active_enemy_passives)
+	# ON_PLAY effects resolved by CombatHandlers.on_enemy_minion_played_effect (registered in _setup_triggers).
+	# Fire trigger BEFORE emitting enemy_summon_reveal_done so any reactive
+	# handler that sets _on_play_vfx_active = true (e.g. corruption detonation)
+	# does so before EnemyAI checks the flag and decides whether to await
+	# on_play_vfx_done. Otherwise AI would race past the reactive VFX.
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 	ctx.minion = minion
 	ctx.card = minion.card_data
 	trigger_manager.fire(ctx)
 	_maybe_spawn_aura_pulse(minion.card_data, slot)
-	# Signal AFTER place_minion — guarantees AI continues only after the slot is occupied.
 	enemy_summon_reveal_done.emit()
-	if not is_inside_tree(): return
-	if slot:
-		_animate_enemy_landing(slot, total_cost, is_champion)
-		# Corrupted Death passive: special VFX for Void-Touched Imp summons
-		if minion.card_data.id == "void_touched_imp" and "corrupted_death" in _active_enemy_passives:
-			var cd_vfx := CorruptedDeathSummonVFX.create(slot)
-			vfx_controller.spawn(cd_vfx)
 
 ## Centre-screen card reveal when an enemy summons a minion.
 ## Delegated to vfx_bridge — big-card reveal of an enemy summon.
@@ -3313,6 +3402,13 @@ func _on_enemy_trap_placed(trap: TrapCardData) -> void:
 		_log("Enemy sets a trap.", _LogType.ENEMY)
 	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
 	_update_enemy_trap_display()
+	if trap.is_rune:
+		# Hide the slot, then play the VFX. The VFX wrapper fades the art
+		# back in on finish. Sets _on_play_vfx_active synchronously so the
+		# AI's next-action gate blocks until the VFX finishes — the await is
+		# fire-and-forget here (emit() returns to EnemyAI immediately).
+		vfx_bridge.hide_rune_slot_for_placement(trap, "enemy")
+		vfx_bridge.play_rune_placement_vfx(trap, "enemy")
 
 ## Called by EnemyAI's environment_placed signal.
 func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
@@ -3364,9 +3460,6 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 ## Pure logic — delegated to CombatState.
 func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	state._remove_rune_aura(rune, owner)
-
-func _refresh_dominion_aura(active: bool, amount: int = 100) -> void:
-	state._refresh_dominion_aura(active, amount)
 
 ## Talent: rune_caller — draw a random Rune from the player's deck, discounted by 1 mana via cost_delta.
 func _draw_rune_from_deck() -> void:
@@ -3905,12 +3998,15 @@ func _play_void_netter_on_play_vfx(source_minion: MinionInstance, target: Minion
 			_spell_dmg(target, 200, netter_info)
 			return
 		var slot_now := _find_slot_for(target)
+		var pre_hp: int = target.current_health
 		combat_manager.apply_damage_to_minion(target,
 				CombatManager.make_damage_info(200, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, source_minion, "void_netter"))
 		_refresh_slot_for(target)
 		if slot_now != null:
 			_flash_slot(slot_now)
 			_spawn_damage_popup(slot_now.get_global_rect().get_center(), 200)
+			if slot_now.has_method("animate_hp_change"):
+				slot_now.animate_hp_change(pre_hp, target.current_health)
 	if vfx_controller == null or source_slot == null or target_slot == null:
 		apply_damage.call()
 		return
@@ -4066,9 +4162,17 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		_flash_slot(def_slot)
 		if damage > 0:
 			_spawn_damage_popup(def_rect.get_center(), damage, is_crit)
+			# Combat damage already applied by the time the lunge tween reaches
+			# this callback — current_health is post-damage. Reconstruct pre-HP.
+			if def_slot.has_method("animate_hp_change") and defender != null:
+				var from_hp: int = defender.current_health + damage
+				def_slot.animate_hp_change(from_hp, defender.current_health)
 		if counter_damage > 0:
 			_flash_slot(atk_slot)
 			_spawn_damage_popup(atk_slot.get_global_rect().get_center(), counter_damage)
+			if atk_slot.has_method("animate_hp_change") and attacker != null:
+				var atk_from_hp: int = attacker.current_health + counter_damage
+				atk_slot.animate_hp_change(atk_from_hp, attacker.current_health)
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
@@ -4152,11 +4256,12 @@ var _pending_spell_popups: Array = []  # Array[{slot: BoardSlot, damage: int}]
 ## so the defeat / victory flow can fire immediately.
 var _pending_hero_popups: Array = []  # Array[{kind, target, amount, school, is_crit}]
 
-## Slots whose corruption-apply VFX/blink/flash were deferred during inverted
-## spell flow. The wave VFX's per-minion callback drains the matching slot
-## entry so corruption "lands" with the wave; any leftovers drain at end of VFX.
-## State mutation (the buff entry, ATK debuff math) still happens immediately.
-var _pending_corruption_visuals: Array = []  # Array[BoardSlot]
+## Pending corruption-apply for wave-driven spells (Abyssal Plague). Each
+## entry's BuffSystem.apply is deferred until wave-touch, so state mutation,
+## label tween, corruption icon, and blink all happen at the visible moment.
+## Drained per-minion by _drain_pending_spell_popup_for_slot; any leftovers
+## drain at end of VFX via _drain_pending_spell_popups.
+var _pending_corruption_apply: Array = []  # Array[{slot: BoardSlot, minion: MinionInstance}]
 
 func _on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
 	if combat_ui != null:
@@ -4165,12 +4270,19 @@ func _on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
 ## Drain queued spell popups (minion + hero) — called from spell VFX
 ## controllers' resolve_damage callback at impact_hit so popups sync with
 ## projectile arrival even though state mutated earlier.
+##
+## Each minion popup also refreshes its slot's stat labels so the HP tween
+## animates in sync with the popup (rule: floating damage number + HP
+## reduction display together). Uses refresh_stats_only so the tween plays
+## even on frozen slots.
 func _drain_pending_spell_popups() -> void:
 	for p in _pending_spell_popups:
 		var slot: BoardSlot = p.slot
 		if slot != null and is_instance_valid(slot):
 			_flash_slot(slot)
 			_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage)
+			if slot.has_method("animate_hp_change") and p.has("from_hp"):
+				slot.animate_hp_change(p.from_hp, p.to_hp)
 	_pending_spell_popups.clear()
 	for hp in _pending_hero_popups:
 		if hp.kind == "heal":
@@ -4178,9 +4290,17 @@ func _drain_pending_spell_popups() -> void:
 		else:
 			_flash_hero(hp.target, hp.amount, Callable(), hp.school, hp.is_crit)
 	_pending_hero_popups.clear()
-	for slot in _pending_corruption_visuals:
-		_play_corruption_apply_visual(slot)
-	_pending_corruption_visuals.clear()
+	for entry in _pending_corruption_apply:
+		var c_slot: BoardSlot = entry["slot"] as BoardSlot
+		var c_minion: MinionInstance = entry["minion"] as MinionInstance
+		if c_minion == null or not is_instance_valid(c_minion):
+			continue
+		# Mutate state now — fires minion_stats_changed naturally, which
+		# drives the ATK tween via the signal subscriber.
+		state._corrupt_minion(c_minion)
+		if c_slot != null and is_instance_valid(c_slot):
+			_play_corruption_apply_visual(c_slot)
+	_pending_corruption_apply.clear()
 
 ## Drain ONE queued spell-damage popup matched to the given slot. Used by
 ## per-minion-impact VFX (e.g. Abyssal Plague's wave) so each popup fires when
@@ -4199,9 +4319,20 @@ func _drain_pending_spell_popups() -> void:
 func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
 	if slot == null:
 		return false
-	var corr_idx: int = _pending_corruption_visuals.find(slot)
+	# Find matching deferred corruption-apply by slot. Mutate state now (fires
+	# minion_stats_changed → label tween via subscriber) and play the splash.
+	var corr_idx: int = -1
+	for i in _pending_corruption_apply.size():
+		var e: Dictionary = _pending_corruption_apply[i]
+		if e.get("slot") == slot:
+			corr_idx = i
+			break
 	if corr_idx >= 0:
-		_pending_corruption_visuals.remove_at(corr_idx)
+		var entry: Dictionary = _pending_corruption_apply[corr_idx]
+		_pending_corruption_apply.remove_at(corr_idx)
+		var c_minion: MinionInstance = entry.get("minion") as MinionInstance
+		if c_minion != null and is_instance_valid(c_minion):
+			state._corrupt_minion(c_minion)
 		_play_corruption_apply_visual(slot)
 	var found_popup := false
 	for i in _pending_spell_popups.size():
@@ -4211,6 +4342,8 @@ func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
 			if is_instance_valid(slot):
 				_flash_slot(slot)
 				_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage)
+				if slot.has_method("animate_hp_change") and p.has("from_hp"):
+					slot.animate_hp_change(p.from_hp, p.to_hp)
 			found_popup = true
 			break
 	# Unfreeze + refresh whether or not a popup was queued, so non-damaging

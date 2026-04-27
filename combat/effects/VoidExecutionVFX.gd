@@ -3,6 +3,11 @@
 ## An arc sweeps down onto the target (revealed via shader wipe),
 ## then detonates with an explosion burst.
 ##
+## Phases:
+##   1. Arc        — top-to-bottom shader-wipe reveal of the descending arc
+##   2. Hold       — brief pause + impact_hit + screen shake + SFX
+##   3. Explosion  — burst sprite scales/fades + void particle burst
+##
 ## Spawn via VfxController — do not parent manually.
 class_name VoidExecutionVFX
 extends BaseVfx
@@ -13,24 +18,25 @@ const WIPE_SHADER: Shader = preload("res://combat/effects/void_execution_wipe.gd
 
 const DEFAULT_ARC_SIZE := 200.0
 const DEFAULT_EXPLOSION_SIZE := 200.0
-var _arc_size: float = DEFAULT_ARC_SIZE
-var _explosion_size: float = DEFAULT_EXPLOSION_SIZE
-const ARC_DURATION := 0.45
-const HOLD_DURATION := 0.1
-const EXPLOSION_DURATION := 0.5
+
+const ARC_DURATION       := 0.45
+const HOLD_DURATION      := 0.10
+const EXPLOSION_DURATION := 0.50
+const PARTICLE_TAIL      := 0.30
+
 const SHAKE_AMPLITUDE := 8.0
 const SHAKE_TICKS := 6
 
 var _target_pos: Vector2
 var _shake_target: Node = null
-var _arc: Sprite2D
-var _explosion: Sprite2D
-var _arc_material: ShaderMaterial
+var _arc_size: float = DEFAULT_ARC_SIZE
+var _explosion_size: float = DEFAULT_EXPLOSION_SIZE
 
-## target_pos:   impact position in global coords
-## size_scale:   scales both arc and explosion (0.55 for hero hits)
-## shake_target: Node to shake on impact (typically the target BoardSlot or
-##               hero panel). Pass null to skip shake. Never pass a CanvasLayer.
+var _arc: Sprite2D = null
+var _explosion: Sprite2D = null
+var _arc_material: ShaderMaterial = null
+
+
 static func create(target_pos: Vector2, size_scale: float = 1.0, shake_target: Node = null) -> VoidExecutionVFX:
 	var vfx := VoidExecutionVFX.new()
 	vfx._target_pos = target_pos
@@ -40,13 +46,29 @@ static func create(target_pos: Vector2, size_scale: float = 1.0, shake_target: N
 	vfx.z_index = 200
 	return vfx
 
+
 func _play() -> void:
 	position = _target_pos
-	_build_arc()
-	_build_explosion()
-	_run_sequence()
+	_build_arc_node()
+	_build_explosion_node()
 
-func _build_arc() -> void:
+	var seq := sequence()
+	seq.on("impact", _on_impact)
+	seq.run([
+		VfxPhase.new("arc",       ARC_DURATION,       _build_arc_anim),
+		VfxPhase.new("hold",      HOLD_DURATION,      Callable()) \
+			.emits_at_start("impact") \
+			.emits_at_start(VfxSequence.RESERVED_IMPACT_HIT),
+		VfxPhase.new("explosion", EXPLOSION_DURATION, _build_explosion_anim),
+		VfxPhase.new("tail",      PARTICLE_TAIL,      _spawn_void_particles),
+	])
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Construction (synchronous — runs from _play before sequence kicks off)
+# ═════════════════════════════════════════════════════════════════════════════
+
+func _build_arc_node() -> void:
 	_arc = Sprite2D.new()
 	_arc.texture = ARC_TEXTURE
 	var tex_w: float = _arc.texture.get_width()
@@ -56,7 +78,6 @@ func _build_arc() -> void:
 	_arc.position = Vector2(0, -_arc_size * 0.3)
 	_arc.modulate = Color(1.2, 1.0, 1.4, 1.0)
 
-	# Shader for top-to-bottom wipe reveal
 	_arc_material = ShaderMaterial.new()
 	_arc_material.shader = WIPE_SHADER
 	_arc_material.set_shader_parameter("progress", 0.0)
@@ -65,7 +86,8 @@ func _build_arc() -> void:
 	_arc.visible = false
 	add_child(_arc)
 
-func _build_explosion() -> void:
+
+func _build_explosion_node() -> void:
 	_explosion = Sprite2D.new()
 	_explosion.texture = EXPLOSION_TEXTURE
 	var tex_size: float = maxf(_explosion.texture.get_width(), _explosion.texture.get_height())
@@ -75,63 +97,45 @@ func _build_explosion() -> void:
 	_explosion.visible = false
 	add_child(_explosion)
 
-func _run_sequence() -> void:
-	# Phase 1: Arc wipe reveal
-	if _arc and _arc_material:
-		_arc.visible = true
-		var arc_tween := create_tween()
-		arc_tween.set_parallel(true)
-		arc_tween.tween_method(_set_arc_progress, 0.0, 1.0, ARC_DURATION).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
-		arc_tween.tween_method(_set_arc_glow, 0.0, 2.5, ARC_DURATION * 0.6)
-		arc_tween.tween_method(_set_arc_glow, 2.5, 0.5, ARC_DURATION * 0.4).set_delay(ARC_DURATION * 0.6)
-		await arc_tween.finished
-		if not is_inside_tree(): queue_free(); return
 
-	# Phase 2: Hold + screen shake + SFX
-	impact_hit.emit(0)
-	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_execution.wav")
-	# Shake the target node (slot/panel) — ScreenShakeEffect handles missing targets.
-	if _shake_target != null:
-		ScreenShakeEffect.shake(_shake_target, self, SHAKE_AMPLITUDE, SHAKE_TICKS)
-	await get_tree().create_timer(HOLD_DURATION).timeout
-	if not is_inside_tree(): queue_free(); return
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase builders
+# ═════════════════════════════════════════════════════════════════════════════
 
-	# Phase 3: Explosion
-	if _arc:
+func _build_arc_anim(duration: float) -> void:
+	if _arc == null or _arc_material == null:
+		return
+	_arc.visible = true
+	var tw := create_tween().set_parallel(true)
+	tw.tween_method(_set_arc_progress, 0.0, 1.0, duration).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	tw.tween_method(_set_arc_glow, 0.0, 2.5, duration * 0.6)
+	tw.tween_method(_set_arc_glow, 2.5, 0.5, duration * 0.4).set_delay(duration * 0.6)
+
+
+func _build_explosion_anim(duration: float) -> void:
+	# Arc fades out as the explosion appears.
+	if _arc != null and is_instance_valid(_arc):
 		var arc_fade := create_tween()
-		arc_fade.tween_property(_arc, "modulate:a", 0.0, 0.1)
+		arc_fade.tween_property(_arc, "modulate:a", 0.0, 0.10)
 
-	if _explosion:
-		_explosion.visible = true
-		_explosion.scale = Vector2.ONE * (_explosion_size / maxf(_explosion.texture.get_width(), 1.0)) * 0.3
-		_explosion.modulate = Color(1.5, 1.2, 1.8, 1.0)
-		var exp_tween := create_tween()
-		exp_tween.set_parallel(true)
-		var target_scale: float = _explosion_size / maxf(_explosion.texture.get_width(), 1.0)
-		exp_tween.tween_property(_explosion, "scale", Vector2.ONE * target_scale * 1.1, EXPLOSION_DURATION * 0.3).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
-		exp_tween.tween_property(_explosion, "modulate", Color(1.0, 0.8, 1.2, 1.0), EXPLOSION_DURATION * 0.3)
-		# Then fade out
-		exp_tween.tween_property(_explosion, "scale", Vector2.ONE * target_scale * 1.3, EXPLOSION_DURATION * 0.7).set_delay(EXPLOSION_DURATION * 0.3).set_ease(Tween.EASE_IN)
-		exp_tween.tween_property(_explosion, "modulate:a", 0.0, EXPLOSION_DURATION * 0.7).set_delay(EXPLOSION_DURATION * 0.3).set_ease(Tween.EASE_IN)
-		await exp_tween.finished
-		if not is_inside_tree(): queue_free(); return
+	if _explosion == null:
+		return
+	_explosion.visible = true
+	var target_scale: float = _explosion_size / maxf(_explosion.texture.get_width(), 1.0)
+	_explosion.scale = Vector2.ONE * target_scale * 0.3
+	_explosion.modulate = Color(1.5, 1.2, 1.8, 1.0)
 
-	# Spawn particle burst for extra juice
-	_spawn_void_particles()
-	await get_tree().create_timer(0.3).timeout
-	if not is_inside_tree(): return
-	finished.emit()
-	queue_free()
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(_explosion, "scale", Vector2.ONE * target_scale * 1.1, duration * 0.3) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tw.tween_property(_explosion, "modulate", Color(1.0, 0.8, 1.2, 1.0), duration * 0.3)
+	tw.tween_property(_explosion, "scale", Vector2.ONE * target_scale * 1.3, duration * 0.7) \
+		.set_delay(duration * 0.3).set_ease(Tween.EASE_IN)
+	tw.tween_property(_explosion, "modulate:a", 0.0, duration * 0.7) \
+		.set_delay(duration * 0.3).set_ease(Tween.EASE_IN)
 
-func _set_arc_progress(value: float) -> void:
-	if _arc_material:
-		_arc_material.set_shader_parameter("progress", value)
 
-func _set_arc_glow(value: float) -> void:
-	if _arc_material:
-		_arc_material.set_shader_parameter("glow_strength", value)
-
-func _spawn_void_particles() -> void:
+func _spawn_void_particles(_duration: float) -> void:
 	var burst := CPUParticles2D.new()
 	burst.emitting = true
 	burst.amount = 24
@@ -157,3 +161,27 @@ func _spawn_void_particles() -> void:
 	gradient.set_color(1, Color(0.4, 0.1, 0.6, 0.0))
 	burst.color_ramp = gradient
 	add_child(burst)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Listeners
+# ═════════════════════════════════════════════════════════════════════════════
+
+func _on_impact() -> void:
+	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_execution.wav")
+	if _shake_target != null:
+		ScreenShakeEffect.shake(_shake_target, self, SHAKE_AMPLITUDE, SHAKE_TICKS)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Shader callbacks
+# ═════════════════════════════════════════════════════════════════════════════
+
+func _set_arc_progress(value: float) -> void:
+	if _arc_material:
+		_arc_material.set_shader_parameter("progress", value)
+
+
+func _set_arc_glow(value: float) -> void:
+	if _arc_material:
+		_arc_material.set_shader_parameter("glow_strength", value)

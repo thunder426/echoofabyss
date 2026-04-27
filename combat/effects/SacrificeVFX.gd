@@ -23,9 +23,10 @@ const DAGGER_APPROACH:  float = 0.30   # descent from above → impact at card c
 const DAGGER_HOLD:      float = 0.45   # embedded pause — blade stays in while blood flies
 const DAGGER_FADE:      float = 0.20   # knife fades out as the sigil blooms
 const DAGGER_DURATION:  float = DAGGER_APPROACH + DAGGER_HOLD + DAGGER_FADE
-# Minion card stays visible through approach + hold, then fades into the sigil.
-# Used by CombatScene to know when to unfreeze/clear the slot visual.
-const MINION_VISIBLE_DURATION: float = DAGGER_APPROACH + DAGGER_HOLD
+# Minion card stays visible through the entire dagger animation (approach +
+# hold + fade) and only begins fading once the dagger is gone. Used by
+# CombatScene._schedule_sacrifice_unfreeze to know when to clear the slot.
+const MINION_VISIBLE_DURATION: float = DAGGER_DURATION
 const MINION_FADE_DURATION:    float = 0.15
 const SIGIL_DURATION:   float = 0.35
 const DRAIN_DURATION:   float = 0.35

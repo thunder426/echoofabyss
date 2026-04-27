@@ -2,7 +2,7 @@
 ## Represents one of the 5 board slots on either side.
 ## Empty slots show the plain Panel style.
 ## Occupied slots use the abyss_battlefield_minion.png frame with Cinzel Bold labels.
-## Abyss-order non-shielded minions use abyss_battlefield_minion_generic.png:
+## Abyss-order non-shielded minions use abyss_battlefield_minion_generic_v2.png:
 ##   no cost badge, no name bar — big art + status bar + ATK + HP only.
 ##
 ## Render order (bottom → top):
@@ -70,20 +70,20 @@ const _CFG: Dictionary = {
 	"hp":     { "pos": Vector2(105, 164), "size": Vector2( 52,  30), "font_size": 12 },
 }
 
-# Generic frame layout (abyss_battlefield_minion_generic.png):
+# Generic frame layout (abyss_battlefield_minion_generic_v2.png):
 # No cost badge, no name bar — art fills the top portion of the slot.
 const _CFG_GENERIC: Dictionary = {
 	# Art window — larger, starts from near top edge
 	"art":    { "pos": Vector2(  21, 10), "size": Vector2(140, 140) },
 
 	# ATK  — bottom-left (same as normal)
-	"atk":    { "pos": Vector2( 28, 163), "size": Vector2( 52,  30), "font_size": 12 },
+	"atk":    { "pos": Vector2( 20, 163), "size": Vector2( 52,  30), "font_size": 12 },
 
 	# Status bar — bottom-center (same as normal)
-	"status": { "pos": Vector2( 14, 137), "size": Vector2(152,  23) },
+	"status": { "pos": Vector2( 14, 142), "size": Vector2(152,  23) },
 
 	# HP  — bottom-right (same as normal)
-	"hp":     { "pos": Vector2(105, 163), "size": Vector2( 52,  30), "font_size": 12 },
+	"hp":     { "pos": Vector2(108, 163), "size": Vector2( 52,  30), "font_size": 12 },
 }
 # fmt: on
 
@@ -114,6 +114,15 @@ var freeze_visuals: bool = false   # Set true during lunge to prevent empty-stat
 # Status bar tooltip
 var _status_tooltip: Panel = null
 var _using_generic:  bool = false
+
+# Animated label tweens — track per-label so consecutive stat changes pick up
+# from the live displayed value and don't fight each other. Used by
+# _animate_label_to_int (HP and ATK).
+var _atk_value_tween: Tween = null
+var _hp_value_tween:  Tween = null
+const _STAT_ANIM_DURATION: float = 0.35
+const _STAT_ANIM_MIN_DELTA: int  = 2
+
 
 # ---------------------------------------------------------------------------
 # Godot lifecycle
@@ -286,11 +295,148 @@ func clear_highlight() -> void:
 	set_highlight(HighlightMode.NONE)
 
 # ---------------------------------------------------------------------------
+# Stat label — snap helpers and VFX-anchored tweens
+# ---------------------------------------------------------------------------
+##
+## Architecture: regular refresh paths (_show_occupied_state, refresh_stats_only)
+## SNAP labels directly via _snap_atk_label / _snap_hp_label. These are the
+## "ground truth" updates that keep labels in sync with state.
+##
+## Tweens are triggered only by VFX paths via animate_hp_change / animate_atk_change.
+## The VFX is the visible authorization to show a stat change; the tween animates
+## the label from the pre-change value to the current minion value at that moment.
+##
+## Critically: snap helpers KILL any in-flight tween so they don't fight each
+## other. A tween in progress is fine, but the next refresh hard-overrides it.
+
+## Smart-write the ATK label. If the displayed value already matches `value`,
+## no-op. If different and the displayed text is a pure int, START A TWEEN
+## from displayed → value. If different but displayed is non-numeric (initial
+## empty / formatted), snap directly. If a tween is already running, leaves
+## it alone (the tween knows the correct end value and is mid-flight).
+func _snap_atk_label(value: int) -> void:
+	if _atk_value_tween != null and _atk_value_tween.is_valid():
+		return
+	var current_text: String = _atk_label.text
+	if not current_text.is_valid_int():
+		_atk_label.text = str(value)
+		return
+	var displayed: int = current_text.to_int()
+	if displayed == value:
+		return
+	# Stat changed — animate from displayed to new value.
+	_run_label_tween(_atk_label, displayed, value, "atk")
+
+## Smart-write the HP label. Same rules as _snap_atk_label, but the HP label
+## also handles shield-suffix variants ("1500+200"). When the new text is the
+## shield format, snap directly (no tween — format change). When both old and
+## new are pure ints, tween. Otherwise snap.
+func _snap_hp_label(text: String) -> void:
+	if _hp_value_tween != null and _hp_value_tween.is_valid():
+		return
+	if _hp_label.text == text:
+		return
+	# Tween only when both values are pure ints (no shield suffix transitions).
+	if text.is_valid_int() and _hp_label.text.is_valid_int():
+		var old_value: int = _hp_label.text.to_int()
+		var new_value: int = text.to_int()
+		_run_label_tween(_hp_label, old_value, new_value, "hp")
+		return
+	_hp_label.text = text
+
+## VFX-anchored: tween HP from `from_hp` to `to_hp`, in sync with the floating
+## "-N" popup. Caller passes both values to avoid ambiguity about whether
+## state mutation has run yet (different paths emit signals before vs after
+## applying damage).
+##
+## Snaps without animation when:
+##   - Minion missing
+##   - Shield active (label format includes "+N")
+##   - |delta| < _STAT_ANIM_MIN_DELTA
+##   - VFX time scale is zero
+func animate_hp_change(from_hp: int, to_hp: int) -> void:
+	if minion == null:
+		return
+	# Shield variant — snap, don't tween.
+	if minion.has_shield() and minion.current_shield > 0:
+		_hp_label.add_theme_color_override("font_color", Color(0.40, 0.85, 1.00, 1))
+		_snap_hp_label("%d+%d" % [minion.current_health, minion.current_shield])
+		return
+	_hp_label.add_theme_color_override("font_color", Color(0.35, 1.00, 0.50, 1))
+	_run_label_tween(_hp_label, from_hp, to_hp, "hp")
+
+## VFX-anchored: tween ATK from `from_atk` → current effective_atk(). Caller
+## passes the pre-buff snapshot so the start point is correct regardless of
+## what the label happens to display.
+func animate_atk_change(from_atk: int) -> void:
+	if minion == null:
+		return
+	var corruption_total := BuffSystem.sum_type(minion, Enums.BuffType.CORRUPTION)
+	_atk_label.add_theme_color_override("font_color",
+		Color(0.70, 0.45, 0.10, 1) if corruption_total > 0 else Color(1.00, 0.75, 0.25, 1))
+	var post_atk: int = minion.effective_atk()
+	_run_label_tween(_atk_label, from_atk, post_atk, "atk")
+
+
+
+## Internal: run a tween from old→new on `label`, tracked under `which` ("hp" or "atk").
+## Cancels any active tween on that label first. Snaps if delta is too small or
+## duration would be zero.
+func _run_label_tween(label: Label, old_value: int, new_value: int, which: String) -> void:
+	# Kill the matching active tween for this label.
+	if which == "hp":
+		if _hp_value_tween != null and _hp_value_tween.is_valid():
+			_hp_value_tween.kill()
+			_hp_value_tween = null
+	else:
+		if _atk_value_tween != null and _atk_value_tween.is_valid():
+			_atk_value_tween.kill()
+			_atk_value_tween = null
+
+	var delta: int = absi(new_value - old_value)
+	if delta < _STAT_ANIM_MIN_DELTA:
+		label.text = str(new_value)
+		return
+	var duration: float = _STAT_ANIM_DURATION * BaseVfx.time_scale
+	if duration <= 0.0:
+		label.text = str(new_value)
+		return
+
+	# Force the start value so the tween begins from the correct pre-change
+	# number regardless of what the label was previously displaying.
+	label.text = str(old_value)
+	var tw := create_tween()
+	# Linear pacing so the number ticks at a constant rate — feels like a
+	# counter "spinning down" rather than snapping.
+	tw.tween_method(func(v: float) -> void:
+		if is_instance_valid(label):
+			label.text = str(int(round(v))),
+		float(old_value), float(new_value), duration) \
+		.set_trans(Tween.TRANS_LINEAR).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(label):
+			label.text = str(new_value))
+
+	if which == "hp":
+		_hp_value_tween = tw
+	else:
+		_atk_value_tween = tw
+
+# ---------------------------------------------------------------------------
 # Visuals
 # ---------------------------------------------------------------------------
 
 func _refresh_visuals() -> void:
-	if _overlay == null or freeze_visuals:
+	if _overlay == null:
+		return
+
+	# When frozen (lunge / sacrifice / damage-VFX hold), skip the heavy refresh
+	# (frame, art, status icons) but STILL update the stat labels so HP/ATK
+	# tweens visibly track during the freeze window. Labels are pure text
+	# overlays — updating them never disrupts a VFX.
+	if freeze_visuals:
+		if minion != null:
+			refresh_stats_only()
 		return
 
 	if minion == null:
@@ -298,10 +444,38 @@ func _refresh_visuals() -> void:
 	else:
 		_show_occupied_state()
 
+## Refresh ONLY the HP and ATK label values, bypassing freeze_visuals.
+## SNAPS labels (no animation) — tweens are the VFX paths' responsibility.
+## Used by the spell-damage-popup path AFTER animate_hp_change has been called
+## and finished, or in places where we just want the labels in sync with state.
+func refresh_stats_only() -> void:
+	if minion == null:
+		return
+	var corruption_total := BuffSystem.sum_type(minion, Enums.BuffType.CORRUPTION)
+	var effective_atk := minion.effective_atk()
+	_atk_label.add_theme_color_override("font_color",
+		Color(0.70, 0.45, 0.10, 1) if corruption_total > 0 else Color(1.00, 0.75, 0.25, 1))
+	_snap_atk_label(effective_atk)
+
+	if minion.has_shield() and minion.current_shield > 0:
+		_hp_label.add_theme_color_override("font_color", Color(0.40, 0.85, 1.00, 1))
+		_snap_hp_label("%d+%d" % [minion.current_health, minion.current_shield])
+	else:
+		_hp_label.add_theme_color_override("font_color", Color(0.35, 1.00, 0.50, 1))
+		_snap_hp_label(str(minion.current_health))
+
 const _ABYSS_HEROES     := ["lord_vael", "seris"]
 const _ABYSS_EMPTY_SLOT := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
 
 func _show_empty_state() -> void:
+	# Kill any in-flight stat tweens — the slot is now empty, the previous
+	# minion's HP/ATK animation must not keep writing to the labels.
+	if _atk_value_tween != null and _atk_value_tween.is_valid():
+		_atk_value_tween.kill()
+		_atk_value_tween = null
+	if _hp_value_tween != null and _hp_value_tween.is_valid():
+		_hp_value_tween.kill()
+		_hp_value_tween = null
 	# Always transparent panel bg — highlight is purely a border glow
 	var blank := StyleBoxFlat.new()
 	blank.bg_color = Color(0, 0, 0, 0)
@@ -349,7 +523,7 @@ func _show_occupied_state() -> void:
 	_using_generic = _use_generic
 	var _frame_path: String
 	if _use_generic:
-		_frame_path = "res://assets/art/frames/abyss_order/abyss_battlefield_minion_generic.png"
+		_frame_path = "res://assets/art/frames/abyss_order/abyss_battlefield_minion_generic_v2.png"
 	elif _faction == "neutral":
 		_frame_path = "res://assets/art/frames/neutral/neutral_dual_battlefield_minion.png" \
 			if _is_dual else "res://assets/art/frames/neutral/neutral_battlefield_minion.png"
@@ -410,21 +584,21 @@ func _show_occupied_state() -> void:
 		else _name_cfg["font_size"]
 	_name_label.add_theme_font_size_override("font_size", _name_fs)
 
-	# ATK — tinted darker when corrupted
+	# ATK — tinted darker when corrupted. Snap label directly; tweens are
+	# triggered only by the VFX paths (animate_atk_change / animate_hp_change).
 	var corruption_total := BuffSystem.sum_type(minion, Enums.BuffType.CORRUPTION)
 	var effective_atk := minion.effective_atk()
-	_atk_label.text = str(effective_atk)
 	_atk_label.add_theme_color_override("font_color",
 		Color(0.70, 0.45, 0.10, 1) if corruption_total > 0 else Color(1.00, 0.75, 0.25, 1))
+	_snap_atk_label(effective_atk)
 
-	# HP — always green; blue tint when shield active
-	var hp_text := str(minion.current_health)
+	# HP — always green; blue tint when shield active.
 	if minion.has_shield() and minion.current_shield > 0:
-		hp_text += "+%d" % minion.current_shield
 		_hp_label.add_theme_color_override("font_color", Color(0.40, 0.85, 1.00, 1))
+		_snap_hp_label("%d+%d" % [minion.current_health, minion.current_shield])
 	else:
 		_hp_label.add_theme_color_override("font_color", Color(0.35, 1.00, 0.50, 1))
-	_hp_label.text = hp_text
+		_snap_hp_label(str(minion.current_health))
 
 	# Buffed-stat highlight: slow pulse on any stat differing from base.
 	#   ATK: corruption → debuff dim; above base (no corruption) → buff glow

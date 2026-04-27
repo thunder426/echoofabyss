@@ -1,32 +1,33 @@
 ## BroodImpSparkBurstVFX.gd
 ## Dark-green / black spark convergence played on a BoardSlot right after the
 ## brood sigil collapses for a Matriarch's Broodling on-death Brood Imp summon.
-## Mirrors VoidDemonSparkBurstVFX structure — each spark spawns on the slot
-## edge and tweens inward to center (additive blend) — but recolored to sell
-## the feral/abyssal brood read instead of arcane void.
+## Mirrors VoidDemonSparkBurstVFX structure but recolored for the brood read.
 ##
-## Fire-and-forget: spawn via VfxController.spawn.
+## Phases:
+##   1. emit (0.95s) — spawn sparks at EMIT_INTERVAL, each flies inward
+##   2. tail (FLIGHT_MAX + 0.1s) — wait for last sparks to converge before finish
+##
+## Spawn via VfxController.spawn.
 class_name BroodImpSparkBurstVFX
 extends BaseVfx
 
 const TEX_SPARK: Texture2D = preload("res://assets/art/fx/spark_sprite.png")
 
-# Dark green core → near-black tail. Core is a sickly acid-green so it still
-# reads bright against the dim slot; tail is a deep charcoal-green.
 const COLOR_CORE: Color = Color(0.55, 1.00, 0.45, 1.0)
 const COLOR_TAIL: Color = Color(0.05, 0.12, 0.05, 0.95)
 
 const SPARK_SIZE_PX: float   = 9.0
-# Inset from slot edge so the full spark sprite (incl. peak-scale bloom) stays
-# inside the slot rectangle.
 const EDGE_INSET_PX: float   = 14.0
 const FLIGHT_MIN: float      = 0.55
 const FLIGHT_MAX: float      = 0.80
 const EMIT_INTERVAL: float   = 0.018
 const EMIT_DURATION: float   = 0.95
-const TOTAL_DURATION: float  = EMIT_DURATION + FLIGHT_MAX + 0.1
+const TAIL_DURATION: float   = FLIGHT_MAX + 0.1
 
 var _target_slot: BoardSlot = null
+var _slot_size: Vector2 = Vector2.ZERO
+var _scale_factor: float = 1.0
+var _emit_active: bool = false
 
 
 static func create(target_slot: BoardSlot) -> BroodImpSparkBurstVFX:
@@ -45,30 +46,36 @@ func _play() -> void:
 
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/void_spawning.wav", -10.0)
 
-	var slot_size: Vector2 = _target_slot.size
-	var center: Vector2 = _target_slot.global_position + slot_size * 0.5
-	global_position = center
+	_slot_size = _target_slot.size
+	global_position = _target_slot.global_position + _slot_size * 0.5
+	_scale_factor = SPARK_SIZE_PX / maxf(float(TEX_SPARK.get_width()), 1.0)
 
-	var scale_factor: float = SPARK_SIZE_PX / maxf(float(TEX_SPARK.get_width()), 1.0)
+	sequence().run([
+		VfxPhase.new("emit", EMIT_DURATION, _build_emit),
+		VfxPhase.new("tail", TAIL_DURATION, Callable()),
+	])
 
+
+func _build_emit(duration: float) -> void:
+	_emit_active = true
+	_run_emit_loop(duration)
+
+
+# Fire-and-forget coroutine — spawns sparks until the phase ends.
+func _run_emit_loop(duration: float) -> void:
 	var elapsed: float = 0.0
-	while elapsed < EMIT_DURATION:
+	while elapsed < duration and _emit_active:
 		if not is_inside_tree():
 			return
-		_spawn_spark(slot_size, scale_factor)
+		_spawn_spark()
 		await get_tree().create_timer(EMIT_INTERVAL).timeout
 		elapsed += EMIT_INTERVAL
 
-	await get_tree().create_timer(FLIGHT_MAX + 0.1).timeout
-	finished.emit()
-	queue_free()
 
-
-func _spawn_spark(slot_size: Vector2, scale_factor: float) -> void:
-	# Inset so sparks spawn fully inside the slot frame.
+func _spawn_spark() -> void:
 	var half: Vector2 = Vector2(
-		maxf(slot_size.x * 0.5 - EDGE_INSET_PX, 1.0),
-		maxf(slot_size.y * 0.5 - EDGE_INSET_PX, 1.0)
+		maxf(_slot_size.x * 0.5 - EDGE_INSET_PX, 1.0),
+		maxf(_slot_size.y * 0.5 - EDGE_INSET_PX, 1.0)
 	)
 	var angle: float = randf() * TAU
 	var dir: Vector2 = Vector2(cos(angle), sin(angle))
@@ -80,7 +87,7 @@ func _spawn_spark(slot_size: Vector2, scale_factor: float) -> void:
 	var spark := Sprite2D.new()
 	spark.texture = TEX_SPARK
 	spark.position = start_local
-	spark.scale = Vector2(scale_factor, scale_factor) * 0.6
+	spark.scale = Vector2(_scale_factor, _scale_factor) * 0.6
 	spark.modulate = COLOR_CORE
 	var mat := CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
@@ -88,7 +95,7 @@ func _spawn_spark(slot_size: Vector2, scale_factor: float) -> void:
 	add_child(spark)
 
 	var flight: float = randf_range(FLIGHT_MIN, FLIGHT_MAX)
-	var peak_scale: Vector2 = Vector2(scale_factor, scale_factor) * 1.1
+	var peak_scale: Vector2 = Vector2(_scale_factor, _scale_factor) * 1.1
 
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(spark, "position", Vector2.ZERO, flight) \

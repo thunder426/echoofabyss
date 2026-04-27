@@ -42,6 +42,8 @@ static func run_all() -> void:
 	_runic_attunement_stat()
 	_void_imp_boost()
 	_pack_instinct_scaling()
+	_rogue_imp_elder_aura_scaling()
+	_rogue_imp_elder_aura_strips_on_death()
 	_corrupted_death_cost_discount()
 	_feral_reinforcement_human_summon()
 	_feral_reinforcement_once_per_turn()
@@ -680,6 +682,56 @@ static func _void_imp_boost() -> void:
 # pack_instinct — every feral imp on enemy board gains +50 ATK per OTHER feral imp.
 # Recomputes on summon/death events.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# rogue_imp_elder presence aura — every Elder grants +100 ATK to every friendly
+# Feral Imp (including itself) on the same side. Recomputes on summon/death.
+# ---------------------------------------------------------------------------
+
+static func _rogue_imp_elder_aura_scaling() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("rogue_imp_elder / 1 Elder + 2 imps = +100 ATK each (1 elder)", state):
+		return
+	var imp_a := TestHarness.spawn_friendly(state, "rabid_imp")
+	var imp_b := TestHarness.spawn_friendly(state, "rabid_imp")
+	var elder := TestHarness.spawn_friendly(state, "rogue_imp_elder")
+	var imp_base := imp_a.card_data.atk
+	var elder_base := elder.card_data.atk
+	_fire_player_summon(state, elder)  # any summon triggers recompute
+	TestHarness.assert_eq(imp_a.effective_atk(), imp_base + 100, "imp_a: +100 (1 elder)")
+	TestHarness.assert_eq(imp_b.effective_atk(), imp_base + 100, "imp_b: +100 (1 elder)")
+	TestHarness.assert_eq(elder.effective_atk(), elder_base + 100, "elder buffs itself (it's a feral imp)")
+	state.teardown()
+
+	state = TestHarness.build_state({})
+	if not TestHarness.begin_test("rogue_imp_elder / 2 Elders + 1 imp = +200 ATK each (count scales)", state):
+		return
+	var imp := TestHarness.spawn_friendly(state, "rabid_imp")
+	var e1 := TestHarness.spawn_friendly(state, "rogue_imp_elder")
+	var e2 := TestHarness.spawn_friendly(state, "rogue_imp_elder")
+	var base_imp := imp.card_data.atk
+	_fire_player_summon(state, e2)
+	TestHarness.assert_eq(imp.effective_atk(), base_imp + 200, "imp: +200 (2 elders)")
+	TestHarness.assert_eq(e1.effective_atk(), e1.card_data.atk + 200, "e1: +200 (2 elders)")
+	TestHarness.assert_eq(e2.effective_atk(), e2.card_data.atk + 200, "e2: +200 (2 elders)")
+	state.teardown()
+
+static func _rogue_imp_elder_aura_strips_on_death() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("rogue_imp_elder / dies → buff drops back to 0", state):
+		return
+	var imp := TestHarness.spawn_friendly(state, "rabid_imp")
+	var elder := TestHarness.spawn_friendly(state, "rogue_imp_elder")
+	var base_imp := imp.card_data.atk
+	_fire_player_summon(state, elder)
+	TestHarness.assert_eq(imp.effective_atk(), base_imp + 100, "imp: +100 with elder alive")
+	# Kill the elder by removing it from the board and firing the death event.
+	state.player_board.erase(elder)
+	var death_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, "player")
+	death_ctx.minion = elder
+	state.trigger_manager.fire(death_ctx)
+	TestHarness.assert_eq(imp.effective_atk(), base_imp, "imp: back to base after elder dies")
+	state.teardown()
 
 static func _pack_instinct_scaling() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["pack_instinct"]})

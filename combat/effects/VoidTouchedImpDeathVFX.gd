@@ -1,33 +1,17 @@
 ## VoidTouchedImpDeathVFX.gd
-## On-death AoE VFX for Void-Touched Imp — a void fissure cracks open across the
-## enemy board, then erupts with violent void energy hitting all enemy minions.
+## On-death AoE VFX for Void-Touched Imp — a void fissure cracks open across
+## the enemy board, then erupts hitting all enemy minions.
 ##
 ## Phases:
-##   Phase 1 — Fissure (0.35s):
-##     Core flash at origin.  The dormant fissure texture reveals left-to-right
-##     via a clip container across the full board width.  Additive blending
-##     on black-background art makes only the glowing crack visible.
-##     Small screen shake as the ground splits.
+##   1. fissure  (0.60s) — clip-reveal crack left-to-right + small board shake
+##   2. eruption (0.50s) — cross-fade to bright eruption + Y-scale punch.
+##                          impact_hit fires at 30% into the phase (peak),
+##                          per-target flashes spawn, heavy board shake.
+##   3. fade     (0.35s) — eruption dies down, smoke wisps rise.
 ##
-##   Phase 2 — Eruption (0.50s):
-##     Cross-fade to the eruption texture (brighter, more intense).
-##     `impact_hit` emitted at the eruption peak — sync damage here.
-##     Per-target impact flashes + slot purple tint.
-##     Heavy screen shake.  Ejecta particles burst from the fissure line.
-##
-##   Phase 3 — Fade (0.35s):
-##     Eruption fades out.  Smoke wisps rise from the fissure line.
-##
-## Usage:
-##   var vfx := VoidTouchedImpDeathVFX.create(origin_pos, target_slots, board_node)
-##   combat_scene.$UI.add_child(vfx)
-##   await vfx.impact_hit   # apply damage here
-##   await vfx.finished
+## Spawn via VfxController.spawn(); caller awaits impact_hit to apply damage.
 class_name VoidTouchedImpDeathVFX
-extends Node
-
-signal finished
-signal impact_hit  ## Emitted at eruption peak — sync damage here.
+extends BaseVfx
 
 const TEX_FISSURE: Texture2D  = preload("res://assets/art/fx/fissure_dormant.png")
 const TEX_ERUPTION: Texture2D = preload("res://assets/art/fx/fissure_erupt.png")
@@ -36,25 +20,26 @@ const TEX_GLOW: Texture2D     = preload("res://assets/art/fx/glow_soft.png")
 const SFX_FISSURE_CRACK: String = "res://assets/audio/sfx/minions/vti_fissure_crack.wav"
 const SFX_FISSURE_ERUPT: String = "res://assets/audio/sfx/minions/vti_fissure_erupt.wav"
 
-# ── Colors ───────────────────────────────────────────────────────────────────
 const COLOR_CORE_FLASH: Color   = Color(1.0, 0.9, 1.0, 1.0)
 const COLOR_IMPACT_FLASH: Color = Color(0.85, 0.45, 1.0, 0.90)
 
-# ── Timing ───────────────────────────────────────────────────────────────────
 const FISSURE_DURATION: float  = 0.60
 const ERUPTION_DURATION: float = 0.50
 const FADE_DURATION: float     = 0.35
-const TOTAL_DURATION: float    = FISSURE_DURATION + ERUPTION_DURATION + FADE_DURATION
+const ERUPTION_PEAK_FRACTION: float = 0.30  # impact_hit at 30% into eruption
 
-# ── Layout ───────────────────────────────────────────────────────────────────
-const FISSURE_WIDTH: float  = 960.0   # texture display width (matches board)
-const FISSURE_HEIGHT: float = 277.0   # texture display height
+const FISSURE_WIDTH: float  = 960.0
+const FISSURE_HEIGHT: float = 277.0
+
+const BEAT_ERUPTION_PEAK := "eruption_peak"
 
 var _origin: Vector2 = Vector2.ZERO
 var _target_slots: Array = []
-var _board: Control = null    # the opponent's HBoxContainer board node
+var _board: Control = null
+var _board_center: Vector2 = Vector2.ZERO
+var _fissure_pos: Vector2 = Vector2.ZERO
 
-var _fissure_clip: Control = null    # clip container for left-to-right reveal
+var _fissure_clip: Control = null
 var _fissure_sprite: TextureRect = null
 var _eruption_sprite: TextureRect = null
 
@@ -69,76 +54,79 @@ static func create(origin_pos: Vector2, target_slots: Array, board: Control) -> 
 	return vfx
 
 
-func _ready() -> void:
+func _play() -> void:
 	_ensure_textures()
-	_run()
-
-
-func _run() -> void:
-	var scene: Node = get_parent()
-	if scene == null or not is_inside_tree():
-		impact_hit.emit()
+	if get_parent() == null:
+		impact_hit.emit(0)
 		finished.emit()
 		queue_free()
 		return
 
-	# Calculate fissure position — centered on the target board horizontally,
-	# vertically centered on the board's midline.
-	var board_center: Vector2
 	if _board and is_instance_valid(_board):
-		board_center = _board.global_position + _board.size * 0.5
+		_board_center = _board.global_position + _board.size * 0.5
 	else:
-		# Fallback: use the origin position
-		board_center = _origin
-
-	var fissure_pos: Vector2 = Vector2(
-		board_center.x - FISSURE_WIDTH * 0.5,
-		board_center.y - FISSURE_HEIGHT * 0.5
+		_board_center = _origin
+	_fissure_pos = Vector2(
+		_board_center.x - FISSURE_WIDTH * 0.5,
+		_board_center.y - FISSURE_HEIGHT * 0.5
 	)
 
-	# ═══ Phase 1: Fissure — crack rips left-to-right across the board ═══════
-	AudioManager.play_sfx(SFX_FISSURE_CRACK, -6.0)
+	var seq := sequence()
+	seq.on(BEAT_ERUPTION_PEAK, _on_eruption_peak)
+	seq.run([
+		VfxPhase.new("fissure",  FISSURE_DURATION,  _build_fissure),
+		VfxPhase.new("eruption", ERUPTION_DURATION, _build_eruption) \
+			.emits(BEAT_ERUPTION_PEAK, ERUPTION_PEAK_FRACTION) \
+			.emits(VfxSequence.RESERVED_IMPACT_HIT, ERUPTION_PEAK_FRACTION),
+		VfxPhase.new("fade",     FADE_DURATION,     _build_fade),
+	])
 
-	# Clip container — grows from width 0→FISSURE_WIDTH to reveal the fissure
-	# left-to-right.  clip_contents hides anything outside its rect.
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 1: Fissure crack
+# ═════════════════════════════════════════════════════════════════════════════
+
+func _build_fissure(duration: float) -> void:
+	AudioManager.play_sfx(SFX_FISSURE_CRACK, -6.0)
+	var scene: Node = get_parent()
+	if scene == null:
+		return
+
 	_fissure_clip = Control.new()
 	_fissure_clip.clip_contents = true
 	_fissure_clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_fissure_clip.position = fissure_pos
+	_fissure_clip.position = _fissure_pos
 	_fissure_clip.set_size(Vector2(0.0, FISSURE_HEIGHT))
 	_fissure_clip.z_index = 20
 	_fissure_clip.z_as_relative = false
 	scene.add_child(_fissure_clip)
 
-	# Dormant fissure sprite inside the clip — full size, additive blending
 	_fissure_sprite = _make_additive_texture_rect(TEX_FISSURE)
 	_fissure_sprite.set_size(Vector2(FISSURE_WIDTH, FISSURE_HEIGHT))
 	_fissure_sprite.position = Vector2.ZERO
 	_fissure_clip.add_child(_fissure_sprite)
 
-	# Reveal: clip width 0→full (left-to-right crack spread)
 	var tw_open := create_tween()
-	tw_open.tween_property(_fissure_clip, "size:x", FISSURE_WIDTH, FISSURE_DURATION) \
+	tw_open.tween_property(_fissure_clip, "size:x", FISSURE_WIDTH, duration) \
 		.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 
-	# Ground-splitting shake — shake the target board (a Control with real
-	# position), not the parent CanvasLayer (no position, no-ops).
 	if _board and is_instance_valid(_board):
 		ScreenShakeEffect.shake(_board, self, 8.0, 6)
 
-	await get_tree().create_timer(FISSURE_DURATION).timeout
-	if not is_inside_tree():
-		impact_hit.emit()
-		_cleanup()
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 2: Eruption
+# ═════════════════════════════════════════════════════════════════════════════
+
+func _build_eruption(_duration: float) -> void:
+	AudioManager.play_sfx(SFX_FISSURE_ERUPT, -4.0)
+	var scene: Node = get_parent()
+	if scene == null:
 		return
 
-	# ═══ Phase 2: Eruption — intense void energy blasts upward ══════════════
-	AudioManager.play_sfx(SFX_FISSURE_ERUPT, -4.0)
-
-	# Eruption sprite — same position, overlays the dormant fissure
 	_eruption_sprite = _make_additive_texture_rect(TEX_ERUPTION)
 	_eruption_sprite.set_size(Vector2(FISSURE_WIDTH, FISSURE_HEIGHT))
-	_eruption_sprite.position = fissure_pos
+	_eruption_sprite.position = _fissure_pos
 	_eruption_sprite.pivot_offset = Vector2(FISSURE_WIDTH * 0.5, FISSURE_HEIGHT * 0.5)
 	_eruption_sprite.scale = Vector2(1.0, 0.8)
 	_eruption_sprite.modulate.a = 0.0
@@ -146,61 +134,59 @@ func _run() -> void:
 	_eruption_sprite.z_as_relative = false
 	scene.add_child(_eruption_sprite)
 
-	# Cross-fade: dormant dims, eruption brightens + scale punch
+	# Cross-fade: dormant dims, eruption brightens + Y-scale punch
 	var tw_erupt := create_tween().set_parallel(true)
-	# Eruption fades in with a Y-scale punch (0.8→1.15→1.0)
 	tw_erupt.tween_property(_eruption_sprite, "modulate:a", 1.0, 0.10) \
 		.set_trans(Tween.TRANS_SINE)
 	tw_erupt.tween_property(_eruption_sprite, "scale:y", 1.15, 0.12) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw_erupt.chain().tween_property(_eruption_sprite, "scale:y", 1.0, 0.15) \
 		.set_trans(Tween.TRANS_SINE)
-	# Dormant fades out
-	tw_erupt.tween_property(_fissure_sprite, "modulate:a", 0.3, 0.15) \
-		.set_trans(Tween.TRANS_SINE)
+	if _fissure_sprite != null and is_instance_valid(_fissure_sprite):
+		tw_erupt.tween_property(_fissure_sprite, "modulate:a", 0.3, 0.15) \
+			.set_trans(Tween.TRANS_SINE)
 
-	# Impact at eruption peak (slight delay for the visual to read)
-	await get_tree().create_timer(ERUPTION_DURATION * 0.30).timeout
-	if not is_inside_tree():
-		impact_hit.emit()
-		_cleanup()
+
+# Listener — fires at eruption peak (30% into the eruption phase).
+func _on_eruption_peak() -> void:
+	var scene: Node = get_parent()
+	if scene == null:
 		return
-
-	impact_hit.emit()
 	_spawn_target_impacts(scene)
-
-	# Heavy shake — shake the target board (Control with real position),
-	# not a CanvasLayer (no position, no-ops).
 	if _board and is_instance_valid(_board):
 		ScreenShakeEffect.shake(_board, self, 16.0, 12)
 
-	# Wait out remaining eruption
-	var erupt_remaining: float = ERUPTION_DURATION * 0.70
-	await get_tree().create_timer(erupt_remaining).timeout
-	if not is_inside_tree():
-		_cleanup()
-		return
 
-	# ═══ Phase 3: Fade — eruption dies down ═════════════════════════════════
-	_spawn_smoke_wisps(scene, board_center)
+# ═════════════════════════════════════════════════════════════════════════════
+# Phase 3: Fade
+# ═════════════════════════════════════════════════════════════════════════════
+
+func _build_fade(duration: float) -> void:
+	var scene: Node = get_parent()
+	if scene == null:
+		return
+	_spawn_smoke_wisps(scene, _board_center)
 
 	var tw_fade := create_tween().set_parallel(true)
 	if is_instance_valid(_eruption_sprite):
-		tw_fade.tween_property(_eruption_sprite, "modulate:a", 0.0, FADE_DURATION * 0.7) \
+		tw_fade.tween_property(_eruption_sprite, "modulate:a", 0.0, duration * 0.7) \
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-		tw_fade.tween_property(_eruption_sprite, "scale:y", 0.6, FADE_DURATION) \
+		tw_fade.tween_property(_eruption_sprite, "scale:y", 0.6, duration) \
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	if is_instance_valid(_fissure_sprite):
-		tw_fade.tween_property(_fissure_sprite, "modulate:a", 0.0, FADE_DURATION * 0.5) \
+		tw_fade.tween_property(_fissure_sprite, "modulate:a", 0.0, duration * 0.5) \
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-
-	await get_tree().create_timer(FADE_DURATION).timeout
-
-	_cleanup()
+	tw_fade.chain().tween_callback(func() -> void:
+		if is_instance_valid(_fissure_clip):
+			_fissure_clip.queue_free()
+		elif is_instance_valid(_fissure_sprite):
+			_fissure_sprite.queue_free()
+		if is_instance_valid(_eruption_sprite):
+			_eruption_sprite.queue_free())
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Per-Target Impact Flashes
+# Per-target impact flashes
 # ═════════════════════════════════════════════════════════════════════════════
 
 func _spawn_target_impacts(parent: Node) -> void:
@@ -210,7 +196,6 @@ func _spawn_target_impacts(parent: Node) -> void:
 		var s: Control = slot as Control
 		var center: Vector2 = s.global_position + s.size * 0.5
 
-		# Additive glow burst
 		var flash := Sprite2D.new()
 		flash.texture = TEX_GLOW
 		var tex_size: float = flash.texture.get_width()
@@ -232,16 +217,11 @@ func _spawn_target_impacts(parent: Node) -> void:
 			.set_delay(0.06).set_trans(Tween.TRANS_SINE)
 		tw.chain().tween_callback(flash.queue_free)
 
-		# Slot purple tint
 		var orig_mod: Color = s.modulate
 		var stw := s.create_tween()
 		stw.tween_property(s, "modulate", Color(1.5, 0.5, 2.0, 1.0), 0.05)
 		stw.tween_property(s, "modulate", orig_mod, 0.22)
 
-
-# ═════════════════════════════════════════════════════════════════════════════
-# Smoke Wisps (rise from fissure during fade)
-# ═════════════════════════════════════════════════════════════════════════════
 
 func _spawn_smoke_wisps(parent: Node, center: Vector2) -> void:
 	var wisps := CPUParticles2D.new()
@@ -298,17 +278,6 @@ func _make_additive_texture_rect(tex: Texture2D) -> TextureRect:
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	tr.material = mat
 	return tr
-
-
-func _cleanup() -> void:
-	if is_instance_valid(_fissure_clip):
-		_fissure_clip.queue_free()  # also frees _fissure_sprite (child)
-	elif is_instance_valid(_fissure_sprite):
-		_fissure_sprite.queue_free()
-	if is_instance_valid(_eruption_sprite):
-		_eruption_sprite.queue_free()
-	finished.emit()
-	queue_free()
 
 
 func _ensure_textures() -> void:

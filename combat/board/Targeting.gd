@@ -182,6 +182,8 @@ func is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 		"friendly_feral_imp": return _scene._minion_has_tag(minion, "feral_imp")
 		"enemy_minion":           return true
 		"any_minion":             return true
+		"any_minion_or_enemy_hero": return true
+		"enemy_minion_or_hero":     return minion.owner == "enemy"
 	return false
 
 # ---------------------------------------------------------------------------

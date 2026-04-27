@@ -1,24 +1,18 @@
 ## AbyssalPlagueVFX.gd
-## VFX for the Abyssal Plague spell — a green plague wave launches
-## from the caster's hero panel and surges across the target's minion row.
-##
-## Uses `plague_flood.gdshader` — Void Screech-style distortion approach:
-## the battlefield itself warps/refracts through the wave (like a glass lens),
-## tinted emerald.  Outside the wave band: fully transparent.
+## VFX for the Abyssal Plague spell — a green plague wave launches from the
+## caster's hero panel and surges across the target's minion row.
 ##
 ## Phases:
-##   1. Windup (0.50s) — caster panel pulses sickly green
-##   2. Surge  (5.50s) — flood shader node runs full sweep; arrival-timed
-##                       damage callbacks fire per minion as front crosses
-##   3. Dissipation — alpha fades in the last 30% of the surge
+##   1. windup (0.50s) — caster panel pulses sickly green
+##   2. surge  (3.50s) — flood shader sweeps across the board; per-minion
+##                        damage callbacks fire as the wave-front crosses
+##                        each slot (geometric timing, scheduled via
+##                        per-callback tween delays — orthogonal to phases).
+##
+## Damage resolves internally through `per_minion_cb`, so this VFX sets
+## `impact_count = 0` (controller does NOT gate damage on impact_hit).
 ##
 ## Spawn via VfxController — do not parent manually.
-##
-## Plague is staggered AoE: the wave sweeps across the board and the per-minion
-## effects (corruption + damage) fire at the moment the wave front crosses each
-## slot. Because damage is resolved internally through `per_minion_cb`, this
-## VFX sets `impact_count = 0` so the controller does not gate damage on
-## impact_hit.
 class_name AbyssalPlagueVFX
 extends BaseVfx
 
@@ -46,36 +40,37 @@ static func create(caster_panel: Control, caster_side: String,
 	vfx._all_slots = all_slots
 	vfx._occupied_slots = occupied_slots
 	vfx._per_minion_cb = per_minion_cb
-	vfx.impact_count = 0   # damage resolves internally per-minion, no impact gate
+	vfx.impact_count = 0
 	return vfx
 
 
 func _play() -> void:
-	# `host` = VfxLayer (CanvasLayer layer 2). Children parent to it so the
-	# flood shader renders above the HUD and samples the full pre-VFX scene
-	# via SCREEN_TEXTURE.
 	var host: CanvasLayer = get_parent() as CanvasLayer
 	if _caster_panel == null or host == null:
 		finished.emit()
 		queue_free()
 		return
 
-	# ── Phase 1: Windup — caster panel glows green ───────────────────────────
+	sequence().run([
+		VfxPhase.new("windup", WINDUP_DURATION, _build_windup),
+		VfxPhase.new("surge",  SURGE_DURATION,  _build_surge),
+	])
+
+
+func _build_windup(_duration: float) -> void:
 	_spawn_caster_glow(_caster_panel)
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/abyssal_plague_windup.wav", -4.0)
-	await get_tree().create_timer(WINDUP_DURATION).timeout
-	if not is_inside_tree():
-		finished.emit()
-		queue_free()
+
+
+func _build_surge(duration: float) -> void:
+	var host: CanvasLayer = get_parent() as CanvasLayer
+	if host == null:
 		return
 
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/abyssal_plague_wash.wav", -6.0)
 
-	# ── Phase 2: Surge — vertical flood wave sweeps up (or down) across board ─
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
 	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
-		finished.emit()
-		queue_free()
 		return
 
 	var origin_y_uv: float
@@ -111,9 +106,6 @@ func _play() -> void:
 	var band_x_min_uv: float = min_x_px / vp_size.x
 	var band_x_max_uv: float = max_x_px / vp_size.x
 
-	# ── Single shader layer — distortion approach doesn't need multiple layers ──
-	# Three stacked screen-texture samplers compound the tint and blow out to
-	# white (each layer reads the previous one's output). One layer is correct.
 	var layer_configs: Array = [
 		{
 			"z": 15,
@@ -145,8 +137,6 @@ func _play() -> void:
 		},
 	]
 
-	# VfxLayer is already CanvasLayer layer=2 above UI (layer=1), so
-	# SCREEN_TEXTURE samples the full pre-VFX scene when this shader draws.
 	var layer_rects: Array[ColorRect] = []
 	var layer_mats: Array[ShaderMaterial] = []
 	var base_time_offset: float = randf() * 50.0
@@ -162,7 +152,6 @@ func _play() -> void:
 
 		var mat := ShaderMaterial.new()
 		mat.shader = SHADER_FLOOD
-
 		mat.set_shader_parameter("origin_y", origin_y_uv)
 		mat.set_shader_parameter("direction_y", direction_y)
 		mat.set_shader_parameter("reach", max_reach_uv * float(cfg["reach_scale"]))
@@ -214,10 +203,10 @@ func _play() -> void:
 	# Spark/droplet particles riding the wave front
 	var particles := AbyssalPlagueParticles.spawn(
 		host, origin_y_px, direction_y,
-		min_x_px, max_x_px, max_reach_px, SURGE_DURATION)
+		min_x_px, max_x_px, max_reach_px, duration)
 	host.add_child(particles)
 
-	# Schedule per-minion damage callbacks
+	# Schedule per-minion damage callbacks based on wave-front geometry.
 	if _per_minion_cb.is_valid():
 		for s in _occupied_slots:
 			var slot: BoardSlot = s as BoardSlot
@@ -230,7 +219,7 @@ func _play() -> void:
 			var y_delta_uv: float = y_delta_px / vp_size.y
 			var ratio: float = y_delta_uv / max_reach_uv
 			ratio = clampf(ratio, 0.0, 0.999)
-			var arrival_t: float = SURGE_DURATION * (1.0 - pow(1.0 - ratio, 1.0 / 3.0))
+			var arrival_t: float = duration * (1.0 - pow(1.0 - ratio, 1.0 / 3.0))
 			_schedule_minion_hit(slot.minion, arrival_t)
 
 	# Drive progress + fade
@@ -238,18 +227,14 @@ func _play() -> void:
 	tw.tween_method(func(p: float) -> void:
 			for m in layer_mats:
 				m.set_shader_parameter("progress", p),
-			0.0, 1.0, SURGE_DURATION).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			0.0, 1.0, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tw.tween_method(func(a: float) -> void:
 			for m in layer_mats:
 				m.set_shader_parameter("alpha_multiplier", a),
-			1.0, 0.0, SURGE_DURATION * 0.30).set_delay(SURGE_DURATION * 0.70).set_trans(Tween.TRANS_SINE)
+			1.0, 0.0, duration * 0.30).set_delay(duration * 0.70).set_trans(Tween.TRANS_SINE)
 	tw.chain().tween_callback(func() -> void:
 			for r in layer_rects:
 				r.queue_free())
-
-	await get_tree().create_timer(SURGE_DURATION).timeout
-	finished.emit()
-	queue_free()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -258,6 +243,7 @@ func _play() -> void:
 
 func _schedule_minion_hit(minion: MinionInstance, delay: float) -> void:
 	_delayed_hit(minion, delay)
+
 
 func _delayed_hit(minion: MinionInstance, delay: float) -> void:
 	await get_tree().create_timer(maxf(delay, 0.0)).timeout
@@ -271,6 +257,7 @@ func _delayed_hit(minion: MinionInstance, delay: float) -> void:
 		"res://assets/audio/sfx/spells/abyssal_plague_hit_high.wav",
 	]
 	AudioManager.play_sfx(hit_variants.pick_random(), -10.0)
+
 
 func _spawn_caster_glow(panel: Control) -> void:
 	var glow := ColorRect.new()

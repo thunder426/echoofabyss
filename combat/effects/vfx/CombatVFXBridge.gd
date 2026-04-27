@@ -187,10 +187,13 @@ func play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
 ## summoned Human's slot, then a face-down card arcs toward the enemy hero
 ## panel's hand indicator and lands with a pulse on the hand count.
 ## Blocking: sets scene's `_on_play_vfx_active` and emits `on_play_vfx_done`
-## when the full animation finishes, so the EnemyAI awaits it before its next
-## action (same pattern as Frenzied Imp Hurl).
+## when the FeralReinforcementVFX finishes, so EnemyAI awaits it before its
+## next action (same pattern as Frenzied Imp Hurl).
+##
+## Visual implementation lives in FeralReinforcementVFX.gd; this wrapper
+## resolves the slot/panel refs and owns the AI gate.
 func play_feral_reinforcement_vfx(source: MinionInstance, _imp_card: CardData) -> void:
-	if source == null or _scene == null:
+	if source == null or _scene == null or vfx_controller == null:
 		return
 	var slot: BoardSlot = _scene._find_slot_for(source)
 	var enemy_panel: Control = _scene._enemy_hero_panel
@@ -199,193 +202,91 @@ func play_feral_reinforcement_vfx(source: MinionInstance, _imp_card: CardData) -
 	var ui_root: Node = _scene.get_node_or_null("UI")
 	if ui_root == null:
 		return
+
 	_scene._on_play_vfx_active = true
-
-	var start_pos: Vector2 = slot.global_position + slot.size * 0.5
-	var end_pos: Vector2   = enemy_panel.global_position + enemy_panel.size * 0.5
-
-	# 1) Origin halo — soft radial gradient, additive-blended violet tint.
-	const HALO_TINT := Color(0.90, 0.35, 1.00, 1.0)
-	var origin_halo := _make_radial_halo(320.0, HALO_TINT)
-	origin_halo.position = start_pos - origin_halo.size * 0.5
-	origin_halo.z_index  = 17
-	origin_halo.z_as_relative = false
-	ui_root.add_child(origin_halo)
-	origin_halo.modulate.a = 0.0
-	var oh_tw := create_tween().set_trans(Tween.TRANS_SINE)
-	oh_tw.tween_property(origin_halo, "modulate:a", 0.85, 0.36).set_ease(Tween.EASE_OUT)
-	oh_tw.tween_property(origin_halo, "modulate:a", 0.0, 1.10).set_ease(Tween.EASE_IN)
-	oh_tw.tween_callback(origin_halo.queue_free)
-
-	# 2) Feral surge mark — brief scorch on the source slot.
-	const TEX_SURGE: Texture2D = preload("res://assets/art/fx/feral_surge_mark.png")
-	var mark := TextureRect.new()
-	mark.texture       = TEX_SURGE
-	mark.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
-	mark.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	mark.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	mark.z_index       = 17
-	mark.z_as_relative = false
-	mark.modulate      = Color(1.0, 0.35, 0.45, 0.0)
-	var mark_size := slot.size * 0.9
-	mark.size          = mark_size
-	mark.position      = slot.global_position + (slot.size - mark_size) * 0.5
-	mark.pivot_offset  = mark_size * 0.5
-	mark.rotation      = randf_range(-0.25, 0.25)
-	mark.scale         = Vector2(0.7, 0.7)
-	ui_root.add_child(mark)
-	var mark_tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
-	mark_tw.tween_property(mark, "modulate:a", 0.7, 0.24).set_ease(Tween.EASE_OUT)
-	mark_tw.tween_property(mark, "scale", Vector2(1.05, 1.05), 0.50).set_ease(Tween.EASE_OUT)
-	mark_tw.chain()
-	mark_tw.tween_property(mark, "modulate:a", 0.0, 1.0).set_ease(Tween.EASE_IN)
-	mark_tw.tween_callback(mark.queue_free)
-
-	# 3) Face-down card fly-in.
-	var card_back := _make_feral_card_back()
-	card_back.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-	card_back.z_index        = 22
-	card_back.z_as_relative  = false
-	ui_root.add_child(card_back)
-	card_back.pivot_offset   = card_back.size * 0.5
-	var start_scale := Vector2(0.55, 0.55)
-	var end_scale   := Vector2(0.22, 0.22)
-	card_back.scale          = start_scale
-	card_back.modulate       = Color(1.0, 1.0, 1.0, 0.0)
-	card_back.position       = start_pos - card_back.size * 0.5
-
-	var card_halo := _make_radial_halo(280.0, HALO_TINT)
-	card_halo.z_index        = 21
-	card_halo.z_as_relative  = false
-	card_halo.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-	card_halo.modulate.a     = 0.0
-	ui_root.add_child(card_halo)
-
-	var mid_pos: Vector2 = start_pos.lerp(end_pos, 0.5)
-	mid_pos.y += -140.0
-
-	var fly_duration: float = 1.10
-	var t := create_tween().set_parallel(true)
-	t.tween_property(card_back, "modulate:a", 1.0, 0.24).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.tween_property(card_halo, "modulate:a", 0.75, 0.30).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.tween_property(card_back, "scale", end_scale, fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t.tween_property(card_halo, "scale", Vector2(0.45, 0.45), fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t.tween_property(card_back, "rotation", randf_range(-0.35, 0.35), fly_duration * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t.parallel().tween_property(card_back, "rotation", 0.0, fly_duration * 0.5).set_delay(fly_duration * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	card_halo.scale = Vector2.ONE
-	var arc_callable := func(p: float) -> void:
-		if not is_instance_valid(card_back): return
-		var a: Vector2 = start_pos.lerp(mid_pos, p)
-		var b: Vector2 = mid_pos.lerp(end_pos, p)
-		var pt: Vector2 = a.lerp(b, p)
-		card_back.position = pt - card_back.size * 0.5
-		if is_instance_valid(card_halo):
-			card_halo.position = pt - card_halo.size * 0.5
-	t.tween_method(arc_callable, 0.0, 1.0, fly_duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.chain().tween_property(card_back, "modulate:a", 0.0, 0.30).set_ease(Tween.EASE_IN)
-	t.parallel().tween_property(card_halo, "modulate:a", 0.0, 0.36).set_ease(Tween.EASE_IN)
-	t.tween_callback(card_back.queue_free)
-	t.tween_callback(card_halo.queue_free)
+	var vfx := FeralReinforcementVFX.create(slot, enemy_panel, ui_root, _scene)
 	var scene := _scene
-	t.tween_callback(func() -> void:
-		if scene._enemy_hero_panel and is_instance_valid(scene._enemy_hero_panel):
-			_pulse_enemy_hand_indicator()
-	)
-	await t.finished
-	_scene._on_play_vfx_active = false
-	_scene.on_play_vfx_done.emit()
+	vfx.finished.connect(func() -> void:
+		scene._on_play_vfx_active = false
+		scene.on_play_vfx_done.emit(),
+		CONNECT_ONE_SHOT)
+	vfx_controller.spawn(vfx)
 
-## Procedural face-down card back (dark panel + violet border + glyph). Used
-## by play_feral_reinforcement_vfx and reusable for future "hidden card to
-## enemy hand" effects.
-func _make_feral_card_back() -> Control:
-	var root := Control.new()
-	root.custom_minimum_size = Vector2(160, 240)
-	root.size = Vector2(160, 240)
+# ─────────────────────────────────────────────────────────────────────────────
+# Rune placement — generic VFX shared by every rune (player + enemy)
+# ─────────────────────────────────────────────────────────────────────────────
 
-	var bg := Panel.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var bg_style := StyleBoxFlat.new()
-	bg_style.bg_color     = Color(0.08, 0.03, 0.10, 1.0)
-	bg_style.border_color = Color(0.75, 0.25, 0.95, 1.0)
-	bg_style.set_border_width_all(3)
-	bg_style.set_corner_radius_all(8)
-	bg_style.shadow_color = Color(0.60, 0.20, 0.90, 0.55)
-	bg_style.shadow_size  = 10
-	bg.add_theme_stylebox_override("panel", bg_style)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(bg)
-
-	var inner := Panel.new()
-	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	inner.offset_left = 8; inner.offset_right = -8
-	inner.offset_top  = 8; inner.offset_bottom = -8
-	var inner_style := StyleBoxFlat.new()
-	inner_style.bg_color     = Color(0.14, 0.05, 0.18, 1.0)
-	inner_style.border_color = Color(0.45, 0.15, 0.60, 0.9)
-	inner_style.set_border_width_all(1)
-	inner_style.set_corner_radius_all(5)
-	inner.add_theme_stylebox_override("panel", inner_style)
-	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(inner)
-
-	var glyph := Label.new()
-	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	glyph.text = "✦"
-	glyph.add_theme_font_size_override("font_size", 96)
-	glyph.add_theme_color_override("font_color", Color(0.95, 0.65, 1.0, 1.0))
-	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	glyph.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	inner.add_child(glyph)
-	return root
-
-## Soft radial-gradient halo — additive-blended, tinted. `diameter` is the
-## on-screen halo size in pixels. Uses a cached procedural softcircle texture.
-func _make_radial_halo(diameter: float, tint: Color) -> TextureRect:
-	var tr := TextureRect.new()
-	tr.texture        = _get_radial_halo_texture()
-	tr.expand_mode    = TextureRect.EXPAND_IGNORE_SIZE
-	tr.stretch_mode   = TextureRect.STRETCH_SCALE
-	tr.mouse_filter   = Control.MOUSE_FILTER_IGNORE
-	tr.size           = Vector2(diameter, diameter)
-	tr.pivot_offset   = tr.size * 0.5
-	tr.modulate       = tint
-	var mat := CanvasItemMaterial.new()
-	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	tr.material       = mat
-	return tr
-
-static var _radial_halo_tex: ImageTexture = null
-
-static func _get_radial_halo_texture() -> ImageTexture:
-	if _radial_halo_tex != null:
-		return _radial_halo_tex
-	const SIZE := 256
-	var img := Image.create(SIZE, SIZE, false, Image.FORMAT_RGBA8)
-	var centre: float = float(SIZE) * 0.5
-	for y in SIZE:
-		for x in SIZE:
-			var dx: float = (float(x) - centre) / centre
-			var dy: float = (float(y) - centre) / centre
-			var r: float  = sqrt(dx * dx + dy * dy)
-			var a: float  = clampf(1.0 - r, 0.0, 1.0)
-			a = a * a * (3.0 - 2.0 * a)  # smoothstep
-			a = a * a  # bias toward bright-centre / soft-outer
-			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
-	_radial_halo_tex = ImageTexture.create_from_image(img)
-	return _radial_halo_tex
-
-## Brief gold pulse on the enemy hand count label — used when a card is added
-## to the enemy hand by a passive (Feral Reinforcement and similar).
-func _pulse_enemy_hand_indicator() -> void:
-	if _scene == null or _scene._enemy_hero_panel == null:
+## Hide the slot the rune just landed in so it reads as empty during the card
+## preview and the VFX. Call right after `_update_trap_display()` so the slot
+## never paints with the rune art before the VFX has revealed it. Paired with
+## `play_rune_placement_vfx`, which fades the art in once the VFX finishes.
+func hide_rune_slot_for_placement(trap: TrapCardData, owner: String) -> void:
+	if _scene == null or trap == null or not trap.is_rune:
 		return
-	var panel: Control = _scene._enemy_hero_panel
-	panel.pivot_offset = panel.size * 0.5
-	var tw := create_tween().set_trans(Tween.TRANS_BACK)
-	tw.tween_property(panel, "modulate", Color(1.6, 1.3, 0.6, 1.0), 0.10).set_ease(Tween.EASE_OUT)
-	tw.tween_property(panel, "modulate", Color.WHITE, 0.35).set_ease(Tween.EASE_IN_OUT)
+	var slot_idx: int = _resolve_rune_slot_idx(owner)
+	if slot_idx < 0:
+		return
+	var trap_env = _scene.trap_env_display
+	if trap_env == null:
+		return
+	trap_env.hide_slot_for_placement(owner, slot_idx)
+
+## Spawn the generic RunePlacementVFX on the trap slot the rune just landed in.
+## The slot index is `active_traps.size() - 1` (the rune was already appended
+## by the time this runs, on both sides). Tinted from `trap.rune_glow_color`
+## with the rune's `battlefield_art_path` (if any) used for the stamp overlay.
+##
+## Blocking: sets `_on_play_vfx_active` and emits `on_play_vfx_done` when the
+## VFX finishes, so EnemyAI's action loop awaits the placement read before
+## continuing. On finish, calls `reveal_slot_after_placement` to re-render the
+## slot with its real (rune-aware) styling and fade the art in.
+func play_rune_placement_vfx(trap: TrapCardData, owner: String) -> void:
+	if vfx_controller == null or _scene == null or trap == null or not trap.is_rune:
+		return
+	var slot_idx: int = _resolve_rune_slot_idx(owner)
+	if slot_idx < 0:
+		return
+	var panels: Array = _scene.trap_slot_panels if owner == "player" else _scene.enemy_trap_slot_panels
+	var panel: Panel = panels[slot_idx] as Panel
+	if panel == null or not panel.is_inside_tree():
+		return
+	var art: Texture2D = null
+	if trap.battlefield_art_path != "" and ResourceLoader.exists(trap.battlefield_art_path):
+		art = load(trap.battlefield_art_path)
+	_scene._on_play_vfx_active = true
+	var vfx := RunePlacementVFX.create(panel, trap.rune_glow_color, art)
+	var scene := _scene
+	var captured_owner := owner
+	var captured_idx := slot_idx
+	vfx.finished.connect(func() -> void:
+		var trap_env = scene.trap_env_display
+		if trap_env != null:
+			trap_env.reveal_slot_after_placement(captured_owner, captured_idx)
+		scene._on_play_vfx_active = false
+		scene.on_play_vfx_done.emit(),
+		CONNECT_ONE_SHOT)
+	vfx_controller.spawn(vfx)
+	await vfx.finished
+
+## Resolve the slot index of the most-recently-placed rune for the given side.
+## Returns -1 if the side has no rune slots or the trap list is empty.
+func _resolve_rune_slot_idx(owner: String) -> int:
+	if _scene == null:
+		return -1
+	var panels: Array = _scene.trap_slot_panels if owner == "player" else _scene.enemy_trap_slot_panels
+	if panels.is_empty():
+		return -1
+	var traps: Array
+	if owner == "player":
+		traps = _scene.active_traps
+	elif _scene.enemy_ai != null:
+		traps = _scene.enemy_ai.active_traps
+	else:
+		return -1
+	var idx: int = traps.size() - 1
+	if idx < 0 or idx >= panels.size():
+		return -1
+	return idx
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Compound on-play / on-cast VFX with external callers (HardcodedEffects)
@@ -394,6 +295,12 @@ func _pulse_enemy_hand_indicator() -> void:
 ## Spawn the Brood Call portal VFX at the first empty slot that will receive
 ## the summoned imp. Awaits the full VFX (ramp → hold → collapse) so the token
 ## is placed after the portal has closed.
+##
+## Also gates the AI: sets `_on_play_vfx_active` and emits `on_play_vfx_done`
+## when the VFX finishes, so EnemyAI's commit_spell_cast awaits the portal
+## before the next action. (The HardcodedEffects → EffectResolver chain doesn't
+## propagate awaits, so the caller's `await _scene._play_brood_call_vfx(...)`
+## alone isn't enough to block the AI loop.)
 func play_brood_call_vfx(owner: String) -> void:
 	if vfx_controller == null or _scene == null:
 		return
@@ -406,6 +313,12 @@ func play_brood_call_vfx(owner: String) -> void:
 	if target_slot == null:
 		return
 	var vfx := SummonSigilVFX.create(target_slot, SummonSigilVFX.Flavor.BROOD)
+	_scene._on_play_vfx_active = true
+	var scene := _scene
+	vfx.finished.connect(func() -> void:
+		scene._on_play_vfx_active = false
+		scene.on_play_vfx_done.emit(),
+		CONNECT_ONE_SHOT)
 	vfx_controller.spawn(vfx)
 	await vfx.finished
 
@@ -512,80 +425,18 @@ func champion_summon_sequence(card: MinionCardData, instance: MinionInstance, sl
 		_scene._spawn_slot_ripple(slot, 8, true)
 
 ## Card reveal + "CHAMPION" banner shown together, held long enough to read.
+## Visual implementation lives in ChampionRevealVFX.gd; this wrapper resolves
+## the UI root and awaits the VFX so callers (champion_summon_sequence) can
+## chain placement + trigger fire after the reveal completes.
 func show_champion_reveal_with_banner(card: CardData) -> void:
-	if _scene == null:
+	if _scene == null or vfx_controller == null:
 		return
 	var ui_root: Node = _scene.get_node("UI")
 	if ui_root == null:
 		return
-	var vp := get_viewport().get_visible_rect().size
-
-	# --- Card visual (offset above center so banner can sit below it) ---
-	var visual: CardVisual = preload("res://combat/ui/CardVisual.tscn").instantiate()
-	visual.apply_size_mode("combat_preview")
-	visual.mouse_filter  = Control.MOUSE_FILTER_IGNORE
-	visual.z_index       = 20
-	visual.z_as_relative = false
-	visual.modulate      = Color(0, 0, 0, 0)
-	ui_root.add_child(visual)
-	visual.setup(card)
-	# Anchor card so its top is ~60px from the top edge (with minimum padding safety)
-	var card_top_y: float = max(60.0, vp.y * 0.08)
-	visual.position = Vector2(vp.x / 2.0 - visual.size.x / 2.0, card_top_y)
-
-	# --- Banner (below the card, with a small gap) ---
-	var banner_y: float = card_top_y + visual.size.y + 30.0
-	var bg := ColorRect.new()
-	bg.color = Color(0.0, 0.0, 0.0, 0.0)
-	bg.set_size(Vector2(vp.x, 80))
-	bg.position = Vector2(0, banner_y)
-	bg.z_index = 25
-	bg.z_as_relative = false
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ui_root.add_child(bg)
-
-	var title := Label.new()
-	title.text = "★  C H A M P I O N  ★"
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", Color(1.0, 0.82, 0.25, 0.0))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	title.position = Vector2(-200, 8)
-	title.set_size(Vector2(400, 30))
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(title)
-
-	var name_lbl := Label.new()
-	name_lbl.text = card.card_name
-	name_lbl.add_theme_font_size_override("font_size", 16)
-	name_lbl.add_theme_color_override("font_color", Color(0.90, 0.75, 0.50, 0.0))
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	name_lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	name_lbl.position = Vector2(-200, 42)
-	name_lbl.set_size(Vector2(400, 25))
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bg.add_child(name_lbl)
-
-	# --- Fade in (card + banner together) ---
-	var t1 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	t1.tween_property(visual, "modulate", Color(1.2, 1.05, 0.75, 1.0), 0.3)
-	t1.tween_property(bg, "color:a", 0.75, 0.3)
-	t1.tween_property(title, "theme_override_colors/font_color:a", 1.0, 0.35)
-	t1.tween_property(name_lbl, "theme_override_colors/font_color:a", 1.0, 0.4)
-	await t1.finished
-	if not is_inside_tree(): visual.queue_free(); bg.queue_free(); return
-
-	# --- Hold (longer than before) ---
-	await get_tree().create_timer(2.8).timeout
-	if not is_inside_tree(): visual.queue_free(); bg.queue_free(); return
-
-	# --- Fade out together ---
-	var t2 := create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	t2.tween_property(visual, "modulate:a", 0.0, 0.35)
-	t2.tween_property(bg, "modulate:a", 0.0, 0.35)
-	await t2.finished
-	visual.queue_free()
-	bg.queue_free()
+	var vfx := ChampionRevealVFX.create(card, ui_root)
+	vfx_controller.spawn(vfx)
+	await vfx.finished
 
 ## Screen shake for champion entrance. Heavy impact with decay.
 ## Target MUST be a Node2D/Control with a real position — pass the slot the

@@ -32,6 +32,14 @@ var _flesh_caption:  Label       = null
 var _flesh_tween:    Tween       = null
 var _prev_flesh:     int         = -1
 var _flesh_tooltip:  Panel       = null
+# Forge counter widget (Seris + soul_forge talent) — sits directly above the flesh widget.
+var _forge_root:     Control     = null
+var _forge_icon:     TextureRect = null
+var _forge_count_lbl: Label      = null
+var _forge_caption:  Label       = null
+var _forge_tween:    Tween       = null
+var _prev_forge:     int         = -1
+var _forge_tooltip:  Panel       = null
 # Card-cost blink — highlights which pips will be spent / gained when a card is selected
 var _pip_ess_blink:  int   = 0   # essence pips to fade (spend)
 var _pip_mna_blink:  int   = 0   # mana pips to fade (spend)
@@ -186,10 +194,15 @@ func setup(scene: Node2D, ui_root: Node, essence_label: Label, mana_label: Label
 	if HeroDatabase.has_passive(GameManager.current_hero, "fleshbind"):
 		_build_flesh_widget(ui_root, RIGHT_MARGIN, COL_W, COL_GAP, COL_H, MARGIN_BOTTOM, LBL_H)
 
+	# --- Forge counter widget (Seris + soul_forge talent) — sits above the flesh widget ---
+	if GameManager.has_talent("soul_forge"):
+		_build_forge_widget(ui_root, RIGHT_MARGIN, COL_W, COL_GAP, COL_H, MARGIN_BOTTOM, LBL_H)
+
 	if _scene.turn_manager:
 		update(_scene.turn_manager.essence, _scene.turn_manager.essence_max,
 				_scene.turn_manager.mana, _scene.turn_manager.mana_max)
 	update_flesh()
+	update_forge()
 
 func update(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
 	const MAX_PIPS     := 10
@@ -603,3 +616,186 @@ func _build_flesh_tooltip_panel() -> void:
 		parent = _scene
 	parent.add_child(p)
 	_flesh_tooltip = p
+
+# ---------------------------------------------------------------------------
+# Forge counter widget (Seris + soul_forge talent) — stacked above the flesh widget
+# ---------------------------------------------------------------------------
+
+const _FORGE_ICON_PATH := "res://assets/art/icons/icon_forge.png"
+const _FORGE_ICON_SIZE  := 58
+const _FORGE_COUNT_W    := 52
+const _FORGE_CAPTION_H  := 16
+const _FORGE_STACK_GAP  := 8         # gap between forge widget bottom and flesh widget top
+const _FORGE_TOOLTIP_TITLE := "FORGE"
+const _FORGE_TOOLTIP_BODY  := "Sacrificed Demons fill the Forge. At threshold, gain a Forge charge to summon a Grafted Fiend."
+
+func _build_forge_widget(ui_root: Node, right_margin: int, col_w: int,
+		col_gap: int, _col_h: int, margin_bottom: int, lbl_h: int) -> void:
+	# Match the flesh widget's horizontal placement so they align as a stack.
+	var ess_col_left_from_right: int = right_margin + col_w + col_gap + col_w
+	var widget_w: int = _FORGE_ICON_SIZE + 6 + _FORGE_COUNT_W
+	var widget_right_from_right: int = ess_col_left_from_right + _FLESH_WIDGET_GAP
+	var widget_left_from_right: int  = widget_right_from_right + widget_w
+	var widget_h: int = _FORGE_ICON_SIZE + _FORGE_CAPTION_H + 2
+
+	# Bottom of the forge widget = top of the flesh widget + small gap.
+	# Flesh widget bottom-from-bottom = (margin_bottom - lbl_h); its height = flesh widget_h.
+	var flesh_widget_h: int = _FLESH_ICON_SIZE + _FLESH_CAPTION_H + 2
+	var widget_bottom_from_bottom: float = float(margin_bottom - lbl_h) + float(flesh_widget_h) + float(_FORGE_STACK_GAP)
+
+	var root := Control.new()
+	root.anchor_left     = 1.0
+	root.anchor_right    = 1.0
+	root.anchor_top      = 1.0
+	root.anchor_bottom   = 1.0
+	root.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	root.grow_vertical   = Control.GROW_DIRECTION_BEGIN
+	root.offset_right    = -float(widget_right_from_right)
+	root.offset_left     = -float(widget_left_from_right)
+	root.offset_bottom   = -widget_bottom_from_bottom
+	root.offset_top      = root.offset_bottom - float(widget_h)
+	root.mouse_filter    = Control.MOUSE_FILTER_STOP
+	root.mouse_entered.connect(_on_forge_hover_enter)
+	root.mouse_exited.connect(_on_forge_hover_exit)
+	ui_root.add_child(root)
+	_forge_root = root
+
+	var icon := TextureRect.new()
+	icon.anchor_left   = 0.0
+	icon.anchor_top    = 0.0
+	icon.offset_left   = 0.0
+	icon.offset_top    = 0.0
+	icon.offset_right  = float(_FORGE_ICON_SIZE)
+	icon.offset_bottom = float(_FORGE_ICON_SIZE)
+	icon.expand_mode   = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode  = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	if ResourceLoader.exists(_FORGE_ICON_PATH):
+		icon.texture = load(_FORGE_ICON_PATH) as Texture2D
+	root.add_child(icon)
+	_forge_icon = icon
+
+	var count := Label.new()
+	count.anchor_left    = 0.0
+	count.anchor_top     = 0.0
+	count.offset_left    = float(_FORGE_ICON_SIZE + 6)
+	count.offset_right   = float(_FORGE_ICON_SIZE + 6 + _FORGE_COUNT_W)
+	count.offset_top     = 6.0
+	count.offset_bottom  = float(_FORGE_ICON_SIZE)
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	count.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	count.add_theme_font_size_override("font_size", 28)
+	count.add_theme_color_override("font_color",        Color(1.00, 0.72, 0.28, 1.0))
+	count.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	count.add_theme_constant_override("shadow_outline_size", 4)
+	count.add_theme_constant_override("shadow_offset_x",     0)
+	count.add_theme_constant_override("shadow_offset_y",     1)
+	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(count)
+	_forge_count_lbl = count
+
+	var caption := Label.new()
+	caption.anchor_left   = 0.0
+	caption.anchor_right  = 0.0
+	caption.offset_left   = 0.0
+	caption.offset_right  = float(_FORGE_ICON_SIZE + 6 + _FORGE_COUNT_W)
+	caption.offset_top    = float(_FORGE_ICON_SIZE + 2)
+	caption.offset_bottom = float(_FORGE_ICON_SIZE + 2 + _FORGE_CAPTION_H)
+	caption.text          = "FORGE"
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.add_theme_font_size_override("font_size", 12)
+	caption.add_theme_color_override("font_color",        Color(0.95, 0.75, 0.45, 1.0))
+	caption.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.80))
+	caption.add_theme_constant_override("shadow_outline_size", 3)
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(caption)
+	_forge_caption = caption
+
+## Refresh the forge counter from scene state. Pulses the icon when the value
+## changes (gain on Demon sacrifice, reset when a Forge charge is consumed).
+func update_forge() -> void:
+	if _forge_root == null or _scene == null:
+		return
+	var fc:  int = int(_scene.get("forge_counter"))
+	var cap: int = int(_scene.get("forge_counter_threshold"))
+	if cap <= 0:
+		cap = 3
+	_forge_count_lbl.text = "%d/%d" % [fc, cap]
+
+	# Colour: dim when 0, warm amber as it ramps, hot when ready to fire.
+	var col: Color
+	if fc <= 0:
+		col = Color(0.65, 0.55, 0.40, 1.0)
+	elif fc < cap:
+		col = Color(1.00, 0.78, 0.32, 1.0)
+	else:
+		col = Color(1.00, 0.55, 0.20, 1.0)
+	_forge_count_lbl.add_theme_color_override("font_color", col)
+
+	if _prev_forge != -1 and fc != _prev_forge and _forge_icon != null:
+		if _forge_tween != null and _forge_tween.is_valid():
+			_forge_tween.kill()
+		_forge_icon.pivot_offset = _forge_icon.size * 0.5
+		_forge_icon.scale = Vector2.ONE
+		_forge_tween = create_tween()
+		var is_gain := fc > _prev_forge
+		var flash := Color(1.4, 1.2, 0.9, 1.0) if is_gain else Color(1.2, 0.9, 0.7, 1.0)
+		_forge_tween.tween_property(_forge_icon, "scale", Vector2(1.18, 1.18), 0.10).set_trans(Tween.TRANS_SINE)
+		_forge_tween.parallel().tween_property(_forge_icon, "modulate", flash, 0.10)
+		_forge_tween.tween_property(_forge_icon, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_SINE)
+		_forge_tween.parallel().tween_property(_forge_icon, "modulate", Color.WHITE, 0.18)
+	_prev_forge = fc
+
+func _on_forge_hover_enter() -> void:
+	if _forge_tooltip == null or not is_instance_valid(_forge_tooltip):
+		_build_forge_tooltip_panel()
+	var lbl := _forge_tooltip.get_node_or_null("Label") as Label
+	if lbl:
+		lbl.text = _FORGE_TOOLTIP_TITLE + "\n" + _FORGE_TOOLTIP_BODY
+	var raw_lines := (_FORGE_TOOLTIP_TITLE + "\n" + _FORGE_TOOLTIP_BODY).split("\n")
+	var line_count: int = raw_lines.size()
+	for raw in raw_lines:
+		line_count += raw.length() / 22
+	var tip_h: int = 14 + line_count * 14
+	_forge_tooltip.size = Vector2(190, tip_h)
+	if _forge_root:
+		var r := _forge_root.get_global_rect()
+		var vp := _forge_root.get_viewport().get_visible_rect().size
+		var x: float = clamp(r.position.x, 8.0, vp.x - _forge_tooltip.size.x - 8.0)
+		var y: float = r.position.y - _forge_tooltip.size.y - 6.0
+		if y < 8.0:
+			y = r.position.y + r.size.y + 6.0
+		_forge_tooltip.global_position = Vector2(x, y)
+	_forge_tooltip.visible = true
+
+func _on_forge_hover_exit() -> void:
+	if _forge_tooltip != null and is_instance_valid(_forge_tooltip):
+		_forge_tooltip.visible = false
+
+func _build_forge_tooltip_panel() -> void:
+	var p := Panel.new()
+	p.name = "ForgeTooltip"
+	p.visible = false
+	p.z_index = 80
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color     = Color(0.06, 0.04, 0.10, 0.93)
+	style.border_color = Color(0.75, 0.55, 0.30, 0.85)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	p.add_theme_stylebox_override("panel", style)
+	var lbl := Label.new()
+	lbl.name               = "Label"
+	lbl.position           = Vector2(7, 5)
+	lbl.size               = Vector2(176, 100)
+	lbl.autowrap_mode      = TextServer.AUTOWRAP_WORD_SMART
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.add_theme_color_override("font_color", Color(0.98, 0.92, 0.85, 1))
+	lbl.mouse_filter       = Control.MOUSE_FILTER_IGNORE
+	p.add_child(lbl)
+	var parent: Node = _forge_root.get_parent() if _forge_root else null
+	if parent == null:
+		parent = _scene
+	parent.add_child(p)
+	_forge_tooltip = p

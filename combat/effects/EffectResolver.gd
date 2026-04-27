@@ -282,13 +282,22 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
 			var tag_atk: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-			BuffSystem.apply(target, buff_type, amount, tag_atk)
-			scene._refresh_slot_for(target)
+			# Defer state mutation to BuffApplyVFX's chevron beat in live combat
+			# so the visible value tween, chevron, and state mutation all align.
+			# Sim has no VFX → mutate immediately as before.
+			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null:
+				scene._request_buff_apply(target, buff_type, amount, tag_atk, false)
+			else:
+				BuffSystem.apply(target, buff_type, amount, tag_atk)
+				scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.BUFF_HP:
 			var tag_hp: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-			BuffSystem.apply_hp_gain(target, amount, tag_hp)
-			scene._refresh_slot_for(target)
+			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null:
+				scene._request_buff_apply(target, Enums.BuffType.HP_BONUS, amount, tag_hp, true)
+			else:
+				BuffSystem.apply_hp_gain(target, amount, tag_hp)
+				scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.HEAL_MINION:
 			if target is MinionInstance:

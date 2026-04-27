@@ -424,6 +424,13 @@ func commit_spell_cast(inst: CardInstance, chosen_target = null) -> bool:
 	if scene != null and scene.get("_enemy_spell_cast_active") == true:
 		await scene.enemy_spell_cast_done
 	if not is_inside_tree(): return false
+	# Buff spells (Dark Empowerment etc.) defer their state mutation to the
+	# BuffApplyVFX's chevron beat. That VFX flips _on_play_vfx_active and
+	# emits on_play_vfx_done when its full animation completes — wait so the
+	# buff fully resolves before the AI moves on.
+	if scene != null and scene.get("_on_play_vfx_active") == true:
+		await scene.on_play_vfx_done
+	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
 	return is_inside_tree()
 

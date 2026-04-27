@@ -16,10 +16,10 @@ var _cards: Dictionary = {}
 #         shield (optional, default 0), tags (optional), art (optional)
 # ---------------------------------------------------------------------------
 const _TOKEN_DEFS: Array[Dictionary] = [
-	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_spark_small.png"},
-	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "", "art": "res://assets/art/minions/abyss_order/void_demon.png",  "battlefield_art": "res://assets/art/minions/abyss_order/void_demon_small.png"},
-	{"id": "lesser_demon", "name": "Lesser Demon", "atk": 400, "hp": 400, "type": "DEMON", "faction": "abyss_order", "desc": "Summoned by Seris's Fiend Offering.", "tags": ["lesser_demon", "demon"], "art": "res://assets/art/minions/abyss_order/lesser_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/lesser_demon_small.png"},
-	{"id": "forged_demon", "name": "Forged Demon", "atk": 500, "hp": 500, "type": "DEMON", "faction": "abyss_order", "desc": "Forged by Seris's Soul Forge.",    "tags": ["forged_demon", "demon"], "art": "res://assets/art/minions/abyss_order/forged_demon.png", "battlefield_art": "res://assets/art/minions/abyss_order/forged_demon_small.png"},
+	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png"},
+	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "", "art": "res://assets/art/minions/abyss_order/void_demon.png"},
+	{"id": "lesser_demon", "name": "Lesser Demon", "atk": 400, "hp": 400, "type": "DEMON", "faction": "abyss_order", "desc": "Summoned by Seris's Fiend Offering.", "tags": ["lesser_demon", "demon"], "art": "res://assets/art/minions/abyss_order/lesser_demon.png"},
+	{"id": "forged_demon", "name": "Forged Demon", "atk": 500, "hp": 500, "type": "DEMON", "faction": "abyss_order", "desc": "Forged by Seris's Soul Forge.",    "tags": ["forged_demon", "demon"], "art": "res://assets/art/minions/abyss_order/forged_demon.png"},
 ]
 
 func _make_token(d: Dictionary) -> MinionCardData:
@@ -38,7 +38,6 @@ func _make_token(d: Dictionary) -> MinionCardData:
 	c.minion_tags  = tags
 	c.spark_value  = d.get("spark_value", 0)
 	c.art_path            = d.get("art", "")
-	c.battlefield_art_path = d.get("battlefield_art", "")
 	return c
 
 func _ready() -> void:
@@ -111,7 +110,6 @@ func _register_wanderer_cards() -> void:
 	void_imp.faction        = "abyss_order"
 	void_imp.clan           = "Void Imp"
 	void_imp.art_path             = "res://assets/art/minions/abyss_order/void_imp.png"
-	void_imp.battlefield_art_path = "res://assets/art/minions/abyss_order/void_imp_small.png"
 	all.append(void_imp)
 
 	# Senior Void Imp — added to hand by Imp Evolution talent; counts as Void Imp
@@ -128,7 +126,6 @@ func _register_wanderer_cards() -> void:
 	senior_void_imp.faction              = "abyss_order"
 	senior_void_imp.clan                 = "Void Imp"
 	senior_void_imp.art_path             = "res://assets/art/minions/abyss_order/senior_void_imp.png"
-	senior_void_imp.battlefield_art_path = "res://assets/art/minions/abyss_order/senior_void_imp_small.png"
 	all.append(senior_void_imp)
 
 	# Runic Void Imp — variant core unit; offered via special reward
@@ -149,7 +146,6 @@ func _register_wanderer_cards() -> void:
 	runic_void_imp.faction               = "abyss_order"
 	runic_void_imp.clan                  = "Void Imp"
 	runic_void_imp.art_path              = "res://assets/art/minions/abyss_order/runic_void_imp.png"
-	runic_void_imp.battlefield_art_path  = "res://assets/art/minions/abyss_order/runic_void_imp_small.png"
 	all.append(runic_void_imp)
 
 	# Grafted Fiend — Seris core unit. Deck cap raised to 4 by Grafted Affinity passive.
@@ -164,7 +160,6 @@ func _register_wanderer_cards() -> void:
 	grafted_fiend.minion_tags    = ["grafted_fiend"]
 	grafted_fiend.faction        = "abyss_order"
 	grafted_fiend.art_path             = "res://assets/art/minions/abyss_order/grafted_fiend.png"
-	grafted_fiend.battlefield_art_path = "res://assets/art/minions/abyss_order/grafted_fiend_small.png"
 	all.append(grafted_fiend)
 
 	# --- Seris Core Pool ------------------------------------------------------
@@ -213,7 +208,6 @@ func _register_wanderer_cards() -> void:
 	grafted_butcher.on_play_target_prompt = "Click a friendly minion to sacrifice."
 	grafted_butcher.on_play_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "grafted_butcher"}]
 	grafted_butcher.art_path        = "res://assets/art/minions/abyss_order/grafted_butcher.png"
-	grafted_butcher.battlefield_art_path = "res://assets/art/minions/abyss_order/grafted_butcher_small.png"
 	grafted_butcher.faction         = "abyss_order"
 	all.append(grafted_butcher)
 
@@ -375,6 +369,8 @@ func _register_wanderer_cards() -> void:
 			"conditions": ["flesh_spent_this_cast"]},
 	]
 	flesh_rune.faction        = "abyss_order"
+	flesh_rune.art_path      = "res://assets/art/traps/abyss_order/flesh_rune.png"
+	flesh_rune.battlefield_art_path = "res://assets/art/traps/abyss_order/flesh_rune_battlefield.png"
 	flesh_rune.rune_glow_color = Color(0.55, 0.08, 0.08, 1)  # Deep red, like Blood Rune
 	all.append(flesh_rune)
 
@@ -743,7 +739,6 @@ func _register_wanderer_cards() -> void:
 	void_imp_wizard.faction      = "abyss_order"
 	void_imp_wizard.clan         = "Void Imp"
 	void_imp_wizard.art_path             = "res://assets/art/minions/abyss_order/void_imp_wizard.png"
-	void_imp_wizard.battlefield_art_path = "res://assets/art/minions/abyss_order/void_imp_wizard_small.png"
 	all.append(void_imp_wizard)
 
 	var shadow_hound := MinionCardData.new()
@@ -757,7 +752,6 @@ func _register_wanderer_cards() -> void:
 	shadow_hound.on_play_effect_steps = [{"type": "BUFF_ATK", "scope": "SELF", "amount": 100, "multiplier_key": "board_count", "multiplier_board": "friendly", "multiplier_filter": "race", "multiplier_tag": "demon", "exclude_self": true, "permanent": true}]
 	shadow_hound.faction        = "abyss_order"
 	shadow_hound.art_path             = "res://assets/art/minions/abyss_order/shadow_hound.png"
-	shadow_hound.battlefield_art_path = "res://assets/art/minions/abyss_order/shwdow_hound_small.png"
 	all.append(shadow_hound)
 
 	var abyssal_brute := MinionCardData.new()
@@ -771,7 +765,6 @@ func _register_wanderer_cards() -> void:
 	abyssal_brute.keywords.append(Enums.Keyword.GUARD)
 	abyssal_brute.faction       = "abyss_order"
 	abyssal_brute.art_path             = "res://assets/art/minions/abyss_order/abyssal_brute.png"
-	abyssal_brute.battlefield_art_path = "res://assets/art/minions/abyss_order/abyssal_brute_small.png"
 	all.append(abyssal_brute)
 
 	# --- Spells ---
@@ -1185,7 +1178,6 @@ func _register_wanderer_cards() -> void:
 	abyss_cultist.on_play_effect_steps = [{"type": "CORRUPTION", "scope": "SINGLE_RANDOM", "amount": 1}]
 	abyss_cultist.faction        = "abyss_order"
 	abyss_cultist.art_path             = "res://assets/art/minions/abyss_order/abyss_cultist.png"
-	abyss_cultist.battlefield_art_path = "res://assets/art/minions/abyss_order/abyss_cultist_small.png"
 	all.append(abyss_cultist)
 
 	var void_netter := MinionCardData.new()
@@ -1202,7 +1194,6 @@ func _register_wanderer_cards() -> void:
 	void_netter.on_play_target_prompt   = "Click an enemy minion to deal 200 damage, or click a slot to summon without effect."
 	void_netter.faction        = "abyss_order"
 	void_netter.art_path             = "res://assets/art/minions/abyss_order/void_netter.png"
-	void_netter.battlefield_art_path = "res://assets/art/minions/abyss_order/void_netter_small.png"
 	all.append(void_netter)
 
 	var corruption_weaver := MinionCardData.new()
@@ -1216,7 +1207,6 @@ func _register_wanderer_cards() -> void:
 	corruption_weaver.on_play_effect_steps = [{"type": "CORRUPTION", "scope": "ALL_ENEMY", "amount": 1}]
 	corruption_weaver.faction        = "abyss_order"
 	corruption_weaver.art_path             = "res://assets/art/minions/abyss_order/corruption_weaver.png"
-	corruption_weaver.battlefield_art_path = "res://assets/art/minions/abyss_order/corruption_weaver_small.png"
 	all.append(corruption_weaver)
 
 	var soul_collector := MinionCardData.new()
@@ -1233,7 +1223,6 @@ func _register_wanderer_cards() -> void:
 	soul_collector.on_play_target_prompt   = "Click a Corrupted enemy minion to destroy it, or click a slot to summon without effect."
 	soul_collector.faction        = "abyss_order"
 	soul_collector.art_path             = "res://assets/art/minions/abyss_order/soul_collector.png"
-	soul_collector.battlefield_art_path = "res://assets/art/minions/abyss_order/soul_collector_small.png"
 	all.append(soul_collector)
 
 	# --- Swift / aggressive ---
@@ -1250,7 +1239,6 @@ func _register_wanderer_cards() -> void:
 	void_stalker.keywords.append(Enums.Keyword.LIFEDRAIN)
 	void_stalker.faction      = "abyss_order"
 	void_stalker.art_path             = "res://assets/art/minions/abyss_order/void_stalker.png"
-	void_stalker.battlefield_art_path = "res://assets/art/minions/abyss_order/void_stalker_small.png"
 	all.append(void_stalker)
 
 	# --- Board-wide passive payoffs ---
@@ -1266,7 +1254,6 @@ func _register_wanderer_cards() -> void:
 	void_spawner.passive_effect_id = "void_spark_on_friendly_death"
 	void_spawner.faction      = "abyss_order"
 	void_spawner.art_path             = "res://assets/art/minions/abyss_order/void_spawner.png"
-	void_spawner.battlefield_art_path = "res://assets/art/minions/abyss_order/void_spawner_small.png"
 	all.append(void_spawner)
 
 	var abyssal_tide := MinionCardData.new()
@@ -1280,7 +1267,6 @@ func _register_wanderer_cards() -> void:
 	abyssal_tide.passive_effect_id = "deal_200_hero_on_friendly_death"
 	abyssal_tide.faction      = "abyss_order"
 	abyssal_tide.art_path             = "res://assets/art/minions/abyss_order/abyssal_tide.png"
-	abyssal_tide.battlefield_art_path = "res://assets/art/minions/abyss_order/abyssal_tide_small.png"
 	all.append(abyssal_tide)
 
 	# --- Sacrifice finisher ---
@@ -1297,7 +1283,6 @@ func _register_wanderer_cards() -> void:
 	void_devourer.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_devourer_sacrifice"}]
 	void_devourer.faction        = "abyss_order"
 	void_devourer.art_path             = "res://assets/art/minions/abyss_order/void_devourer.png"
-	void_devourer.battlefield_art_path = "res://assets/art/minions/abyss_order/void_devourer_small.png"
 	all.append(void_devourer)
 
 	# --- Champion (max 1 copy, auto-summoned when 3 Void Imps are on board) ---
@@ -1320,7 +1305,6 @@ func _register_wanderer_cards() -> void:
 	nyx_ael.faction      = "abyss_order"
 	nyx_ael.clan         = "Void Imp"
 	nyx_ael.art_path             = "res://assets/art/minions/abyss_order/nyx_ael.png"
-	nyx_ael.battlefield_art_path = "res://assets/art/minions/abyss_order/nyx_ael_small.png"
 	all.append(nyx_ael)
 
 	# --- Tokens (not in player deck, summoned by effects) ---
@@ -1443,7 +1427,6 @@ func _register_wanderer_cards() -> void:
 	abyssal_arcanist.on_play_effect_steps = [{"type": "ADD_CARD", "card_id": "void_bolt"}]
 	abyssal_arcanist.faction       = "abyss_order"
 	abyssal_arcanist.art_path           = "res://assets/art/minions/abyss_order/abyssal_arcanist.png"
-	abyssal_arcanist.battlefield_art_path = "res://assets/art/minions/abyss_order/abyssal_arcanist_small.png"
 	all.append(abyssal_arcanist)
 
 	var void_archmagus := MinionCardData.new()
@@ -1459,7 +1442,6 @@ func _register_wanderer_cards() -> void:
 	void_archmagus.on_spell_cast_passive_effect_id = "add_void_bolt_on_spell"
 	void_archmagus.faction                     = "abyss_order"
 	void_archmagus.art_path             = "res://assets/art/minions/abyss_order/void_archmagus.png"
-	void_archmagus.battlefield_art_path = "res://assets/art/minions/abyss_order/void_archmagus_small.png"
 	all.append(void_archmagus)
 
 	# ---------------------------------------------------------------------------
@@ -1478,7 +1460,6 @@ func _register_wanderer_cards() -> void:
 	imp_recruiter.on_play_effect_steps = [{"type": "ADD_CARD", "card_id": "void_imp"}]
 	imp_recruiter.faction        = "abyss_order"
 	imp_recruiter.art_path             = "res://assets/art/minions/abyss_order/imp_recruiter.png"
-	imp_recruiter.battlefield_art_path = "res://assets/art/minions/abyss_order/imp_recruiter_small.png"
 	all.append(imp_recruiter)
 
 	var soul_taskmaster := MinionCardData.new()
@@ -1492,7 +1473,6 @@ func _register_wanderer_cards() -> void:
 	soul_taskmaster.passive_effect_id = "soul_taskmaster_gain_atk"
 	soul_taskmaster.faction           = "abyss_order"
 	soul_taskmaster.art_path             = "res://assets/art/minions/abyss_order/soul_taskmaster.png"
-	soul_taskmaster.battlefield_art_path = "res://assets/art/minions/abyss_order/soul_taskmaster_small.png"
 	all.append(soul_taskmaster)
 
 	var void_amplifier := MinionCardData.new()
@@ -1506,7 +1486,6 @@ func _register_wanderer_cards() -> void:
 	void_amplifier.passive_effect_id = "void_amplifier_buff_demon"
 	void_amplifier.faction           = "abyss_order"
 	void_amplifier.art_path             = "res://assets/art/minions/abyss_order/void_amplifier.png"
-	void_amplifier.battlefield_art_path = "res://assets/art/minions/abyss_order/void_amplifier_small.png"
 	all.append(void_amplifier)
 
 	# Spells
@@ -1601,8 +1580,8 @@ func _register_wanderer_cards() -> void:
 	dominion_rune.rune_type         = Enums.RuneType.DOMINION_RUNE
 	dominion_rune.aura_trigger      = Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED
 	dominion_rune.aura_effect_steps = [{"type": "BUFF_ATK", "scope": "TRIGGER_MINION", "filter": "DEMON", "amount": 100, "multiplier_key": "rune_aura", "source_tag": "dominion_rune"}]
-	dominion_rune.aura_on_place_steps  = [{"type": "HARDCODED", "hardcoded_id": "dominion_rune_place"}]
-	dominion_rune.aura_on_remove_steps = [{"type": "HARDCODED", "hardcoded_id": "dominion_rune_remove"}]
+	# Backfill on place + auto-strip on remove are handled by the aura system
+	# (driven by source_tag in aura_effect_steps).
 	dominion_rune.faction           = "abyss_order"
 	dominion_rune.art_path              = "res://assets/art/traps/abyss_order/dominion_rune_clean.png"
 	dominion_rune.battlefield_art_path  = "res://assets/art/traps/abyss_order/dominion_rune_battlefield.png"
@@ -1618,6 +1597,9 @@ func _register_wanderer_cards() -> void:
 	shadow_rune.rune_type        = Enums.RuneType.SHADOW_RUNE
 	shadow_rune.aura_trigger     = Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
 	shadow_rune.aura_effect_steps = [{"type": "CORRUPTION", "scope": "TRIGGER_MINION", "amount": 1, "multiplier_key": "rune_aura"}]
+	# Future-only by design: existing enemy minions never had a "play moment" to be
+	# corrupted, so don't retroactively stack CORRUPTION on them at placement.
+	shadow_rune.aura_backfill_on_place = false
 	shadow_rune.faction          = "abyss_order"
 	shadow_rune.art_path             = "res://assets/art/traps/abyss_order/shadow_rune_clean.png"
 	shadow_rune.battlefield_art_path = "res://assets/art/traps/abyss_order/shadow_rune_battlefield_v2.png"
@@ -1708,7 +1690,6 @@ func _register_wanderer_cards() -> void:
 	]
 	imp_martyr.minion_tags         = ["void_imp"]
 	imp_martyr.art_path            = "res://assets/art/minions/abyss_order/imp_martyr.png"
-	imp_martyr.battlefield_art_path = "res://assets/art/minions/abyss_order/imp_martyr_small.png"
 	imp_martyr.faction             = "abyss_order"
 	imp_martyr.clan                = "Void Imp"
 	all.append(imp_martyr)
@@ -1727,7 +1708,6 @@ func _register_wanderer_cards() -> void:
 	]
 	imp_vessel.minion_tags         = ["void_imp"]
 	imp_vessel.art_path            = "res://assets/art/minions/abyss_order/imp_vessel.png"
-	imp_vessel.battlefield_art_path = "res://assets/art/minions/abyss_order/imp_vessel_small.png"
 	imp_vessel.faction             = "abyss_order"
 	imp_vessel.clan                = "Void Imp"
 	all.append(imp_vessel)
@@ -1745,7 +1725,6 @@ func _register_wanderer_cards() -> void:
 	]
 	imp_idol.minion_tags           = ["void_imp"]
 	imp_idol.art_path              = "res://assets/art/minions/abyss_order/imp_idol.png"
-	imp_idol.battlefield_art_path  = "res://assets/art/minions/abyss_order/imp_idol_small.png"
 	imp_idol.faction               = "abyss_order"
 	imp_idol.clan                  = "Void Imp"
 	all.append(imp_idol)
@@ -1768,7 +1747,6 @@ func _register_wanderer_cards() -> void:
 	vaels_colossal_guard.faction              = "abyss_order"
 	vaels_colossal_guard.clan                 = "Void Imp"
 	vaels_colossal_guard.art_path             = "res://assets/art/minions/abyss_order/vaels_colossal_guard.png"
-	vaels_colossal_guard.battlefield_art_path = "res://assets/art/minions/abyss_order/vaels_colossal_guard_small.png"
 	all.append(vaels_colossal_guard)
 
 	# ---------------------------------------------------------------------------
@@ -1805,7 +1783,6 @@ func _register_wanderer_cards() -> void:
 	rune_warden.minion_type              = Enums.MinionType.HUMAN
 	rune_warden.passive_effect_id        = "rune_warden"
 	rune_warden.art_path                 = "res://assets/art/minions/abyss_order/rune_warden.png"
-	rune_warden.battlefield_art_path     = "res://assets/art/minions/abyss_order/rune_warden_small.png"
 	rune_warden.faction                  = "abyss_order"
 	all.append(rune_warden)
 
@@ -1819,7 +1796,6 @@ func _register_wanderer_cards() -> void:
 	rune_seeker.minion_type             = Enums.MinionType.HUMAN
 	rune_seeker.on_play_effect_steps    = [{"type": "TUTOR", "tutor_filter": "rune"}]
 	rune_seeker.art_path                = "res://assets/art/minions/abyss_order/rune_seeker.png"
-	rune_seeker.battlefield_art_path    = "res://assets/art/minions/abyss_order/rune_seeker_small.png"
 	rune_seeker.faction                 = "abyss_order"
 	all.append(rune_seeker)
 
@@ -1834,7 +1810,7 @@ func _register_wanderer_cards() -> void:
 	echo_rune.aura_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "echo_rune_fire"}]
 	echo_rune.art_path               = "res://assets/art/traps/abyss_order/echo_rune_premium.png"
 	echo_rune.battlefield_art_path   = "res://assets/art/traps/abyss_order/echo_rune_battlefield.png"
-	echo_rune.rune_glow_color        = Color(0.20, 0.08, 0.35, 1)  # Dark black-purple
+	echo_rune.rune_glow_color        = Color(0.95, 0.65, 0.25, 1)  # Warm gold/amber — matches the art
 	echo_rune.faction                = "abyss_order"
 	all.append(echo_rune)
 
@@ -1854,7 +1830,6 @@ func _register_wanderer_cards() -> void:
 	rabid_imp.faction             = "abyss_order"
 	rabid_imp.clan                = "Feral Imp"
 	rabid_imp.art_path            = "res://assets/art/minions/feral_imp_clan/rabid_imp.png"
-	rabid_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/rabid_imp_small.png"
 	all.append(rabid_imp)
 
 	var brood_imp := MinionCardData.new()
@@ -1873,7 +1848,6 @@ func _register_wanderer_cards() -> void:
 	brood_imp.faction             = "abyss_order"
 	brood_imp.clan                = "Feral Imp"
 	brood_imp.art_path            = "res://assets/art/minions/feral_imp_clan/brood_imp.png"
-	brood_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/brood_imp_small.png"
 	all.append(brood_imp)
 
 	var imp_brawler := MinionCardData.new()
@@ -1888,7 +1862,6 @@ func _register_wanderer_cards() -> void:
 	imp_brawler.faction             = "abyss_order"
 	imp_brawler.clan                = "Feral Imp"
 	imp_brawler.art_path            = "res://assets/art/minions/feral_imp_clan/imp_brawler.png"
-	imp_brawler.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/imp_brawler_small.png"
 	all.append(imp_brawler)
 
 	var void_touched_imp := MinionCardData.new()
@@ -1906,7 +1879,6 @@ func _register_wanderer_cards() -> void:
 	void_touched_imp.faction  = "abyss_order"
 	void_touched_imp.clan     = "Feral Imp"
 	void_touched_imp.art_path             = "res://assets/art/minions/feral_imp_clan/void_touched_imp.png"
-	void_touched_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/void_touched_imp_small.png"
 	all.append(void_touched_imp)
 
 	var frenzied_imp := MinionCardData.new()
@@ -1924,7 +1896,6 @@ func _register_wanderer_cards() -> void:
 	frenzied_imp.faction              = "abyss_order"
 	frenzied_imp.clan                 = "Feral Imp"
 	frenzied_imp.art_path             = "res://assets/art/minions/feral_imp_clan/frienzied_imp.png"
-	frenzied_imp.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/frienzied_imp_small.png"
 	all.append(frenzied_imp)
 
 	var matriarchs_broodling := MinionCardData.new()
@@ -1943,7 +1914,6 @@ func _register_wanderer_cards() -> void:
 	matriarchs_broodling.faction              = "abyss_order"
 	matriarchs_broodling.clan                 = "Feral Imp"
 	matriarchs_broodling.art_path             = "res://assets/art/minions/feral_imp_clan/matriarchs_broodling.png"
-	matriarchs_broodling.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/matriarchs_broodling_small.png"
 	all.append(matriarchs_broodling)
 
 	var rogue_imp_elder := MinionCardData.new()
@@ -1954,13 +1924,23 @@ func _register_wanderer_cards() -> void:
 	rogue_imp_elder.atk          = 300
 	rogue_imp_elder.health       = 500
 	rogue_imp_elder.minion_type  = Enums.MinionType.DEMON
-	# Aura wired via on_enemy_summon_rogue_imp_elder_aura / on_died_rogue_imp_elder_aura
-	# (recomputed on every summon/death — true continuous aura, not a one-time buff).
-	rogue_imp_elder.minion_tags  = ["feral_imp"]
+	# Self-tag "rogue_imp_elder" lets the presence-aura board_count multiplier count
+	# how many Elders are alive on the same side (so 2 Elders → +200 each, etc.).
+	rogue_imp_elder.minion_tags  = ["feral_imp", "rogue_imp_elder"]
+	rogue_imp_elder.presence_aura_steps = [{
+		"type": "BUFF_ATK",
+		"scope": "ALL_FRIENDLY",
+		"filter": "FERAL_IMP",
+		"amount": 100,
+		"source_tag": "rogue_imp_elder_aura",
+		"multiplier_key": "board_count",
+		"multiplier_board": "friendly",
+		"multiplier_filter": "tag",
+		"multiplier_tag": "rogue_imp_elder",
+	}]
 	rogue_imp_elder.faction              = "abyss_order"
 	rogue_imp_elder.clan                 = "Feral Imp"
 	rogue_imp_elder.art_path             = "res://assets/art/minions/feral_imp_clan/rogue_imp_elder.png"
-	rogue_imp_elder.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/rogue_imp_elder_small.png"
 	all.append(rogue_imp_elder)
 
 	# --- Enemy Champions (Act 1) — auto-summoned by passive handlers, not from deck ---
@@ -1979,7 +1959,6 @@ func _register_wanderer_cards() -> void:
 	champion_rogue_imp_pack.faction              = "abyss_order"
 	champion_rogue_imp_pack.clan                 = "Feral Imp"
 	champion_rogue_imp_pack.art_path             = "res://assets/art/minions/feral_imp_clan/rogue_imp_pack.png"
-	champion_rogue_imp_pack.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/rogue_imp_pack_small.png"
 	all.append(champion_rogue_imp_pack)
 
 	var champion_corrupted_broodlings := MinionCardData.new()
@@ -1994,7 +1973,6 @@ func _register_wanderer_cards() -> void:
 	champion_corrupted_broodlings.is_champion  = true
 	champion_corrupted_broodlings.minion_tags  = ["feral_imp", "enemy_champion"]
 	champion_corrupted_broodlings.art_path             = "res://assets/art/minions/feral_imp_clan/champion_corrupted_broodlings.png"
-	champion_corrupted_broodlings.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/champion_corrupted_broodlings_small.png"
 	champion_corrupted_broodlings.faction      = "abyss_order"
 	champion_corrupted_broodlings.clan         = "Feral Imp"
 	all.append(champion_corrupted_broodlings)
@@ -2011,7 +1989,6 @@ func _register_wanderer_cards() -> void:
 	champion_imp_matriarch.is_champion  = true
 	champion_imp_matriarch.minion_tags  = ["feral_imp", "enemy_champion"]
 	champion_imp_matriarch.art_path             = "res://assets/art/minions/feral_imp_clan/champion_imp_matriarch.png"
-	champion_imp_matriarch.battlefield_art_path = "res://assets/art/minions/feral_imp_clan/champion_imp_matriarch_small.png"
 	champion_imp_matriarch.faction      = "abyss_order"
 	champion_imp_matriarch.clan         = "Feral Imp"
 	all.append(champion_imp_matriarch)
@@ -2073,7 +2050,6 @@ func _register_wanderer_cards() -> void:
 	cult_fanatic.health       = 300
 	cult_fanatic.minion_type  = Enums.MinionType.HUMAN
 	cult_fanatic.art_path             = "res://assets/art/minions/abyss_cultist/cult_fanatic.png"
-	cult_fanatic.battlefield_art_path = "res://assets/art/minions/abyss_cultist/cult_fanatic_small.png"
 	cult_fanatic.faction      = "abyss_order"
 	all.append(cult_fanatic)
 
@@ -2104,7 +2080,6 @@ func _register_wanderer_cards() -> void:
 	champion_abyss_cultist_patrol.is_champion  = true
 	champion_abyss_cultist_patrol.minion_tags  = ["enemy_champion"]
 	champion_abyss_cultist_patrol.art_path             = "res://assets/art/minions/abyss_order/champion_abyss_cultist_patrol.png"
-	champion_abyss_cultist_patrol.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_abyss_cultist_patrol_small.png"
 	champion_abyss_cultist_patrol.faction      = "abyss_order"
 	all.append(champion_abyss_cultist_patrol)
 
@@ -2120,7 +2095,6 @@ func _register_wanderer_cards() -> void:
 	champion_void_ritualist.is_champion  = true
 	champion_void_ritualist.minion_tags  = ["enemy_champion"]
 	champion_void_ritualist.art_path             = "res://assets/art/minions/abyss_order/champion_void_ritualist.png"
-	champion_void_ritualist.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_ritualist_small.png"
 	champion_void_ritualist.faction      = "abyss_order"
 	all.append(champion_void_ritualist)
 
@@ -2136,7 +2110,6 @@ func _register_wanderer_cards() -> void:
 	champion_corrupted_handler.is_champion  = true
 	champion_corrupted_handler.minion_tags  = ["enemy_champion"]
 	champion_corrupted_handler.art_path             = "res://assets/art/minions/abyss_order/champion_corrupted_handler.png"
-	champion_corrupted_handler.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_corrupted_handler_small.png"
 	champion_corrupted_handler.faction      = "abyss_order"
 	all.append(champion_corrupted_handler)
 
@@ -2154,7 +2127,6 @@ func _register_wanderer_cards() -> void:
 	champion_rift_stalker.is_champion  = true
 	champion_rift_stalker.minion_tags  = ["enemy_champion"]
 	champion_rift_stalker.art_path             = "res://assets/art/minions/abyss_order/champion_rift_stalker.png"
-	champion_rift_stalker.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_rift_stalker_small.png"
 	champion_rift_stalker.faction      = "abyss_order"
 	all.append(champion_rift_stalker)
 
@@ -2170,7 +2142,6 @@ func _register_wanderer_cards() -> void:
 	champion_void_aberration.is_champion  = true
 	champion_void_aberration.minion_tags  = ["enemy_champion"]
 	champion_void_aberration.art_path             = "res://assets/art/minions/abyss_order/champion_void_aberration.png"
-	champion_void_aberration.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_aberration_small.png"
 	champion_void_aberration.faction      = "abyss_order"
 	all.append(champion_void_aberration)
 
@@ -2186,7 +2157,6 @@ func _register_wanderer_cards() -> void:
 	champion_void_herald.is_champion  = true
 	champion_void_herald.minion_tags  = ["enemy_champion"]
 	champion_void_herald.art_path             = "res://assets/art/minions/abyss_order/champion_void_herald.png"
-	champion_void_herald.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_herald_small.png"
 	champion_void_herald.faction      = "abyss_order"
 	all.append(champion_void_herald)
 
@@ -2204,7 +2174,6 @@ func _register_wanderer_cards() -> void:
 	champion_void_scout.is_champion  = true
 	champion_void_scout.minion_tags  = ["enemy_champion"]
 	champion_void_scout.art_path             = "res://assets/art/minions/abyss_order/champion_void_scout.png"
-	champion_void_scout.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_scout_small.png"
 	champion_void_scout.faction      = "abyss_order"
 	all.append(champion_void_scout)
 
@@ -2220,7 +2189,6 @@ func _register_wanderer_cards() -> void:
 	champion_void_warband.is_champion  = true
 	champion_void_warband.minion_tags  = ["enemy_champion"]
 	champion_void_warband.art_path             = "res://assets/art/minions/abyss_order/champion_void_warband.png"
-	champion_void_warband.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_warband_small.png"
 	champion_void_warband.faction      = "abyss_order"
 	all.append(champion_void_warband)
 
@@ -2236,7 +2204,6 @@ func _register_wanderer_cards() -> void:
 	champion_void_captain.is_champion  = true
 	champion_void_captain.minion_tags  = ["enemy_champion"]
 	champion_void_captain.art_path             = "res://assets/art/minions/abyss_order/champion_void_captain.png"
-	champion_void_captain.battlefield_art_path = "res://assets/art/minions/abyss_order/champion_void_captain_small.png"
 	champion_void_captain.faction      = "abyss_order"
 	all.append(champion_void_captain)
 
@@ -2293,7 +2260,6 @@ func _register_wanderer_cards() -> void:
 	phase_stalker.keywords.append(Enums.Keyword.SWIFT)
 	phase_stalker.faction         = "abyss_order"
 	phase_stalker.art_path             = "res://assets/art/minions/abyss_order/phase_stalker.png"
-	phase_stalker.battlefield_art_path = "res://assets/art/minions/abyss_order/phase_stalker_small.png"
 	all.append(phase_stalker)
 
 	var rift_collapse := SpellCardData.new()
@@ -2331,7 +2297,6 @@ func _register_wanderer_cards() -> void:
 	void_behemoth.keywords.append(Enums.Keyword.GUARD)
 	void_behemoth.faction         = "abyss_order"
 	void_behemoth.art_path             = "res://assets/art/minions/abyss_order/void_behemoth.png"
-	void_behemoth.battlefield_art_path = "res://assets/art/minions/abyss_order/void_behemoth_small.png"
 	all.append(void_behemoth)
 
 	var dimensional_breach := SpellCardData.new()
@@ -2360,7 +2325,6 @@ func _register_wanderer_cards() -> void:
 	void_rift_lord.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_rift_lord_mana_drain"}]
 	void_rift_lord.faction         = "abyss_order"
 	void_rift_lord.art_path             = "res://assets/art/minions/abyss_order/void_rift_lord.png"
-	void_rift_lord.battlefield_art_path = "res://assets/art/minions/abyss_order/void_rift_lord_small.png"
 	all.append(void_rift_lord)
 
 	# --- Act 3 new spells (mana-only, no spark cost) ---
@@ -2429,7 +2393,6 @@ func _register_wanderer_cards() -> void:
 	void_wisp.spark_value   = 1
 	void_wisp.faction       = "abyss_order"
 	void_wisp.art_path             = "res://assets/art/minions/abyss_order/void_wisp.png"
-	void_wisp.battlefield_art_path = "res://assets/art/minions/abyss_order/void_wisp_small.png"
 	all.append(void_wisp)
 
 	var void_shade := MinionCardData.new()
@@ -2442,7 +2405,6 @@ func _register_wanderer_cards() -> void:
 	void_shade.spark_value   = 2
 	void_shade.faction       = "abyss_order"
 	void_shade.art_path             = "res://assets/art/minions/abyss_order/void_shade.png"
-	void_shade.battlefield_art_path = "res://assets/art/minions/abyss_order/void_shade_small.png"
 	all.append(void_shade)
 
 	var void_wraith := MinionCardData.new()
@@ -2455,7 +2417,6 @@ func _register_wanderer_cards() -> void:
 	void_wraith.spark_value   = 3
 	void_wraith.faction       = "abyss_order"
 	void_wraith.art_path             = "res://assets/art/minions/abyss_order/void_wraith.png"
-	void_wraith.battlefield_art_path = "res://assets/art/minions/abyss_order/void_wraith_small.png"
 	all.append(void_wraith)
 
 	var void_revenant := MinionCardData.new()
@@ -2468,7 +2429,6 @@ func _register_wanderer_cards() -> void:
 	void_revenant.spark_value   = 4
 	void_revenant.faction       = "abyss_order"
 	void_revenant.art_path             = "res://assets/art/minions/abyss_order/void_revenant.png"
-	void_revenant.battlefield_art_path = "res://assets/art/minions/abyss_order/void_revenant_small.png"
 	all.append(void_revenant)
 
 	# --- Spark consumer spells ---
@@ -2513,7 +2473,6 @@ func _register_wanderer_cards() -> void:
 	bastion_colossus.on_play_effect_steps = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SELF", "amount": 2}]
 	bastion_colossus.faction              = "abyss_order"
 	bastion_colossus.art_path             = "res://assets/art/minions/abyss_order/bastion_colossus.png"
-	bastion_colossus.battlefield_art_path = "res://assets/art/minions/abyss_order/bastion_colossus_small.png"
 	all.append(bastion_colossus)
 
 	# --- Non-spark spells ---
@@ -2544,7 +2503,6 @@ func _register_wanderer_cards() -> void:
 	sovereigns_herald.on_play_effect_steps     = [{"type": "GRANT_CRITICAL_STRIKE", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 1}]
 	sovereigns_herald.faction                  = "abyss_order"
 	sovereigns_herald.art_path                 = "res://assets/art/minions/abyss_order/sovereigns_herald.png"
-	sovereigns_herald.battlefield_art_path     = "res://assets/art/minions/abyss_order/sovereigns_herald_small.png"
 	all.append(sovereigns_herald)
 
 	# --- New Act 3-4 Spirit minions ──────────────────────────────────────────
@@ -2560,7 +2518,6 @@ func _register_wanderer_cards() -> void:
 	void_resonance.keywords.append(Enums.Keyword.ETHEREAL)
 	void_resonance.on_play_effect_steps = [{"type": "HEAL_HERO", "amount": 300}]
 	void_resonance.art_path             = "res://assets/art/minions/abyss_order/void_resonance.png"
-	void_resonance.battlefield_art_path = "res://assets/art/minions/abyss_order/void_resonance_small.png"
 	void_resonance.faction         = "abyss_order"
 	all.append(void_resonance)
 
@@ -2576,7 +2533,6 @@ func _register_wanderer_cards() -> void:
 	void_echo.keywords.append(Enums.Keyword.ETHEREAL)
 	void_echo.on_play_effect_steps = [{"type": "DRAW", "amount": 1}]
 	void_echo.art_path             = "res://assets/art/minions/abyss_order/void_echo.png"
-	void_echo.battlefield_art_path = "res://assets/art/minions/abyss_order/void_echo_small.png"
 	void_echo.faction         = "abyss_order"
 	all.append(void_echo)
 
@@ -2590,7 +2546,6 @@ func _register_wanderer_cards() -> void:
 	rift_tender.minion_type     = Enums.MinionType.SPIRIT
 	rift_tender.on_play_effect_steps = [{"type": "SUMMON", "card_id": "void_spark"}]
 	rift_tender.art_path             = "res://assets/art/minions/abyss_order/rift_tender.png"
-	rift_tender.battlefield_art_path = "res://assets/art/minions/abyss_order/rift_tender_small.png"
 	rift_tender.faction         = "abyss_order"
 	all.append(rift_tender)
 
@@ -2605,7 +2560,6 @@ func _register_wanderer_cards() -> void:
 	hollow_sentinel.keywords.append(Enums.Keyword.ETHEREAL)
 	hollow_sentinel.passive_effect_id = "hollow_sentinel_spark_buff"
 	hollow_sentinel.art_path             = "res://assets/art/minions/abyss_order/hollow_sentinel.png"
-	hollow_sentinel.battlefield_art_path = "res://assets/art/minions/abyss_order/hollow_sentinel_small.png"
 	hollow_sentinel.faction         = "abyss_order"
 	all.append(hollow_sentinel)
 
@@ -2620,7 +2574,6 @@ func _register_wanderer_cards() -> void:
 	phase_disruptor.keywords.append(Enums.Keyword.ETHEREAL)
 	phase_disruptor.on_play_effect_steps = [{"type": "COUNTER_SPELL"}]
 	phase_disruptor.art_path             = "res://assets/art/minions/abyss_order/phase_disruptor.png"
-	phase_disruptor.battlefield_art_path = "res://assets/art/minions/abyss_order/phase_disruptor_small.png"
 	phase_disruptor.faction         = "abyss_order"
 	all.append(phase_disruptor)
 
@@ -2634,7 +2587,6 @@ func _register_wanderer_cards() -> void:
 	void_architect.minion_type     = Enums.MinionType.SPIRIT
 	void_architect.on_play_effect_steps = [{"type": "GROW_MANA_MAX", "amount": 1}]
 	void_architect.art_path             = "res://assets/art/minions/abyss_order/void_architect.png"
-	void_architect.battlefield_art_path = "res://assets/art/minions/abyss_order/void_architect_small.png"
 	void_architect.faction         = "abyss_order"
 	all.append(void_architect)
 
@@ -2649,7 +2601,6 @@ func _register_wanderer_cards() -> void:
 	riftscarred_colossus.keywords.append(Enums.Keyword.SWIFT)
 	riftscarred_colossus.on_play_effect_steps = [{"type": "SUMMON", "card_id": "void_spark"}]
 	riftscarred_colossus.art_path             = "res://assets/art/minions/abyss_order/riftscarred_colossus.png"
-	riftscarred_colossus.battlefield_art_path = "res://assets/art/minions/abyss_order/riftscarred_colossus_small.png"
 	riftscarred_colossus.faction         = "abyss_order"
 	all.append(riftscarred_colossus)
 
@@ -2666,7 +2617,6 @@ func _register_wanderer_cards() -> void:
 	rift_warden.keywords.append(Enums.Keyword.ETHEREAL)
 	rift_warden.passive_effect_id = "rift_warden_siphon"
 	rift_warden.art_path             = "res://assets/art/minions/abyss_order/rift_warden.png"
-	rift_warden.battlefield_art_path = "res://assets/art/minions/abyss_order/rift_warden_small.png"
 	rift_warden.faction         = "abyss_order"
 	all.append(rift_warden)
 
@@ -2682,7 +2632,6 @@ func _register_wanderer_cards() -> void:
 	ethereal_titan.keywords.append(Enums.Keyword.ETHEREAL)
 	ethereal_titan.keywords.append(Enums.Keyword.PIERCE)
 	ethereal_titan.art_path             = "res://assets/art/minions/abyss_order/ethereal_titan.png"
-	ethereal_titan.battlefield_art_path = "res://assets/art/minions/abyss_order/ethereal_titan_small.png"
 	ethereal_titan.faction         = "abyss_order"
 	all.append(ethereal_titan)
 

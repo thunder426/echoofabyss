@@ -434,7 +434,7 @@ func _resolve_void_devourer_sacrifice(_devourer: MinionInstance, _owner: String)
 	pass  # complex effect — not simulated
 
 ## (`_update_trap_display`, `_update_environment_display`, `_find_random_minion`,
-## `_refresh_dominion_aura`, `_find_last_non_echo_rune`, `_remove_rune_aura`,
+## `_find_last_non_echo_rune`, `_remove_rune_aura`,
 ## `_unregister_env_rituals`, `_rune_aura_multiplier`, `_minion_has_tag`,
 ## `_has_talent` all inherited from CombatState.)
 

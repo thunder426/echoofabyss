@@ -18,10 +18,20 @@
 ##     4. Awaits vfx.finished.
 ##     5. Unfreezes slots + calls CombatScene._flush_deferred_deaths().
 ##
-## Adding a new spell VFX: add a private `_play_*` method below and wire it in
-## play_spell(). CombatScene does not change.
+## Adding a new spell VFX: add a private `_play_*` method below and a one-line
+## entry to `_SPELL_DISPATCH`. CombatScene does not change.
 class_name VfxController
 extends Node
+
+## spell_id -> private method name on this controller. Single edit point for
+## new spells; replaces the previous `match` chain in play_spell().
+const _SPELL_DISPATCH := {
+	"arcane_strike": "_play_arcane_strike",
+	"void_execution": "_play_void_execution",
+	"void_screech": "_play_void_screech",
+	"abyssal_plague": "_play_abyssal_plague",
+	"pack_frenzy": "_play_pack_frenzy",
+}
 
 ## CombatScene — set via setup(). Used for _find_slot_for, hero panels,
 ## _flush_deferred_deaths, and the VfxLayer reference.
@@ -57,35 +67,19 @@ func play_spell(spell_id: String, caster_side: String, target: Variant, resolve_
 		push_error("VfxController.play_spell: not set up")
 		resolve_damage.call(0)
 		return
-	match spell_id:
-		"arcane_strike":
-			await _play_arcane_strike(target, resolve_damage)
-		"void_execution":
-			await _play_void_execution(caster_side, target, resolve_damage)
-		"void_screech":
-			await _play_void_screech(caster_side, resolve_damage)
-		"abyssal_plague":
-			# Plague resolves damage per-minion internally (the callback per
-			# impact_hit), so the caller's resolve_damage is ignored.
-			await _play_abyssal_plague(caster_side)
-		"pack_frenzy":
-			# Pack Frenzy's VFX is spawned inside the hardcoded effect (it
-			# needs the list of feral imp targets). resolve_damage kicks off
-			# that effect chain; then we await the tracked VFX so the enemy
-			# AI's next move waits for the full visual to finish.
-			resolve_damage.call(0)
-			var vfx: PackFrenzyVFX = _combat.vfx_bridge._pack_frenzy_active_vfx if _combat.vfx_bridge != null else null
-			if vfx != null and is_instance_valid(vfx):
-				await vfx.finished
-		_:
-			resolve_damage.call(0)
+	if _SPELL_DISPATCH.has(spell_id):
+		await call(_SPELL_DISPATCH[spell_id], caster_side, target, resolve_damage)
+	else:
+		resolve_damage.call(0)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Per-spell dispatch
+# Per-spell dispatch — uniform signature (caster_side, target, resolve_damage)
+# so play_spell can dispatch through `_SPELL_DISPATCH` without per-spell
+# branching. Unused parameters are prefixed with underscore.
 # ═════════════════════════════════════════════════════════════════════════════
 
-func _play_arcane_strike(target: Variant, resolve_damage: Callable) -> void:
+func _play_arcane_strike(_caster_side: String, target: Variant, resolve_damage: Callable) -> void:
 	var slot: BoardSlot = _combat._find_slot_for(target) if target is MinionInstance else null
 	if slot == null:
 		resolve_damage.call(0)
@@ -126,7 +120,7 @@ func _play_void_execution(caster_side: String, target: Variant, resolve_damage: 
 	await vfx.impact_hit
 	resolve_damage.call(0)
 
-func _play_void_screech(caster_side: String, resolve_damage: Callable) -> void:
+func _play_void_screech(caster_side: String, _target: Variant, resolve_damage: Callable) -> void:
 	var target_panel: Control = _combat._enemy_status_panel if caster_side == "player" else _combat._player_status_panel
 	if target_panel == null:
 		resolve_damage.call(0)
@@ -155,7 +149,7 @@ func _play_void_screech(caster_side: String, resolve_damage: Callable) -> void:
 	resolve_damage.call(0)
 	await vfx.finished
 
-func _play_abyssal_plague(caster_side: String) -> void:
+func _play_abyssal_plague(caster_side: String, _target: Variant, _resolve_damage: Callable) -> void:
 	# P4B: scene's wrapper mutates state (corrupt + damage all enemies via
 	# EffectResolver running plague's effect_steps) BEFORE this VFX spawns,
 	# queueing one damage popup per touched minion. The wave plays visually
@@ -178,3 +172,13 @@ func _play_abyssal_plague(caster_side: String) -> void:
 	var vfx := AbyssalPlagueVFX.create(caster_panel, caster_side, all_slots, occupied, per_minion_cb)
 	_vfx_layer.add_child(vfx)
 	await vfx.finished
+
+## Pack Frenzy's VFX is spawned inside the hardcoded effect (it needs the
+## list of feral imp targets). resolve_damage kicks off that effect chain;
+## then we await the tracked VFX so the enemy AI's next move waits for the
+## full visual to finish.
+func _play_pack_frenzy(_caster_side: String, _target: Variant, resolve_damage: Callable) -> void:
+	resolve_damage.call(0)
+	var vfx: PackFrenzyVFX = _combat.vfx_bridge._pack_frenzy_active_vfx if _combat.vfx_bridge != null else null
+	if vfx != null and is_instance_valid(vfx):
+		await vfx.finished

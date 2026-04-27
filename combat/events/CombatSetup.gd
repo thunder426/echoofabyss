@@ -404,11 +404,15 @@ func setup(
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED,  h.on_player_minion_played_effect,       10)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_summon_board_synergies,           30)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, h.on_enemy_minion_played_effect,         5)
-	# Rogue Imp Elder aura — symmetric, fires on every summon/death on either side
-	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_minion_event_rogue_imp_elder_aura,  7)
-	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  h.on_minion_event_rogue_imp_elder_aura,  7)
-	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,     h.on_minion_event_rogue_imp_elder_aura,  7)
-	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,      h.on_minion_event_rogue_imp_elder_aura,  7)
+	# Generic minion presence-aura recompute — fires on every summon/death/sacrifice on
+	# either side. Walks MinionCardData.presence_aura_steps on every minion and recomputes
+	# their buffs. Replaces the old bespoke Rogue Imp Elder handler.
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED,    h.on_minion_event_presence_auras, 7)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,     h.on_minion_event_presence_auras, 7)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,        h.on_minion_event_presence_auras, 7)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,         h.on_minion_event_presence_auras, 7)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED,  h.on_minion_event_presence_auras, 7)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED,   h.on_minion_event_presence_auras, 7)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_player_minion_died_board_passives,  0)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED, h.on_player_minion_sacrificed_board_passives, 0)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_minion_died_death_effect,           5)

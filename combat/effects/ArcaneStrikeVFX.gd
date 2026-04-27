@@ -4,7 +4,7 @@
 ##
 ## Layers:
 ##   1. Crack stamp (additive fracture texture — the main visual)
-##   2. Light screen shake
+##   2. Light screen shake (listener on `slam` beat)
 ##
 ## Spawn via VfxController — do not parent manually.
 class_name ArcaneStrikeVFX
@@ -12,21 +12,19 @@ extends BaseVfx
 
 const TEX_CRACK: Texture2D = preload("res://assets/art/fx/arcane_strike_impact.png")
 
-# ── Arcane color palette ─────────────────────────────────────────────────────
-const COLOR_BRIGHT: Color = Color(0.40, 0.55, 1.0, 0.95)   # Vivid arcane blue
+const COLOR_BRIGHT: Color = Color(0.40, 0.55, 1.0, 0.95)
+const CRACK_SIZE: float = 160.0
 
-# ── Sizing ───────────────────────────────────────────────────────────────────
-const CRACK_SIZE: float = 160.0   # Crack stamp covers most of the slot
+const SLAM_DURATION: float  = 0.06
+const HOLD_DURATION: float  = 0.30
+const FADE_DURATION: float  = 0.25
 
-# ── Timing ───────────────────────────────────────────────────────────────────
-const CRACK_HOLD: float    = 0.30
-const CRACK_FADE: float    = 0.25
-
-# ── Shake ────────────────────────────────────────────────────────────────────
 const SHAKE_AMPLITUDE: float = 5.0
 const SHAKE_TICKS: int       = 6
 
 var _target_slot: BoardSlot
+var _stamp: Sprite2D = null
+var _target_scale: float = 1.0
 
 
 static func create(target_slot: BoardSlot) -> ArcaneStrikeVFX:
@@ -42,55 +40,51 @@ func _play() -> void:
 		finished.emit()
 		queue_free()
 		return
-	var impact_pos: Vector2 = _target_slot.global_position + _target_slot.size * 0.5
-	global_position = impact_pos
+	global_position = _target_slot.global_position + _target_slot.size * 0.5
 	AudioManager.play_sfx("res://assets/audio/sfx/spells/arcane_strike_impact.wav", -8.0)
-	_spawn_crack_stamp()
-	_do_shake()
+
+	var seq := sequence()
+	seq.on("slam", _do_shake)
+	seq.run([
+		# Slam in — crack appears, scale + alpha overshoot. Damage syncs
+		# to end of slam (just before hold) — same beat as old tween_callback.
+		VfxPhase.new("slam", SLAM_DURATION, _build_slam) \
+			.emits_at_end("slam") \
+			.emits_at_end(VfxSequence.RESERVED_IMPACT_HIT),
+		VfxPhase.new("hold", HOLD_DURATION, Callable()),
+		VfxPhase.new("fade", FADE_DURATION, _build_fade),
+	])
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# Layer 1: Crack Stamp
-# ═════════════════════════════════════════════════════════════════════════════
-
-func _spawn_crack_stamp() -> void:
-	var stamp := Sprite2D.new()
-	stamp.texture = TEX_CRACK
-	var tex_size: float = maxf(stamp.texture.get_width(), stamp.texture.get_height())
-	var target_scale: float = CRACK_SIZE / maxf(tex_size, 1.0)
-	# Slam in slightly oversized, then settle
-	stamp.scale = Vector2.ONE * (target_scale * 1.25)
-	stamp.rotation = randf_range(-0.20, 0.20)
-	stamp.modulate = Color(COLOR_BRIGHT.r, COLOR_BRIGHT.g, COLOR_BRIGHT.b, 0.0)
+func _build_slam(duration: float) -> void:
+	_stamp = Sprite2D.new()
+	_stamp.texture = TEX_CRACK
+	var tex_size: float = maxf(_stamp.texture.get_width(), _stamp.texture.get_height())
+	_target_scale = CRACK_SIZE / maxf(tex_size, 1.0)
+	# Slam in slightly oversized, then settle.
+	_stamp.scale = Vector2.ONE * (_target_scale * 1.25)
+	_stamp.rotation = randf_range(-0.20, 0.20)
+	_stamp.modulate = Color(COLOR_BRIGHT.r, COLOR_BRIGHT.g, COLOR_BRIGHT.b, 0.0)
 	var mat := CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	stamp.material = mat
-	add_child(stamp)
+	_stamp.material = mat
+	add_child(_stamp)
 
-	var tw := create_tween()
-	# Slam in
-	tw.set_parallel(true)
-	tw.tween_property(stamp, "modulate:a", COLOR_BRIGHT.a, 0.04) \
+	var alpha_dur: float = duration * 0.66  # 0.04 of 0.06 — same ratio as old code
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(_stamp, "modulate:a", COLOR_BRIGHT.a, alpha_dur) \
 		.set_trans(Tween.TRANS_QUAD)
-	tw.tween_property(stamp, "scale", Vector2.ONE * target_scale, 0.06) \
+	tw.tween_property(_stamp, "scale", Vector2.ONE * _target_scale, duration) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	# Signal damage at impact
-	tw.chain().tween_callback(func() -> void: impact_hit.emit(0))
-	# Hold
-	tw.chain().tween_interval(CRACK_HOLD)
-	# Fade out
-	tw.chain().tween_property(stamp, "modulate:a", 0.0, CRACK_FADE) \
+
+
+func _build_fade(duration: float) -> void:
+	if _stamp == null or not is_instance_valid(_stamp):
+		return
+	var tw := create_tween()
+	tw.tween_property(_stamp, "modulate:a", 0.0, duration) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	# Signal completion and self-cleanup
-	tw.chain().tween_callback(func():
-		finished.emit()
-		queue_free()
-	)
 
-
-# ═════════════════════════════════════════════════════════════════════════════
-# Layer 2: Screen Shake
-# ═════════════════════════════════════════════════════════════════════════════
 
 func _do_shake() -> void:
 	if _target_slot == null or not _target_slot.is_inside_tree():

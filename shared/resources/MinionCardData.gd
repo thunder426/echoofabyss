@@ -88,6 +88,19 @@ extends CardData
 ## on its slot, before the silent removal.
 @export var on_leave_effect_steps: Array = []
 
+## Presence aura steps. While this minion is on the board, the steps below are recomputed
+## whenever any minion on either side enters or leaves play. The recompute strips every
+## buff matching the steps' source_tag from this minion's side, then re-runs the steps with
+## ctx.owner = this minion's side. Use multiplier_key="board_count" to scale the buff with
+## the number of sources on the same side. Cleared automatically when the minion leaves.
+##
+## Example — Rogue Imp Elder grants +100 ATK per Elder to every friendly Feral Imp:
+##   {"type": "BUFF_ATK", "scope": "ALL_FRIENDLY", "filter": "FERAL_IMP",
+##    "amount": 100, "source_tag": "rogue_imp_elder_aura",
+##    "multiplier_key": "board_count", "multiplier_board": "friendly",
+##    "multiplier_filter": "tag", "multiplier_tag": "rogue_imp_elder"}
+@export var presence_aura_steps: Array = []
+
 ## Reduces the Mana cost of all player spells by this amount while this minion is on board.
 ## Multiple minions stack (e.g. two Archmagus = -2). Floor is 0.
 @export var mana_cost_discount: int = 0

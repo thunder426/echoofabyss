@@ -180,6 +180,33 @@ func _build_ui() -> void:
 
 	vbox.add_child(HSeparator.new())
 
+	# VFX time scale — multiplier on every VfxSequence phase duration.
+	# 1.0 = real-time. 2.0 = half-speed (phases are 2x longer). 0.5 = double-speed.
+	var vfx_label := Label.new()
+	vfx_label.text = "VFX time scale (>1 = slower):"
+	vfx_label.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(vfx_label)
+
+	var vfx_row := HBoxContainer.new()
+	vbox.add_child(vfx_row)
+	var vfx_slider := HSlider.new()
+	vfx_slider.min_value = 0.25
+	vfx_slider.max_value = 4.0
+	vfx_slider.step = 0.25
+	vfx_slider.value = BaseVfx.time_scale
+	vfx_slider.custom_minimum_size = Vector2(180, 0)
+	vfx_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var vfx_val_lbl := Label.new()
+	vfx_val_lbl.text = "%.2fx" % BaseVfx.time_scale
+	vfx_val_lbl.custom_minimum_size = Vector2(50, 0)
+	vfx_slider.value_changed.connect(func(v: float) -> void:
+		BaseVfx.time_scale = v
+		vfx_val_lbl.text = "%.2fx" % v)
+	vfx_row.add_child(vfx_slider)
+	vfx_row.add_child(vfx_val_lbl)
+
+	vbox.add_child(HSeparator.new())
+
 	# Unlock talent
 	var talent_label := Label.new()
 	talent_label.text = "Unlock talent:"
