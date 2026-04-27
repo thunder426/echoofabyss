@@ -101,6 +101,19 @@ func _play() -> void:
 
 	global_position = _slot.global_position + _slot.size * 0.5
 
+	# Wait one frame so HBoxContainer in the status bar finishes laying out a
+	# freshly-added corruption icon. Without this, when corruption is applied
+	# in the same frame as the detonation fires (Cultist Patrol champion aura,
+	# Plague + corrupt_detonation chain, etc.), the icon's global_position is
+	# still its initial pre-layout value and the pulse animates from the bar's
+	# leftmost edge instead of where the icon actually sits.
+	await get_tree().process_frame
+	if not is_inside_tree() or _slot == null or not is_instance_valid(_slot):
+		impact_hit.emit(0)
+		finished.emit()
+		queue_free()
+		return
+
 	# ── Phase 1: pulse the live corruption icon on the status bar ──────────
 	_start_icon_pulse()
 	await get_tree().create_timer(PHASE1_DURATION).timeout

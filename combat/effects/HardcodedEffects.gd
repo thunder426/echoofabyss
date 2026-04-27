@@ -481,8 +481,8 @@ func _voidshaped_acolyte_place_rune(ctx: EffectContext) -> void:
 	if rune_data == null:
 		return
 	# Append to the opponent's trap list. _opponent_traps returns the live array (not a copy),
-	# so .append() mutates the underlying state on both real combat (enemy_ai.active_traps)
-	# and sim (enemy_active_traps).
+	# so .append() mutates state.enemy_active_traps directly (both live combat — via
+	# EnemyAI.active_traps property forwarder — and sim share the same backing array).
 	var traps: Array = _scene._opponent_traps(ctx.owner)
 	traps.append(rune_data)
 	# Register the rune's aura handlers on the opponent side (mirrored triggers).

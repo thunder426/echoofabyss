@@ -132,8 +132,23 @@ var spell_chosen_target = null
 ## Set by commit_minion_play before emitting; read by CombatScene to populate EffectContext.
 var minion_play_chosen_target = null
 
-## Active traps and runes placed by the enemy (mirrors the player's active_traps in CombatScene).
-var active_traps: Array[TrapCardData] = []
+## Active traps and runes placed by the enemy. Backed by CombatState.enemy_active_traps
+## so live combat and sim share one source of truth (sim's SimEnemyAgent forwards the
+## same way). Reads/writes route through `scene.state.enemy_active_traps`; setup_deck
+## clears the underlying array, so callers that did `active_traps = []` continue to work.
+var active_traps: Array[TrapCardData]:
+	get:
+		if scene != null and scene.state != null:
+			return scene.state.enemy_active_traps
+		return _active_traps_fallback
+	set(v):
+		if scene != null and scene.state != null:
+			scene.state.enemy_active_traps = v
+		else:
+			_active_traps_fallback = v
+## Pre-`scene` assignment fallback (only used between EnemyAI._ready and `scene = ...`
+## in CombatScene._connect_ui — exists so the typed property has a backing store).
+var _active_traps_fallback: Array[TrapCardData] = []
 
 ## Slots claimed by a pending summon (reveal in progress) — excluded from find_empty_slot.
 var _pending_slots: Array[BoardSlot] = []

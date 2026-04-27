@@ -675,8 +675,14 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 	var on_impact := func(m: MinionInstance, stacks: int) -> void:
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		_scene._refresh_slot_for(m)
-		_scene.combat_manager.apply_damage_to_minion(m,
-				CombatManager.make_damage_info(100 * stacks, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "corrupt_authority"))
+		# Route through _spell_dmg so the spell_damage_dealt signal fires and the
+		# floating damage number / slot flash spawns. apply_damage_to_minion alone
+		# applies the HP change but does NOT emit the popup signal.
+		var info := CombatManager.make_damage_info(100 * stacks, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "corrupt_authority")
+		if _scene.has_method("_spell_dmg"):
+			_scene._spell_dmg(m, 100 * stacks, info)
+		else:
+			_scene.combat_manager.apply_damage_to_minion(m, info)
 		_log("  Corrupt Authority: %s had %d stack(s) → consumed, dealt %d damage." % [m.card_data.card_name, stacks, 100 * stacks], _LOG_ENEMY)
 		# Track consumed stacks toward Abyss Cultist Patrol champion
 		on_champion_acp_track_stacks(stacks)
@@ -1600,8 +1606,14 @@ func on_enemy_summon_champion_acp_corrupt(_ctx: EventContext) -> void:
 	var on_impact := func(m: MinionInstance, stacks: int) -> void:
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		_scene._refresh_slot_for(m)
-		_scene.combat_manager.apply_damage_to_minion(m,
-				CombatManager.make_damage_info(100 * stacks, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cultist_patrol_aura"))
+		# Route through _spell_dmg so the spell_damage_dealt signal fires and the
+		# floating damage number / slot flash spawns. apply_damage_to_minion alone
+		# applies the HP change but does NOT emit the popup signal.
+		var info := CombatManager.make_damage_info(100 * stacks, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cultist_patrol_aura")
+		if _scene.has_method("_spell_dmg"):
+			_scene._spell_dmg(m, 100 * stacks, info)
+		else:
+			_scene.combat_manager.apply_damage_to_minion(m, info)
 		_log("  Cultist Patrol aura: instant detonation — %s takes %d damage!" % [m.card_data.card_name, 100 * stacks], _LOG_ENEMY)
 
 	# Pulse the champion's aura — fires in parallel with the detonation's charge-up.

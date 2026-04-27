@@ -325,11 +325,6 @@ var forge_counter_threshold: int:
 	get: return state.forge_counter_threshold
 	set(v): state.forge_counter_threshold = v
 
-## Behavior modules for Flesh/Forge primitives. Vars above stay on scene
-## (SimState mirror constraint); these classes own only the gain/spend logic.
-var flesh: Flesh = null
-var forge: Forge = null
-
 ## Targeting helper — owns the on-play prompt label, target validation, and
 ## slot highlighting. CombatScene keeps thin facades for play-card flow.
 var targeting: Targeting = null
@@ -601,12 +596,16 @@ func _ready() -> void:
 	trigger_manager = TriggerManager.new()
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
+	# Point the state's scene facade at this CombatScene so every EffectContext
+	# state builds (cast_player_targeted_spell, _check_and_fire_traps, env
+	# rituals, etc.) carries `ctx.scene = scene`. Without this, EffectResolver
+	# calls like ctx.scene._deal_void_bolt_damage / ._corrupt_minion / ._fire_ritual
+	# silently hit state's no-VFX versions and the visuals drop.
+	state._scene_facade = self
 	# Register VFX-rich _summon_token so EffectResolver SUMMON steps fired
 	# through state-created EffectContexts route into scene (sigils, champion
 	# entrance, etc.). Sim leaves this unset → state's pure logic path runs.
 	state._summon_delegate = _summon_token
-	flesh = Flesh.new(self)
-	forge = Forge.new(self)
 	targeting = Targeting.new(self)
 	large_preview = LargePreview.new(self)
 	counter_warning = CounterWarning.new(self)
@@ -1625,6 +1624,11 @@ var _double_cast_in_progress: bool:
 ## Forward BuffSystem.corruption_removed into the TriggerManager as ON_CORRUPTION_REMOVED
 ## so corrupt_detonation and future listeners can react uniformly. ctx.minion = the minion,
 ## ctx.damage = stacks removed (overloaded field — see EventContext comments).
+##
+## Slot refresh is mandatory here: BuffSystem mutates `minion.buffs` directly,
+## so the corruption icon + "x2" count linger on the status bar until something
+## else triggers a redraw. Refresh immediately so the icon/count clear in sync
+## with the detonation pulse (or any other corruption-removing path).
 func _on_corruption_removed(minion: MinionInstance, stacks: int) -> void:
 	if trigger_manager == null or minion == null or stacks <= 0:
 		return
@@ -1632,6 +1636,7 @@ func _on_corruption_removed(minion: MinionInstance, stacks: int) -> void:
 	ctx.minion = minion
 	ctx.damage = stacks
 	trigger_manager.fire(ctx)
+	state._refresh_slot_for(minion)
 
 ## Subscribe to SacrificeSystem.bus() so every ritual sacrifice (Abyssal
 ## Sacrifice, Blood Pact, Soul Shatter, Void Devourer) fires the generic
@@ -1859,14 +1864,32 @@ func _resolve_on_death_effect(_minion: MinionInstance) -> void:
 
 ## Apply one Corruption stack to a minion. State handles BuffSystem + log + slot
 ## refresh; scene wrapper adds the VFX + slot blink (UI-only).
+##
+## Capture-aware: while a player spell is mid-resolution (P4B inverted flow,
+## state mutates before the wave VFX plays), queue the corruption VFX/blink/flash
+## for the slot. The wave's per-minion callback drains the queued visuals as the
+## wave touches each minion, so corruption "lands" with the wave instead of all
+## flashing at cast time. Final drain runs after VFX completes.
 func _corrupt_minion(minion: MinionInstance) -> void:
 	state._corrupt_minion(minion)
 	var slot: BoardSlot = _find_slot_for(minion)
-	if slot != null:
-		var vfx := CorruptionApplyVFX.create(slot)
-		vfx_controller.spawn(vfx)
-		slot.blink_corruption_status()
-		slot.flash_atk_debuff()
+	if slot == null:
+		return
+	if _capturing_spell_popups:
+		_pending_corruption_visuals.append(slot)
+		return
+	_play_corruption_apply_visual(slot)
+
+## Spawn the corruption-apply VFX, blink, and ATK-debuff flash on a slot. Split
+## out so both the immediate path and the queued-drain path go through the same
+## code.
+func _play_corruption_apply_visual(slot: BoardSlot) -> void:
+	if slot == null or not is_instance_valid(slot):
+		return
+	var vfx := CorruptionApplyVFX.create(slot)
+	vfx_controller.spawn(vfx)
+	slot.blink_corruption_status()
+	slot.flash_atk_debuff()
 
 ## Champion / passive / on-play VFX delegated to vfx_bridge. External callers
 ## (HardcodedEffects, CombatHandlers) keep using these scene wrappers via
@@ -2540,13 +2563,13 @@ func _on_flesh_spent(amount: int) -> void:
 	state._on_flesh_spent(amount)
 
 func _forge_counter_tick(amount: int = 1) -> bool:
-	return forge.tick(amount)
+	return state._forge_counter_tick(amount)
 
 func _forge_counter_reset() -> void:
-	forge.reset()
+	state._forge_counter_reset()
 
 func _gain_forge_counter(amount: int = 1) -> bool:
-	return forge.gain(amount)
+	return state._gain_forge_counter(amount)
 
 ## Seris — fires for every friendly Demon SACRIFICE emit (not combat deaths).
 ## Handles Forge Counter ticks, Fiend Offering, and the auto Forged Demon summon.
@@ -3081,6 +3104,14 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 		# Drain queued popups at vfx.impact_hit so they appear when projectile lands.
 		var on_impact := func(_i: int) -> void: _drain_pending_spell_popups()
 		await vfx_controller.play_spell(spell.id, "player", captured_target, on_impact)
+		# Unfreeze + refresh the target slot. Without this, buff effects (e.g. Dark
+		# Empowerment's BUFF_ATK / BUFF_HP) mutate state but the slot's ATK/HP
+		# labels don't repaint until something else unfreezes (e.g. the minion
+		# attacking next turn). Mirrors the unfreeze step in `_try_play_spell`.
+		if target_slot != null and is_instance_valid(target_slot):
+			target_slot.freeze_visuals = false
+			target_slot._refresh_visuals()
+		_flush_deferred_deaths()
 	)
 
 ## Fired when player clicks the enemy hero panel while targeting a spell with "enemy_minion_or_hero".
@@ -4121,6 +4152,12 @@ var _pending_spell_popups: Array = []  # Array[{slot: BoardSlot, damage: int}]
 ## so the defeat / victory flow can fire immediately.
 var _pending_hero_popups: Array = []  # Array[{kind, target, amount, school, is_crit}]
 
+## Slots whose corruption-apply VFX/blink/flash were deferred during inverted
+## spell flow. The wave VFX's per-minion callback drains the matching slot
+## entry so corruption "lands" with the wave; any leftovers drain at end of VFX.
+## State mutation (the buff entry, ATK debuff math) still happens immediately.
+var _pending_corruption_visuals: Array = []  # Array[BoardSlot]
+
 func _on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
 	if combat_ui != null:
 		combat_ui.on_state_spell_damage_dealt(target, damage)
@@ -4141,14 +4178,32 @@ func _drain_pending_spell_popups() -> void:
 		else:
 			_flash_hero(hp.target, hp.amount, Callable(), hp.school, hp.is_crit)
 	_pending_hero_popups.clear()
+	for slot in _pending_corruption_visuals:
+		_play_corruption_apply_visual(slot)
+	_pending_corruption_visuals.clear()
 
 ## Drain ONE queued spell-damage popup matched to the given slot. Used by
 ## per-minion-impact VFX (e.g. Abyssal Plague's wave) so each popup fires when
 ## the wave actually touches that minion's slot, instead of all draining at
 ## the end of the VFX. Returns true if a popup was found and spawned.
+##
+## Also drains the matching deferred corruption-apply visual so the splash +
+## blink + ATK-debuff flash land with the wave on that minion (state mutation
+## still happened at cast; this is purely the visual landing).
+##
+## Finally, unfreezes the slot and refreshes its visuals so the HP label and
+## corruption icon repaint in sync with the wave touching it. Without this,
+## HP and stack icons stay frozen at their pre-cast values until the entire
+## VFX completes — looks wrong because the popup shows damage but the HP label
+## doesn't move.
 func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
 	if slot == null:
 		return false
+	var corr_idx: int = _pending_corruption_visuals.find(slot)
+	if corr_idx >= 0:
+		_pending_corruption_visuals.remove_at(corr_idx)
+		_play_corruption_apply_visual(slot)
+	var found_popup := false
 	for i in _pending_spell_popups.size():
 		var p: Dictionary = _pending_spell_popups[i]
 		if p.slot == slot:
@@ -4156,8 +4211,14 @@ func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
 			if is_instance_valid(slot):
 				_flash_slot(slot)
 				_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage)
-			return true
-	return false
+			found_popup = true
+			break
+	# Unfreeze + refresh whether or not a popup was queued, so non-damaging
+	# state changes (e.g. corruption stack) also appear at wave-touch.
+	if is_instance_valid(slot) and slot.freeze_visuals:
+		slot.freeze_visuals = false
+		slot._refresh_visuals()
+	return found_popup
 
 ## Hero/minion flash + popup primitives all delegated to vfx_bridge.
 func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), school: int = Enums.DamageSchool.NONE, is_crit: bool = false) -> void:

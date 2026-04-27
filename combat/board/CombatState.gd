@@ -76,6 +76,26 @@ signal spell_damage_dealt(target: MinionInstance, damage: int)
 ## directly for animation timing; this signal is for logic listeners.
 signal minion_died(side: String, minion: MinionInstance, slot_index: int)
 
+## Scene facade for `EffectContext.scene`. CombatScene assigns itself here in
+## _ready so EffectResolver and HardcodedEffects can route ctx.scene calls
+## through scene's VFX-enriched wrappers (_deal_void_bolt_damage projectile,
+## _corrupt_minion VFX, _fire_ritual rune-fire VFX, etc.). Sim leaves this null
+## and `_get_scene_facade()` falls back to `self` — SimState extends CombatState
+## and acts as its own scene facade (no VFX, just data).
+##
+## Why this exists: P4B inverted spell flow moved `cast_player_targeted_spell`
+## from CombatScene to CombatState. The old code built EffectContext with
+## `EffectContext.make(self, ...)` where self was CombatScene; the new state
+## version's `self` is the bare data layer with no VFX wrappers. Without this
+## facade, ctx.scene.X calls hit state's no-VFX versions and visuals silently
+## drop (Void Bolt projectile, Void Rune fire, Corruption apply, etc.).
+var _scene_facade: Object = null
+
+## Returns the scene facade for EffectContext construction. Live combat returns
+## CombatScene (set via `_scene_facade`); sim falls through to self (SimState).
+func _get_scene_facade() -> Object:
+	return _scene_facade if _scene_facade != null else self
+
 ## Logging convenience — handlers, effects, and combat code call `state._log(msg)`
 ## without needing a scene reference or knowing whether a UI exists. Signal
 ## subscribers (CombatScene's _on_state_combat_log) forward to the visual log;
@@ -216,7 +236,7 @@ func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 			_rune_aura_handlers.remove_at(i)
 			break
 	if not rune.aura_on_remove_steps.is_empty():
-		var ctx := EffectContext.make(self, owner)
+		var ctx := EffectContext.make(_get_scene_facade(), owner)
 		EffectResolver.run(rune.aura_on_remove_steps, ctx)
 
 ## Unregister all environment-ritual handlers (when env is replaced/cleared).
@@ -305,7 +325,7 @@ func _pre_player_spell_cast(_spell: SpellCardData) -> void:
 func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: String = "player") -> void:
 	if _hardcoded == null:
 		return
-	var ctx := EffectContext.make(self, owner)
+	var ctx := EffectContext.make(_get_scene_facade(), owner)
 	ctx.chosen_target = target
 	_hardcoded.resolve(effect_id, ctx)
 
@@ -324,7 +344,7 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 			# If the original target is dead / gone, per design the recast fizzles but Flesh is still spent.
 			if target == null or (is_instance_valid(target) and target.current_health > 0):
 				if not spell.effect_steps.is_empty():
-					var ctx := EffectContext.make(self, "player")
+					var ctx := EffectContext.make(_get_scene_facade(), "player")
 					ctx.chosen_target = target
 					ctx.source_card_id = spell.id
 					EffectResolver.run(spell.effect_steps, ctx)
@@ -344,7 +364,7 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 func cast_player_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void:
 	_pre_player_spell_cast(spell)
 	if not spell.effect_steps.is_empty():
-		var ctx := EffectContext.make(self, "player")
+		var ctx := EffectContext.make(_get_scene_facade(), "player")
 		ctx.chosen_target = target
 		ctx.source_card_id = spell.id
 		EffectResolver.run(spell.effect_steps, ctx)
@@ -364,7 +384,7 @@ func cast_player_hero_spell(spell: SpellCardData) -> void:
 	for step in spell.effect_steps:
 		var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
 		if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
-			var ctx := EffectContext.make(self, "player")
+			var ctx := EffectContext.make(_get_scene_facade(), "player")
 			if ConditionResolver.check_all(s.conditions, ctx, null):
 				base_dmg += s.amount
 				if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
@@ -453,8 +473,13 @@ func _spell_dmg(target: MinionInstance, amount: int, info: Dictionary = {}) -> v
 	else:
 		info = info.duplicate()
 		info["amount"] = total
-	combat_manager.apply_damage_to_minion(target, info)
+	# Emit BEFORE applying damage so the live subscriber can resolve the
+	# minion's slot while it's still occupied. If we emit after, lethal hits
+	# (and any kill chain that clears the slot) cause _find_slot_for(target)
+	# to return null and the popup is silently dropped — matches the OLD
+	# CombatScene._spell_dmg pattern of capturing the slot before damage.
 	spell_damage_dealt.emit(target, amount)
+	combat_manager.apply_damage_to_minion(target, info)
 
 ## Seris — tick the Forge Counter by `amount`. Logs the new value and returns
 ## true if the counter has reached threshold (caller is responsible for
@@ -587,7 +612,7 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
 		var trigger: int = rune.aura_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_trigger as Enums.TriggerEvent)
 		var h := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, owner)
+			var ctx := EffectContext.make(_get_scene_facade(), owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.from_rune = true
 			ctx.source_rune = rune
@@ -604,7 +629,7 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
 		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
 		var h2 := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(self, owner)
+			var ctx := EffectContext.make(_get_scene_facade(), owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.source_rune = rune
 			EffectResolver.run(rune.aura_secondary_steps, ctx)
@@ -612,7 +637,7 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 		entries.append({event = sec_trigger, handler = h2})
 	# On-place steps run immediately at placement (e.g. Dominion Rune existing-minion sweep)
 	if not rune.aura_on_place_steps.is_empty():
-		var ctx := EffectContext.make(self, owner)
+		var ctx := EffectContext.make(_get_scene_facade(), owner)
 		EffectResolver.run(rune.aura_on_place_steps, ctx)
 	if not entries.is_empty():
 		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
@@ -652,7 +677,7 @@ func _fire_ritual(ritual: RitualData) -> void:
 		active_traps.remove_at(i)
 	traps_changed.emit("player")
 	_log("★ RITUAL — %s!" % ritual.ritual_name, 1)  # PLAYER
-	var ritual_ctx := EffectContext.make(self, "player")
+	var ritual_ctx := EffectContext.make(_get_scene_facade(), "player")
 	EffectResolver.run(ritual.effect_steps, ritual_ctx)
 	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
 	if trigger_manager != null:
@@ -676,7 +701,7 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 	# Step 1 — declarative ON LEAVE steps run while the minion is still on its slot.
 	var card_data := minion.card_data as MinionCardData
 	if card_data != null and not card_data.on_leave_effect_steps.is_empty():
-		var leave_ctx := EffectContext.make(self, minion.owner)
+		var leave_ctx := EffectContext.make(_get_scene_facade(), minion.owner)
 		leave_ctx.source         = minion
 		leave_ctx.source_card_id = card_data.id
 		EffectResolver.run(card_data.on_leave_effect_steps, leave_ctx)
@@ -696,19 +721,22 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 		trigger_manager.fire(sac_ctx)
 	# Step 4 — remove from board. Clear the slot unless it's frozen (live combat
 	# leaves frozen slots intact so the death animation can play first).
+	# Use slot.remove_minion() not `slot.minion = null` so the slot's visual
+	# refreshes — a bare field assignment leaves the dead minion's art on the
+	# board until something else triggers a redraw.
 	if minion.owner == "player":
 		player_board.erase(minion)
 		for slot in player_slots:
 			if slot.minion == minion:
 				if not slot.freeze_visuals:
-					slot.minion = null
+					slot.remove_minion()
 				break
 	else:
 		enemy_board.erase(minion)
 		for slot in enemy_slots:
 			if slot.minion == minion:
 				if not slot.freeze_visuals:
-					slot.minion = null
+					slot.remove_minion()
 				break
 	_log("  %s was sacrificed" % minion.card_data.card_name, 6)  # DEATH
 
@@ -772,7 +800,7 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 				continue
 			if trap.trigger != trigger:
 				continue
-			var ctx := EffectContext.make(self, "player")
+			var ctx := EffectContext.make(_get_scene_facade(), "player")
 			ctx.trigger_minion = triggering_minion
 			EffectResolver.run(trap.effect_steps, ctx)
 			if not trap.reusable:
@@ -784,7 +812,7 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 			continue
 		if trap.trigger != enemy_trigger:
 			continue
-		var ctx := EffectContext.make(self, "enemy")
+		var ctx := EffectContext.make(_get_scene_facade(), "enemy")
 		ctx.trigger_minion = triggering_minion
 		EffectResolver.run(trap.effect_steps, ctx)
 		if not trap.reusable:
@@ -796,7 +824,7 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 ## cancel via _spell_cancelled; caller short-circuits in that case).
 func cast_enemy_spell(spell: SpellCardData, chosen) -> void:
 	if not spell.effect_steps.is_empty():
-		var ectx := EffectContext.make(self, "enemy")
+		var ectx := EffectContext.make(_get_scene_facade(), "enemy")
 		ectx.source_card_id = spell.id
 		if chosen is MinionInstance:
 			ectx.chosen_target = chosen
@@ -1012,9 +1040,11 @@ var active_traps: Array[TrapCardData] = []
 ## Player-side active global environment.
 var active_environment: EnvironmentCardData = null
 
-## Enemy-side mirror. Sim populates these directly. Live combat currently keeps
-## the enemy's traps/environment inside EnemyAI; these fields stay null/empty
-## on the live side until Phase 4 unifies enemy state into CombatState.
+## Enemy-side mirror. Single source of truth for both live combat and sim:
+## live's EnemyAI.active_traps is now a property forwarder onto this field, so
+## state mutations (sim's direct writes; live's `enemy_ai.active_traps.append`)
+## both land here. enemy_active_environment still lives on EnemyAI on the live
+## side — unify in a follow-up if needed.
 var enemy_active_traps: Array[TrapCardData] = []
 var enemy_active_environment: EnvironmentCardData = null
 
