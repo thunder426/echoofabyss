@@ -23,7 +23,9 @@ static func resolve(step: EffectStep, ctx: EffectContext) -> Array:
 			if ctx.chosen_target != null and pool.has(ctx.chosen_target):
 				return [ctx.chosen_target]
 			return []
-		EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM_FRIENDLY, EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_ANY:
+		EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM_FRIENDLY, EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_OPPONENT_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_ANY, EffectStep.TargetScope.SINGLE_RANDOM_BOTH_BOARDS:
+			if step.random_picks > 1:
+				return _random_n_distinct(pool, step.random_picks)
 			return _random_one(pool)
 		_:
 			return pool
@@ -58,12 +60,16 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 			return scene._friendly_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.ALL_BOARD:
 			return (scene.player_board + scene.enemy_board).duplicate()
+		EffectStep.TargetScope.SINGLE_RANDOM_BOTH_BOARDS:
+			return (scene.player_board + scene.enemy_board).duplicate()
 		EffectStep.TargetScope.TRIGGER_MINION:
 			return [ctx.trigger_minion] if ctx.trigger_minion != null else []
 		EffectStep.TargetScope.DEAD_MINION:
 			return [ctx.dead_minion] if ctx.dead_minion != null else []
 		EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.ALL_TRAPS:
-			return scene.active_traps.duplicate()
+			return scene._friendly_traps(ctx.owner).duplicate()
+		EffectStep.TargetScope.SINGLE_RANDOM_OPPONENT_TRAP:
+			return scene._opponent_traps(ctx.owner).duplicate()
 		EffectStep.TargetScope.SINGLE_CHOSEN_TRAP_OR_ENV:
 			# Must be set by the AI before casting — no fallback.
 			if ctx.chosen_object == null:
@@ -98,3 +104,20 @@ static func _random_one(pool: Array) -> Array:
 	if pool.is_empty():
 		return []
 	return [pool[randi() % pool.size()]]
+
+## Pick up to `n` distinct items from `pool` via partial Fisher-Yates. Caps at
+## the pool size — never re-picks the same target. Used for cards like
+## Runic Blast and Demon Ascendant that hit "N random" targets.
+static func _random_n_distinct(pool: Array, n: int) -> Array:
+	if pool.is_empty() or n <= 0:
+		return []
+	var work: Array = pool.duplicate()
+	var take: int = mini(n, work.size())
+	var picked: Array = []
+	for i in take:
+		var j: int = i + randi() % (work.size() - i)
+		var tmp = work[i]
+		work[i] = work[j]
+		work[j] = tmp
+		picked.append(work[i])
+	return picked

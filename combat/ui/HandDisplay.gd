@@ -239,7 +239,6 @@ func refresh_spell_costs(discount: int) -> void:
 ## AND the player can afford to play them.
 func refresh_condition_glows(scene: Node, essence: int, mana: int) -> void:
 	var ctx := EffectContext.make(scene, "player")
-	var piercing_void_active := GameManager.has_talent("piercing_void")
 	for visual in _card_visuals:
 		if visual.card_inst == null or visual.card_inst.card_data == null:
 			visual.set_condition_glow(false)
@@ -248,12 +247,12 @@ func refresh_condition_glows(scene: Node, essence: int, mana: int) -> void:
 		if not _card_has_active_condition(inst.card_data, ctx):
 			visual.set_condition_glow(false)
 			continue
-		# Condition met — also require affordability
+		# Condition met — also require affordability. piercing_void's +1 Mana on
+		# Void Imp is now baked into md.mana_cost via talent_overrides.
 		var affordable: bool
 		if inst.card_data is MinionCardData:
 			var md := inst.card_data as MinionCardData
-			var extra_mana := 1 if (md.id == "void_imp" and piercing_void_active) else 0
-			affordable = essence >= md.essence_cost and mana >= (md.mana_cost + extra_mana)
+			affordable = essence >= md.essence_cost and mana >= md.mana_cost
 		else:
 			affordable = mana >= inst.effective_cost()
 		visual.set_condition_glow(affordable)
@@ -285,7 +284,6 @@ func refresh_relic_cost_preview(ess_reduction: int, mana_reduction: int) -> void
 ## Uses each card's effective_cost() which accounts for per-copy cost_delta.
 ## relic_ess_reduction / relic_mana_reduction: Dark Mirror discount applied to the next card.
 func refresh_playability(essence: int, mana: int, relic_ess_reduction: int = 0, relic_mana_reduction: int = 0) -> void:
-	var piercing_void_active := GameManager.has_talent("piercing_void")
 	for visual in _card_visuals:
 		if visual.card_inst == null or visual.card_inst.card_data == null:
 			continue
@@ -293,11 +291,11 @@ func refresh_playability(essence: int, mana: int, relic_ess_reduction: int = 0, 
 		var affordable: bool
 		if inst.card_data is MinionCardData:
 			var md := inst.card_data as MinionCardData
-			var extra_mana := 1 if (md.id == "void_imp" and piercing_void_active) else 0
 			# cost_delta is negative for a discount (e.g. Fiendish Pact = -2 on Demons in hand).
+			# piercing_void's +1 Mana now baked into md.mana_cost via talent_overrides.
 			var inst_ess_bonus: int = -inst.cost_delta
 			var eff_ess := maxi(0, md.essence_cost - relic_ess_reduction - inst_ess_bonus)
-			var eff_mana := maxi(0, md.mana_cost + extra_mana - relic_mana_reduction)
+			var eff_mana := maxi(0, md.mana_cost - relic_mana_reduction)
 			affordable = essence >= eff_ess and mana >= eff_mana
 		else:
 			var eff_cost := maxi(0, inst.effective_cost() - relic_mana_reduction)

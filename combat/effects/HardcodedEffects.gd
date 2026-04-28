@@ -44,74 +44,27 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			_fiendish_pact(ctx)
 		"void_devourer_sacrifice":
 			_scene._resolve_void_devourer_sacrifice(ctx.source, ctx.owner)
-		"void_detonation_effect":
-			_void_detonation(ctx)
-		"destroy_random_enemy_trap":
-			_destroy_random_enemy_trap(ctx)
-		"spell_taxer_effect":
-			var opponent: String = _scene._opponent_of(ctx.owner)
-			var tax_key: String = "_spell_tax_for_%s_turn" % opponent
-			var cur_tax = _scene.get(tax_key)
-			_scene.set(tax_key, (cur_tax if cur_tax != null else 0) + 1)
-			_log("  Spell Taxer: %s spells cost +1 Mana next turn." % opponent, _log_side(ctx.owner))
-		"saboteur_adept_effect":
-			var opponent: String = _scene._opponent_of(ctx.owner)
-			if opponent == "enemy":
-				_scene._enemy_traps_blocked = true
-			else:
-				_scene._player_traps_blocked = true
-			_log("  Saboteur Adept: %s traps blocked this turn." % opponent, _log_side(ctx.owner))
 		# --- Environment passives ---
 		"dark_covenant_passive":
 			_dark_covenant_passive(ctx)
 		"dark_covenant_remove":
 			_dark_covenant_remove(ctx)
-		"abyss_ritual_circle_passive":
-			_abyss_ritual_circle_passive(ctx)
-		# --- Ritual effects ---
-		"demon_ascendant":
-			_demon_ascendant(ctx)
 		# --- Trap effects ---
 		"smoke_veil":
 			_smoke_veil(ctx)
-		"silence_trap":
-			_scene.set("_spell_cancelled", true)
-			_log("  Silence Trap: %s spell cancelled!" % _scene._opponent_of(ctx.owner), _LOG_TRAP)
 		# --- Rune effects ---
 		"soul_rune_death":
 			_soul_rune_death(ctx)
 		"soul_rune_reset":
 			_scene.set("_soul_rune_fires_this_turn", 0)
-		# --- vael_endless_tide ---
-		"colossal_guard_play":
-			pass  # Handled declaratively; stub for forward compat
-		# --- vael_rune_master ---
-		"runic_blast":
-			_runic_blast(ctx)
-		"runic_echo":
-			_runic_echo(ctx)
-		"echo_rune_fire":
-			_echo_rune_fire(ctx)
-		# --- Void Rift World ---
-		"void_rift_lord_mana_drain":
-			var opponent: String = _scene._opponent_of(ctx.owner)
-			if opponent == "player":
-				_scene.set("_void_mana_drain_pending", true)
-			if _scene.get("_rift_lord_plays") != null:
-				_scene._rift_lord_plays += 1
-			_log("  Void Rift Lord: %s's Mana will be drained to 0 next turn!" % opponent, _log_side(ctx.owner))
 		# --- Feral Imp Clan ---
 		"frenzied_imp_play":
 			_frenzied_imp_play(ctx)
-		"void_screech":
-			_void_screech(ctx)
 		"brood_call":
 			_brood_call(ctx)
 		"pack_frenzy":
 			_pack_frenzy(ctx)
 		# --- Seris Corruption Engine ---
-		"voidshaped_acolyte_place_rune":
-			_voidshaped_acolyte_place_rune(ctx)
 
 # ---------------------------------------------------------------------------
 # Spell effects
@@ -182,32 +135,6 @@ func _fiendish_pact(ctx: EffectContext) -> void:
 	if _scene.has_method("_refresh_hand_spell_costs"):
 		_scene._refresh_hand_spell_costs()
 
-## #2 — destroy_random_enemy_trap: symmetric — destroys a random opponent trap
-func _destroy_random_enemy_trap(ctx: EffectContext) -> void:
-	var opponent: String = _scene._opponent_of(ctx.owner)
-	var traps: Array = _scene._opponent_traps(ctx.owner)
-	var ls := _log_side(ctx.owner)
-	if traps.is_empty():
-		_log("  Trapbreaker: no %s traps to destroy." % opponent, ls)
-		return
-	var target: TrapCardData = traps[randi() % traps.size()]
-	traps.erase(target)
-	_log("  Trapbreaker: destroyed %s's %s!" % [opponent, target.card_name], ls)
-	if _scene.has_method("_update_trap_display_for"):
-		_scene._update_trap_display_for(opponent)
-
-## #3 — void_detonation: symmetric — bolt damage to opponent
-func _void_detonation(ctx: EffectContext) -> void:
-	var ls := _log_side(ctx.owner)
-	# Void marks are currently only tracked on the enemy side
-	var marks: int = _scene.enemy_void_marks if ctx.owner == "player" else 0
-	var bonus_per_mark := 50
-	var total_base: int = 500 + marks * bonus_per_mark
-	_log("  Void Detonation: base %d (500 + %d×%d marks) — Void Bolt adds %d×%d marks on top." % [
-		total_base, bonus_per_mark, marks,
-		_scene._void_mark_damage_per_stack(), marks], ls)
-	_scene._deal_void_bolt_damage(total_base)
-
 # ---------------------------------------------------------------------------
 # Environment passives
 # ---------------------------------------------------------------------------
@@ -241,44 +168,6 @@ func _dark_covenant_remove(ctx: EffectContext) -> void:
 	for m in (_scene._friendly_board(ctx.owner) as Array):
 		BuffSystem.remove_source(m, "dark_covenant")
 		_scene._refresh_slot_for(m)
-
-## #13 — abyss_ritual_circle_passive: symmetric — damages random minion on either board
-func _abyss_ritual_circle_passive(ctx: EffectContext) -> void:
-	var ls := _log_side(ctx.owner)
-	var all_minions: Array[MinionInstance] = []
-	all_minions.assign(_scene.player_board + _scene.enemy_board)
-	if not all_minions.is_empty():
-		var hit: MinionInstance = all_minions[randi() % all_minions.size()]
-		_log("  Abyss Ritual Circle: 100 damage to %s." % hit.card_data.card_name, ls)
-		_scene._spell_dmg(hit, 100,
-				CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "abyss_ritual_circle"))
-
-# ---------------------------------------------------------------------------
-# Ritual effects
-# ---------------------------------------------------------------------------
-
-## #6 — demon_ascendant: symmetric — damages opponent, summons to owner's board
-func _demon_ascendant(ctx: EffectContext) -> void:
-	var ls := _log_side(ctx.owner)
-	var opponent: String = _scene._opponent_of(ctx.owner)
-	_log("  Demon Ascendant: deal 200 damage to 2 random %s minions." % opponent, ls)
-	var da_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "demon_ascendant")
-	for _i in 2:
-		var target_m: MinionInstance = _scene._find_random_minion(_scene._opponent_board(ctx.owner))
-		if target_m:
-			_scene._spell_dmg(target_m, 200, da_info)
-	_log("  Demon Ascendant: Special Summon a 500/500 Void Demon!", ls)
-	for slot in (_scene._friendly_slots(ctx.owner) as Array):
-		if slot.is_empty():
-			var demon_data := CardDatabase.get_card("void_demon") as MinionCardData
-			if demon_data:
-				var instance := MinionInstance.create(demon_data, ctx.owner)
-				instance.current_atk    = 500
-				instance.current_health = 500
-				(_scene._friendly_board(ctx.owner) as Array).append(instance)
-				slot.place_minion(instance)
-				# Special Summon: intentionally does NOT fire ON_*_MINION_SUMMONED
-			break
 
 # ---------------------------------------------------------------------------
 # Trap effects
@@ -331,54 +220,6 @@ func _soul_rune_death(ctx: EffectContext) -> void:
 	_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [100 * mult, 100 * mult], _LOG_TRAP)
 
 # ---------------------------------------------------------------------------
-# vael_rune_master effects
-# ---------------------------------------------------------------------------
-
-## #9 — runic_blast: symmetric — counts owner's runes, damages opponent board
-func _runic_blast(ctx: EffectContext) -> void:
-	var ls := _log_side(ctx.owner)
-	var opponent: String = _scene._opponent_of(ctx.owner)
-	var rune_count := 0
-	for t in (_scene._friendly_traps(ctx.owner) as Array):
-		if (t as TrapCardData).is_rune:
-			rune_count += 1
-	var rb_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "runic_blast")
-	if rune_count >= 2:
-		_log("  Runic Blast: 2+ Runes active — 200 damage to ALL %s minions!" % opponent, ls)
-		for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
-			_scene._spell_dmg(m, 200, rb_info)
-	else:
-		_log("  Runic Blast: 200 damage to 2 random %s minions." % opponent, ls)
-		for _i in 2:
-			var target_m: MinionInstance = _scene._find_random_minion(_scene._opponent_board(ctx.owner))
-			if target_m:
-				_scene._spell_dmg(target_m, 200, rb_info)
-
-## #10 — runic_echo: symmetric — copies owner's runes to owner's hand
-func _runic_echo(ctx: EffectContext) -> void:
-	var ls := _log_side(ctx.owner)
-	var added: Array[String] = []
-	for trap in (_scene._friendly_traps(ctx.owner) as Array):
-		if not (trap as TrapCardData).is_rune:
-			continue
-		_scene._add_to_owner_hand(ctx.owner, CardInstance.create(trap))
-		added.append((trap as TrapCardData).card_name)
-	if added.is_empty():
-		_log("  Runic Echo: no Runes on the battlefield.", ls)
-	else:
-		_log("  Runic Echo: added copies of %s to hand." % ", ".join(added), ls)
-
-## #11 — echo_rune_fire: symmetric — fires last rune's effect for the rune owner
-func _echo_rune_fire(ctx: EffectContext) -> void:
-	var last_rune: TrapCardData = _scene._find_last_non_echo_rune()
-	if last_rune and not last_rune.aura_effect_steps.is_empty():
-		_log("  Echo Rune: fires %s's effect." % last_rune.card_name, _LOG_TRAP)
-		var eff_ctx := EffectContext.make(_scene, ctx.owner)
-		eff_ctx.source_rune = last_rune
-		EffectResolver.run(last_rune.aura_effect_steps, eff_ctx)
-
-
-# ---------------------------------------------------------------------------
 # Feral Imp Clan effects (already symmetric)
 # ---------------------------------------------------------------------------
 
@@ -408,19 +249,6 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 		await _scene._play_frenzied_imp_vfx(ctx.source, frenzied_target, feral_count, apply_damage)
 	else:
 		apply_damage.call()
-
-func _void_screech(ctx: EffectContext) -> void:
-	var owner_board: Array = _scene._friendly_board(ctx.owner)
-	var feral_on_board := 0
-	for m in owner_board:
-		if _scene._minion_has_tag(m, "feral_imp"):
-			feral_on_board += 1
-	var screech_dmg := 350 if feral_on_board >= 3 else 250
-	# Void Screech is a minion-emitted effect (ctx.source is the screeching imp). MINION source.
-	var src: Enums.DamageSource = Enums.DamageSource.MINION if ctx.source != null else Enums.DamageSource.SPELL
-	_scene.combat_manager.apply_hero_damage(_scene._opponent_of(ctx.owner),
-			CombatManager.make_damage_info(screech_dmg, src, Enums.DamageSchool.NONE, ctx.source, "void_screech"))
-	_log("  Void Screech: %d damage to hero (%d feral imps)." % [screech_dmg, feral_on_board], _log_side(ctx.owner))
 
 func _brood_call(ctx: EffectContext) -> void:
 	var feral_ids: Array[String] = ["rabid_imp", "brood_imp", "imp_brawler", "void_touched_imp", "frenzied_imp", "matriarchs_broodling", "rogue_imp_elder"]
@@ -467,32 +295,6 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 	if ancient_active:
 		frenzy_msg += " and LIFEDRAIN (Ancient Frenzy)"
 	_log(frenzy_msg + ".", _log_side(ctx.owner))
-
-# ---------------------------------------------------------------------------
-# Seris Corruption Engine effects
-# ---------------------------------------------------------------------------
-
-## Voidshaped Acolyte ON PLAY: place a Shadow Rune on the OPPONENT's battlefield.
-## The rune is owned by the opponent, so its corruption-on-summon trigger fires for
-## minions entering the opponent's board — which from the caster's perspective means
-## the *caster's* friendly Demons (with corrupt_flesh: those entries become +100 ATK).
-## Symmetric: works correctly whichever side casts.
-func _voidshaped_acolyte_place_rune(ctx: EffectContext) -> void:
-	var opponent: String = _scene._opponent_of(ctx.owner)
-	var rune_data: TrapCardData = CardDatabase.get_card("shadow_rune") as TrapCardData
-	if rune_data == null:
-		return
-	# Append to the opponent's trap list. _opponent_traps returns the live array (not a copy),
-	# so .append() mutates state.enemy_active_traps directly (both live combat — via
-	# EnemyAI.active_traps property forwarder — and sim share the same backing array).
-	var traps: Array = _scene._opponent_traps(ctx.owner)
-	traps.append(rune_data)
-	# Register the rune's aura handlers on the opponent side (mirrored triggers).
-	_scene._apply_rune_aura(rune_data, opponent)
-	# Refresh the opponent-side trap UI in real combat (sim has a no-op stub).
-	if _scene.has_method("_update_trap_display_for"):
-		_scene._update_trap_display_for(opponent)
-	_log("  Voidshaped Acolyte: places Shadow Rune on %s's battlefield." % opponent, _log_side(ctx.owner))
 
 # ---------------------------------------------------------------------------
 # Logging helper

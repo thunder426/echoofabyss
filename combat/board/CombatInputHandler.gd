@@ -155,9 +155,9 @@ func start_pip_blink_for_card(card_data: CardData) -> void:
 			elif to == "mana":  mna_gain += actual
 	elif card_data is MinionCardData:
 		var mc := card_data as MinionCardData
-		var extra_mana := 1 if (_scene._card_has_tag(mc, "base_void_imp") and _scene._has_talent("piercing_void")) else 0
+		# piercing_void's +1 Mana now baked into mc.mana_cost via talent_overrides.
 		ess_spend = maxi(0, mc.essence_cost - _scene._peek_fiendish_pact_discount(mc))
-		mna_spend = maxi(0, mc.mana_cost + extra_mana)
+		mna_spend = maxi(0, mc.mana_cost)
 	elif card_data is TrapCardData:
 		mna_spend = _scene._effective_trap_cost(card_data as TrapCardData)
 	elif card_data is EnvironmentCardData:
@@ -194,9 +194,9 @@ func begin_spell_select(spell: SpellCardData) -> void:
 func begin_minion_select(mc: MinionCardData) -> void:
 	if _scene == null:
 		return
-	var extra_mana := 1 if (_scene._card_has_tag(mc, "base_void_imp") and _scene._has_talent("piercing_void")) else 0
+	# piercing_void's +1 Mana now baked into mc.mana_cost via talent_overrides.
 	var ess_cost := maxi(0, mc.essence_cost - _scene._peek_fiendish_pact_discount(mc))
-	if not _scene.turn_manager.can_afford(ess_cost, maxi(0, mc.mana_cost + extra_mana)):
+	if not _scene.turn_manager.can_afford(ess_cost, maxi(0, mc.mana_cost)):
 		cancel_card_select()
 		return
 	if not _scene._player_can_afford_sparks(mc.void_spark_cost):
@@ -261,6 +261,10 @@ func on_hand_card_deselected() -> void:
 func on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 	if _scene == null:
 		return
+	# Seris — Corrupt Flesh targeting: clicking an empty slot cancels.
+	if _scene._seris_corrupt_targeting:
+		_scene._cancel_seris_corrupt_targeting()
+		return
 	if _scene.pending_play_card != null and _scene.pending_play_card.card_data is MinionCardData:
 		var mc := _scene.pending_play_card.card_data as MinionCardData
 		# Still waiting for a target? — slot clicks are blocked UNLESS the card's
@@ -317,6 +321,10 @@ func on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -
 ## targeted minion-on-play, or attack — in that priority order. Enforces Guard.
 func on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if _scene == null or not _scene.turn_manager.is_player_turn:
+		return
+	# Seris — Corrupt Flesh targeting: enemy clicks cancel (target must be friendly Demon).
+	if _scene._seris_corrupt_targeting:
+		_scene._cancel_seris_corrupt_targeting()
 		return
 	# If a relic is awaiting a target, resolve it
 	if _scene._pending_relic_target != "":
@@ -494,7 +502,10 @@ func handle_input(event: InputEvent) -> void:
 			_scene.get_viewport().set_input_as_handled()
 	# Right-click cancels relic targeting, spell targeting, or minion placement
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-		if _scene._pending_relic_target != "":
+		if _scene._seris_corrupt_targeting:
+			_scene._cancel_seris_corrupt_targeting()
+			_scene.get_viewport().set_input_as_handled()
+		elif _scene._pending_relic_target != "":
 			_scene._cancel_relic_targeting()
 			_scene.get_viewport().set_input_as_handled()
 		elif _scene.pending_play_card != null:

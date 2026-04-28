@@ -43,6 +43,12 @@ enum EffectType {
 	GRANT_KILL_STACKS, # Seris — add amount kill_stacks to target(s). Routes through scene._add_kill_stacks so flesh_infusion and predatory_surge talents react uniformly.
 	GAIN_FORGE_COUNTER, # Seris — owner's Forge Counter += amount (Demon Forge branch). Player-only.
 	COPY_LAST_TURN_SPELLS_FROM_GRAVEYARD, # Seris (Recursive Hex) — copy each spell the owner cast last turn into hand (excluding step.exclude_card_id). Damages opponent hero by amount × copies stamped (regardless of hand-cap burn).
+	CANCEL_OPPONENT_SPELL,    # Silence Trap — set scene._spell_cancelled so the in-flight opponent spell short-circuits. No fields used.
+	BLOCK_OPPONENT_TRAPS_THIS_TURN,  # Saboteur Adept — set the per-turn flag that gates opponent traps from firing. No fields used.
+	TAX_OPPONENT_SPELLS_NEXT_TURN,   # Spell Taxer — increment opponent's spell-tax counter so spells next turn cost +1 mana per stack. No fields used.
+	QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN,  # Void Rift Lord — set scene._void_mana_drain_pending so the opponent's next turn starts at 0 Mana. Player-only by design (matches existing asymmetric behavior).
+	COPY_OWNER_RUNES_TO_HAND,  # Runic Echo — adds a copy of every rune currently in the owner's active_traps to the owner's hand. No fields used.
+	PLACE_RUNE_ON_OPPONENT,    # Voidshaped Acolyte — places a rune (card_id) on the opponent's traps with aura handlers registered on the opponent side.
 }
 
 enum TargetScope {
@@ -52,6 +58,7 @@ enum TargetScope {
 	SINGLE_CHOSEN_FRIENDLY, # Player-chosen friendly target; falls back to random friendly if null
 	SINGLE_RANDOM,         # One random minion from the base pool
 	SINGLE_RANDOM_ANY,     # One random target from enemy minions + enemy hero (hero included as "enemy_hero" sentinel)
+	SINGLE_RANDOM_BOTH_BOARDS,  # One random minion from player_board + enemy_board combined (no heroes; owner-agnostic)
 	FILTERED_RANDOM,       # One random minion from the filtered pool (opponent board)
 	FILTERED_RANDOM_FRIENDLY, # One random minion from the friendly board, after filter
 	ALL_ENEMY,             # All opposing board minions
@@ -59,8 +66,9 @@ enum TargetScope {
 	ALL_BOARD,             # Every minion on both boards
 	TRIGGER_MINION,        # The minion that caused the trap/aura to fire
 	DEAD_MINION,           # The minion that just died (on-death passives)
-	SINGLE_RANDOM_TRAP,    # One random entry in active_traps
-	ALL_TRAPS,             # All entries in active_traps
+	SINGLE_RANDOM_TRAP,    # One random entry in the OWNER'S active_traps
+	ALL_TRAPS,             # All entries in the OWNER'S active_traps
+	SINGLE_RANDOM_OPPONENT_TRAP,  # One random entry in the OPPONENT'S active_traps
 	ACTIVE_ENVIRONMENT,    # The active environment card (if any)
 	SINGLE_CHOSEN_TRAP_OR_ENV,  # ctx.chosen_object if set; falls back to random from traps+env
 	SOURCE_RUNE,           # The rune that owns the currently-firing aura (ctx.source_rune). Used by DESTROY for self-destruct runes.
@@ -88,6 +96,18 @@ enum MinionFilter {
 
 ## Numeric value used by the effect (damage, heal, buff amount, draw count, etc.)
 @export var amount: int = 0
+
+## Flat addend applied AFTER any multiplier — final amount = base_amount + amount × multiplier.
+## Lets a single step express "X + Y per Z" (e.g. Void Detonation: base 500 + 50 per Void Mark)
+## without splitting into two firings (which would double-fire downstream passives like
+## void_archmagus's on-bolt listener). Defaults to 0 so existing cards are unaffected.
+@export var base_amount: int = 0
+
+## How many DISTINCT random targets to pick when scope is a SINGLE_RANDOM* variant.
+## Default 1 preserves existing single-pick behavior. With N > 1 the resolver returns
+## up to N distinct items via partial Fisher-Yates — never re-picks the same target,
+## even if the pool has fewer than N items (caps at pool size).
+@export var random_picks: int = 1
 
 ## Condition IDs that must ALL pass before this step executes.
 ## Evaluated per-target for minion-targeting effects, once globally for hero/global effects.
@@ -181,6 +201,8 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "scope"          in d: s.scope          = TargetScope[d["scope"]]
 	if "filter"         in d: s.filter         = MinionFilter[d["filter"]]
 	if "amount"         in d: s.amount         = d["amount"]
+	if "base_amount"    in d: s.base_amount    = d["base_amount"]
+	if "random_picks"   in d: s.random_picks   = d["random_picks"]
 	if "permanent"      in d: s.permanent      = d["permanent"]
 	if "card_id"        in d: s.card_id        = d["card_id"]
 	if "source_tag"     in d: s.source_tag     = d["source_tag"]

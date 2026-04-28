@@ -53,3 +53,16 @@ extends Resource
 ## sacrifice this many Void Spark tokens from their board IN ADDITION to the
 ## normal mana/essence cost. 0 = no Spark cost (normal card).
 @export var void_spark_cost: int = 0
+
+## Conditional overrides applied at combat construction time via
+## CardDatabase.get_card_for_combat(). Each entry is a dict:
+##   { "talent_id": "<id>", "<field>": <value>, ... }
+## When `talent_id` is in the side's unlocked talents, every other key is
+## written onto the constructed card (e.g. "description", "on_play_effect_steps",
+## "atk", "cost"). Multiple matching entries stack in declaration order; later
+## entries win on field collisions.
+##
+## Field replacements are full overwrites — for stacking *deltas* (e.g. clan-wide
+## stat bumps) use CardModRules instead. Per-card overrides are for "this card,
+## under this talent, looks like X."
+@export var talent_overrides: Array = []

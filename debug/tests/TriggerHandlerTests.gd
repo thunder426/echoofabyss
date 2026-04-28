@@ -509,23 +509,25 @@ static func _void_echo_once_per_turn() -> void:
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# swarm_discipline — ON_PLAYER_MINION_SUMMONED on void imp → +100 HP (direct).
+# swarm_discipline — Void Imp clan +100 HP BASE stats (CardModRules clan rule).
+# Migrated from on-summon direct HP add. The rule applies at combat-time card
+# construction, so we test by fetching via state._card_for.
 # ---------------------------------------------------------------------------
 
 static func _swarm_discipline() -> void:
-	# Explicitly skip void_imp_boost so the +100 ATK and extra +100 HP from that
-	# passive don't pollute the delta we're measuring.
+	# Explicitly skip void_imp_boost so the +100 HP from that passive doesn't
+	# pollute the delta we're measuring.
 	var state := TestHarness.build_state({
 		"hero_id": "lord_vael",
 		"talents": ["swarm_discipline"],
 		"hero_passives": [],
 	})
-	if not TestHarness.begin_test("swarm_discipline / void_imp summoned gains +100 HP", state):
+	if not TestHarness.begin_test("swarm_discipline / void_imp base HP = 200", state):
 		return
-	var imp := TestHarness.spawn_friendly(state, "void_imp")
-	var hp_before := imp.current_health
-	_fire_player_summon(state, imp)
-	TestHarness.assert_eq(imp.current_health - hp_before, 100, "current_health +100")
+	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
+	TestHarness.assert_eq(data.health, 200, "HP base 200 (100 + 100 from talent)")
+	# ATK unchanged (talent is HP-only)
+	TestHarness.assert_eq(data.atk, 100, "ATK unchanged at 100")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
@@ -663,19 +665,20 @@ static func _runic_attunement_stat() -> void:
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# void_imp_boost (hero passive) — +100 ATK (buff) + 100 HP (direct) on void imp summon.
+# void_imp_boost (hero passive) — Void Imp clan +100/+100 BASE stats.
+# Migrated from on-summon buff to CardModRules clan rule. The rule applies
+# at combat-time card construction (CardDatabase.get_card_for_combat), so
+# we test by using state._card_for which routes through the rule pipeline.
 # ---------------------------------------------------------------------------
 
 static func _void_imp_boost() -> void:
 	var state := TestHarness.vael_state([])  # no talents; just the passive
-	if not TestHarness.begin_test("void_imp_boost / void imp summon = +100/+100", state):
+	if not TestHarness.begin_test("void_imp_boost / void imp base stats = 200/200", state):
 		return
-	var imp := TestHarness.spawn_friendly(state, "void_imp")
-	var atk_before := imp.effective_atk()
-	var hp_before := imp.current_health
-	_fire_player_summon(state, imp)
-	TestHarness.assert_eq(imp.effective_atk() - atk_before, 100, "ATK +100")
-	TestHarness.assert_eq(imp.current_health - hp_before, 100, "HP +100")
+	# Use _card_for so clan rules apply — mirrors how live combat constructs deck cards.
+	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
+	TestHarness.assert_eq(data.atk, 200, "ATK base 200 (100 + 100 from passive)")
+	TestHarness.assert_eq(data.health, 200, "HP base 200 (100 + 100 from passive)")
 	state.teardown()
 
 # ---------------------------------------------------------------------------

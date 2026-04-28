@@ -206,7 +206,9 @@ func setup_deck(card_ids: Array[String]) -> void:
 	active_environment = null
 	var ids := card_ids if not card_ids.is_empty() else FALLBACK_DECK
 	for id in ids:
-		var card := CardDatabase.get_card(id)
+		# _card_for so any future enemy-side overrides apply (e.g. ancient_frenzy
+		# on pack_frenzy). Falls back to base when no overrides match.
+		var card: CardData = scene._card_for("enemy", id) if scene != null else CardDatabase.get_card(id)
 		if card:
 			_deck.append(CardInstance.create(card))
 	_deck.shuffle()

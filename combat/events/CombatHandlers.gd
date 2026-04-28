@@ -86,7 +86,8 @@ func on_void_archmagus_spell(_ctx: EventContext) -> void:
 func _apply_spell_cast_passive(effect_id: String) -> void:
 	match effect_id:
 		"add_void_bolt_on_spell":
-			var bolt := CardDatabase.get_card("void_bolt")
+			# _card_for so any future cost/effect overrides on Void Bolt apply.
+			var bolt: CardData = _scene._card_for("player", "void_bolt")
 			if bolt:
 				_scene.turn_manager.add_to_hand(bolt)
 				_log("  Void Archmagus: Void Bolt added to hand.", _LOG_PLAYER)
@@ -116,8 +117,9 @@ func on_card_drawn_void_echo(ctx: EventContext) -> void:
 	# Once per turn — tracked via scene flag, reset at player turn start.
 	if _scene.get("_void_echo_fired_this_turn"):
 		return
-	# Append directly — NOT via turn_manager.add_to_hand — to avoid re-triggering the drawn signal
-	var copy := CardDatabase.get_card("void_imp")
+	# Append directly — NOT via turn_manager.add_to_hand — to avoid re-triggering the drawn signal.
+	# _card_for so clan rules / overrides apply to the copy.
+	var copy: CardData = _scene._card_for("player", "void_imp")
 	if copy and _scene.turn_manager.player_hand.size() < _scene.turn_manager.HAND_SIZE_MAX:
 		var inst := CardInstance.create(copy)
 		_scene.turn_manager.player_hand.append(inst)
@@ -134,21 +136,29 @@ func on_player_turn_start_void_echo(_ctx: EventContext) -> void:
 # ON_PLAYER_MINION_SUMMONED
 # ---------------------------------------------------------------------------
 
+## void_imp_boost (Lord Vael hero passive) — was +100 ATK (buff) + 100 HP (direct)
+## at summon. Migrated to a CardModRules clan rule so the boost is BASE stats:
+## the +100 ATK is now cleanse-immune, hand previews show the boosted stats, and
+## tokens summoned from any source (Imp Vessel, Recruiter, etc.) inherit the
+## boost automatically. See cards/data/CardModRules.gd "void_imp_boost".
+##
+## Handler retained only for the combat-log line so the player can see when the
+## passive fired. No stat application.
 func on_summon_passive_void_imp_boost(ctx: EventContext) -> void:
 	if not _is_void_imp(ctx.minion):
 		return
-	BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 100, "void_imp_boost", false, false)
-	ctx.minion.current_health += 100
 	var hero := HeroDatabase.get_hero(GameManager.current_hero)
-	_log("  %s: %s summoned with +100/+100." % [(hero.hero_name if hero else "Hero"), ctx.card.card_name], _LOG_PLAYER)
+	_log("  %s: %s summoned with passive +100/+100." % [(hero.hero_name if hero else "Hero"), ctx.card.card_name], _LOG_PLAYER)
 
 ## Old passive relic summon handlers removed — relics are now activated abilities.
 
+## swarm_discipline (Lord Vael Endless Tide T1) — was +100 HP (direct) at summon.
+## Migrated to CardModRules clan rule. Handler retained only for the log line.
+## See cards/data/CardModRules.gd "swarm_discipline".
 func on_summon_swarm_discipline(ctx: EventContext) -> void:
 	if not _is_void_imp(ctx.minion):
 		return
-	ctx.minion.current_health += 100
-	_log("  Swarm Discipline: %s +100 HP." % ctx.card.card_name, _LOG_PLAYER)
+	_log("  Swarm Discipline: %s +100 HP (passive)." % ctx.card.card_name, _LOG_PLAYER)
 
 func on_played_rune_caller(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp"):
@@ -170,7 +180,7 @@ func on_summon_piercing_void(ctx: EventContext) -> void:
 func on_summon_imp_evolution(ctx: EventContext) -> void:
 	if not _card_has_tag(ctx.card, "base_void_imp") or _scene.imp_evolution_used_this_turn:
 		return
-	var senior := CardDatabase.get_card("senior_void_imp")
+	var senior: CardData = _scene._card_for("player", "senior_void_imp")
 	if senior and _scene.turn_manager.player_hand.size() < _scene.turn_manager.HAND_SIZE_MAX:
 		_scene.turn_manager.add_to_hand(senior)
 		_scene.imp_evolution_used_this_turn = true
@@ -388,7 +398,8 @@ func on_played_grafting_ritual(ctx: EventContext) -> void:
 	if tc == null or tc.minion_type != Enums.MinionType.DEMON:
 		return
 	# Transform in place — swap card_data and reset runtime state.
-	var fiend_data: MinionCardData = CardDatabase.get_card("grafted_fiend") as MinionCardData
+	# _card_for so the transformed Fiend inherits any clan rules / overrides.
+	var fiend_data: MinionCardData = _scene._card_for("player", "grafted_fiend") as MinionCardData
 	if fiend_data == null:
 		return
 	target.card_data       = fiend_data

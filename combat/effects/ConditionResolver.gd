@@ -49,6 +49,34 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 			return scene._count_type_on_board(Enums.MinionType.HUMAN, ctx.owner) > 0
 		"not_has_friendly_human":
 			return scene._count_type_on_board(Enums.MinionType.HUMAN, ctx.owner) == 0
+		"owner_runes_gte_2":
+			# True when the owner has at least 2 runes in their active_traps. Used by
+			# Runic Blast to branch between "AoE all" and "2 random picks" damage modes.
+			var rune_count := 0
+			for t in scene._friendly_traps(ctx.owner):
+				if (t as TrapCardData).is_rune:
+					rune_count += 1
+					if rune_count >= 2:
+						return true
+			return false
+		"not_owner_runes_gte_2":
+			var rune_count2 := 0
+			for t in scene._friendly_traps(ctx.owner):
+				if (t as TrapCardData).is_rune:
+					rune_count2 += 1
+					if rune_count2 >= 2:
+						return false
+			return true
+		"feral_imp_count_gte_3":
+			# Used by Void Screech: bonus damage when the caster has at least 3 Feral
+			# Imps on their friendly board.
+			var feral_count := 0
+			for m in scene._friendly_board(ctx.owner):
+				if m is MinionInstance and scene._minion_has_tag(m, "feral_imp"):
+					feral_count += 1
+					if feral_count >= 3:
+						return true
+			return false
 
 		# --- Resource conditions ---
 		"void_marks_5plus":

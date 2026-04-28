@@ -179,21 +179,34 @@ func _card_has_tag(card: CardData, tag: String) -> bool:
 func _has_talent(id: String) -> bool:
 	return id in talents
 
+## Side-aware lookup that applies talent_overrides + CardModRules for the
+## relevant side. Use whenever combat code constructs new CardInstances mid-fight
+## (token summons, copy-to-hand, draw helpers, deck/hand init). Static lookups
+## (UI, deckbuilder, tests) keep using CardDatabase.get_card() directly.
+##
+## Player side reads `talents` and `hero_passives`. Enemy side reads
+## `enemy_passives`. Each rule's `when` clause picks the right array.
+func _card_for(side: String, id: String) -> CardData:
+	return CardDatabase.get_card_for_combat(id, _card_ctx(side))
+
+## Build the override-evaluation context for the given side. Centralized so the
+## per-card and batch lookups produce identical ctx dicts (cache hits depend on it).
+## Reads from both _active_enemy_passives (live) and enemy_passives (sim mirror) —
+## whichever is populated. They're kept in sync so either source is valid.
+func _card_ctx(side: String) -> Dictionary:
+	var enemy: Array[String] = _active_enemy_passives if not _active_enemy_passives.is_empty() else enemy_passives
+	return {
+		"side":           side,
+		"talents":        talents if side == "player" else [],
+		"hero_passives":  hero_passives if side == "player" else [],
+		"enemy_passives": enemy,
+	}
+
 ## Random minion from a board array, or null if empty.
 func _find_random_minion(board: Array) -> MinionInstance:
 	if board.is_empty():
 		return null
 	return board[randi() % board.size()]
-
-## Find the most-recently-placed non-Echo rune in active_traps, or null.
-## Used by Echo Rune's "copy last rune" logic. Currently player-side only —
-## enemy version stays on TurnManager/EnemyAI side until Phase 4.
-func _find_last_non_echo_rune() -> TrapCardData:
-	for i in range(active_traps.size() - 1, -1, -1):
-		var t := active_traps[i] as TrapCardData
-		if t != null and t.is_rune and t.id != "echo_rune":
-			return t
-	return null
 
 # ---------------------------------------------------------------------------
 # Pure state mutators — no UI side effects.
@@ -436,7 +449,9 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 ## via inheritance; live combat reaches it only when scene's VFX-rich
 ## `_summon_token` is unavailable (shouldn't normally happen).
 func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	var base := CardDatabase.get_card(card_id)
+	# Combat-time lookup so clan rules / overrides apply to tokens summoned
+	# mid-fight in sim. Mirrors CombatScene._summon_token's _card_for migration.
+	var base := _card_for(owner, card_id)
 	if base == null or not (base is MinionCardData):
 		return
 	var board := player_board if owner == "player" else enemy_board

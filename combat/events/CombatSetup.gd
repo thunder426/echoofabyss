@@ -443,11 +443,9 @@ func setup(
 	for id in hero_passives: _apply(id, tm, h, scene)
 	for id in enemy_passives:
 		_apply(id, tm, h, scene)
-		# ancient_frenzy: grant pack_frenzy cost discount (shared side effect)
-		if id == "ancient_frenzy":
-			var ai = scene.get("enemy_ai")
-			if ai != null:
-				(ai.spell_cost_discounts as Dictionary)["pack_frenzy"] = 1
+		# ancient_frenzy: pack_frenzy cost discount migrated to pack_frenzy's
+		# talent_overrides in CardDatabase. The card now lands in hand at cost 2
+		# already, so no runtime spell_cost_discounts entry needed.
 		# corrupted_death: void_touched_imp costs 1 less essence
 		if id == "corrupted_death":
 			var ai = scene.get("enemy_ai")

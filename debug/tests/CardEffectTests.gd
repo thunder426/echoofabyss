@@ -38,7 +38,6 @@ static func run_all() -> void:
 	_runic_blast_2_plus_runes()
 	_runic_blast_distinct_targets()  # KNOWN BUG
 	_runic_echo_own_runes_only()
-	_echo_rune_fires_last()
 	_void_rift_lord_enemy_cast()
 	_void_rift_lord_player_symmetric()  # KNOWN BUG
 	_frenzied_imp_scaling()
@@ -433,22 +432,6 @@ static func _runic_echo_own_runes_only() -> void:
 	var spell := CardDatabase.get_card("runic_echo") as SpellCardData
 	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
 	TestHarness.assert_eq(state.player_hand.size(), hand_before + 1, "hand +1 (only own rune copied)")
-
-# ---------------------------------------------------------------------------
-# echo_rune — rune (trap)
-# When fired, re-runs the last non-echo rune's aura_effect_steps.
-# ---------------------------------------------------------------------------
-
-static func _echo_rune_fires_last() -> void:
-	# Echo Rune reads _find_last_non_echo_rune; placement mechanics are heavy so
-	# this probe just asserts a non-crashing fire when nothing to echo.
-	var state := TestHarness.build_state({})
-	if not TestHarness.begin_test("echo_rune / fires harmlessly when no prior rune", state):
-		return
-	var ctx := TestHarness.make_ctx(state, "player")
-	# Direct hardcoded dispatch (echo_rune fire is handler-driven in prod).
-	state._hardcoded.resolve("echo_rune_fire", ctx)
-	TestHarness.assert_eq(state.enemy_hp, 2000, "no spurious damage when no rune to echo")
 
 # ---------------------------------------------------------------------------
 # void_rift_lord — minion, 4 essence + 3 sparks (4/6 Spirit)

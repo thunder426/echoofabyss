@@ -647,12 +647,24 @@ func _ready() -> void:
 	# HP resets to full at the start of every new combat.
 	state.player_hp_max = GameManager.player_hp_max
 	player_hp = GameManager.player_hp_max
-	# Mirror GameManager talents into state so _has_talent reads from a single
-	# source. Live combat is the writer; sim sets state.talents directly via
-	# CombatSim before turning the engine on. (Hero passives are loaded later
-	# in CombatSetup which already populates state.hero_passives if needed.)
+	# Mirror GameManager talents and hero passives into state. Both must be set
+	# before deck construction so CardModRules / talent_overrides see the right
+	# context when building override-applied card clones.
 	state.talents.assign(GameManager.unlocked_talents)
 	state.player_hero_id = GameManager.current_hero
+	var _hero := HeroDatabase.get_hero(GameManager.current_hero)
+	state.hero_passives.clear()
+	if _hero != null:
+		for p in _hero.passives:
+			state.hero_passives.append(p.id)
+	# Enemy passives: mirror the encounter's passive list into state for the same reason.
+	state.enemy_passives.clear()
+	if GameManager.current_enemy != null:
+		state.enemy_passives.assign(GameManager.current_enemy.passives)
+
+	# Reset the override-applied card cache so a different talent set in this
+	# combat doesn't reuse a clone built for a previous one.
+	CardDatabase.clear_override_cache()
 
 	# Override enemy HP / name / fight number from current encounter
 	if GameManager.current_enemy != null:
@@ -661,9 +673,12 @@ func _ready() -> void:
 		if fight_label:
 			fight_label.text = "Fight %d / %d" % [GameManager.run_node_index, GameManager.TOTAL_FIGHTS]
 
-	# Build the deck from GameManager and begin combat
+	# Build the deck from GameManager and begin combat. Use combat-time lookup
+	# so talent_overrides + CardModRules (e.g. corrupt_flesh re-aiming
+	# Cultist/Weaver, void_imp_boost +100/+100 to Void Imp clan,
+	# swarm_discipline +100 HP) apply to deck/hand cards from turn 1.
 	var deck_ids: Array[String] = GameManager.player_deck
-	var deck: Array[CardData] = CardDatabase.get_cards(deck_ids)
+	var deck: Array[CardData] = CardDatabase.get_cards_for_combat(deck_ids, state._card_ctx("player"))
 	turn_manager.player_board = player_board
 	turn_manager.enemy_board = enemy_board
 	_setup_enemy_ai()
@@ -1288,10 +1303,10 @@ func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: Minio
 		return
 	if card.void_spark_cost > 0:
 		_player_pay_sparks(card.void_spark_cost)
-	# Talent: piercing_void — base Void Imp costs +1 Mana
-	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
+	# piercing_void talent's +1 Mana on Void Imp now lives in card.mana_cost
+	# directly via the talent_overrides system in CardDatabase.
 	var fp_discount := _peek_fiendish_pact_discount(card)
-	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost + extra_mana)):
+	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost)):
 		return
 	if fp_discount > 0:
 		_log("  Fiendish Pact: %s costs %d less Essence." % [card.card_name, fp_discount], _LogType.PLAYER)
@@ -1336,9 +1351,10 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 		return
 	if card.void_spark_cost > 0:
 		_player_pay_sparks(card.void_spark_cost)
-	var extra_mana := 1 if (_card_has_tag(card, "base_void_imp") and _has_talent("piercing_void")) else 0
+	# piercing_void talent's +1 Mana on Void Imp now baked into card.mana_cost
+	# via talent_overrides — no runtime conditional needed.
 	var fp_discount := _peek_fiendish_pact_discount(card)
-	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost + extra_mana)):
+	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost)):
 		return
 	if fp_discount > 0:
 		_log("  Fiendish Pact: %s costs %d less Essence." % [card.card_name, fp_discount], _LogType.PLAYER)
@@ -2132,7 +2148,11 @@ func _on_friendly_minion_died(_dead_minion: MinionInstance) -> void:
 ## Generic token summon used by EffectResolver. Summons card_id into the first empty slot for owner.
 ## token_atk / token_hp / token_shield override the template defaults when non-zero.
 func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	var data := CardDatabase.get_card(card_id) as MinionCardData
+	# Combat-time lookup so clan rules / overrides apply to tokens summoned
+	# mid-fight (e.g. Imp Vessel on-death imps, Ritual Surge imps, Soul Forge
+	# Forged Demons). Without this, those tokens would land with base stats
+	# and miss talent baselines.
+	var data := _card_for(owner, card_id) as MinionCardData
 	if data == null:
 		return
 	var slots  := player_slots if owner == "player" else enemy_slots
@@ -2203,14 +2223,14 @@ func _apply_test_config() -> void:
 		enemy_hp_max = TestConfig.enemy_hp
 	# Add cards directly to player hand
 	for id in TestConfig.hand_cards:
-		var card := CardDatabase.get_card(id)
+		var card := _card_for("player", id)
 		if card:
 			turn_manager.add_to_hand(card)
 
 	# Add cards directly to enemy hand
 	if enemy_ai:
 		for id in TestConfig.enemy_hand_cards:
-			var ecard := CardDatabase.get_card(id)
+			var ecard := _card_for("enemy", id)
 			if ecard:
 				enemy_ai.add_to_hand(ecard)
 
@@ -2475,10 +2495,6 @@ func _pulse_lifedrain_icon(minion: MinionInstance) -> void:
 		tw.parallel().tween_property(icon, "scale", Vector2.ONE, 0.18) \
 				.set_trans(Tween.TRANS_SINE)
 
-## Pure logic — delegated to CombatState.
-func _find_last_non_echo_rune() -> TrapCardData:
-	return state._find_last_non_echo_rune()
-
 ## Summon a Void Spark Spirit token with the given ATK/HP into the first empty player slot.
 ## Used by Soul Rune aura (stats scale with rune stacks).
 func _summon_soul_rune_spirit(atk: int, hp: int) -> void:
@@ -2585,6 +2601,12 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 func _has_talent(id: String) -> bool:
 	return state._has_talent(id)
 
+## Side-aware combat-time card lookup. Applies talent_overrides for the side's
+## active talents. Use this everywhere combat code creates a new CardInstance.
+## See CombatState._card_for for full notes.
+func _card_for(side: String, id: String) -> CardData:
+	return state._card_for(side, id)
+
 ## Refresh hand card cost displays / playability glows / preview overlay.
 ## Delegated to combat_ui.
 func _refresh_hand_spell_costs() -> void:
@@ -2682,17 +2704,30 @@ func _seris_corrupt_activate() -> void:
 		_log("  Corrupt Flesh: no friendly Demon on board.", _LogType.PLAYER)
 		return
 	_seris_corrupt_targeting = true
-	_log("  Corrupt Flesh: pick a friendly Demon.", _LogType.PLAYER)
+	_clear_all_highlights()
+	_highlight_slots(player_slots,
+		func(s: BoardSlot) -> bool:
+			return not s.is_empty() \
+				and (s.minion.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON)
+	_log("  Corrupt Flesh: pick a friendly Demon (right-click to cancel).", _LogType.PLAYER)
 
 ## Applies Corrupt Flesh to the clicked minion. Called from _on_player_slot_clicked_occupied
 ## when _seris_corrupt_targeting is active. Non-Demon picks cancel targeting.
 ## Pure logic delegated to CombatState; scene clears the targeting flag.
 func _seris_corrupt_apply_target(minion: MinionInstance) -> void:
 	_seris_corrupt_targeting = false
+	_clear_all_highlights()
 	if minion != null and (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
 		_log("  Corrupt Flesh: target must be a friendly Demon.", _LogType.PLAYER)
 		return
 	state._seris_corrupt_apply(minion)
+
+## Cancel Corrupt Flesh targeting without applying. Right-click / empty-slot
+## click path. Flesh is not consumed (cost only debits inside _seris_corrupt_apply).
+func _cancel_seris_corrupt_targeting() -> void:
+	_seris_corrupt_targeting = false
+	_clear_all_highlights()
+	_log("  Corrupt Flesh cancelled.", _LogType.PLAYER)
 
 ## Reset the 1/turn limit. Registered via CombatSetup for ON_PLAYER_TURN_START.
 func _seris_corrupt_reset_turn() -> void:
@@ -4455,7 +4490,9 @@ func _setup_triggers() -> void:
 
 	# ── ancient_frenzy hand injection (live-only side effect) ─────────────────
 	if "ancient_frenzy" in _active_enemy_passives:
-		var pf_card := CardDatabase.get_card("pack_frenzy")
+		# _card_for so the pack_frenzy talent_override (cost discount under
+		# ancient_frenzy) applies to the enemy's injected copy.
+		var pf_card: CardData = _card_for("enemy", "pack_frenzy")
 		if pf_card:
 			enemy_ai.hand.append(CardInstance.create(pf_card))
 

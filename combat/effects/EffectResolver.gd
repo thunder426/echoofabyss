@@ -58,7 +58,8 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.ADD_CARD:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var card := CardDatabase.get_card(step.card_id)
+				# _card_for so clan rules / overrides apply to the added copy.
+				var card: CardData = ctx.scene._card_for(ctx.owner, step.card_id)
 				if card:
 					if ctx.owner == "player":
 						ctx.scene.turn_manager.add_to_hand(card)
@@ -153,6 +154,76 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				var key := "_player_spell_counter" if opponent == "player" else "_enemy_spell_counter"
 				var current: int = ctx.scene.get(key) if ctx.scene.get(key) != null else 0
 				ctx.scene.set(key, current + 1)
+			return
+
+		EffectStep.EffectType.CANCEL_OPPONENT_SPELL:
+			# Silence Trap — sets the flag the spell-cast pipeline checks to short-circuit
+			# the in-flight opponent spell. There's a single global _spell_cancelled flag.
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				ctx.scene.set("_spell_cancelled", true)
+			return
+
+		EffectStep.EffectType.BLOCK_OPPONENT_TRAPS_THIS_TURN:
+			# Saboteur Adept — gates the opponent's traps from firing for the rest of
+			# this turn. Per-side flags exist on the scene; pick by who's the opponent.
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var opponent: String = ctx.scene._opponent_of(ctx.owner)
+				if opponent == "enemy":
+					ctx.scene.set("_enemy_traps_blocked", true)
+				else:
+					ctx.scene.set("_player_traps_blocked", true)
+			return
+
+		EffectStep.EffectType.TAX_OPPONENT_SPELLS_NEXT_TURN:
+			# Spell Taxer — increments the opponent-side spell-tax counter. Each stack
+			# adds +1 Mana to the opponent's spells on their next turn.
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var opponent: String = ctx.scene._opponent_of(ctx.owner)
+				var tax_key: String = "_spell_tax_for_%s_turn" % opponent
+				var cur = ctx.scene.get(tax_key)
+				ctx.scene.set(tax_key, (cur if cur != null else 0) + 1)
+			return
+
+		EffectStep.EffectType.COPY_OWNER_RUNES_TO_HAND:
+			# Runic Echo — copy every rune currently in the owner's active_traps into
+			# the owner's hand. Each copy is a fresh CardInstance pointing at the same
+			# TrapCardData; placing it later goes through the normal play pipeline.
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				for trap in (ctx.scene._friendly_traps(ctx.owner) as Array):
+					if (trap as TrapCardData).is_rune:
+						ctx.scene._add_to_owner_hand(ctx.owner, CardInstance.create(trap))
+			return
+
+		EffectStep.EffectType.PLACE_RUNE_ON_OPPONENT:
+			# Voidshaped Acolyte — append a rune (step.card_id) to the OPPONENT's
+			# active_traps and register its aura handlers on the opponent side. The
+			# opponent owns the rune, so its aura triggers fire from the opponent's
+			# perspective (corruption-on-summon hits minions entering the opponent's
+			# board, etc.). _opponent_traps returns the live array (mutates state).
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				# Rune lands on the opponent's side — fetch via that side's overrides.
+				var opponent: String = ctx.scene._opponent_of(ctx.owner)
+				var rune_data: TrapCardData = ctx.scene._card_for(opponent, step.card_id) as TrapCardData
+				if rune_data != null:
+					var traps: Array = ctx.scene._opponent_traps(ctx.owner)
+					traps.append(rune_data)
+					ctx.scene._apply_rune_aura(rune_data, opponent)
+					if ctx.scene.has_method("_update_trap_display_for"):
+						ctx.scene._update_trap_display_for(opponent)
+			return
+
+		EffectStep.EffectType.QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN:
+			# Void Rift Lord — drains the opponent's Mana to 0 at the start of their
+			# next turn. Currently asymmetric (only the player→enemy direction has the
+			# pipeline support; enemy→player path is a known bug, see
+			# tools/expected_fails.txt). Preserve that behavior here — only set the
+			# pending flag when player is casting against enemy.
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var opponent: String = ctx.scene._opponent_of(ctx.owner)
+				if opponent == "player":
+					ctx.scene.set("_void_mana_drain_pending", true)
+				if ctx.scene.get("_rift_lord_plays") != null:
+					ctx.scene._rift_lord_plays += 1
 			return
 
 		EffectStep.EffectType.HARDCODED:
@@ -361,10 +432,19 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 
 		EffectStep.EffectType.DESTROY:
 			if target is TrapCardData:
+				# Locate the trap on whichever side actually owns it. Caller-side
+				# (player traps) is the common case; opponent-side covers
+				# SINGLE_RANDOM_OPPONENT_TRAP and any future cross-side destroys.
+				var owner_side: String = ctx.owner
+				if not target in scene._friendly_traps(owner_side):
+					owner_side = scene._opponent_of(ctx.owner)
 				if target.is_rune:
-					scene._remove_rune_aura(target)
-				scene.active_traps.erase(target)
-				scene._update_trap_display()
+					scene._remove_rune_aura(target, owner_side)
+				scene._friendly_traps(owner_side).erase(target)
+				if scene.has_method("_update_trap_display_for"):
+					scene._update_trap_display_for(owner_side)
+				else:
+					scene._update_trap_display()
 			elif target is EnvironmentCardData:
 				scene._unregister_env_rituals()
 				scene.active_environment = null
@@ -402,7 +482,9 @@ static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 	if step.bonus_amount != 0 and not step.bonus_conditions.is_empty():
 		if ConditionResolver.check_all(step.bonus_conditions, ctx, null):
 			base += step.bonus_amount
-	return base
+	# base_amount is a flat addend that lets a single step express "X + Y per Z"
+	# (see EffectStep.base_amount). Defaults to 0 so existing call sites are unchanged.
+	return step.base_amount + base
 
 static func _race_from_string(name: String) -> int:
 	match name:

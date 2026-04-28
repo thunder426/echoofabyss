@@ -7,8 +7,16 @@
 ## (e.g. a 300 ATK minion can receive +5% = +15 ATK from a talent.)
 extends Node
 
+const _CardModRules = preload("res://cards/data/CardModRules.gd")
+
 ## All registered cards keyed by their id string
 var _cards: Dictionary = {}
+
+## Override-applied card cache, keyed by "<id>|<sorted_relevant_talents>".
+## Cleared per-combat via clear_override_cache(). Lets get_card_for_combat()
+## return a stable instance per (card, talent-set) so identity comparisons and
+## repeated lookups don't allocate.
+var _override_cache: Dictionary = {}
 
 # ---------------------------------------------------------------------------
 # Token definitions — compact table for tokens summoned by card effects.
@@ -43,12 +51,135 @@ func _make_token(d: Dictionary) -> MinionCardData:
 func _ready() -> void:
 	_register_wanderer_cards()
 
-## Returns the CardData resource for a given id, or null if not found
+## Returns the CardData resource for a given id, or null if not found.
+## STATIC LOOKUP — no talent overrides applied. Use this from menus, deck builder,
+## collection, descriptions, tests, and any non-combat surface.
 func get_card(id: String) -> CardData:
 	if _cards.has(id):
 		return _cards[id]
 	push_error("CardDatabase: unknown card id '%s'" % id)
 	return null
+
+## Returns the CardData with talent_overrides + CardModRules applied for the given
+## side's talents and passives. Use this when CONSTRUCTING NEW COMBAT CONTENT —
+## token summons, copy-to-hand, draw helpers, deck/hand initialization at combat
+## start. Anywhere a CardInstance will be created and used during combat.
+##
+## ctx keys (all optional, defaults treat the side as having nothing active):
+##   "side":           "player" | "enemy"        (default "player")
+##   "talents":        Array[String]              (default [])
+##   "hero_passives":  Array[String]              (default [])
+##   "enemy_passives": Array[String]              (default [])
+##
+## Composition order:
+##   1. Per-card talent_overrides apply first (replacement on the duplicate).
+##   2. CardModRules apply second as deltas on the post-override values.
+##
+## - Returns the base card unchanged when no overrides or rules match.
+## - Caches by (card_id, sorted-relevant-keys) so repeat lookups are O(1).
+func get_card_for_combat(id: String, ctx: Dictionary) -> CardData:
+	var base: CardData = _cards.get(id)
+	if base == null:
+		push_error("CardDatabase: unknown card id '%s'" % id)
+		return null
+
+	var side: String = ctx.get("side", "player")
+	var talents: Array[String] = []
+	talents.assign(ctx.get("talents", []))
+	var hero_passives: Array[String] = []
+	hero_passives.assign(ctx.get("hero_passives", []))
+	var enemy_passives: Array[String] = []
+	enemy_passives.assign(ctx.get("enemy_passives", []))
+
+	# Compute the relevant keys that actually affect THIS card so the cache key
+	# is stable regardless of unrelated unlocks. talent_id matches against ANY
+	# of the side's active lists (talents, hero_passives, enemy_passives) — IDs
+	# are unique across categories, so a single name resolves unambiguously.
+	var relevant_overrides: Array[String] = []
+	for ovr_any in base.talent_overrides:
+		var ovr: Dictionary = ovr_any
+		var t: String = ovr.get("talent_id", "")
+		if t == "" or t in relevant_overrides:
+			continue
+		var active: bool = (t in talents) or (t in hero_passives) or (t in enemy_passives)
+		if active:
+			relevant_overrides.append(t)
+	relevant_overrides.sort()
+
+	var matching: Array = _CardModRules.matching_rules(base, side, talents, hero_passives, enemy_passives)
+	var matching_ids: Array[String] = []
+	for r in matching:
+		matching_ids.append((r as Dictionary).get("id", ""))
+	matching_ids.sort()
+
+	if relevant_overrides.is_empty() and matching.is_empty():
+		return base
+
+	var cache_key: String = "%s|%s|%s|%s" % [id, side, "|".join(relevant_overrides), "|".join(matching_ids)]
+	if _override_cache.has(cache_key):
+		return _override_cache[cache_key]
+
+	# Shallow-duplicate the resource, then deep-copy any field we actually
+	# overwrite. Avoids relying on duplicate(true) deep-copy semantics for
+	# nested arrays-of-dicts.
+	var clone: CardData = base.duplicate(false)
+
+	# Step 1: per-card overrides (replacement)
+	for ovr_any in base.talent_overrides:
+		var ovr: Dictionary = ovr_any
+		if not (ovr.get("talent_id", "") in relevant_overrides):
+			continue
+		for field in ovr:
+			if field == "talent_id":
+				continue
+			if not (field in clone):
+				push_warning("CardDatabase: talent_override on '%s' references unknown field '%s'" % [id, field])
+				continue
+			var val = ovr[field]
+			if val is Array or val is Dictionary:
+				val = _deep_copy(val)
+			clone.set(field, val)
+
+	# Step 2: clan/filter delta rules (additive on top of overrides)
+	for rule_any in matching:
+		var rule: Dictionary = rule_any
+		if rule.has("atk_delta") and "atk" in clone:
+			clone.set("atk", clone.get("atk") + int(rule.atk_delta))
+		if rule.has("hp_delta") and "health" in clone:
+			clone.set("health", clone.get("health") + int(rule.hp_delta))
+		if rule.has("cost_delta"):
+			# CardData.cost (mana cost) is the universal cost field; minions also
+			# carry essence_cost. Apply cost_delta to the field that's actually
+			# being used for this card type. Spells/traps/environments use cost;
+			# minions use essence_cost (+ optional mana_cost).
+			if clone is MinionCardData:
+				var mc: MinionCardData = clone
+				mc.essence_cost = max(0, mc.essence_cost + int(rule.cost_delta))
+			else:
+				clone.cost = max(0, clone.cost + int(rule.cost_delta))
+
+	_override_cache[cache_key] = clone
+	return clone
+
+## Deep copy for nested Array/Dictionary structures of plain values
+## (no Resources). Used to isolate override field values from their source dicts.
+func _deep_copy(v: Variant) -> Variant:
+	if v is Array:
+		var out_a: Array = []
+		for item in (v as Array):
+			out_a.append(_deep_copy(item))
+		return out_a
+	if v is Dictionary:
+		var out_d: Dictionary = {}
+		for k in (v as Dictionary):
+			out_d[k] = _deep_copy(v[k])
+		return out_d
+	return v
+
+## Drop all override-applied clones. Called at combat start so a different
+## hero/talent set in the next combat doesn't reuse stale overrides.
+func clear_override_cache() -> void:
+	_override_cache.clear()
 
 ## Returns all registered card IDs
 func get_all_card_ids() -> Array[String]:
@@ -75,6 +206,16 @@ func get_cards(ids: Array[String]) -> Array[CardData]:
 	var result: Array[CardData] = []
 	for id in ids:
 		var card := get_card(id)
+		if card:
+			result.append(card)
+	return result
+
+## Combat-time batch lookup. Mirrors get_cards() but applies talent_overrides
+## and CardModRules per the side's ctx. Use for deck/hand init at combat start.
+func get_cards_for_combat(ids: Array[String], ctx: Dictionary) -> Array[CardData]:
+	var result: Array[CardData] = []
+	for id in ids:
+		var card := get_card_for_combat(id, ctx)
 		if card:
 			result.append(card)
 	return result
@@ -106,6 +247,14 @@ func _register_wanderer_cards() -> void:
 	void_imp.health         = 100
 	void_imp.minion_type    = Enums.MinionType.DEMON
 	void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100, "conditions": ["no_piercing_void"]}]
+	# piercing_void talent (Void Bolt T0): Void Imp costs +1 Mana (base 1E, becomes
+	# 1E+1M). The on-play retag (200 Void Bolt damage + 1 Void Mark) lives in
+	# on_summon_piercing_void handler — keeping that path because it routes through
+	# scene-specific Void Bolt damage helpers and VFX that don't translate cleanly
+	# to a declarative effect-step swap. Cost change is pure data, fits the override.
+	void_imp.talent_overrides = [
+		{ "talent_id": "piercing_void", "mana_cost": 1 },
+	]
 	void_imp.minion_tags    = ["void_imp", "base_void_imp"]
 	void_imp.faction        = "abyss_order"
 	void_imp.clan           = "Void Imp"
@@ -246,6 +395,7 @@ func _register_wanderer_cards() -> void:
 	flesh_harvester.on_play_effect_steps = [
 		{"type": "GAIN_FLESH", "amount": 1},
 	]
+	flesh_harvester.art_path     = "res://assets/art/minions/abyss_order/flesh_harvester.png"
 	flesh_harvester.faction      = "abyss_order"
 	all.append(flesh_harvester)
 
@@ -261,6 +411,7 @@ func _register_wanderer_cards() -> void:
 	ravenous_fiend.on_death_effect_steps = [
 		{"type": "GAIN_FLESH", "amount": 2},
 	]
+	ravenous_fiend.art_path     = "res://assets/art/minions/abyss_order/ravenous_fiend.png"
 	ravenous_fiend.faction      = "abyss_order"
 	all.append(ravenous_fiend)
 
@@ -277,6 +428,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "GAIN_FLESH", "amount": 2},
 		{"type": "DRAW", "amount": 1},
 	]
+	feast_of_flesh.art_path        = "res://assets/art/spells/abyss_order/feast_of_flesh.png"
 	feast_of_flesh.faction         = "abyss_order"
 	all.append(feast_of_flesh)
 
@@ -291,6 +443,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "HEAL_MINION", "scope": "ALL_FRIENDLY", "amount": 200,
 			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"]},
 	]
+	mend_the_flesh.art_path    = "res://assets/art/spells/abyss_order/mend_the_flesh.png"
 	mend_the_flesh.faction     = "abyss_order"
 	all.append(mend_the_flesh)
 
@@ -307,6 +460,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "DAMAGE_HERO", "amount": 250,
 			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"]},
 	]
+	flesh_eruption.art_path    = "res://assets/art/spells/abyss_order/flesh_eruption.png"
 	flesh_eruption.faction     = "abyss_order"
 	all.append(flesh_eruption)
 
@@ -326,6 +480,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "BUFF_HP",  "scope": "SELF", "amount": 150, "multiplier_key": "flesh_spent",
 			"source_tag": "gorged_fiend", "conditions": ["flesh_spent_this_cast"]},
 	]
+	gorged_fiend.art_path     = "res://assets/art/minions/abyss_order/gorged_fiend.png"
 	gorged_fiend.faction      = "abyss_order"
 	all.append(gorged_fiend)
 
@@ -345,6 +500,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "BUFF_HP", "scope": "SELF", "amount": 300,
 			"source_tag": "flesh_stitched_horror", "conditions": ["flesh_spent_this_cast"]},
 	]
+	flesh_stitched_horror.art_path     = "res://assets/art/minions/abyss_order/flesh_stitched_horror.png"
 	flesh_stitched_horror.faction      = "abyss_order"
 	all.append(flesh_stitched_horror)
 
@@ -397,6 +553,7 @@ func _register_wanderer_cards() -> void:
 			"multiplier_filter": "tag", "multiplier_tag": "grafted_fiend",
 			"exclude_self": true, "permanent": true, "source_tag": "grafted_reaver"},
 	]
+	grafted_reaver.art_path     = "res://assets/art/minions/abyss_order/grafted_reaver.png"
 	grafted_reaver.faction      = "abyss_order"
 	all.append(grafted_reaver)
 
@@ -413,6 +570,7 @@ func _register_wanderer_cards() -> void:
 	flesh_scout.on_play_effect_steps = [
 		{"type": "DRAW", "amount": 2, "conditions": ["friendly_grafted_fiend_kill_stacks_gte_3"]},
 	]
+	flesh_scout.art_path     = "res://assets/art/minions/abyss_order/flesh_scout.png"
 	flesh_scout.faction      = "abyss_order"
 	all.append(flesh_scout)
 
@@ -437,6 +595,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "BUFF_HP", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 200,
 			"source_tag": "flesh_surgeon", "conditions": ["flesh_spent_this_cast"]},
 	]
+	flesh_surgeon.art_path     = "res://assets/art/minions/abyss_order/flesh_surgeon.png"
 	flesh_surgeon.faction      = "abyss_order"
 	all.append(flesh_surgeon)
 
@@ -455,6 +614,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "GRANT_KILL_STACKS", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 2,
 			"conditions": ["flesh_spent_this_cast"]},
 	]
+	flesh_sacrament.art_path        = "res://assets/art/spells/abyss_order/flesh_sacrament.png"
 	flesh_sacrament.faction         = "abyss_order"
 	all.append(flesh_sacrament)
 
@@ -481,6 +641,7 @@ func _register_wanderer_cards() -> void:
 	matron_of_flesh.on_kill_effect_steps = [
 		{"type": "GAIN_FLESH", "amount": 1},
 	]
+	matron_of_flesh.art_path     = "res://assets/art/minions/abyss_order/matron_of_flesh.png"
 	matron_of_flesh.faction      = "abyss_order"
 	all.append(matron_of_flesh)
 
@@ -504,6 +665,7 @@ func _register_wanderer_cards() -> void:
 	altar_thrall.on_turn_end_effect_steps = [
 		{"type": "SACRIFICE", "scope": "SELF"},
 	]
+	altar_thrall.art_path     = "res://assets/art/minions/abyss_order/altar_thrall.png"
 	altar_thrall.faction      = "abyss_order"
 	all.append(altar_thrall)
 
@@ -521,6 +683,7 @@ func _register_wanderer_cards() -> void:
 	forge_acolyte.minion_type        = Enums.MinionType.HUMAN
 	forge_acolyte.description        = "PASSIVE: Whenever you sacrifice a Demon, gain 1 Flesh."
 	forge_acolyte.passive_effect_id  = "forge_acolyte_flesh_on_sacrifice"
+	forge_acolyte.art_path           = "res://assets/art/minions/abyss_order/forge_acolyte.png"
 	forge_acolyte.faction            = "abyss_order"
 	all.append(forge_acolyte)
 
@@ -537,6 +700,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "GAIN_FLESH", "amount": 1},
 		{"type": "GAIN_FORGE_COUNTER", "amount": 1},
 	]
+	ember_pact.art_path        = "res://assets/art/spells/abyss_order/ember_pact.png"
 	ember_pact.faction         = "abyss_order"
 	all.append(ember_pact)
 
@@ -553,6 +717,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
 		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 100, "token_hp": 100},
 	]
+	bound_offering.art_path     = "res://assets/art/minions/abyss_order/bound_offering.png"
 	bound_offering.faction      = "abyss_order"
 	all.append(bound_offering)
 
@@ -573,6 +738,7 @@ func _register_wanderer_cards() -> void:
 	forgeborn_tyrant.on_leave_effect_steps = [
 		{"type": "GAIN_FORGE_COUNTER", "amount": 3},
 	]
+	forgeborn_tyrant.art_path     = "res://assets/art/minions/abyss_order/forgeborn_tyrant.png"
 	forgeborn_tyrant.faction      = "abyss_order"
 	all.append(forgeborn_tyrant)
 
@@ -596,6 +762,7 @@ func _register_wanderer_cards() -> void:
 	bloodscribe_imp.on_play_effect_steps = [
 		{"type": "ADD_CARD", "card_id": "flesh_rend"},
 	]
+	bloodscribe_imp.art_path     = "res://assets/art/minions/abyss_order/bloodscribe_imp.png"
 	bloodscribe_imp.faction      = "abyss_order"
 	all.append(bloodscribe_imp)
 
@@ -618,6 +785,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "CORRUPTION", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON",
 			"amount": 1, "bonus_amount": 1, "bonus_conditions": ["flesh_spent_this_cast"]},
 	]
+	tainted_ritualist.art_path     = "res://assets/art/minions/abyss_order/tainted_ritualist.png"
 	tainted_ritualist.faction      = "abyss_order"
 	all.append(tainted_ritualist)
 
@@ -640,6 +808,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "CORRUPTION", "scope": "FILTERED_RANDOM_FRIENDLY", "filter": "DEMON",
 			"amount": 1, "exclude_self": true},
 	]
+	festering_fiend.art_path     = "res://assets/art/minions/abyss_order/festering_fiend.png"
 	festering_fiend.faction      = "abyss_order"
 	all.append(festering_fiend)
 
@@ -655,6 +824,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "CORRUPTION", "scope": "SINGLE_CHOSEN_FRIENDLY", "filter": "DEMON", "amount": 2},
 		{"type": "DRAW", "amount": 1},
 	]
+	self_mutilation.art_path        = "res://assets/art/spells/abyss_order/self_mutilation.png"
 	self_mutilation.faction         = "abyss_order"
 	all.append(self_mutilation)
 
@@ -672,6 +842,7 @@ func _register_wanderer_cards() -> void:
 		{"type": "DAMAGE_HERO", "amount": 100,
 			"bonus_amount": 200, "bonus_conditions": ["flesh_spent_this_cast"]},
 	]
+	resonant_outburst.art_path    = "res://assets/art/spells/abyss_order/resonant_outburst.png"
 	resonant_outburst.faction     = "abyss_order"
 	all.append(resonant_outburst)
 
@@ -690,8 +861,9 @@ func _register_wanderer_cards() -> void:
 	voidshaped_acolyte.minion_type  = Enums.MinionType.DEMON
 	voidshaped_acolyte.description  = "ON PLAY: Place a Shadow Rune on the enemy's battlefield."
 	voidshaped_acolyte.on_play_effect_steps = [
-		{"type": "HARDCODED", "hardcoded_id": "voidshaped_acolyte_place_rune"},
+		{"type": "PLACE_RUNE_ON_OPPONENT", "card_id": "shadow_rune"},
 	]
+	voidshaped_acolyte.art_path     = "res://assets/art/minions/abyss_order/voidshaped_acolyte.png"
 	voidshaped_acolyte.faction      = "abyss_order"
 	all.append(voidshaped_acolyte)
 
@@ -716,6 +888,7 @@ func _register_wanderer_cards() -> void:
 	recursive_hex.effect_steps = [
 		{"type": "COPY_LAST_TURN_SPELLS_FROM_GRAVEYARD", "amount": 200, "exclude_card_id": "recursive_hex"},
 	]
+	recursive_hex.art_path    = "res://assets/art/spells/abyss_order/recursive_hex.png"
 	recursive_hex.faction     = "abyss_order"
 	all.append(recursive_hex)
 
@@ -910,7 +1083,7 @@ func _register_wanderer_cards() -> void:
 	trapbreaker_rogue.atk            = 250
 	trapbreaker_rogue.health         = 200
 	trapbreaker_rogue.minion_type    = Enums.MinionType.HUMAN
-	trapbreaker_rogue.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "destroy_random_enemy_trap"}]
+	trapbreaker_rogue.on_play_effect_steps = [{"type": "DESTROY", "scope": "SINGLE_RANDOM_OPPONENT_TRAP"}]
 	trapbreaker_rogue.faction  = "neutral"
 	trapbreaker_rogue.art_path = "res://assets/art/minions/neutral/trapbreaker_rogue.png"
 	all.append(trapbreaker_rogue)
@@ -946,7 +1119,7 @@ func _register_wanderer_cards() -> void:
 	spell_taxer.atk            = 250
 	spell_taxer.health         = 300
 	spell_taxer.minion_type    = Enums.MinionType.HUMAN
-	spell_taxer.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "spell_taxer_effect"}]
+	spell_taxer.on_play_effect_steps = [{"type": "TAX_OPPONENT_SPELLS_NEXT_TURN"}]
 	spell_taxer.faction        = "neutral"
 	spell_taxer.art_path       = "res://assets/art/minions/neutral/spell_taxer.png"
 	all.append(spell_taxer)
@@ -959,7 +1132,7 @@ func _register_wanderer_cards() -> void:
 	saboteur_adept.atk            = 300
 	saboteur_adept.health         = 300
 	saboteur_adept.minion_type    = Enums.MinionType.HUMAN
-	saboteur_adept.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "saboteur_adept_effect"}]
+	saboteur_adept.on_play_effect_steps = [{"type": "BLOCK_OPPONENT_TRAPS_THIS_TURN"}]
 	saboteur_adept.faction        = "neutral"
 	saboteur_adept.art_path       = "res://assets/art/minions/neutral/sabateur_adept.png"
 	all.append(saboteur_adept)
@@ -1176,6 +1349,15 @@ func _register_wanderer_cards() -> void:
 	abyss_cultist.health         = 300
 	abyss_cultist.minion_type    = Enums.MinionType.HUMAN
 	abyss_cultist.on_play_effect_steps = [{"type": "CORRUPTION", "scope": "SINGLE_RANDOM", "amount": 1}]
+	# corrupt_flesh (Seris T0) re-aims this card at friendly Demons so it feeds
+	# the Corruption Engine's friendly-Demon ATK loop and the corrupt_detonation chain.
+	abyss_cultist.talent_overrides = [
+		{
+			"talent_id": "corrupt_flesh",
+			"description": "ON PLAY: Apply 1 CORRUPTION to a random friendly Demon.",
+			"on_play_effect_steps": [{"type": "CORRUPTION", "scope": "FILTERED_RANDOM_FRIENDLY", "filter": "DEMON", "amount": 1}],
+		},
+	]
 	abyss_cultist.faction        = "abyss_order"
 	abyss_cultist.art_path             = "res://assets/art/minions/abyss_order/abyss_cultist.png"
 	all.append(abyss_cultist)
@@ -1205,6 +1387,15 @@ func _register_wanderer_cards() -> void:
 	corruption_weaver.health         = 400
 	corruption_weaver.minion_type    = Enums.MinionType.HUMAN
 	corruption_weaver.on_play_effect_steps = [{"type": "CORRUPTION", "scope": "ALL_ENEMY", "amount": 1}]
+	# corrupt_flesh (Seris T0) — see abyss_cultist note. Board-wide friendly version
+	# stacks meaningfully with corrupt_detonation (T1) and void_amplification (T2).
+	corruption_weaver.talent_overrides = [
+		{
+			"talent_id": "corrupt_flesh",
+			"description": "ON PLAY: Apply 1 CORRUPTION to all friendly Demons.",
+			"on_play_effect_steps": [{"type": "CORRUPTION", "scope": "ALL_FRIENDLY", "filter": "DEMON", "amount": 1}],
+		},
+	]
 	corruption_weaver.faction        = "abyss_order"
 	corruption_weaver.art_path             = "res://assets/art/minions/abyss_order/corruption_weaver.png"
 	all.append(corruption_weaver)
@@ -1356,7 +1547,7 @@ func _register_wanderer_cards() -> void:
 	silence_trap.cost         = 2
 	silence_trap.description  = "TRAP: When enemy casts a spell, cancel that spell."
 	silence_trap.trigger      = Enums.TriggerEvent.ON_ENEMY_SPELL_CAST
-	silence_trap.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "silence_trap"}]
+	silence_trap.effect_steps = [{"type": "CANCEL_OPPONENT_SPELL"}]
 	silence_trap.art_path     = "res://assets/art/traps/neutral/silence_trap.png"
 	silence_trap.faction      = "neutral"
 	all.append(silence_trap)
@@ -1409,7 +1600,7 @@ func _register_wanderer_cards() -> void:
 	void_detonation.card_name   = "Void Detonation"
 	void_detonation.cost        = 4
 	void_detonation.description = "Deal 500 Void Bolt damage to enemy hero. Gain +50 damage per VOID MARK on enemy hero."
-	void_detonation.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_detonation_effect"}]
+	void_detonation.effect_steps = [{"type": "VOID_BOLT", "base_amount": 500, "amount": 50, "multiplier_key": "void_marks"}]
 	void_detonation.art_path    = "res://assets/art/spells/abyss_order/void_detonation.png"
 	void_detonation.faction     = "abyss_order"
 	all.append(void_detonation)
@@ -1618,9 +1809,12 @@ func _register_wanderer_cards() -> void:
 
 	var blood_dominion_ritual := RitualData.new()
 	blood_dominion_ritual.ritual_name    = "Demon Ascendant"
-	blood_dominion_ritual.description    = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Special Summon a 500/500 Demon."
+	blood_dominion_ritual.description    = "Consume Blood + Dominion Runes. Deal 200 damage to 2 random enemy minions. Summon a 500/500 Demon."
 	blood_dominion_ritual.required_runes = [Enums.RuneType.BLOOD_RUNE, Enums.RuneType.DOMINION_RUNE]
-	blood_dominion_ritual.effect_steps   = [{"type": "HARDCODED", "hardcoded_id": "demon_ascendant"}]
+	blood_dominion_ritual.effect_steps   = [
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 200, "random_picks": 2},
+		{"type": "SUMMON", "card_id": "void_demon", "token_atk": 500, "token_hp": 500},
+	]
 
 	var abyssal_summoning_circle := EnvironmentCardData.new()
 	abyssal_summoning_circle.id                         = "abyssal_summoning_circle"
@@ -1653,7 +1847,10 @@ func _register_wanderer_cards() -> void:
 	abyss_ritual_circle.cost                = 2
 	abyss_ritual_circle.description         = "Each turn, deal 100 damage to a random minion. \nRITUAL: Void + Blood → Soul Cataclysm."
 	abyss_ritual_circle.passive_description = "At the start of each turn, deal 100 damage to a random minion."
-	abyss_ritual_circle.passive_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "abyss_ritual_circle_passive"}]
+	abyss_ritual_circle.passive_effect_steps = [{
+		"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM_BOTH_BOARDS",
+		"amount": 100, "damage_school": "VOID",
+	}]
 	abyss_ritual_circle.fires_on_enemy_turn = true
 	abyss_ritual_circle.rituals             = [void_blood_ritual]
 	abyss_ritual_circle.art_path            = "res://assets/art/environments/abyss_order/abyss_ritual_circle.png"
@@ -1758,7 +1955,12 @@ func _register_wanderer_cards() -> void:
 	runic_blast.card_name   = "Runic Blast"
 	runic_blast.cost        = 2
 	runic_blast.description = "Deal 200 damage to 2 random enemy minions. If you have 2+ Runes, deal 200 to all enemy minions instead."
-	runic_blast.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "runic_blast"}]
+	runic_blast.effect_steps = [
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 200,
+		 "conditions": ["owner_runes_gte_2"]},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 200,
+		 "random_picks": 2, "conditions": ["not_owner_runes_gte_2"]},
+	]
 	runic_blast.art_path    = "res://assets/art/spells/abyss_order/runic_blast.png"
 	runic_blast.faction     = "abyss_order"
 	all.append(runic_blast)
@@ -1768,7 +1970,7 @@ func _register_wanderer_cards() -> void:
 	runic_echo.card_name   = "Runic Echo"
 	runic_echo.cost        = 2
 	runic_echo.description = "Add a copy of each Rune on the battlefield to your hand."
-	runic_echo.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "runic_echo"}]
+	runic_echo.effect_steps = [{"type": "COPY_OWNER_RUNES_TO_HAND"}]
 	runic_echo.art_path    = "res://assets/art/spells/abyss_order/runic_echo.png"
 	runic_echo.faction     = "abyss_order"
 	all.append(runic_echo)
@@ -1803,11 +2005,9 @@ func _register_wanderer_cards() -> void:
 	echo_rune.id                 = "echo_rune"
 	echo_rune.card_name          = "Echo Rune"
 	echo_rune.cost               = 2
-	echo_rune.description        = "RUNE (Wildcard): At the start of your turn, fire the effect of the last Rune you placed. Counts as any rune type for rituals."
+	echo_rune.description        = "RUNE (Wildcard): Counts as any rune type for rituals."
 	echo_rune.is_rune            = true
 	echo_rune.is_wildcard_rune   = true
-	echo_rune.aura_trigger       = Enums.TriggerEvent.ON_PLAYER_TURN_START
-	echo_rune.aura_effect_steps  = [{"type": "HARDCODED", "hardcoded_id": "echo_rune_fire"}]
 	echo_rune.art_path               = "res://assets/art/traps/abyss_order/echo_rune_premium.png"
 	echo_rune.battlefield_art_path   = "res://assets/art/traps/abyss_order/echo_rune_battlefield.png"
 	echo_rune.rune_glow_color        = Color(0.95, 0.65, 0.25, 1)  # Warm gold/amber — matches the art
@@ -2014,7 +2214,10 @@ func _register_wanderer_cards() -> void:
 	void_screech.card_name   = "Void Screech"
 	void_screech.cost        = 1
 	void_screech.description = "Deal 250 damage to enemy hero. If you have 3+ FERAL IMP minions on board, deal 350 instead."
-	void_screech.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_screech"}]
+	void_screech.effect_steps = [{
+		"type": "DAMAGE_HERO", "amount": 250,
+		"bonus_amount": 100, "bonus_conditions": ["feral_imp_count_gte_3"],
+	}]
 	void_screech.faction   = "abyss_order"
 	void_screech.art_path  = "res://assets/art/spells/feral_imp_clan/void_screech.png"
 	all.append(void_screech)
@@ -2035,6 +2238,13 @@ func _register_wanderer_cards() -> void:
 	pack_frenzy.cost        = 3
 	pack_frenzy.description = "Give all friendly FERAL IMP minions +250 ATK and SWIFT this turn."
 	pack_frenzy.effect_steps = [{"type": "HARDCODED", "hardcoded_id": "pack_frenzy"}]
+	# ancient_frenzy enemy passive: pack_frenzy costs 1 less (3 → 2). Was applied
+	# via runtime spell_cost_discounts dict in CombatSetup; migrated here so the
+	# enemy hand displays the discounted cost from turn 1 and the source-of-truth
+	# lives on the card.
+	pack_frenzy.talent_overrides = [
+		{ "talent_id": "ancient_frenzy", "cost": 2 },
+	]
 	pack_frenzy.faction   = "abyss_order"
 	pack_frenzy.art_path  = "res://assets/art/spells/feral_imp_clan/pack_frenzy.png"
 	all.append(pack_frenzy)
@@ -2218,6 +2428,7 @@ func _register_wanderer_cards() -> void:
 	champion_void_champion.keywords     = [Enums.Keyword.CHAMPION]
 	champion_void_champion.is_champion  = true
 	champion_void_champion.minion_tags  = ["enemy_champion"]
+	champion_void_champion.art_path     = "res://assets/art/minions/abyss_order/champion_void_champion.png"
 	champion_void_champion.faction      = "abyss_order"
 	all.append(champion_void_champion)
 
@@ -2232,6 +2443,7 @@ func _register_wanderer_cards() -> void:
 	champion_void_ritualist_prime.keywords     = [Enums.Keyword.CHAMPION]
 	champion_void_ritualist_prime.is_champion  = true
 	champion_void_ritualist_prime.minion_tags  = ["enemy_champion"]
+	champion_void_ritualist_prime.art_path     = "res://assets/art/minions/abyss_order/champion_void_ritualist_prime.png"
 	champion_void_ritualist_prime.faction      = "abyss_order"
 	all.append(champion_void_ritualist_prime)
 
@@ -2322,7 +2534,7 @@ func _register_wanderer_cards() -> void:
 	void_rift_lord.atk             = 400
 	void_rift_lord.health          = 600
 	void_rift_lord.minion_type     = Enums.MinionType.SPIRIT
-	void_rift_lord.on_play_effect_steps = [{"type": "HARDCODED", "hardcoded_id": "void_rift_lord_mana_drain"}]
+	void_rift_lord.on_play_effect_steps = [{"type": "QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN"}]
 	void_rift_lord.faction         = "abyss_order"
 	void_rift_lord.art_path             = "res://assets/art/minions/abyss_order/void_rift_lord.png"
 	all.append(void_rift_lord)
@@ -2369,7 +2581,7 @@ func _register_wanderer_cards() -> void:
 	void_wind.cost        = 1
 	void_wind.description = "Destroy a random enemy trap. Heal your hero for 500 HP."
 	void_wind.effect_steps = [
-		{"type": "HARDCODED", "hardcoded_id": "destroy_random_enemy_trap"},
+		{"type": "DESTROY", "scope": "SINGLE_RANDOM_OPPONENT_TRAP"},
 		{"type": "HEAL_HERO", "amount": 500},
 	]
 	void_wind.requires_target = false

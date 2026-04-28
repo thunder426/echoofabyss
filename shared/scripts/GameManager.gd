@@ -347,13 +347,14 @@ func _build_encounter(index: int) -> EnemyData:
 				"The Ritualist Prime is the Sovereign's high priest. He has spent his eternal life weaving void energy into a prison for the soul. He will try to do the same to you.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
 				["void_might", "dark_channeling", "ritualist_spark_free", "champion_void_ritualist_prime"], "void_ritualist_prime",
-				"res://assets/art/enemies/portraits/void_ritualist_portrait.png")
+				"res://assets/art/enemies/portraits/void_ritualist_prime_portrait.png")
 		14:
 			return _make_encounter("Void Champion", 5000, [],
 				"VOID CHAMPION",
 				"The last guardian before the throne. The Void Champion was forged from pure abyss energy — no flesh, no weakness, no mercy. Beyond him, the Sovereign waits.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "mana_for_spark", "champion_void_champion"], "void_champion")
+				["void_might", "mana_for_spark", "champion_void_champion"], "void_champion",
+				"res://assets/art/enemies/portraits/void_champion_portrait.png")
 		15:
 			return _make_encounter("Abyss Sovereign", 3000, [],
 				"ABYSS SOVEREIGN",

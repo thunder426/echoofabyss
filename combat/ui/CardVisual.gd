@@ -641,46 +641,15 @@ func override_stat_display(atk: int, hp: int) -> void:
 	elif hp_label:
 		hp_label.text = str(hp)
 
-## Updates displayed stats, cost, and description based on currently unlocked talents.
-## Only meaningful during combat; DeckBuilder previews call setup() before talents exist.
+## Talent-aware stat/cost overlay used to live here for Void Imp. As of the
+## CardModRules + talent_overrides migration, all stat/cost talent effects bake
+## into card_data at combat-time lookup (CardDatabase.get_card_for_combat), so
+## the labels rendered by setup() already reflect talents — no overlay needed.
+##
+## Kept as a no-op so the call sites in HandDisplay don't need touching; will be
+## removed when those sites are visited next.
 func apply_talent_overlay() -> void:
-	if card_data == null or not (card_data is MinionCardData):
-		return
-	if card_data.id != "void_imp":
-		return
-
-	var md := card_data as MinionCardData
-	var display_atk := md.atk
-	var display_hp  := md.health
-	var talent_notes: Array[String] = []
-
-	# Hero passive "void_imp_boost" is always-on during combat — show boosted stats
-	if HeroDatabase.has_passive(GameManager.current_hero, "void_imp_boost"):
-		display_atk += 100
-		display_hp  += 100
-		var hero := HeroDatabase.get_hero(GameManager.current_hero)
-		talent_notes.append("%s: +100/+100 on summon (always)" % (hero.hero_name if hero else "Hero"))
-
-	var unlocked: Array[String] = GameManager.unlocked_talents
-
-	if "imp_empowerment" in unlocked:
-		display_atk += 50
-		talent_notes.append("Imp Empowerment: +50 ATK on summon")
-	if "lord_of_imps" in unlocked:
-		display_atk += 100
-		display_hp  += 100
-		talent_notes.append("Lord of Imps: +100/+100 on summon")
-	if "piercing_void" in unlocked:
-		talent_notes.append("Piercing Void: 200 Void Bolt then +1 Void Mark on play")
-
-	if talent_notes.is_empty():
-		return
-
-	if atk_label:       atk_label.text       = str(display_atk)
-	if hp_label:        hp_label.text        = str(display_hp)
-	if frame_atk_label: frame_atk_label.text = str(display_atk)
-	if frame_hp_label:  frame_hp_label.text  = str(display_hp)
-	# Cost display is handled by setup() via frame_cost_label / frame_mana_label — nothing to update here.
+	pass
 
 # ---------------------------------------------------------------------------
 # Playability

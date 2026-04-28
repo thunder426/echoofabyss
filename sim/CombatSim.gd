@@ -130,13 +130,18 @@ func run(
 		state.turn_snapshot_callback = turn_snapshot_callback
 	state.debug_log_enabled = debug
 	state.enemy_limited_cards = enemy_limited
-	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
-	state.enemy_hp_max = enemy_hp
+	# Talents must be set BEFORE setup() so deck construction inside setup()
+	# can apply talent_overrides via _card_for(). Same flow as live combat where
+	# CombatScene assigns state.talents prior to building the deck.
 	state.talents = player_talents
 	state.hero_passives = player_hero_passives
 	state.player_hero_id = player_hero_id
 	state.enemy_passives.assign(_ENEMY_PASSIVES.get(enemy_profile_id, []))
 	state.enemy_ai_profile = enemy_profile_id
+	# Each sim run gets a clean override cache (different talent sets across batches).
+	CardDatabase.clear_override_cache()
+	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
+	state.enemy_hp_max = enemy_hp
 
 	# Build agents
 	var p_agent := SimPlayerAgent.new()

@@ -141,15 +141,16 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	player_hp = p_hp
 	enemy_hp  = e_hp
 
-	# Build decks
+	# Build decks. Player side applies talent_overrides via _card_for; enemy
+	# side passes [] (enemies have no talents today). Mirrors live combat.
 	for id in p_deck_ids:
-		var card := CardDatabase.get_card(id)
+		var card := _card_for("player", id)
 		if card:
 			player_deck.append(CardInstance.create(card))
 	player_deck.shuffle()
 
 	for id in e_deck_ids:
-		var card := CardDatabase.get_card(id)
+		var card := _card_for("enemy", id)
 		if card:
 			enemy_deck.append(CardInstance.create(card))
 	enemy_deck.shuffle()
@@ -434,9 +435,8 @@ func _resolve_void_devourer_sacrifice(_devourer: MinionInstance, _owner: String)
 	pass  # complex effect — not simulated
 
 ## (`_update_trap_display`, `_update_environment_display`, `_find_random_minion`,
-## `_find_last_non_echo_rune`, `_remove_rune_aura`,
-## `_unregister_env_rituals`, `_rune_aura_multiplier`, `_minion_has_tag`,
-## `_has_talent` all inherited from CombatState.)
+## `_remove_rune_aura`, `_unregister_env_rituals`, `_rune_aura_multiplier`,
+## `_minion_has_tag`, `_has_talent` all inherited from CombatState.)
 
 ## (`_resolve_hardcoded` inherited from CombatState.)
 
@@ -523,7 +523,7 @@ func setup_enemy_deck(card_ids: Array[String]) -> void:
 	enemy_hand.clear()
 	enemy_graveyard.clear()
 	for id in card_ids:
-		var card := CardDatabase.get_card(id)
+		var card := _card_for("enemy", id)
 		if card:
 			enemy_deck.append(CardInstance.create(card))
 	enemy_deck.shuffle()
