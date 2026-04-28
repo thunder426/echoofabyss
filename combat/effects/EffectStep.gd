@@ -49,6 +49,7 @@ enum EffectType {
 	QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN,  # Void Rift Lord — set scene._void_mana_drain_pending so the opponent's next turn starts at 0 Mana. Player-only by design (matches existing asymmetric behavior).
 	COPY_OWNER_RUNES_TO_HAND,  # Runic Echo — adds a copy of every rune currently in the owner's active_traps to the owner's hand. No fields used.
 	PLACE_RUNE_ON_OPPONENT,    # Voidshaped Acolyte — places a rune (card_id) on the opponent's traps with aura handlers registered on the opponent side.
+	MOD_LAST_ADDED_COST,       # Adjust the per-resource cost delta on ctx.last_added_instance (set by the previous TUTOR / ADD_CARD step). `amount` is the delta (negative = discount), `resource` selects "mana" / "essence". No-ops if no instance was added in this run.
 }
 
 enum TargetScope {
@@ -173,6 +174,10 @@ enum MinionFilter {
 ## Card ID to exclude from graveyard-querying effects (e.g. Recursive Hex excludes itself).
 @export var exclude_card_id: String = ""
 
+## Resource axis for cost-modifying steps (MOD_LAST_ADDED_COST). "mana" writes mana_delta;
+## "essence" writes essence_delta. Default empty surfaces missing tags loudly via warning.
+@export var resource: String = ""
+
 ## Damage school for damage-dealing steps (DAMAGE_HERO, DAMAGE_MINION, VOID_BOLT).
 ## Default NONE — surfaces forgotten tags loudly. Cards/talents that need a specific
 ## flavor (VOID, VOID_BOLT, FIRE, …) set this explicitly. EffectResolver may override
@@ -230,6 +235,7 @@ static func from_dict(d: Dictionary) -> EffectStep:
 		bc.assign(d["bonus_conditions"])
 		s.bonus_conditions = bc
 	if "exclude_card_id" in d: s.exclude_card_id = d["exclude_card_id"]
+	if "resource"       in d: s.resource        = d["resource"]
 	if "damage_school" in d:
 		# Accept either an int (Enums.DamageSchool value) or string name ("VOID", "VOID_BOLT").
 		var ds = d["damage_school"]

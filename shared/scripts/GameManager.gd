@@ -217,13 +217,10 @@ func unlock_talent(id: String) -> void:
 func has_talent(id: String) -> bool:
 	return id in unlocked_talents
 
-## Extra mana cost applied to a card by active talents.
-## Used by CombatScene (play validation) and HandDisplay (affordability highlight).
-func get_talent_mana_modifier(card: CardData) -> int:
-	var extra := 0
-	if card is MinionCardData and card.id == "void_imp" and has_talent("piercing_void"):
-		extra += 1
-	return extra
+## Talent-driven cost modifications were retired here. Costs that change under
+## a talent (e.g. piercing_void's +1 Mana on Void Imp) are now baked into the
+## card's mana_cost / essence_cost via talent_overrides in CardDatabase. Read
+## the card's cost fields directly — no modifier helper needed.
 
 # ---------------------------------------------------------------------------
 # Encounter Definitions — 4 acts (3 + 3 + 3 + 6 = 15 fights)

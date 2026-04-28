@@ -81,7 +81,8 @@ enum TriggerEvent {
 	ON_ENEMY_MINION_SACRIFICED,  # An enemy minion was sacrificed (ctx.minion = the sacrificed minion)
 
 	# ---- Enemy actions ----
-	ON_ENEMY_MINION_SUMMONED,   # Enemy summons a minion (ctx.minion = summoned)
+	ON_ENEMY_MINION_PLAYED,     # Enemy played a minion from hand (ctx.minion, ctx.card) — fires before ON_ENEMY_MINION_SUMMONED. Mirror of ON_PLAYER_MINION_PLAYED.
+	ON_ENEMY_MINION_SUMMONED,   # Enemy minion enters the board from ANY source (ctx.minion = summoned)
 	ON_ENEMY_SPELL_CAST,        # Enemy casts a spell (ctx.card = spell)
 	ON_ENEMY_TRAP_PLACED,       # Enemy plays a trap (stub — enemy traps not yet implemented)
 	ON_ENEMY_ATTACK,            # Enemy minion attacks (ctx.minion = attacker; fires BEFORE attack)
@@ -114,6 +115,8 @@ static func mirror_trigger(trigger: TriggerEvent) -> TriggerEvent:
 		TriggerEvent.ON_ENEMY_TURN_START:        return TriggerEvent.ON_PLAYER_TURN_START
 		TriggerEvent.ON_PLAYER_TURN_END:         return TriggerEvent.ON_ENEMY_TURN_END
 		TriggerEvent.ON_ENEMY_TURN_END:          return TriggerEvent.ON_PLAYER_TURN_END
+		TriggerEvent.ON_PLAYER_MINION_PLAYED:    return TriggerEvent.ON_ENEMY_MINION_PLAYED
+		TriggerEvent.ON_ENEMY_MINION_PLAYED:     return TriggerEvent.ON_PLAYER_MINION_PLAYED
 		TriggerEvent.ON_PLAYER_MINION_SUMMONED:  return TriggerEvent.ON_ENEMY_MINION_SUMMONED
 		TriggerEvent.ON_ENEMY_MINION_SUMMONED:   return TriggerEvent.ON_PLAYER_MINION_SUMMONED
 		TriggerEvent.ON_PLAYER_MINION_DIED:      return TriggerEvent.ON_ENEMY_MINION_DIED

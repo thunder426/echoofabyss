@@ -157,6 +157,46 @@ func get_card_for_combat(id: String, ctx: Dictionary) -> CardData:
 				mc.essence_cost = max(0, mc.essence_cost + int(rule.cost_delta))
 			else:
 				clone.cost = max(0, clone.cost + int(rule.cost_delta))
+		# set_<field>: absolute value setter. Replaces the field on the clone.
+		# Used when a clan-wide rule needs to write a fixed value (e.g.
+		# void_manifestation sets attack_damage_school = VOID_BOLT clan-wide).
+		# Runs BEFORE append_* so the set value can then be appended to.
+		for key in rule:
+			if not (key as String).begins_with("set_"):
+				continue
+			var s_field: String = (key as String).substr(4)
+			if not (s_field in clone):
+				push_warning("CardModRules: rule '%s' references unknown field '%s'" % [rule.get("id", "?"), s_field])
+				continue
+			var s_val = rule[key]
+			if s_val is Array or s_val is Dictionary:
+				s_val = _deep_copy(s_val)
+			clone.set(s_field, s_val)
+		# append_<field>: extend the named field with the rule's payload.
+		# Array fields (e.g. on_death_effect_steps): payload is concatenated.
+		# String fields (e.g. description): payload is concatenated as text.
+		# Used for clan-wide injection (e.g. death_bolt appends a VOID_BOLT step
+		# AND a description postfix to every Void Imp clan card). The clone's
+		# field is replaced with the merged copy so the shared resource isn't mutated.
+		for key in rule:
+			if not (key as String).begins_with("append_"):
+				continue
+			var field: String = (key as String).substr(7)
+			if not (field in clone):
+				push_warning("CardModRules: rule '%s' references unknown field '%s'" % [rule.get("id", "?"), field])
+				continue
+			var existing = clone.get(field)
+			var addition = rule[key]
+			if existing is Array and addition is Array:
+				var merged: Array = _deep_copy(existing)
+				for s in addition:
+					merged.append(_deep_copy(s))
+				clone.set(field, merged)
+			elif existing is String and addition is String:
+				clone.set(field, (existing as String) + (addition as String))
+			else:
+				push_warning("CardModRules: rule '%s' append_<%s> type mismatch (existing %s, addition %s)" % [
+					rule.get("id", "?"), field, typeof(existing), typeof(addition)])
 
 	_override_cache[cache_key] = clone
 	return clone
@@ -246,14 +286,23 @@ func _register_wanderer_cards() -> void:
 	void_imp.atk            = 100
 	void_imp.health         = 100
 	void_imp.minion_type    = Enums.MinionType.DEMON
-	void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100, "conditions": ["no_piercing_void"]}]
+	void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100}]
 	# piercing_void talent (Void Bolt T0): Void Imp costs +1 Mana (base 1E, becomes
-	# 1E+1M). The on-play retag (200 Void Bolt damage + 1 Void Mark) lives in
-	# on_summon_piercing_void handler — keeping that path because it routes through
-	# scene-specific Void Bolt damage helpers and VFX that don't translate cleanly
-	# to a declarative effect-step swap. Cost change is pure data, fits the override.
+	# 1E+1M) AND its on-play swaps to "200 Void Bolt damage + 1 Void Mark". The
+	# entire on-play step list is replaced declaratively — old handler-based retag
+	# retired. VOID_BOLT step routes through _deal_void_bolt_damage with mark
+	# scaling + projectile VFX; VOID_MARK step applies the +1 mark separately.
 	void_imp.talent_overrides = [
-		{ "talent_id": "piercing_void", "mana_cost": 1 },
+		{
+			"talent_id": "piercing_void",
+			"essence_cost": 1,
+			"mana_cost": 1,
+			"description": "ON PLAY: Deal 200 Void Bolt damage to enemy hero and apply 1 VOID MARK.",
+			"on_play_effect_steps": [
+				{"type": "VOID_BOLT", "amount": 200},
+				{"type": "VOID_MARK", "amount": 1},
+			],
+		},
 	]
 	void_imp.minion_tags    = ["void_imp", "base_void_imp"]
 	void_imp.faction        = "abyss_order"
@@ -270,7 +319,7 @@ func _register_wanderer_cards() -> void:
 	senior_void_imp.atk          = 300
 	senior_void_imp.health       = 250
 	senior_void_imp.minion_type  = Enums.MinionType.DEMON
-	senior_void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100, "conditions": ["no_piercing_void"]}]
+	senior_void_imp.on_play_effect_steps = [{"type": "DAMAGE_HERO", "amount": 100}]
 	senior_void_imp.minion_tags          = ["void_imp", "senior_void_imp"]
 	senior_void_imp.faction              = "abyss_order"
 	senior_void_imp.clan                 = "Void Imp"
@@ -1510,7 +1559,19 @@ func _register_wanderer_cards() -> void:
 	void_bolt_spell.description    = "Deal 500 Void Bolt damage to enemy hero."
 	void_bolt_spell.effect_steps = [
 		{"type": "VOID_BOLT", "amount": 500},
-		{"type": "VOID_MARK", "amount": 1, "conditions": ["has_piercing_void"]},
+	]
+	# piercing_void talent: Void Bolt also applies 1 Void Mark on cast.
+	# Replaces the runtime `has_piercing_void` ConditionResolver gate with a
+	# declarative override — same model as Void Imp's on-play swap.
+	void_bolt_spell.talent_overrides = [
+		{
+			"talent_id": "piercing_void",
+			"description": "Deal 500 Void Bolt damage to enemy hero and apply 1 VOID MARK.",
+			"effect_steps": [
+				{"type": "VOID_BOLT", "amount": 500},
+				{"type": "VOID_MARK", "amount": 1},
+			],
+		},
 	]
 	void_bolt_spell.requires_target = false
 	void_bolt_spell.faction         = "abyss_order"

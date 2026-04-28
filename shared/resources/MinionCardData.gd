@@ -14,6 +14,14 @@ extends CardData
 ## Base attack value
 @export var atk: int = 1
 
+## Damage school applied to this minion's BASIC ATTACK (the attack action that
+## happens on its turn — not on-play / on-death effect steps, which carry their
+## own per-step `damage_school`). NONE means physical/untyped — current default
+## for almost every minion. Set this when a card's basic attack should be tagged
+## as VOID, VOID_BOLT, etc. for school-aware damage modifiers, audit trails, or
+## future cleanse/dispel rules. Override-friendly via talent_overrides.
+@export var attack_damage_school: Enums.DamageSchool = Enums.DamageSchool.NONE
+
 ## Hit points — minion is destroyed when this reaches 0
 @export var health: int = 1
 

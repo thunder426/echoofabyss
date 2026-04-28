@@ -120,6 +120,14 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	# Set target so on_enemy_minion_played_effect (always-on handler) can read it.
 	minion_play_chosen_target = chosen_target
 	if sim.trigger_manager != null:
+		# ON_ENEMY_MINION_PLAYED — gates on-play battlecries to hand plays only
+		# (mirrors player side; token summons via _summon_token must not retrigger).
+		var played_ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED, "enemy")
+		played_ctx.minion = instance
+		played_ctx.card   = mc
+		sim.trigger_manager.fire(played_ctx)
+		if not sim.winner.is_empty(): return false
+		# ON_ENEMY_MINION_SUMMONED — board synergies / passive buffs / trap routing
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 		ctx.minion = instance
 		ctx.card   = mc

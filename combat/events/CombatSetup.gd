@@ -25,28 +25,41 @@ const _REGISTRY: Dictionary = {
 		],
 		"stats":    { "_void_echo_fired_this_turn": false }
 	},
+	# rune_caller: TUTOR rune + MOD_LAST_ADDED_COST mana -1 now appended to base
+	# Void Imp's on_play_effect_steps via CardModRules. No trigger handler needed.
 	"rune_caller": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED,   "method": "on_played_rune_caller",          "priority": 0  }],
+		"triggers": [],
 		"stats":    {}
 	},
 	"swarm_discipline": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_swarm_discipline",     "priority": 20 }],
 		"stats":    {}
 	},
+	# piercing_void: on-play retag (200 Void Bolt + 1 Void Mark) and +1 Mana cost
+	# now live on Void Imp's talent_overrides. No trigger handler needed — the
+	# declarative on_play_effect_steps fires through EffectResolver normally.
 	"piercing_void": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_piercing_void",        "priority": 23 }],
+		"triggers": [],
 		"stats":    {}
 	},
+	# imp_evolution: ADD_CARD senior_void_imp gated by once_per_turn:imp_evolution,
+	# appended to base Void Imp's on_play_effect_steps via CardModRules.
 	"imp_evolution": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_imp_evolution",        "priority": 24 }],
+		"triggers": [],
 		"stats":    {}
 	},
+	# imp_warband: BUFF_ATK +50 to other Void Imp clan minions, appended to Senior
+	# Void Imp's on_play_effect_steps via CardModRules.
 	"imp_warband": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_imp_warband",          "priority": 25 }],
+		"triggers": [],
 		"stats":    {}
 	},
+	# death_bolt: clan-wide on-death VOID_BOLT now lives in CardModRules step
+	# injection — each Void Imp clan card carries the appended on_death_effect_steps
+	# entry directly. No trigger handler needed; EffectResolver runs the injected
+	# step from the card's death resolution path.
 	"death_bolt": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_DIED,     "method": "on_player_minion_died_death_bolt", "priority": 10 }],
+		"triggers": [],
 		"stats":    {}
 	},
 	"deepened_curse": {
@@ -403,7 +416,7 @@ func setup(
 	tm.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,     h.on_void_archmagus_spell,               0)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED,  h.on_player_minion_played_effect,       10)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_summon_board_synergies,           30)
-	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, h.on_enemy_minion_played_effect,         5)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED,   h.on_enemy_minion_played_effect,         5)
 	# Generic minion presence-aura recompute — fires on every summon/death/sacrifice on
 	# either side. Walks MinionCardData.presence_aura_steps on every minion and recomputes
 	# their buffs. Replaces the old bespoke Rogue Imp Elder handler.

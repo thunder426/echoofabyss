@@ -17,6 +17,21 @@ static func check_all(conditions: Array[String], ctx: EffectContext, target) -> 
 
 static func check(cond: String, ctx: EffectContext, target) -> bool:
 	var scene = ctx.scene
+	# Generic "once_per_turn:<flag_id>" gate. Returns true the first time this turn the
+	# flag is seen and consumes the flag atomically; subsequent checks return false.
+	# Per the design contract: the gate is consumed even if the gated step's body fails
+	# (e.g. ADD_CARD lands on a full hand) — the consume happens here, before the body runs.
+	# The flag dictionary is reset at player turn start (CombatScene + SimState).
+	if cond.begins_with("once_per_turn:"):
+		var flag_id: String = cond.substr("once_per_turn:".length())
+		if flag_id == "":
+			push_warning("ConditionResolver: 'once_per_turn' missing flag id (expected 'once_per_turn:<flag_id>')")
+			return false
+		var used: Dictionary = scene._once_per_turn_used
+		if used.get(flag_id, false):
+			return false
+		used[flag_id] = true
+		return true
 	match cond:
 		# --- Target type conditions ---
 		"is_demon":
@@ -113,12 +128,6 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 					if total_ks >= 3:
 						return true
 			return false
-
-		# --- Talent conditions ---
-		"no_piercing_void":
-			return not (ctx.owner == "player" and ctx.scene._has_talent("piercing_void"))
-		"has_piercing_void":
-			return ctx.owner == "player" and ctx.scene._has_talent("piercing_void")
 
 		# --- Dead minion conditions (on_player_minion_died_steps context) ---
 		"dead_is_demon":

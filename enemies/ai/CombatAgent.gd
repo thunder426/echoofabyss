@@ -160,17 +160,12 @@ func effective_minion_essence_cost(mc: MinionCardData) -> int:
 		cost += aura as int
 	return maxi(0, cost)
 
-## Effective mana cost of a minion. Accounts for piercing_void (+1 Mana on base Void Imp).
-## Override in subclasses for additional modifiers.
+## Effective mana cost of a minion. Subclasses override for additional modifiers.
+## Talent-driven cost changes (e.g. piercing_void's +1 Mana on base Void Imp) are
+## baked into mc.mana_cost via talent_overrides in CardDatabase, so no special
+## cases are needed here.
 func effective_minion_mana_cost(mc: MinionCardData) -> int:
-	var extra := 0
-	if scene != null and mc.mana_cost == 0:
-		# Check piercing_void talent: base Void Imp costs +1 Mana
-		var talents = scene.get("talents")
-		if talents is Array and "piercing_void" in talents:
-			if "base_void_imp" in mc.minion_tags:
-				extra = 1
-	return mc.mana_cost + extra
+	return mc.mana_cost
 
 ## Returns true if the opponent has an active Rune or Environment card.
 func opponent_has_rune_or_environment() -> bool:

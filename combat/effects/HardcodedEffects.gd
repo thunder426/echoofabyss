@@ -110,16 +110,16 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 	for m in (_scene._opponent_board(ctx.owner) as Array).duplicate():
 		_scene._spell_dmg(m, 200, gb_info)
 
-## Seris Starter — Fiendish Pact: arm a pending 2-Mana discount for the NEXT Demon played this turn.
+## Seris Starter — Fiendish Pact: arm a pending 2-Essence discount for the NEXT Demon played this turn.
 ## The discount is consumed on the first Demon played (see CombatScene._consume_fiendish_pact_discount
-## / SimState._consume_fiendish_pact_discount). Display-only cost_delta on hand Demons reflects
+## / SimState._consume_fiendish_pact_discount). Display-only essence_delta on hand Demons reflects
 ## the pending discount until consumed or turn end. Player-only — enemy Seris is not supported.
 func _fiendish_pact(ctx: EffectContext) -> void:
 	var ls := _log_side(ctx.owner)
 	if ctx.owner != "player":
 		return
 	_scene.set("_fiendish_pact_pending", 2)
-	# Display hint: mark every Demon in hand with cost_delta = -2 (cleared on consume or turn start).
+	# Display hint: mark every Demon in hand with essence_delta = -2 (cleared on consume or turn start).
 	var hand: Array = _scene._friendly_hand(ctx.owner)
 	var count := 0
 	for inst in hand:
@@ -129,9 +129,9 @@ func _fiendish_pact(ctx: EffectContext) -> void:
 			continue
 		if (inst.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
 			continue
-		inst.cost_delta = mini(inst.cost_delta, -2)
+		inst.essence_delta = mini(inst.essence_delta, -2)
 		count += 1
-	_log("  Fiendish Pact: next Demon costs 2 less this turn (%d in hand)." % count, ls)
+	_log("  Fiendish Pact: next Demon costs 2 less Essence this turn (%d in hand)." % count, ls)
 	if _scene.has_method("_refresh_hand_spell_costs"):
 		_scene._refresh_hand_spell_costs()
 

@@ -523,9 +523,10 @@ func _dmg_color(school: int) -> Color:
 	return Color(1.0, 0.22, 0.22, 1.0)
 
 ## Minion damage popups.
-func spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = false) -> void:
+func spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = false,
+		school: int = Enums.DamageSchool.NONE) -> void:
 	var txt := "-%d!" % damage if is_crit else "-%d" % damage
-	_spawn_popup(screen_center, txt, Color(1.0, 0.22, 0.22, 1.0), is_crit)
+	_spawn_popup(screen_center, txt, _dmg_color(school), is_crit)
 
 ## Spawn a popup immediately. If another popup is near the same position,
 ## offset this one downward so they don't overlap.

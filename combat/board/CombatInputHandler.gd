@@ -518,8 +518,11 @@ func handle_input(event: InputEvent) -> void:
 				_scene._enemy_hero_panel.show_attackable(false)
 			_scene.get_viewport().set_input_as_handled()
 
-## Click on the enemy hero button — resolve attack, with Void Manifestation
-## (talent: Void Imp basic attack retagged as Void Bolt) handled inline.
+## Click on the enemy hero button — resolve attack via the standard combat path.
+## Damage logic (crit / lifedrain / siphon / school tagging) lives in
+## resolve_minion_attack_hero. VFX is gated on the attacker's attack_damage_school:
+## VOID_BOLT-school attacks spawn the void bolt projectile (and damage syncs
+## with impact); other attacks play the normal lunge animation after damage.
 func on_enemy_hero_button_pressed() -> void:
 	if _scene == null:
 		return
@@ -529,26 +532,27 @@ func on_enemy_hero_button_pressed() -> void:
 		return
 	if not _scene.selected_attacker.can_attack_hero():
 		return
-	# Void Manifestation: Void Imp clan minions deal Void Bolt damage to enemy hero
-	if _scene._minion_has_tag(_scene.selected_attacker, "void_imp") and _scene._has_talent("void_manifestation"):
-		var atk: int = _scene.selected_attacker.effective_atk()
-		_scene._log("Your %s attacks Enemy Hero with a Void Bolt!" % _scene.selected_attacker.card_data.card_name, 1)  # PLAYER
-		_scene.selected_attacker.attack_count += 1
-		_scene.selected_attacker.state = Enums.MinionState.EXHAUSTED
-		_scene._refresh_slot_for(_scene.selected_attacker)
-		var attacker_ref: MinionInstance = _scene.selected_attacker
-		_scene.selected_attacker = null
-		_scene._clear_all_highlights()
-		_scene._enemy_hero_panel.show_attackable(false)
-		# void_manifestation talent retags Void Imp clan basic attack — MINION source.
-		await _scene._deal_void_bolt_damage(atk, attacker_ref, false, true)
-		return
-	_scene._log("Your %s attacks Enemy Hero" % _scene.selected_attacker.card_data.card_name)
-	var _hero_atk_slot: BoardSlot = _scene._find_slot_for(_scene.selected_attacker)
-	var _hero_attacker_ref: MinionInstance = _scene.selected_attacker
-	_scene.combat_manager.resolve_minion_attack_hero(_scene.selected_attacker, "enemy")
-	if _hero_atk_slot and _scene._enemy_status_panel:
-		_scene._play_hero_attack_anim(_hero_atk_slot, _scene._enemy_status_panel, _hero_attacker_ref)
+	var attacker: MinionInstance = _scene.selected_attacker
+	var atk_slot: BoardSlot = _scene._find_slot_for(attacker)
+	var school := Enums.DamageSchool.NONE
+	if attacker.card_data is MinionCardData:
+		school = (attacker.card_data as MinionCardData).attack_damage_school
+	# Clear selection state up-front so the click can't double-fire while we await VFX.
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
+	if school == Enums.DamageSchool.VOID_BOLT:
+		# Void Bolt-flavored basic attack: fire projectile, await impact, then
+		# resolve damage. resolve_minion_attack_hero still tags the DamageInfo
+		# with VOID_BOLT via _attack_damage_info, so school flows correctly.
+		_scene._log("Your %s strikes Enemy Hero with a Void Bolt!" % attacker.card_data.card_name, 1)  # PLAYER
+		_scene._enemy_hero_panel.show_attackable(false)
+		var bolt: VoidBoltProjectile = _scene._fire_void_bolt_projectile(attacker, false)
+		if bolt != null and _scene.is_inside_tree():
+			await bolt.impact_hit
+		_scene.combat_manager.resolve_minion_attack_hero(attacker, "enemy")
+	else:
+		_scene._log("Your %s attacks Enemy Hero" % attacker.card_data.card_name)
+		_scene.combat_manager.resolve_minion_attack_hero(attacker, "enemy")
+		if atk_slot and _scene._enemy_status_panel:
+			_scene._play_hero_attack_anim(atk_slot, _scene._enemy_status_panel, attacker)
 	_scene._enemy_hero_panel.show_attackable(false)

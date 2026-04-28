@@ -53,10 +53,17 @@ static func make_damage_info(
 var scene: Object = null
 
 ## Resolve a full attack between two minions (simultaneous damage).
-## The actual HP damage dealt to the defender in the last attack (before death triggers).
+## Effective damage dealt to the defender (post-Ethereal, 0 if Immune). NOT clamped
+## to the defender's HP — overkill is preserved so the floating number reflects the
+## strike's true magnitude rather than the bar's drop.
 var last_attack_damage: int = 0
-## The actual HP damage dealt to the attacker by the defender's counter-attack.
+## Effective counter-damage dealt to the attacker. Same overkill semantics as above.
 var last_counter_damage: int = 0
+## HP delta on the defender for the last attack (pre_hp - post_hp, clamped to pre_hp).
+## Used to reconstruct the HP-bar tween's starting value.
+var last_attack_hp_delta: int = 0
+## HP+shield delta on the attacker for the last counter. Used for the HP tween.
+var last_counter_hp_delta: int = 0
 
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	if scene != null:
@@ -72,7 +79,9 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	var pre_hp := defender.current_health
 	var pre_shield := defender.current_shield
 	_deal_damage(defender, _attack_damage_info(atk_damage, attacker))
-	last_attack_damage = maxi(0, pre_hp - defender.current_health)
+	last_attack_hp_delta = maxi(0, pre_hp - defender.current_health)
+	# Effective damage = post-Ethereal amount that reached the body (0 if Immune).
+	last_attack_damage = atk_damage if not defender.has_immune() else 0
 
 	# PIERCE: excess kill damage carries through to the enemy hero. School inherits
 	# from the attacker so a Void minion's pierce overkill stays Void-flavored.
@@ -95,7 +104,8 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	var attacker_pre_hp := attacker.current_health
 	var attacker_pre_shield := attacker.current_shield
 	_deal_damage(attacker, _attack_damage_info(counter_damage, defender))
-	last_counter_damage = maxi(0, (attacker_pre_hp + attacker_pre_shield) - (attacker.current_health + attacker.current_shield))
+	last_counter_hp_delta = maxi(0, (attacker_pre_hp + attacker_pre_shield) - (attacker.current_health + attacker.current_shield))
+	last_counter_damage = counter_damage if not attacker.has_immune() else 0
 
 	if attacker.has_lifedrain() and atk_damage > 0:
 		hero_healed.emit(attacker.owner, atk_damage)
@@ -196,15 +206,20 @@ func apply_damage_to_minion(minion: MinionInstance, info: Dictionary) -> void:
 	_deal_damage(minion, info)
 
 ## Build a DamageInfo for a minion basic attack (or counter-attack / pierce carry).
-## Source = MINION; school = PHYSICAL (default for basic attacks). attacker is the
-## minion whose attack this is — counters set attacker = the defender, since *that*
-## minion's effective_atk drives the counter damage. Faction/talent-based school
-## overrides will hook here in a future phase per design/DAMAGE_TYPE_SYSTEM.md.
+## Source = MINION. School comes from the attacker's MinionCardData.attack_damage_school
+## — declarative on the card, override-friendly via talent_overrides. NONE on the
+## card falls back to PHYSICAL (the historical default for basic attacks).
+## Counters set attacker = the defender, since *that* minion's effective_atk drives
+## the counter damage and its school should tag the counter.
 func _attack_damage_info(amount: int, attacker: MinionInstance) -> Dictionary:
 	var card_id: String = ""
+	var school: Enums.DamageSchool = Enums.DamageSchool.PHYSICAL
 	if attacker != null and attacker.card_data != null:
 		card_id = attacker.card_data.id
-	return make_damage_info(amount, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL, attacker, card_id)
+		var declared: Enums.DamageSchool = (attacker.card_data as MinionCardData).attack_damage_school
+		if declared != Enums.DamageSchool.NONE:
+			school = declared
+	return make_damage_info(amount, Enums.DamageSource.MINION, school, attacker, card_id)
 
 
 ## Instantly kill a minion, bypassing shield and health checks.

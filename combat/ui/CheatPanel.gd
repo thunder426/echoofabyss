@@ -280,7 +280,10 @@ func _add_card() -> void:
 	var id := _card_input.text.strip_edges()
 	if id == "":
 		return
-	var card := CardDatabase.get_card(id)
+	# _card_for so the added copy reflects current talents/passives (overrides
+	# applied via talent_overrides + CardModRules). Cheating a card in after
+	# unlocking a talent mid-fight should show the talent's effects on it.
+	var card: CardData = _scene._card_for("player", id)
 	if card == null:
 		_status_lbl.text = "Unknown card: " + id
 		return
@@ -306,6 +309,11 @@ func _unlock_selected_talent() -> void:
 		return
 	GameManager.add_talent_point()
 	GameManager.unlock_talent(id)
+	# Sync state.talents and clear the override cache so subsequent _card_for
+	# lookups (token summons, draws, copy-to-hand effects) pick up the new
+	# talent's overrides. Cards already in hand/deck keep their old card_data
+	# by design — only newly created CardInstances get the new behavior.
+	_scene._refresh_override_context()
 	_scene.trigger_manager.clear()
 	_scene._setup_triggers()
 	rebuild_talent_tooltip()

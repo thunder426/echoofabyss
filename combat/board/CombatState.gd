@@ -1173,8 +1173,12 @@ var forge_counter_threshold: int = 3
 ## Cleared after spell resolution. Read by `_spell_dmg`.
 var _player_spell_damage_bonus: int = 0
 
-## Vael — Imp Evolution once-per-turn gate. Reset at start of each player turn.
-var imp_evolution_used_this_turn: bool = false
+## Generic once-per-turn gate dictionary. Keyed by an explicit flag_id (e.g.
+## "imp_evolution") declared by the EffectStep that uses it. Reset at start of each
+## player turn (only player-driven once_per_turn flags exist today).
+## Read & consumed atomically by ConditionResolver "once_per_turn:<flag_id>" — the gate
+## is consumed even if the gated step's body fails (e.g. ADD_CARD on a full hand).
+var _once_per_turn_used: Dictionary = {}
 
 ## Vael — Void Imps summoned by Imp Overload that must die at end of player turn.
 var _temp_imps: Array[MinionInstance] = []

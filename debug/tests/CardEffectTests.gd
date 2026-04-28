@@ -98,7 +98,9 @@ static func _void_bolt_piercing() -> void:
 	var state := TestHarness.build_state({"talents": ["piercing_void"]})
 	if not TestHarness.begin_test("void_bolt / piercing_void applies 1 void mark", state):
 		return
-	var spell := CardDatabase.get_card("void_bolt") as SpellCardData
+	# _card_for applies talent_overrides; under piercing_void, Void Bolt's
+	# effect_steps are swapped to include the VOID_MARK step.
+	var spell := state._card_for("player", "void_bolt") as SpellCardData
 	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
 	TestHarness.assert_eq(state.enemy_void_marks, 1, "void_marks == 1 with piercing_void")
 
@@ -566,8 +568,9 @@ static func _pack_frenzy_ancient_frenzy_lifedrain() -> void:
 
 # ---------------------------------------------------------------------------
 # void_imp — minion, 1 essence (1/1 Demon)
-# ON PLAY: deal 100 to enemy hero, gated by `no_piercing_void` condition.
-# (When piercing_void talent is active, the void_bolt-branch handler fires instead.)
+# ON PLAY: deal 100 to enemy hero (default).
+# Under piercing_void talent, the entire on_play_effect_steps array is replaced
+# via talent_overrides with [VOID_BOLT 200, VOID_MARK 1] — see _void_imp_piercing.
 # ---------------------------------------------------------------------------
 
 static func _void_imp_on_play() -> void:

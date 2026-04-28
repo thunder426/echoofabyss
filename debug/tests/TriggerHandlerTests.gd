@@ -41,6 +41,7 @@ static func run_all() -> void:
 	_deepened_curse_stat()
 	_runic_attunement_stat()
 	_void_imp_boost()
+	_midcombat_talent_unlock_applies_override()
 	_pack_instinct_scaling()
 	_rogue_imp_elder_aura_scaling()
 	_rogue_imp_elder_aura_strips_on_death()
@@ -531,103 +532,127 @@ static func _swarm_discipline() -> void:
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# piercing_void — ON_PLAYER_MINION_SUMMONED on void imp → 200 void bolt + 1 mark.
+# piercing_void — talent_override on Void Imp swaps on-play steps to
+# [VOID_BOLT 200, VOID_MARK 1]. Test runs the override-applied steps directly.
 # ---------------------------------------------------------------------------
 
 static func _piercing_void_handler() -> void:
 	var state := TestHarness.vael_state(["piercing_void"])
-	if not TestHarness.begin_test("piercing_void / void imp summon = 200 bolt + 1 mark", state):
+	if not TestHarness.begin_test("piercing_void / void imp on-play = 200 bolt + 1 mark", state):
 		return
 	var hp_before := state.enemy_hp
 	var marks_before := state.enemy_void_marks
+	# _card_for applies talent_overrides; under piercing_void the on-play array
+	# is the [VOID_BOLT 200, VOID_MARK 1] swap declared in CardDatabase.
+	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
 	var imp := TestHarness.spawn_friendly(state, "void_imp")
-	_fire_player_summon(state, imp)
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", imp))
 	TestHarness.assert_eq(state.enemy_hp, hp_before - 200, "enemy hp -200")
 	TestHarness.assert_eq(state.enemy_void_marks, marks_before + 1, "marks +1")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# imp_evolution — summoning a void_imp adds senior_void_imp to hand, 1/turn.
+# imp_evolution — playing a void_imp adds senior_void_imp to hand, 1/turn.
+# Migrated to CardModRules append_on_play_effect_steps with once_per_turn:imp_evolution.
 # ---------------------------------------------------------------------------
 
 static func _imp_evolution() -> void:
 	var state := TestHarness.vael_state(["imp_evolution"])
-	if not TestHarness.begin_test("imp_evolution / void_imp summon adds senior_void_imp to hand", state):
+	if not TestHarness.begin_test("imp_evolution / void_imp play adds senior_void_imp to hand", state):
 		return
 	var hand_before := state.player_hand.size()
+	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
 	var imp := TestHarness.spawn_friendly(state, "void_imp")
-	_fire_player_summon(state, imp)
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", imp))
 	TestHarness.assert_eq(state.player_hand.size(), hand_before + 1, "hand +1")
 	if state.player_hand.size() > hand_before:
 		TestHarness.assert_eq(state.player_hand[-1].card_data.id, "senior_void_imp", "added card is senior_void_imp")
-	TestHarness.assert_true(state.imp_evolution_used_this_turn, "once-per-turn flag set")
+	TestHarness.assert_true(state._once_per_turn_used.get("imp_evolution", false), "once-per-turn flag set")
 	state.teardown()
 
 static func _imp_evolution_once_per_turn() -> void:
 	var state := TestHarness.vael_state(["imp_evolution"])
-	if not TestHarness.begin_test("imp_evolution / second summon same turn does NOT add", state):
+	if not TestHarness.begin_test("imp_evolution / second play same turn does NOT add", state):
 		return
+	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
 	var a := TestHarness.spawn_friendly(state, "void_imp")
-	_fire_player_summon(state, a)
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", a))
 	var hand_after_first := state.player_hand.size()
 	var b := TestHarness.spawn_friendly(state, "void_imp")
-	_fire_player_summon(state, b)
-	TestHarness.assert_eq(state.player_hand.size(), hand_after_first, "hand unchanged on 2nd summon")
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", b))
+	TestHarness.assert_eq(state.player_hand.size(), hand_after_first, "hand unchanged on 2nd play")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# imp_warband — summoning a senior_void_imp grants +50 ATK to all other void imps.
+# imp_warband — playing a senior_void_imp grants +50 ATK to all other void imps.
+# Migrated to CardModRules append_on_play_effect_steps with BUFF_ATK + exclude_self.
 # ---------------------------------------------------------------------------
 
 static func _imp_warband() -> void:
-	# Deliberately exclude void_imp_boost — it also fires on senior summon and
-	# would add +100 ATK to the senior, polluting the "senior unchanged" check.
+	# Deliberately exclude void_imp_boost — it bakes +100 ATK into the senior's base
+	# stats via CardModRules and would inflate the senior's atk readout in the assert.
 	var state := TestHarness.build_state({
 		"hero_id": "lord_vael",
 		"talents": ["imp_warband"],
 		"hero_passives": [],
 	})
-	if not TestHarness.begin_test("imp_warband / senior_void_imp summon = +50 ATK to other void imps", state):
+	if not TestHarness.begin_test("imp_warband / senior_void_imp play = +50 ATK to other void imps", state):
 		return
 	var other := TestHarness.spawn_friendly(state, "void_imp")
 	var other_atk_before := other.effective_atk()
+	var data: MinionCardData = state._card_for("player", "senior_void_imp") as MinionCardData
 	var senior := TestHarness.spawn_friendly(state, "senior_void_imp")
 	var senior_atk_before := senior.effective_atk()
-	_fire_player_summon(state, senior)
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", senior))
 	TestHarness.assert_eq(other.effective_atk() - other_atk_before, 50, "other void imp +50 ATK")
 	TestHarness.assert_eq(senior.effective_atk(), senior_atk_before, "senior itself unchanged")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# death_bolt — ON_PLAYER_MINION_DIED on a void imp → 100 void bolt damage.
+# death_bolt — Void Imp clan card carries an appended VOID_BOLT step on its
+# on_death_effect_steps under the talent (CardModRules step injection). The
+# step fires from EffectResolver as part of the normal death resolution path.
 # ---------------------------------------------------------------------------
 
 static func _death_bolt() -> void:
 	var state := TestHarness.vael_state(["death_bolt"])
 	if not TestHarness.begin_test("death_bolt / void imp death = 100 void bolt damage", state):
 		return
-	var imp := TestHarness.spawn_friendly(state, "void_imp")
+	# _card_for applies the death_bolt clan rule; the spawned imp's card_data
+	# must be the override-applied clone for the death step to fire.
+	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
+	var imp := MinionInstance.create(data, "player")
+	state.player_board.append(imp)
+	for slot in state.player_slots:
+		if slot.is_empty():
+			slot.place_minion(imp)
+			break
 	var hp_before := state.enemy_hp
 	state.combat_manager.kill_minion(imp)
 	TestHarness.assert_eq(state.enemy_hp, hp_before - 100, "enemy hp -100")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# rune_caller — ON_PLAYER_MINION_PLAYED on a void imp → _draw_rune_from_deck().
-# (Sim path exists — confirmed in earlier audit.)
+# rune_caller — playing a void imp tutors a Rune from deck and discounts it -1 Mana.
+# Migrated to CardModRules append_on_play_effect_steps: TUTOR rune + MOD_LAST_ADDED_COST mana -1.
 # ---------------------------------------------------------------------------
 
 static func _rune_caller() -> void:
 	var state := TestHarness.vael_state(["rune_caller"])
-	if not TestHarness.begin_test("rune_caller / void imp play triggers _draw_rune_from_deck", state):
+	if not TestHarness.begin_test("rune_caller / void imp play tutors a discounted Rune from deck", state):
 		return
-	# Seed a rune in the deck so the draw has something to pull.
+	# Seed a rune in the deck so TUTOR has something to pull.
 	var rune := CardDatabase.get_card("soul_rune") as TrapCardData
 	state.player_deck.append(CardInstance.create(rune))
 	var hand_before := state.player_hand.size()
+	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
 	var imp := TestHarness.spawn_friendly(state, "void_imp")
-	_fire_player_played(state, imp)
-	TestHarness.assert_eq(state.player_hand.size(), hand_before + 1, "hand +1 rune drawn")
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", imp))
+	TestHarness.assert_eq(state.player_hand.size(), hand_before + 1, "hand +1 rune tutored")
+	if state.player_hand.size() > hand_before:
+		var added: CardInstance = state.player_hand[-1]
+		TestHarness.assert_eq(added.card_data.id, "soul_rune", "tutored card is the seeded rune")
+		TestHarness.assert_eq(added.mana_delta, -1, "tutored rune's mana_delta = -1 (1 cheaper this turn)")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
@@ -679,6 +704,39 @@ static func _void_imp_boost() -> void:
 	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
 	TestHarness.assert_eq(data.atk, 200, "ATK base 200 (100 + 100 from passive)")
 	TestHarness.assert_eq(data.health, 200, "HP base 200 (100 + 100 from passive)")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Mid-combat talent unlock (cheat panel flow). Talent gets added to
+# state.talents and the override cache is cleared, so the next _card_for
+# lookup returns the override-applied clone. Cards already in hand keep
+# their previous card_data — only newly created CardInstances see the change.
+# ---------------------------------------------------------------------------
+
+static func _midcombat_talent_unlock_applies_override() -> void:
+	var state := TestHarness.vael_state([])  # no talents at start
+	if not TestHarness.begin_test("midcombat unlock / piercing_void becomes active for new card_for", state):
+		return
+	# Pre-unlock: Void Imp's mana_cost is 0 (base), on-play is hero damage.
+	var pre: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
+	TestHarness.assert_eq(pre.mana_cost, 0, "pre-unlock mana_cost = 0")
+	TestHarness.assert_true(pre.on_play_effect_steps.size() == 1
+			and pre.on_play_effect_steps[0].get("type") == "DAMAGE_HERO",
+			"pre-unlock on-play = single DAMAGE_HERO step")
+
+	# Cheat panel-style mutation: append talent to state.talents, clear cache.
+	state.talents.append("piercing_void")
+	CardDatabase.clear_override_cache()
+
+	# Post-unlock: same id, but the override applies — mana_cost = 1, on-play
+	# replaced with [VOID_BOLT 200, VOID_MARK 1].
+	var post: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
+	TestHarness.assert_eq(post.mana_cost, 1, "post-unlock mana_cost = 1")
+	TestHarness.assert_eq(post.on_play_effect_steps.size(), 2, "post-unlock on-play has 2 steps")
+	TestHarness.assert_true(post.on_play_effect_steps[0].get("type") == "VOID_BOLT",
+			"post-unlock first step = VOID_BOLT")
+	TestHarness.assert_true(post.on_play_effect_steps[1].get("type") == "VOID_MARK",
+			"post-unlock second step = VOID_MARK")
 	state.teardown()
 
 # ---------------------------------------------------------------------------

@@ -810,21 +810,37 @@ func _blink_node(node: CanvasItem) -> void:
 	tw.tween_property(node, "modulate", hot, 0.08).set_trans(Tween.TRANS_SINE)
 	tw.tween_property(node, "modulate", original, 0.20).set_trans(Tween.TRANS_SINE)
 
-## Flash the ATK label red and drop a downward chevron next to it — signals
-## that this minion's ATK was just reduced (e.g. by Corruption).
+## Flash the ATK label and drop a chevron next to it — signals that this
+## minion's ATK just changed from Corruption. Direction depends on whether
+## Seris' Corrupt Flesh inversion is active for this minion: friendly Demons
+## with the talent gain ATK from Corruption (up-chevron), everyone else loses
+## ATK (down-chevron).
 func flash_atk_debuff() -> void:
 	if _atk_label == null or not is_instance_valid(_atk_label):
 		return
+	var inverted: bool = MinionInstance.corruption_inverts_on_friendly_demons \
+			and minion != null \
+			and minion.owner == "player" \
+			and minion.card_data is MinionCardData \
+			and minion.card_data.minion_type == Enums.MinionType.DEMON
+	var flash_color: Color = Color(0.55, 2.4, 0.45, 1.0) if inverted else Color(2.4, 0.35, 0.35, 1.0)
 	var original: Color = _atk_label.modulate
 	var tw := _atk_label.create_tween()
-	tw.tween_property(_atk_label, "modulate", Color(2.4, 0.35, 0.35, 1.0), 0.06).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(_atk_label, "modulate", flash_color, 0.06).set_trans(Tween.TRANS_SINE)
 	tw.tween_property(_atk_label, "modulate", original, 0.32).set_trans(Tween.TRANS_SINE)
 
-	var chevron := CorruptionChevronVFX.new()
-	add_child(chevron)
-	chevron.set_size(Vector2(14, 16))
-	chevron.position = _atk_label.position + Vector2(_atk_label.size.x - 10.0, _atk_label.size.y * 0.5 - 8.0)
-	chevron.play()
+	if inverted:
+		var up_chevron := preload("res://combat/effects/BuffChevronVFX.gd").new()
+		add_child(up_chevron)
+		up_chevron.set_size(Vector2(14, 16))
+		up_chevron.position = _atk_label.position + Vector2(_atk_label.size.x - 10.0, _atk_label.size.y * 0.5 - 8.0)
+		up_chevron.play()
+	else:
+		var chevron := CorruptionChevronVFX.new()
+		add_child(chevron)
+		chevron.set_size(Vector2(14, 16))
+		chevron.position = _atk_label.position + Vector2(_atk_label.size.x - 10.0, _atk_label.size.y * 0.5 - 8.0)
+		chevron.play()
 
 ## Build the on-death tooltip body for a minion — card description lines + granted effects.
 func _build_on_death_tooltip_body(m: MinionInstance) -> String:

@@ -38,7 +38,7 @@ func show_card(card_data: CardData, source_visual: CardVisual = null) -> void:
 		return
 	visual.setup(card_data)
 	visual.enable_tooltip()
-	var extra := -(source_visual.card_inst.cost_delta) if source_visual != null and source_visual.card_inst != null else 0
+	var extra := -(source_visual.card_inst.mana_delta) if source_visual != null and source_visual.card_inst != null else 0
 	visual.apply_cost_discount(_scene._spell_mana_discount() + _scene._relic_cost_reduction + extra)
 	visual.apply_relic_cost_preview(_scene._relic_cost_reduction, _scene._relic_cost_reduction)
 	visual.visible = true

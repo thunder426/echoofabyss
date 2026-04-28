@@ -48,6 +48,12 @@ var source_rune: TrapCardData = null
 ## the "flesh_spent_this_cast" condition or the "flesh_spent" multiplier_key.
 var flesh_spent_this_cast: int = 0
 
+## The last CardInstance added to a hand by a step in the current run (TUTOR or ADD_CARD).
+## Lets a follow-up step (e.g. MOD_LAST_ADDED_COST) operate on the just-added copy.
+## Reset at the start of each EffectResolver.run() so it never leaks across cards.
+## Null when no add-card step has run yet (or the add was burned by hand-cap).
+var last_added_instance: CardInstance = null
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------

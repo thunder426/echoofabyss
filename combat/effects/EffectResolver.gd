@@ -12,8 +12,9 @@ extends RefCounted
 # ---------------------------------------------------------------------------
 
 static func run(steps: Array, ctx: EffectContext) -> void:
-	# Reset per-run Flesh counter so SPEND_FLESH → scaling downstream only sees this run's spend.
+	# Reset per-run state so chained reads (flesh, last-added card) only see this run's writes.
 	ctx.flesh_spent_this_cast = 0
+	ctx.last_added_instance = null
 	for raw in steps:
 		var step: EffectStep
 		if raw is Dictionary:
@@ -61,10 +62,13 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				# _card_for so clan rules / overrides apply to the added copy.
 				var card: CardData = ctx.scene._card_for(ctx.owner, step.card_id)
 				if card:
-					if ctx.owner == "player":
-						ctx.scene.turn_manager.add_to_hand(card)
-					else:
-						ctx.scene.enemy_ai.add_to_hand(card)
+					# Build the CardInstance up-front so we can stash it on ctx.
+					# _add_to_owner_hand silently burns when the hand is full; in that
+					# case the instance still exists but isn't in any hand — downstream
+					# MOD_LAST_ADDED_COST etc. will operate on a detached object harmlessly.
+					var inst: CardInstance = CardInstance.create(card)
+					ctx.scene._add_to_owner_hand(ctx.owner, inst)
+					ctx.last_added_instance = inst
 			return
 
 		EffectStep.EffectType.SUMMON:
@@ -143,9 +147,34 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					if match_found:
 						deck.remove_at(i)
 						ctx.scene._add_to_owner_hand(ctx.owner, inst)
+						# Stash for chained steps (e.g. MOD_LAST_ADDED_COST). When TUTOR
+						# pulls multiple cards (count > 1), the LAST one tutored wins.
+						ctx.last_added_instance = inst
 						found += 1
 					else:
 						i += 1
+			return
+
+		EffectStep.EffectType.MOD_LAST_ADDED_COST:
+			# Adjust the cost delta on the CardInstance most recently added to a hand
+			# in this run (TUTOR or ADD_CARD). step.amount is the delta — negative
+			# means cheaper. step.resource picks the axis: "mana" → mana_delta,
+			# "essence" → essence_delta. No-op (with warning) if the previous step
+			# didn't add anything or resource is missing/unknown.
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				var inst_to_mod: CardInstance = ctx.last_added_instance
+				if inst_to_mod == null:
+					push_warning("MOD_LAST_ADDED_COST: no card was added by a previous step in this run")
+				else:
+					match step.resource:
+						"mana":
+							inst_to_mod.mana_delta += step.amount
+						"essence":
+							inst_to_mod.essence_delta += step.amount
+						_:
+							push_warning("MOD_LAST_ADDED_COST: unknown or empty 'resource' '%s' (expected 'mana' or 'essence')" % step.resource)
+					if ctx.scene.has_method("_refresh_hand_spell_costs"):
+						ctx.scene._refresh_hand_spell_costs()
 			return
 
 		EffectStep.EffectType.COUNTER_SPELL:
@@ -356,18 +385,22 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			# Defer state mutation to BuffApplyVFX's chevron beat in live combat
 			# so the visible value tween, chevron, and state mutation all align.
 			# Sim has no VFX → mutate immediately as before.
-			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null:
+			# Presence-aura recompute sets _silent_buff_apply to skip the VFX queue
+			# entirely; the caller spawns its own cosmetic VFX only on real deltas.
+			var silent: bool = bool(scene.get("_silent_buff_apply"))
+			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null and not silent:
 				scene._request_buff_apply(target, buff_type, amount, tag_atk, false)
 			else:
-				BuffSystem.apply(target, buff_type, amount, tag_atk)
+				BuffSystem.apply(target, buff_type, amount, tag_atk, false, not silent)
 				scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.BUFF_HP:
 			var tag_hp: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null:
+			var silent_hp: bool = bool(scene.get("_silent_buff_apply"))
+			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null and not silent_hp:
 				scene._request_buff_apply(target, Enums.BuffType.HP_BONUS, amount, tag_hp, true)
 			else:
-				BuffSystem.apply_hp_gain(target, amount, tag_hp)
+				BuffSystem.apply_hp_gain(target, amount, tag_hp, not silent_hp)
 				scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.HEAL_MINION:

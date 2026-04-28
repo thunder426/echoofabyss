@@ -216,6 +216,6 @@ func refresh_hand_spell_costs() -> void:
 		_scene.hand_display.refresh_playability(_scene.turn_manager.essence, _scene.turn_manager.mana, relic_red, relic_red)
 		_scene.hand_display.refresh_condition_glows(_scene, _scene.turn_manager.essence, _scene.turn_manager.mana)
 	if _scene.large_preview != null and _scene.large_preview.is_visible():
-		var extra: int = -(_scene._hovered_hand_visual.card_inst.cost_delta) if _scene._hovered_hand_visual != null and _scene._hovered_hand_visual.card_inst != null else 0
+		var extra: int = -(_scene._hovered_hand_visual.card_inst.mana_delta) if _scene._hovered_hand_visual != null and _scene._hovered_hand_visual.card_inst != null else 0
 		_scene.large_preview.visual.apply_cost_discount(net_discount + relic_red + extra)
 		_scene.large_preview.visual.apply_relic_cost_preview(relic_red, relic_red)

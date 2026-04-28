@@ -35,6 +35,10 @@ extends RefCounted
 ##   "atk_delta":  int (optional)
 ##   "hp_delta":   int (optional, applied to base health)
 ##   "cost_delta": int (optional, floored at 0)
+##                 NOTE: this is a CLAN-WIDE deck-build adjustment baked into the card's
+##                 essence_cost / cost field at construction. Distinct from the per-copy
+##                 CardInstance.mana_delta / essence_delta used for runtime "this turn"
+##                 discounts (rune_caller, Fiendish Pact). Different system, similar name.
 ##
 ## Side semantics: condition checks always read from the CARD'S OWNING SIDE.
 ## Player cards check player talents/passives; enemy cards check enemy passives.
@@ -57,6 +61,83 @@ const RULES: Array = [
 		"when":     { "talent": "swarm_discipline" },
 		"filter":   { "tag": "void_imp" },
 		"hp_delta": 100,
+	},
+	# Lord Vael Void Resonance T2 — every Void Imp clan death deals 100 Void Bolt.
+	# Was on_player_minion_died_death_bolt handler. Migrated to clan-wide step
+	# injection: each Void Imp clan card gets a VOID_BOLT step appended to its
+	# on_death_effect_steps, plus a description postfix so the in-hand text shows
+	# the talent's contribution. Stacks naturally with the card's own on-death
+	# effects (Imp Vessel still summons 2 Void Imps AND fires the bolt).
+	{
+		"id":   "death_bolt",
+		"when": { "talent": "death_bolt" },
+		"filter": { "tag": "void_imp" },
+		"append_on_death_effect_steps": [
+			{"type": "VOID_BOLT", "amount": 100},
+		],
+		"append_description": "\nON DEATH: Deal 100 Void Bolt damage to enemy hero.",
+	},
+	# Lord Vael Void Resonance T3 (capstone) — Void Imp clan basic attacks deal
+	# Void Bolt damage. Pure school tag on the attack DamageInfo; routes through
+	# the standard attack pipeline so lifedrain/siphon/crit work correctly.
+	# Was a special-case bypass in CombatInputHandler that skipped those hooks
+	# and routed through _deal_void_bolt_damage instead.
+	{
+		"id":   "void_manifestation",
+		"when": { "talent": "void_manifestation" },
+		"filter": { "tag": "void_imp" },
+		"set_attack_damage_school": Enums.DamageSchool.VOID_BOLT,
+		"append_description": "\nBasic attacks deal Void Bolt damage.",
+	},
+	# Lord Vael Endless Tide T0 — Imp Evolution. Playing a base Void Imp adds a
+	# Senior Void Imp to your hand (1/turn). Was on_summon_imp_evolution handler
+	# (gated on imp_evolution_used_this_turn). Migrated to ADD_CARD step gated by
+	# the generic "once_per_turn" condition. NOTE: original handler fired on summon
+	# (any path); this fires on PLAY only. No card token-summons base Void Imps as
+	# of this migration, so the practical behavior is identical.
+	{
+		"id":     "imp_evolution",
+		"when":   { "talent": "imp_evolution" },
+		"filter": { "tag": "base_void_imp" },
+		"append_on_play_effect_steps": [
+			{"type": "ADD_CARD", "card_id": "senior_void_imp",
+			 "conditions": ["once_per_turn:imp_evolution"]},
+		],
+		"append_description": "\nIMP EVOLUTION: First Void Imp played each turn adds a Senior Void Imp to your hand.",
+	},
+	# Lord Vael Endless Tide T2 — Imp Warband. Playing a Senior Void Imp grants
+	# +50 ATK to all OTHER Void Imp clan minions on the friendly board. Was
+	# on_summon_imp_warband handler. Migrated to BUFF_ATK step on Senior's on-play.
+	# Same summon-vs-play caveat as imp_evolution: no card token-summons Seniors today.
+	{
+		"id":     "imp_warband",
+		"when":   { "talent": "imp_warband" },
+		"filter": { "tag": "senior_void_imp" },
+		"append_on_play_effect_steps": [
+			{"type": "BUFF_ATK", "scope": "ALL_FRIENDLY", "filter": "VOID_IMP",
+			 "amount": 50, "permanent": true, "source_tag": "imp_warband",
+			 "exclude_self": true},
+		],
+		"append_description": "\nIMP WARBAND: All other Void Imp Clan minions gain +50 ATK.",
+	},
+	# Lord Vael Rune Master T0 — Rune Caller. Playing a base Void Imp tutors a
+	# random Rune from deck, discounted by 1 Mana this turn. Was on_played_rune_caller
+	# handler calling scene._draw_rune_from_deck. Migrated to TUTOR + MOD_LAST_ADDED_COST
+	# pair: TUTOR pulls a rune from deck, MOD_LAST_ADDED_COST writes mana_delta = -1
+	# on the just-tutored CardInstance. Both delta and the once-per-cast linkage live
+	# in EffectContext.last_added_instance.
+	# TUTOR is deck-order, not uniform-random — for a freshly shuffled deck this is
+	# statistically equivalent to "random rune from deck"; mid-combat after draws/burns
+	# the distributions diverge slightly but not in a player-detectable way.
+	{
+		"id":     "rune_caller",
+		"when":   { "talent": "rune_caller" },
+		"filter": { "tag": "base_void_imp" },
+		"append_on_play_effect_steps": [
+			{"type": "TUTOR", "tutor_filter": "rune", "amount": 1},
+			{"type": "MOD_LAST_ADDED_COST", "amount": -1, "resource": "mana"},
+		],
+		"append_description": "\nRUNE CALLER: Draw a Rune from your deck. It costs 1 less Mana this turn.",
 	},
 ]
 

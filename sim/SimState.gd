@@ -305,7 +305,7 @@ func _consume_fiendish_pact_discount() -> void:
 		if inst == null or inst.card_data == null:
 			continue
 		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
-			inst.cost_delta = 0
+			inst.essence_delta = 0
 
 ## (`_spell_dmg` inherited from CombatState.)
 
@@ -472,20 +472,6 @@ func _fire_ritual(ritual: RitualData) -> void:
 	_player_ritual_count += 1
 	super._fire_ritual(ritual)
 
-## Draw a random Rune card from the player's deck into hand, applying -1 cost via cost_delta.
-func _draw_rune_from_deck() -> void:
-	var runes_in_deck: Array[CardInstance] = []
-	for inst in player_deck:
-		if inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune:
-			runes_in_deck.append(inst)
-	if runes_in_deck.is_empty():
-		return
-	var chosen: CardInstance = runes_in_deck[randi() % runes_in_deck.size()]
-	player_deck.erase(chosen)
-	if player_hand.size() < PLAYER_HAND_MAX:
-		player_hand.append(chosen)
-	chosen.cost_delta = -1
-
 ## Summon a Void Imp token on the player board (used by ritual_surge talent).
 func _summon_void_imp() -> void:
 	_summon_token("void_imp", "player", 0, 0, 0)
@@ -564,10 +550,10 @@ func begin_player_turn(turn_number: int) -> void:
 	if _void_mana_drain_pending:
 		_void_mana_drain_pending = false
 		player_mana = 0
-	imp_evolution_used_this_turn = false
 	for inst in player_hand:
-		inst.cost_delta = 0
+		inst.reset_deltas()
 	_fiendish_pact_pending = 0
+	_once_per_turn_used.clear()
 	if trigger_manager != null:
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
 	_draw_player(1)

@@ -194,7 +194,7 @@ func _register_lord_vael_talents() -> void:
 
 	_register(_make(
 		"void_manifestation", "lord_vael", "Void Manifestation",
-		"CAPSTONE: VOID IMP CLAN minions deal Void Bolt damage when attacking enemy hero.",
+		"CAPSTONE: VOID IMP CLAN minion attacks deal Void Bolt damage.",
 		"void_bolt", 3, "death_bolt", "res://assets/art/talents/lord_vael/icon_void_manifestation.png"))
 
 # ---------------------------------------------------------------------------

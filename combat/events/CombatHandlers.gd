@@ -160,40 +160,19 @@ func on_summon_swarm_discipline(ctx: EventContext) -> void:
 		return
 	_log("  Swarm Discipline: %s +100 HP (passive)." % ctx.card.card_name, _LOG_PLAYER)
 
-func on_played_rune_caller(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "base_void_imp"):
-		return
-	_scene._draw_rune_from_deck()
-
 func on_ritual_fired_ritual_surge(_ctx: EventContext) -> void:
 	_scene._summon_token("void_imp", "player")
 	_log("  Ritual Surge: Void Imp summoned!", _LOG_PLAYER)
 
-func on_summon_piercing_void(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "base_void_imp"):
-		return
-	_scene.set("_pending_dmg_source", "imp_piercing")
-	# piercing_void talent retags the imp's on-play effect — still a minion-emitted effect.
-	_scene._deal_void_bolt_damage(200, ctx.minion, false, true)
-	_scene._apply_void_mark(1)
+## piercing_void retag retired — Void Imp's on_play_effect_steps now declares
+## the VOID_BOLT + VOID_MARK steps directly via talent_overrides. See
+## CardDatabase.gd void_imp.talent_overrides for the override entry.
 
-func on_summon_imp_evolution(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "base_void_imp") or _scene.imp_evolution_used_this_turn:
-		return
-	var senior: CardData = _scene._card_for("player", "senior_void_imp")
-	if senior and _scene.turn_manager.player_hand.size() < _scene.turn_manager.HAND_SIZE_MAX:
-		_scene.turn_manager.add_to_hand(senior)
-		_scene.imp_evolution_used_this_turn = true
-		_log("  Imp Evolution: Senior Void Imp added to hand.", _LOG_PLAYER)
-
-func on_summon_imp_warband(ctx: EventContext) -> void:
-	if not _card_has_tag(ctx.card, "senior_void_imp"):
-		return
-	for m in _scene.player_board:
-		if _is_void_imp(m) and m != ctx.minion:
-			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 50, "imp_warband", false, false)
-			_scene._refresh_slot_for(m)
-	_log("  Imp Warband: Senior Void Imp summoned — all other Void Imps +50 ATK.", _LOG_PLAYER)
+## rune_caller / imp_evolution / imp_warband retired — all three migrated to
+## CardModRules append_on_play_effect_steps. See cards/data/CardModRules.gd.
+## - rune_caller: TUTOR rune + MOD_LAST_ADDED_COST mana -1 on Void Imp's on-play.
+## - imp_evolution: ADD_CARD senior_void_imp gated by once_per_turn:imp_evolution.
+## - imp_warband: BUFF_ATK ALL_FRIENDLY filter VOID_IMP exclude_self on Senior's on-play.
 
 func on_summon_board_synergies(ctx: EventContext) -> void:
 	var summoned := ctx.minion
@@ -337,12 +316,9 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 				_scene._refresh_slot_for(passive_owner)
 				_log("  Soul Taskmaster: Demon died → gains +50 ATK.", _LOG_PLAYER)
 
-func on_player_minion_died_death_bolt(ctx: EventContext) -> void:
-	if not _is_void_imp(ctx.minion):
-		return
-	_log("  Death Bolt: %s death fires Void Bolt." % ctx.minion.card_data.card_name, _LOG_PLAYER)
-	_scene.set("_pending_dmg_source", "death_bolt")
-	_scene._deal_void_bolt_damage(100)
+## death_bolt retired — clan-wide on-death VOID_BOLT step lives on each Void Imp
+## clan card via CardModRules step injection. See cards/data/CardModRules.gd
+## "death_bolt" rule.
 
 ## Seris — Fleshbind passive. When a friendly Demon dies (by any cause — combat,
 ## sacrifice, enemy effect), gain 1 Flesh (scene-capped at player_flesh_max).
@@ -532,7 +508,7 @@ func on_player_minion_played_effect(ctx: EventContext) -> void:
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
 
 # ---------------------------------------------------------------------------
-# ON_ENEMY_MINION_SUMMONED
+# ON_ENEMY_MINION_PLAYED
 # ---------------------------------------------------------------------------
 
 func on_enemy_minion_played_effect(ctx: EventContext) -> void:
@@ -609,6 +585,20 @@ func _refresh_presence_auras_for_side(side: String, leaving: MinionInstance) -> 
 				var tag: String = _step_source_tag(step)
 				if tag != "":
 					strip_tags[tag] = true
+	# Snapshot pre-recompute stats so we can compute true per-minion deltas after
+	# the silent strip+reapply. Aura recomputes fire on every summon/death/sacrifice;
+	# in steady state (no new aura sources, no count change) the net delta is zero
+	# and we want NO visible flicker — neither label nor VFX.
+	var pre_atk: Dictionary = {}    # MinionInstance → int
+	var pre_hp_cap: Dictionary = {} # MinionInstance → int (HP_BONUS sum)
+	for m in board:
+		pre_atk[m] = m.effective_atk()
+		pre_hp_cap[m] = m.card_data.health + BuffSystem.sum_type(m, Enums.BuffType.HP_BONUS)
+	# Silent strip+reapply: state mutates immediately, no buff_applied signal, no
+	# queued BuffApplyVFX. EffectResolver routes BUFF_ATK/BUFF_HP through the
+	# silent branch when scene._silent_buff_apply is true.
+	var prev_silent: bool = bool(_scene.get("_silent_buff_apply"))
+	_scene.set("_silent_buff_apply", true)
 	# Strip-then-apply (not interleaved) so cross-target counting stays consistent.
 	for tag in strip_tags.keys():
 		for m in board:
@@ -619,8 +609,18 @@ func _refresh_presence_auras_for_side(side: String, leaving: MinionInstance) -> 
 		ctx2.source         = entry["src"]
 		ctx2.source_card_id = (entry["src"] as MinionInstance).card_data.id
 		EffectResolver.run(entry["steps"], ctx2)
+	_scene.set("_silent_buff_apply", prev_silent)
+	# Compute deltas and spawn cosmetic BuffApplyVFX only for minions whose net
+	# stats actually changed (e.g. a 2nd Elder just summoned → existing imps go
+	# from +100 to +200, real +100 delta worth animating). Zero-delta minions
+	# need no visual since state was silently restored to the same value.
 	for m in board:
+		var atk_delta: int = m.effective_atk() - int(pre_atk.get(m, 0))
+		var post_hp_cap: int = m.card_data.health + BuffSystem.sum_type(m, Enums.BuffType.HP_BONUS)
+		var hp_delta: int = post_hp_cap - int(pre_hp_cap.get(m, 0))
 		_scene._refresh_slot_for(m)
+		if (atk_delta != 0 or hp_delta != 0) and _scene.has_method("_spawn_presence_aura_buff_vfx"):
+			_scene._spawn_presence_aura_buff_vfx(m, atk_delta, hp_delta)
 
 ## Extract source_tag from a step that may be either a Dictionary or an EffectStep.
 func _step_source_tag(step) -> String:

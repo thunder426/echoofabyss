@@ -412,9 +412,9 @@ func setup(data: CardData) -> void:
 
 	var faction: String = data.faction if data.faction != "" else "neutral"
 	var style_key: String = _FACTION_FRAME.get(faction, {}).get(data.card_type, "default")
-	var _talent_mana := GameManager.get_talent_mana_modifier(data) if data is MinionCardData else 0
-	var is_dual := data is MinionCardData and \
-		((data as MinionCardData).mana_cost > 0 or _talent_mana > 0)
+	# md.mana_cost includes any talent-baked mana (piercing_void etc.) via
+	# talent_overrides applied at card construction.
+	var is_dual := data is MinionCardData and (data as MinionCardData).mana_cost > 0
 	# Neutral: swap to dual-cost frame when minion has both costs
 	if style_key == "neutral_essence_minion" and is_dual:
 		style_key = "neutral_essence_mana_minion"
@@ -473,10 +473,9 @@ func setup(data: CardData) -> void:
 				frame_hp_label.visible = true
 				frame_hp_label.text    = str(md.health)
 			if frame_cost_label:
-				var _frame_mana := md.mana_cost + GameManager.get_talent_mana_modifier(md)
-				if _frame_mana > 0:
+				if md.mana_cost > 0:
 					# Dual cost: show "E / M" in the top-left essence badge.
-					frame_cost_label.text    = "[center][color=#d4a0ff]%d[/color][color=#cccccc]/[/color][color=#90c8ff]%d[/color][/center]" % [md.essence_cost, _frame_mana]
+					frame_cost_label.text    = "[center][color=#d4a0ff]%d[/color][color=#cccccc]/[/color][color=#90c8ff]%d[/color][/center]" % [md.essence_cost, md.mana_cost]
 				else:
 					frame_cost_label.text    = "[center]%d[/center]" % md.essence_cost
 				frame_cost_label.visible = true
@@ -613,9 +612,10 @@ func apply_relic_cost_preview(ess_reduction: int, mana_reduction: int) -> void:
 	if frame_cost_label == null or not frame_cost_label.visible:
 		return
 	var md := card_data as MinionCardData
-	var talent_mana := GameManager.get_talent_mana_modifier(md)
+	# md.essence_cost / md.mana_cost reflect any talent_overrides baked at
+	# combat-time card construction.
 	var base_ess := md.essence_cost
-	var base_mana := md.mana_cost + talent_mana
+	var base_mana := md.mana_cost
 	var eff_ess := maxi(0, base_ess - ess_reduction)
 	var eff_mana := maxi(0, base_mana - mana_reduction)
 	var ess_color := "4dff4d" if ess_reduction > 0 and base_ess > 0 else "d4a0ff"

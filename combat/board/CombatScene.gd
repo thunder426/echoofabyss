@@ -316,7 +316,7 @@ var player_flesh_max: int:
 
 ## Seris — Fiendish Pact pending Mana discount. Set by the Fiendish Pact spell,
 ## consumed when the next Demon is played (capped at that card's mana_cost).
-## Cleared at player turn start along with cost_delta.
+## Cleared at player turn start along with each CardInstance's mana_delta / essence_delta.
 var _fiendish_pact_pending: int:
 	get: return state._fiendish_pact_pending
 	set(v): state._fiendish_pact_pending = v
@@ -401,10 +401,11 @@ var _temp_imps: Array[MinionInstance]:
 	get: return state._temp_imps
 	set(v): state._temp_imps = v
 
-## True once Imp Evolution has added a Senior Void Imp this turn; reset on turn start.
-var imp_evolution_used_this_turn: bool:
-	get: return state.imp_evolution_used_this_turn
-	set(v): state.imp_evolution_used_this_turn = v
+## Generic once-per-turn gate dictionary, accessor for state._once_per_turn_used.
+## Used by the "once_per_turn:<flag_id>" condition. Reset at player turn start.
+var _once_per_turn_used: Dictionary:
+	get: return state._once_per_turn_used
+	set(v): state._once_per_turn_used = v
 
 ## Currently hovered hand card visual — used for pip-blink cost preview.
 var _hovered_hand_visual: CardVisual = null
@@ -916,7 +917,6 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		slot._refresh_visuals()
 	# Fire turn-start events — all effects are handled by registered listeners in _setup_triggers().
 	if is_player_turn:
-		imp_evolution_used_this_turn     = false
 		player_spell_cost_penalty = _spell_tax_for_player_turn
 		_spell_tax_for_player_turn = 0
 		if _void_mana_drain_pending:
@@ -929,8 +929,9 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		_relic_hero_immune = false
 		_relic_cost_reduction = 0
 		for inst in turn_manager.player_hand:
-			inst.cost_delta = 0
+			inst.reset_deltas()
 		_fiendish_pact_pending = 0
+		_once_per_turn_used.clear()
 		_refresh_hand_spell_costs()
 		if _relic_runtime:
 			_relic_runtime.on_turn_start()
@@ -1799,6 +1800,13 @@ func _schedule_sacrifice_unfreeze(slot: BoardSlot, delay: float) -> void:
 ## Drained next frame by _flush_buff_requests.
 var _pending_buff_requests: Dictionary = {}
 
+## When true, EffectResolver's BUFF_ATK/BUFF_HP cases bypass _request_buff_apply
+## and mutate state immediately + silently (no buff_applied signal, no queued
+## BuffApplyVFX). Set by presence-aura recompute so its strip+reapply doesn't
+## flash the standard buff visual on every recompute. Caller spawns its own
+## cosmetic BuffApplyVFX only on minions whose net stats actually changed.
+var _silent_buff_apply: bool = false
+
 ## Public entry from EffectResolver. EffectResolver calls this for every
 ## BUFF_ATK / BUFF_HP step instead of mutating state directly. We aggregate
 ## the requests by (minion, source_tag) and spawn ONE BuffApplyVFX per bucket
@@ -1936,6 +1944,21 @@ func _spawn_pack_instinct_buff_vfx(minion: MinionInstance, _delta_atk: int) -> v
 	chevron.set_size(Vector2(14, 16))
 	chevron.play()
 
+## Cosmetic buff VFX for presence-aura recompute deltas. State has already been
+## mutated silently inside _refresh_presence_auras_for_side (silent strip+reapply,
+## no buff_applied signal). Only the visual flash remains, gated to minions whose
+## net stats actually changed (e.g. 2nd Elder summoned → existing imps go from
+## +100 to +200 — real +100 delta worth animating). No intents passed: BuffApplyVFX
+## runs purely cosmetic without re-applying buffs.
+func _spawn_presence_aura_buff_vfx(minion: MinionInstance, atk_delta: int, hp_delta: int) -> void:
+	if vfx_controller == null:
+		return
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot == null or slot.minion != minion:
+		return
+	var vfx := BuffApplyVFX.create(slot, atk_delta, hp_delta)
+	vfx_controller.spawn(vfx)
+
 ## Return the point on `from` slot's edge closest to `toward` slot — so chain VFX
 ## appears to emerge from the side of the minion facing its neighbor, not from
 ## its dead center.
@@ -2056,7 +2079,7 @@ func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
 	return state._peek_fiendish_pact_discount(mc)
 
 ## Consume the Fiendish Pact pending discount after a Demon is successfully played.
-## Also clears the display-only cost_delta on any remaining Demon cards in hand,
+## Also clears the display-only essence_delta on any remaining Demon cards in hand,
 ## since the effect is spent.
 func _consume_fiendish_pact_discount() -> void:
 	if _fiendish_pact_pending <= 0:
@@ -2066,7 +2089,7 @@ func _consume_fiendish_pact_discount() -> void:
 		if inst == null or inst.card_data == null:
 			continue
 		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
-			inst.cost_delta = 0
+			inst.essence_delta = 0
 	if has_method("_refresh_hand_spell_costs"):
 		_refresh_hand_spell_costs()
 
@@ -2607,6 +2630,26 @@ func _has_talent(id: String) -> bool:
 func _card_for(side: String, id: String) -> CardData:
 	return state._card_for(side, id)
 
+## Sync the talent / passive set from GameManager into combat state, then clear
+## the override cache so future _card_for calls reflect the new context.
+##
+## Used when talents change mid-combat (cheat panel unlock, future relics that
+## grant talents). CardInstances already in hand / deck / graveyard keep their
+## existing card_data — only NEW cards drawn / spawned / added after this call
+## pick up the override. This matches the historical handler behavior where
+## mid-combat talent unlocks affected only subsequent events.
+func _refresh_override_context() -> void:
+	state.talents.assign(GameManager.unlocked_talents)
+	var _hero := HeroDatabase.get_hero(GameManager.current_hero)
+	state.hero_passives.clear()
+	if _hero != null:
+		for p in _hero.passives:
+			state.hero_passives.append(p.id)
+	if GameManager.current_enemy != null:
+		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
+		state.enemy_passives.assign(GameManager.current_enemy.passives)
+	CardDatabase.clear_override_cache()
+
 ## Refresh hand card cost displays / playability glows / preview overlay.
 ## Delegated to combat_ui.
 func _refresh_hand_spell_costs() -> void:
@@ -2617,7 +2660,7 @@ func _refresh_hand_spell_costs() -> void:
 func _effective_spell_cost(spell: SpellCardData) -> int:
 	return maxi(0, spell.cost - _spell_mana_discount() + player_spell_cost_penalty)
 
-## Effective mana cost for a player trap/rune — reads cost_delta from the hovered card's CardInstance.
+## Effective mana cost for a player trap/rune — reads mana_delta from the hovered card's CardInstance.
 ## Used for pip-blink preview only; actual play uses pending_play_card.effective_cost().
 func _effective_trap_cost(trap: TrapCardData) -> int:
 	if _hovered_hand_visual != null and _hovered_hand_visual.card_inst != null:
@@ -2938,6 +2981,8 @@ func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> void:
 	var damage: int = combat_manager.last_attack_damage
 	var counter: int = combat_manager.last_counter_damage
+	var damage_hp_delta: int = combat_manager.last_attack_hp_delta
+	var counter_hp_delta: int = combat_manager.last_counter_hp_delta
 	var is_crit: bool = _last_attack_was_crit
 	_anim_pre_hp = 0
 	var a := _anim_atk_slot
@@ -2946,7 +2991,7 @@ func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> 
 	_anim_def_slot = null
 	if a and d:
 		# Refresh happens inside _play_attack_anim after the lunge completes
-		_play_attack_anim(a, d, damage, attacker, defender, is_crit, counter)
+		_play_attack_anim(a, d, damage, attacker, defender, is_crit, counter, damage_hp_delta, counter_hp_delta)
 	else:
 		_refresh_slot_for(attacker)
 		_refresh_slot_for(defender)
@@ -3354,10 +3399,16 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 		# Imp) live in CardVfxRegistry — passive gating handled there.
 		CardVfxRegistry.play_enemy_summon_reveal_extra(vfx_controller, minion, slot, _active_enemy_passives)
 	# ON_PLAY effects resolved by CombatHandlers.on_enemy_minion_played_effect (registered in _setup_triggers).
-	# Fire trigger BEFORE emitting enemy_summon_reveal_done so any reactive
+	# Fire triggers BEFORE emitting enemy_summon_reveal_done so any reactive
 	# handler that sets _on_play_vfx_active = true (e.g. corruption detonation)
 	# does so before EnemyAI checks the flag and decides whether to await
 	# on_play_vfx_done. Otherwise AI would race past the reactive VFX.
+	# ON_ENEMY_MINION_PLAYED fires only for hand plays — gates on-play battlecries
+	# so token summons (Brood Call → Frenzied Imp) don't retrigger them.
+	var played_ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED, "enemy")
+	played_ctx.minion = minion
+	played_ctx.card   = minion.card_data
+	trigger_manager.fire(played_ctx)
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 	ctx.minion = minion
 	ctx.card = minion.card_data
@@ -3495,22 +3546,6 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 ## Pure logic — delegated to CombatState.
 func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	state._remove_rune_aura(rune, owner)
-
-## Talent: rune_caller — draw a random Rune from the player's deck, discounted by 1 mana via cost_delta.
-func _draw_rune_from_deck() -> void:
-	var runes_in_deck: Array[CardInstance] = []
-	for inst in turn_manager.player_deck:
-		if inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune:
-			runes_in_deck.append(inst)
-	if runes_in_deck.is_empty():
-		_log("  Rune Caller: no Runes left in deck.", _LogType.PLAYER)
-		return
-	var chosen: CardInstance = runes_in_deck[randi() % runes_in_deck.size()]
-	turn_manager.player_deck.erase(chosen)
-	chosen.cost_delta = -1
-	turn_manager.add_instance_to_hand(chosen)
-	_refresh_hand_spell_costs()
-	_log("  Rune Caller: drew %s from deck (costs 1 less mana this turn)." % chosen.card_data.card_name, _LogType.PLAYER)
 
 ## Rune aura numeric multiplier. Set by CombatSetup (runic_attunement → 2).
 func _rune_aura_multiplier() -> int:
@@ -4170,7 +4205,14 @@ func _restore_slot_from_lunge(slot: BoardSlot, orig_parent: Control, orig_index:
 
 func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		attacker: MinionInstance = null, defender: MinionInstance = null,
-		is_crit: bool = false, counter_damage: int = 0) -> void:
+		is_crit: bool = false, counter_damage: int = 0,
+		damage_hp_delta: int = -1, counter_hp_delta: int = -1) -> void:
+	# Defaults: if caller doesn't supply HP deltas, fall back to the popup damage
+	# (preserves old behavior for any non-attack-resolution caller).
+	if damage_hp_delta < 0:
+		damage_hp_delta = damage
+	if counter_hp_delta < 0:
+		counter_hp_delta = counter_damage
 	var atk_rect  := atk_slot.get_global_rect()
 	var def_rect  := def_slot.get_global_rect()
 	var direction := (def_rect.get_center() - atk_rect.get_center()).normalized()
@@ -4196,17 +4238,25 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 			AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_clash.wav", -10.0)
 		_flash_slot(def_slot)
 		if damage > 0:
-			_spawn_damage_popup(def_rect.get_center(), damage, is_crit)
+			var atk_school: int = Enums.DamageSchool.NONE
+			if attacker != null and attacker.card_data is MinionCardData:
+				atk_school = (attacker.card_data as MinionCardData).attack_damage_school
+			_spawn_damage_popup(def_rect.get_center(), damage, is_crit, atk_school)
 			# Combat damage already applied by the time the lunge tween reaches
-			# this callback — current_health is post-damage. Reconstruct pre-HP.
+			# this callback — current_health is post-damage. Reconstruct pre-HP
+			# using the HP delta (clamped to pre_hp), not the popup damage which
+			# may exceed it on overkill.
 			if def_slot.has_method("animate_hp_change") and defender != null:
-				var from_hp: int = defender.current_health + damage
+				var from_hp: int = defender.current_health + damage_hp_delta
 				def_slot.animate_hp_change(from_hp, defender.current_health)
 		if counter_damage > 0:
 			_flash_slot(atk_slot)
-			_spawn_damage_popup(atk_slot.get_global_rect().get_center(), counter_damage)
+			var def_school: int = Enums.DamageSchool.NONE
+			if defender != null and defender.card_data is MinionCardData:
+				def_school = (defender.card_data as MinionCardData).attack_damage_school
+			_spawn_damage_popup(atk_slot.get_global_rect().get_center(), counter_damage, false, def_school)
 			if atk_slot.has_method("animate_hp_change") and attacker != null:
-				var atk_from_hp: int = attacker.current_health + counter_damage
+				var atk_from_hp: int = attacker.current_health + counter_hp_delta
 				atk_slot.animate_hp_change(atk_from_hp, attacker.current_health)
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
@@ -4397,9 +4447,10 @@ func _flash_hero_heal(target: String, amount: int) -> void:
 	if vfx_bridge != null:
 		vfx_bridge.flash_hero_heal(target, amount)
 
-func _spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = false) -> void:
+func _spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = false,
+		school: int = Enums.DamageSchool.NONE) -> void:
 	if vfx_bridge != null:
-		vfx_bridge.spawn_damage_popup(screen_center, damage, is_crit)
+		vfx_bridge.spawn_damage_popup(screen_center, damage, is_crit, school)
 
 # ---------------------------------------------------------------------------
 # Enemy attack visuals
