@@ -7,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Echo of Abyss** — single-player roguelike deckbuilder, Godot 4 (GDScript), pre-alpha. Solo dev project. Run via Godot editor; no build scripts.
 
 - Engine: Godot 4.6, GL Compatibility renderer, 1920×1080
-- Config: `echoofabyss/project.godot`
-- Design docs: `design/master_doc/` (DESIGN_DOCUMENT.md, CARD_LIBRARY.md)
+- Godot project root = repo root. Config: `project.godot`. Main scene: `res://ui/MainMenu.tscn`.
+- Master design docs: `design/master_doc/` — `DESIGN_DOCUMENT.md`, `CARD_LIBRARY.md`, `ARCHITECTURE.md`, `CARD_DESCRIPTION_STYLE.md`.
+- Feature design docs (read before touching the relevant subsystem): `design/DAMAGE_TYPE_SYSTEM.md`, `design/TRAP_RUNE_RITUAL_SYSTEM.md`, `design/REWARD_SYSTEM_DESIGN.md`, `design/SERIS_HERO_DESIGN.md`, `design/DAGAN_HERO_DESIGN.md`, `design/FACTION_FREE_CITIES_DESIGN.md`, `design/CARD_FRAME_DESIGN_REGULATION.md`, `design/CASTING_GLYPH_DESIGN.md`.
 
 ## Where things live
 
@@ -16,7 +17,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## GDScript Rules
 
-- **Always use `: Type =` not `:=`** when reading from untyped Array or Dictionary. Type inference from untyped collections causes silent errors.
+- **Always use `: Type =` not `:=`** when reading from untyped Array or Dictionary — `:=` infers `Variant` from untyped collections and causes silent errors. Example: `var m: MinionInstance = state.player_slots[i]`, never `var m := state.player_slots[i]`.
+
+## Testing & simulation
+
+`design/TESTING.md` is the inventory of every test harness, simulator, and debug tool, with run commands. The two defaults:
+
+- **Correctness** — `res://debug/tests/RunAllTests.tscn` (~10s, ~500 assertions across 4 layers). Use `--filter <substring>` to scope. New cards/handlers should ship with a probe in `CardEffectTests.gd` or `TriggerHandlerTests.gd`.
+- **Balance** — `res://debug/BalanceSimBatch.tscn` is the default sim entry point (full Act × profile matrix). Reach for it first; use `DebugSingleSim` only for step-by-step debug logs.
+
+Both run headless via `godot --headless --path . <scene>`.
 
 ## Adding New Cards
 

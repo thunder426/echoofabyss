@@ -489,13 +489,15 @@ func on_enemy_hero_spell_input(event: InputEvent) -> void:
 		scene._drain_pending_spell_popups()
 	)
 
-## Global _input — F12 toggles cheat menu, ESC closes it, right-click cancels
+## Global _input — F12 / C toggles cheat menu, ESC closes it, right-click cancels
 ## the current pending action (relic targeting → card targeting → attacker).
 func handle_input(event: InputEvent) -> void:
 	if _scene == null:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_F12:
+		var focus_owner := _scene.get_viewport().gui_get_focus_owner()
+		var typing: bool = focus_owner is LineEdit or focus_owner is TextEdit or focus_owner is SpinBox
+		if event.keycode == KEY_F12 or (event.keycode == KEY_C and not typing):
 			_scene._cheat.toggle()
 		elif event.keycode == KEY_ESCAPE and _scene._cheat.visible:
 			_scene._cheat.toggle()

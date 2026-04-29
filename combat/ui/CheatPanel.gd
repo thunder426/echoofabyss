@@ -87,7 +87,7 @@ func _build_ui() -> void:
 	root.add_child(vbox)
 
 	var title := Label.new()
-	title.text = "⚙ Cheat Panel  [F12]"
+	title.text = "⚙ Cheat Panel  [F12 / C]"
 	title.add_theme_color_override("font_color", Color(1, 0.85, 0.3))
 	title.add_theme_font_size_override("font_size", 14)
 	vbox.add_child(title)

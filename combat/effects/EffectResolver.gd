@@ -387,7 +387,8 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			# Sim has no VFX → mutate immediately as before.
 			# Presence-aura recompute sets _silent_buff_apply to skip the VFX queue
 			# entirely; the caller spawns its own cosmetic VFX only on real deltas.
-			var silent: bool = bool(scene.get("_silent_buff_apply"))
+			var _sv = scene.get("_silent_buff_apply")
+			var silent: bool = _sv if _sv is bool else false
 			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null and not silent:
 				scene._request_buff_apply(target, buff_type, amount, tag_atk, false)
 			else:
@@ -396,7 +397,8 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 
 		EffectStep.EffectType.BUFF_HP:
 			var tag_hp: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-			var silent_hp: bool = bool(scene.get("_silent_buff_apply"))
+			var _sv_hp = scene.get("_silent_buff_apply")
+			var silent_hp: bool = _sv_hp if _sv_hp is bool else false
 			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null and not silent_hp:
 				scene._request_buff_apply(target, Enums.BuffType.HP_BONUS, amount, tag_hp, true)
 			else:

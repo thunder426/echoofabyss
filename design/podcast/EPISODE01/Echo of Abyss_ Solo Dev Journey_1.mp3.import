@@ -1,0 +1,19 @@
+[remap]
+
+importer="mp3"
+type="AudioStreamMP3"
+uid="uid://bw6csxhk14hab"
+path="res://.godot/imported/Echo of Abyss_ Solo Dev Journey_1.mp3-2269c5a8a6b1205a643c6132b8521d48.mp3str"
+
+[deps]
+
+source_file="res://design/podcast/EPISODE01/Echo of Abyss_ Solo Dev Journey_1.mp3"
+dest_files=["res://.godot/imported/Echo of Abyss_ Solo Dev Journey_1.mp3-2269c5a8a6b1205a643c6132b8521d48.mp3str"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

@@ -597,7 +597,8 @@ func _refresh_presence_auras_for_side(side: String, leaving: MinionInstance) -> 
 	# Silent strip+reapply: state mutates immediately, no buff_applied signal, no
 	# queued BuffApplyVFX. EffectResolver routes BUFF_ATK/BUFF_HP through the
 	# silent branch when scene._silent_buff_apply is true.
-	var prev_silent: bool = bool(_scene.get("_silent_buff_apply"))
+	var _silent_val = _scene.get("_silent_buff_apply")
+	var prev_silent: bool = _silent_val if _silent_val is bool else false
 	_scene.set("_silent_buff_apply", true)
 	# Strip-then-apply (not interleaved) so cross-target counting stays consistent.
 	for tag in strip_tags.keys():

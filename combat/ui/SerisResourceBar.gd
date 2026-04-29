@@ -224,7 +224,8 @@ func refresh() -> void:
 		_set_skill_castable(_forge_btn, castable, not castable)
 	if _corrupt_btn != null:
 		var flesh: int = int(_scene.get("player_flesh"))
-		var used: bool = bool(_scene.get("_seris_corrupt_used_this_turn"))
+		var _uv = _scene.get("_seris_corrupt_used_this_turn")
+		var used: bool = _uv if _uv is bool else false
 		var castable: bool = flesh >= 1 and not used
 		_set_skill_castable(_corrupt_btn, castable, not castable)
 

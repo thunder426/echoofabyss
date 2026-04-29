@@ -259,6 +259,10 @@ func add_to_hand(card: CardData) -> void:
 	if sim.enemy_hand.size() < SimState.ENEMY_HAND_MAX:
 		sim.enemy_hand.append(CardInstance.create(card))
 
+func add_instance_to_hand(inst: CardInstance) -> void:
+	if sim.enemy_hand.size() < SimState.ENEMY_HAND_MAX:
+		sim.enemy_hand.append(inst)
+
 # ---------------------------------------------------------------------------
 # Effect resolution helpers
 # ---------------------------------------------------------------------------

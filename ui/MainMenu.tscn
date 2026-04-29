@@ -5,9 +5,7 @@
 [ext_resource type="Texture2D" uid="uid://fgchxtstlhta" path="res://assets/art/buttons/button_normal.png" id="3"]
 [ext_resource type="Texture2D" uid="uid://c6of20n6po7c8" path="res://assets/art/buttons/button_hover.png" id="4"]
 [ext_resource type="Texture2D" uid="uid://c2iiff8aiv4ou" path="res://assets/art/buttons/button_pressed.png" id="5"]
-
-[sub_resource type="FFmpegVideoStream" id="FFmpegVideoStream_bg"]
-file = "res://assets/animation/background/main_screen_background_h264.mp4"
+[ext_resource type="VideoStream" path="res://assets/animation/background/main_screen_background.ogv" id="6"]
 
 [sub_resource type="StyleBoxTexture" id="StyleBoxTexture_normal"]
 texture = ExtResource("3")
@@ -62,7 +60,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 expand = true
-stream = SubResource("FFmpegVideoStream_bg")
+stream = ExtResource("6")
 autoplay = true
 
 [node name="BackgroundB" type="VideoStreamPlayer" parent="UI"]
@@ -72,7 +70,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 expand = true
-stream = SubResource("FFmpegVideoStream_bg")
+stream = ExtResource("6")
 visible = false
 
 [node name="TitleLabel" type="Label" parent="UI" unique_id=335247894]
