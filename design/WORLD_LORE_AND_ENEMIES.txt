@@ -1,0 +1,201 @@
+The World
+
+In the depths of reality lies The Abyss, an infinite plane of chaotic void energy.
+
+From this darkness emerge:
+
+demons
+
+void creatures
+
+corruption magic
+
+Long ago, mortals learned to harness this power.
+
+They formed the Abyss Order, a secretive organization that studies, controls, and weaponizes abyssal forces.
+
+The Order maintains:
+
+summoning chambers
+
+demon breeding pits
+
+abyss research facilities
+
+They believe the Abyss can be controlled.
+
+But the Abyss is beginning to answer back.
+
+The Current Crisis
+
+One of the Order’s remote facilities is the Imp Lair, a breeding cavern used to produce large numbers of Void Imps for the Order’s armies.
+
+Recently:
+
+the Imps stopped responding to command rituals
+
+handlers disappeared
+
+strange Void sigils appeared in the tunnels
+
+The Order sends an expedition force to investigate.
+
+Different heroes may lead the mission.
+
+One of them is Lord Vael, a powerful void scholar of the Order.
+
+The mission seems routine.
+
+It is not.
+
+ACT 1 — Imp Lair Rebellion
+
+Location: The Imp Lair
+
+The expedition enters the cavern expecting to suppress rogue demons.
+
+Instead they discover something disturbing:
+
+Imps moving in coordinated packs
+
+new void markings carved into stone
+
+evidence of ritual interference
+
+The brood is no longer behaving like animals.
+
+Something is guiding them.
+
+At the heart of the lair lives the Imp Matriarch, the ancient broodmother responsible for producing new Imps.
+
+When confronted, the Matriarch attacks violently.
+
+But during the battle it becomes clear:
+
+She is not rebelling willingly.
+
+Her brood has been touched by Void magic.
+
+Before dying, the Matriarch unleashes a surge of abyssal energy that reveals a hidden tunnel descending deeper underground.
+
+The investigation continues.
+
+ACT 2 — The Forgotten Dungeon
+
+Location: Ancient Abyss Dungeon
+
+The deeper tunnels lead to an old Abyss Order research site, abandoned long ago.
+
+Inside the ruins:
+
+corrupted cultists wander the halls
+
+unstable void portals flicker
+
+ritual circles burn with strange energy
+
+Someone has been re-activating forbidden experiments.
+
+At the center of the dungeon the heroes encounter a former Abyss Order overseer.
+
+The Corrupted Handler.
+
+He attempted to control the growing void influence but instead became its servant.
+
+Through him the heroes learn the truth:
+
+The Void is not simply leaking into reality.
+It is invading intentionally.
+
+The dungeon contains a massive Void Rift.
+
+Something on the other side is pushing through.
+
+The heroes step into the rift.
+
+ACT 3 — The Void World
+
+Location: The Void Realm
+
+Beyond the rift lies a distorted dimension of darkness and shifting geometry.
+
+This is a fragment of the Void itself.
+
+Here live ancient entities that predate the Abyss Order.
+
+Void creatures attack immediately.
+
+Reality bends.
+
+Gravity twists.
+
+The heroes encounter a powerful entity known as the Void Herald.
+
+The Herald reveals the deeper truth:
+
+The Abyss Order believed it was controlling abyssal power.
+
+But the Void has been studying the Order for centuries.
+
+The Imp Lair rebellion was merely a test.
+
+The Herald is defeated, but before dying it opens a gateway deeper into the Void.
+
+Beyond the gate stands a massive fortress.
+
+A Void Castle.
+
+ACT 4 — The Void Castle
+
+Location: Fortress of the Void Sovereign
+
+This castle is a staging ground for the Void invasion.
+
+Inside are:
+
+elite void warriors
+
+abyss constructs
+
+corrupted demons
+
+The heroes fight through the fortress while fully empowered by their talents and relics.
+
+Each guardian protects the throne room.
+
+At the top of the castle waits the mastermind.
+
+The Abyss Sovereign.
+
+The entity that orchestrated:
+
+the Imp rebellion
+
+the dungeon corruption
+
+the Void invasion
+
+Its goal:
+
+To turn the Abyss Order’s own demon armies into weapons for the Void.
+
+The final battle decides whether the Order keeps control… or the Void claims the Abyss.
+
+
+| Fight | Act   | Location        | Enemy                | Type       | Story / Theme                                          |
+| ----- | ----- | --------------- | -------------------- | ---------- | ------------------------------------------------------ |
+| 1     | Act 1 | Imp Lair        | Rogue Imp Pack       | Enemy      | Imps behaving unusually aggressive                     |
+| 2     | Act 1 | Imp Lair        | Corrupted Broodlings | Enemy      | Void-touched Imps showing strange magic                |
+| 3     | Act 1 | Imp Lair        | Imp Matriarch        | Boss       | Ancient broodmother corrupted by void influence        |
+| 4     | Act 2 | Abyss Dungeon   | Abyss Cultist Patrol | Enemy      | Corrupted Abyss Order cultists guarding deeper tunnels |
+| 5     | Act 2 | Abyss Dungeon   | Void Ritualist       | Enemy      | Cultist channeling unstable void rituals               |
+| 6     | Act 2 | Abyss Dungeon   | Corrupted Handler    | Boss       | Former Abyss Order overseer twisted by the Void        |
+| 7     | Act 3 | Void Rift World | Rift Stalker         | Enemy      | Predator from the void realm hunting intruders         |
+| 8     | Act 3 | Void Rift World | Void Aberration      | Enemy      | Alien creature warped by void energy                   |
+| 9     | Act 3 | Void Rift World | Void Herald          | Boss       | Messenger of the Void directing the invasion           |
+| 10    | Act 4 | Void Castle     | Void Scout           | Enemy      | Fortress guard patrolling the castle entrance          |
+| 11    | Act 4 | Void Castle     | Void Warband         | Enemy      | Organized squad of void soldiers defending the castle  |
+| 12    | Act 4 | Void Castle     | Void Captain         | Elite      | Battlefield commander of the void army                 |
+| 13    | Act 4 | Void Castle     | Void Ritualist Prime | Enemy      | High void mage maintaining fortress rituals            |
+| 14    | Act 4 | Void Castle     | Void Champion        | Elite      | Powerful warrior protecting the throne                 |
+| 15    | Act 4 | Void Castle     | Abyss Sovereign      | Final Boss | Mastermind behind the void invasion                    |
