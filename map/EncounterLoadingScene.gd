@@ -205,6 +205,8 @@ func _add_story_panel(enemy: EnemyData, vp: Vector2) -> void:
 # Buttons
 # ---------------------------------------------------------------------------
 
+var _encounter_btn: Button = null
+
 func _add_encounter_button(vp: Vector2) -> void:
 	var btn := Button.new()
 	btn.text = "ENCOUNTER"
@@ -215,6 +217,7 @@ func _add_encounter_button(vp: Vector2) -> void:
 	_apply_btn_style(btn)
 	btn.pressed.connect(_on_encounter_pressed)
 	add_child(btn)
+	_encounter_btn = btn
 
 func _add_view_deck_button(vp: Vector2) -> void:
 	var btn := Button.new()
@@ -231,10 +234,60 @@ func _add_view_deck_button(vp: Vector2) -> void:
 # ---------------------------------------------------------------------------
 
 func _on_encounter_pressed() -> void:
-	GameManager.go_to_scene("res://combat/board/CombatScene.tscn")
+	_show_button_spinner()
+	# Threaded load keeps the main loop ticking so the spinner actually animates.
+	# Synchronous change_scene_to_file would freeze _process for the whole load.
+	var path := "res://combat/board/CombatScene.tscn"
+	ResourceLoader.load_threaded_request(path)
+	while true:
+		await get_tree().process_frame
+		var status := ResourceLoader.load_threaded_get_status(path)
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			break
+		if status == ResourceLoader.THREAD_LOAD_FAILED or status == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			push_error("EncounterLoadingScene: threaded load failed for %s, falling back" % path)
+			GameManager.go_to_scene(path)
+			return
+	var packed: PackedScene = ResourceLoader.load_threaded_get(path)
+	UserProfile.save()
+	get_tree().change_scene_to_packed(packed)
 
 func _on_view_deck_pressed() -> void:
 	GameManager.go_to_scene("res://ui/DeckViewerScene.tscn")
+
+# ---------------------------------------------------------------------------
+# Button Spinner
+# ---------------------------------------------------------------------------
+
+func _show_button_spinner() -> void:
+	if _encounter_btn == null:
+		return
+	_encounter_btn.disabled = true
+	_encounter_btn.text = "  LOADING"  # leading pad leaves room for the spinner
+
+	# A spinning arc drawn into a Control via _draw — sits at the left edge of
+	# the button, rotates while the synchronous load blocks the main thread.
+	var spinner := _Spinner.new()
+	spinner.size = Vector2(28, 28)
+	spinner.position = Vector2(18, (_encounter_btn.size.y - 28) * 0.5)
+	spinner.color = COLOR_PURPLE
+	_encounter_btn.add_child(spinner)
+
+class _Spinner extends Control:
+	var color: Color = Color(1, 1, 1, 1)
+	var _angle: float = 0.0
+
+	func _process(delta: float) -> void:
+		_angle += delta * TAU * 1.2  # ~1.2 full rotations per second
+		queue_redraw()
+
+	func _draw() -> void:
+		var center := size * 0.5
+		var radius: float = min(size.x, size.y) * 0.5 - 2.0
+		# Faint full ring for context
+		draw_arc(center, radius, 0.0, TAU, 32, Color(color.r, color.g, color.b, 0.25), 3.0, true)
+		# Bright arc that rotates
+		draw_arc(center, radius, _angle, _angle + TAU * 0.3, 16, color, 3.0, true)
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1337,6 +1337,10 @@ var _champion_vch_crit_kills: int = 0
 var _champion_vch_summoned: bool = false
 var _champion_vrp_spells_cast: int = 0
 var _champion_vrp_summoned: bool = false
+# F15 Abyss Sovereign — counts player cards played; threshold tuned so the
+# champion lands in Phase 2 in the average run.
+var _champion_as_cards_played: int = 0
+var _champion_as_summoned: bool = false
 # Sim-only Act 3/4 counters
 var _rift_lord_plays: int = 0
 var _hollow_sentinel_buffs: int = 0

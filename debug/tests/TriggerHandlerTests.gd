@@ -89,6 +89,11 @@ static func run_all() -> void:
 	_vrp_death_resets_spell_cost_aura()
 	_vch_summon_at_3_crit_kills()
 	_vch_aura_grows_resources()
+	_as_counts_player_cards_played()
+	_as_no_summon_in_phase_1()
+	_as_summons_when_threshold_met_in_phase_2()
+	_as_aura_doubles_abyss_awakened()
+	_as_aura_inactive_when_dead()
 	_champion_duel_sync_on_turn_start()
 	_champion_duel_revokes_when_crit_lost()
 	_void_empowerment_normalizes_spark()
@@ -125,16 +130,17 @@ static func _fleshbind() -> void:
 # ---------------------------------------------------------------------------
 
 static func _flesh_infusion() -> void:
+	# Migrated to CardModRules append_on_play_effect_steps (SPEND_FLESH + BUFF_ATK
+	# gated on flesh_spent_this_cast). Test runs the on-play steps directly the
+	# same way other declarative talents (imp_evolution, imp_warband) are tested.
 	var state := TestHarness.seris_state(["flesh_infusion"])
 	if not TestHarness.begin_test("flesh_infusion / +200 ATK on Grafted Fiend play, -1 Flesh", state):
 		return
 	state.player_flesh = 3
+	var data: MinionCardData = state._card_for("player", "grafted_fiend") as MinionCardData
 	var fiend := TestHarness.spawn_friendly(state, "grafted_fiend")
 	var before_atk := fiend.effective_atk()
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
-	ctx.minion = fiend
-	ctx.card = fiend.card_data
-	state.trigger_manager.fire(ctx)
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", fiend))
 	TestHarness.assert_eq(fiend.effective_atk(), before_atk + 200, "ATK +200")
 	TestHarness.assert_eq(state.player_flesh, 2, "Flesh spent: 3 → 2")
 	state.teardown()
@@ -158,10 +164,14 @@ static func _grafted_constitution() -> void:
 	state.teardown()
 
 static func _predatory_surge_swift() -> void:
+	# Migrated to CardModRules append_keywords [SWIFT]. The talent-mutated card data
+	# carries SWIFT in its keywords array, and MinionInstance.create reads it to set
+	# the spawn state to SWIFT. Test asserts both the data shape and the runtime state.
 	var state := TestHarness.seris_state(["predatory_surge"])
 	if not TestHarness.begin_test("predatory_surge / Grafted Fiend enters with Swift", state):
 		return
-	var fiend_data := CardDatabase.get_card("grafted_fiend") as MinionCardData
+	var fiend_data: MinionCardData = state._card_for("player", "grafted_fiend") as MinionCardData
+	TestHarness.assert_true(Enums.Keyword.SWIFT in fiend_data.keywords, "card data keywords contains SWIFT")
 	var fiend := MinionInstance.create(fiend_data, "player")
 	state.player_board.append(fiend)
 	for slot in state.player_slots:
@@ -169,10 +179,6 @@ static func _predatory_surge_swift() -> void:
 			slot.minion = fiend
 			fiend.slot_index = slot.index
 			break
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-	ctx.minion = fiend
-	ctx.card = fiend_data
-	state.trigger_manager.fire(ctx)
 	TestHarness.assert_eq(fiend.state, Enums.MinionState.SWIFT, "state == SWIFT")
 	state.teardown()
 
@@ -1572,6 +1578,79 @@ static func _vch_aura_grows_resources() -> void:
 	_fire_enemy_turn_end(state)
 	TestHarness.assert_eq(state.enemy_mana_max, 1, "mana_max +1")
 	TestHarness.assert_eq(state.enemy_essence_max, 1, "essence_max +1")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Champion: Avatar of the Abyss (F15 Phase 2) — 12 player cards played.
+# Counter ticks across both phases, but summon is gated on _sovereign_phase == 2.
+# Aura: while alive, abyss_awakened grants 2 crit stacks instead of 1.
+# ---------------------------------------------------------------------------
+
+static func _as_counts_player_cards_played() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_sovereign"]})
+	if not TestHarness.begin_test("champion_as / counts each player minion played", state):
+		return
+	for i in 5:
+		var m := TestHarness.spawn_friendly(state, "void_imp")
+		_fire_player_played(state, m)
+	TestHarness.assert_eq(state._champion_as_cards_played, 5, "counter = 5")
+	state.teardown()
+
+static func _as_no_summon_in_phase_1() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_sovereign"]})
+	if not TestHarness.begin_test("champion_as / threshold met in P1 does NOT summon", state):
+		return
+	# Phase defaults to 1.
+	for i in 12:
+		var m := TestHarness.spawn_friendly(state, "void_imp")
+		_fire_player_played(state, m)
+	TestHarness.assert_eq(state._champion_as_cards_played, 12, "counter reached threshold")
+	TestHarness.assert_true(state.get("_champion_as_summoned") != true, "champion NOT summoned in P1")
+	TestHarness.assert_true(not TestHarness.has_on_board(state, "enemy", "champion_abyss_sovereign"), "no champion on board")
+	state.teardown()
+
+static func _as_summons_when_threshold_met_in_phase_2() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_sovereign"]})
+	if not TestHarness.begin_test("champion_as / 12 cards played in P2 summons champion with 2 crit", state):
+		return
+	state._sovereign_phase = 2
+	for i in 12:
+		var m := TestHarness.spawn_friendly(state, "void_imp")
+		_fire_player_played(state, m)
+	TestHarness.assert_true(state.get("_champion_as_summoned") == true, "summoned flag set")
+	TestHarness.assert_true(TestHarness.has_on_board(state, "enemy", "champion_abyss_sovereign"), "champion on board")
+	var champion := TestHarness.find_on_board(state, "enemy", "champion_abyss_sovereign")
+	if champion != null:
+		TestHarness.assert_eq(BuffSystem.sum_type(champion, Enums.BuffType.CRITICAL_STRIKE), 2, "champion has 2 crit stacks on summon")
+	state.teardown()
+
+static func _as_aura_doubles_abyss_awakened() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_sovereign", "abyss_awakened"]})
+	if not TestHarness.begin_test("champion_as / aura makes abyss_awakened grant 2 crit stacks", state):
+		return
+	state._sovereign_phase = 2
+	# Force champion alive.
+	state.set("_champion_as_summoned", true)
+	state._summon_token("champion_abyss_sovereign", "enemy")
+	# A separate enemy minion to observe the abyss_awakened grant on.
+	var grunt := TestHarness.spawn_enemy(state, "rabid_imp")
+	var crit_before: int = BuffSystem.sum_type(grunt, Enums.BuffType.CRITICAL_STRIKE)
+	_fire_enemy_turn_start(state)
+	var crit_after: int = BuffSystem.sum_type(grunt, Enums.BuffType.CRITICAL_STRIKE)
+	TestHarness.assert_eq(crit_after - crit_before, 2, "grunt gained 2 crit stacks (doubled)")
+	state.teardown()
+
+static func _as_aura_inactive_when_dead() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_sovereign", "abyss_awakened"]})
+	if not TestHarness.begin_test("champion_as / abyss_awakened grants 1 stack when champion absent", state):
+		return
+	state._sovereign_phase = 2
+	# Champion never summoned — aura should be inactive.
+	var grunt := TestHarness.spawn_enemy(state, "rabid_imp")
+	var crit_before: int = BuffSystem.sum_type(grunt, Enums.BuffType.CRITICAL_STRIKE)
+	_fire_enemy_turn_start(state)
+	var crit_after: int = BuffSystem.sum_type(grunt, Enums.BuffType.CRITICAL_STRIKE)
+	TestHarness.assert_eq(crit_after - crit_before, 1, "grunt gained only 1 crit stack")
 	state.teardown()
 
 # ---------------------------------------------------------------------------

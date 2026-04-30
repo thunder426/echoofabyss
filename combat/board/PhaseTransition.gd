@@ -18,8 +18,11 @@ extends RefCounted
 const SOVEREIGN_P2_HP: int = 3000
 const SOVEREIGN_P2_DECK_ID: String = "f15_p2"
 const SOVEREIGN_P2_PROFILE: String = "abyss_sovereign_p2"
-const SOVEREIGN_P1_PASSIVES: Array[String] = ["void_might", "abyssal_mandate", "dark_channeling"]
-const SOVEREIGN_P2_PASSIVES: Array[String] = ["void_might", "abyss_awakened"]
+## champion_abyss_sovereign is registered on the base encounter (P1 list) so
+## the card-played counter ticks from the first turn. The handler itself gates
+## the actual summon on _sovereign_phase == 2.
+const SOVEREIGN_P1_PASSIVES: Array[String] = ["void_might", "abyssal_mandate", "dark_channeling", "champion_abyss_sovereign"]
+const SOVEREIGN_P2_PASSIVES: Array[String] = ["void_might", "abyss_awakened", "champion_abyss_sovereign"]
 
 ## Returns true if the scene is the Abyss Sovereign in Phase 1 and the
 ## transition should fire instead of a victory.

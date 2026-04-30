@@ -188,12 +188,25 @@ func get_card_for_combat(id: String, ctx: Dictionary) -> CardData:
 			var existing = clone.get(field)
 			var addition = rule[key]
 			if existing is Array and addition is Array:
-				var merged: Array = _deep_copy(existing)
+				# Build the merged array by mutating a typed copy of `existing`. We
+				# can't just clone.set(field, untyped_array) because typed array
+				# fields (e.g. Array[int] keywords) reject untyped assignment in
+				# Godot 4. Duplicating `existing` preserves its element type, then
+				# append() goes through the typed-array coercion path.
+				var merged: Array = (existing as Array).duplicate()
 				for s in addition:
 					merged.append(_deep_copy(s))
 				clone.set(field, merged)
 			elif existing is String and addition is String:
-				clone.set(field, (existing as String) + (addition as String))
+				# Rules conventionally lead the addition with "\n" so it postfixes
+				# cleanly under the base text. On textless cards (description == "")
+				# that would produce a leading blank line — strip one leading
+				# newline when there's nothing above it.
+				var add_str: String = addition as String
+				var existing_str: String = existing as String
+				if existing_str == "" and add_str.begins_with("\n"):
+					add_str = add_str.substr(1)
+				clone.set(field, existing_str + add_str)
 			else:
 				push_warning("CardModRules: rule '%s' append_<%s> type mismatch (existing %s, addition %s)" % [
 					rule.get("id", "?"), field, typeof(existing), typeof(addition)])
@@ -2507,6 +2520,20 @@ func _register_wanderer_cards() -> void:
 	champion_void_ritualist_prime.art_path     = "res://assets/art/minions/abyss_order/champion_void_ritualist_prime.png"
 	champion_void_ritualist_prime.faction      = "abyss_order"
 	all.append(champion_void_ritualist_prime)
+
+	var champion_abyss_sovereign := MinionCardData.new()
+	champion_abyss_sovereign.id           = "champion_abyss_sovereign"
+	champion_abyss_sovereign.card_name    = "Avatar of the Abyss"
+	champion_abyss_sovereign.essence_cost = 0
+	champion_abyss_sovereign.description  = "Summoned after the player plays 12 cards.\nOn summon: gains 2 Critical Strike.\nAURA: Abyss Awakened grants 2 stacks of Critical Strike instead of 1."
+	champion_abyss_sovereign.atk          = 600
+	champion_abyss_sovereign.health       = 700
+	champion_abyss_sovereign.minion_type  = Enums.MinionType.SPIRIT
+	champion_abyss_sovereign.keywords     = [Enums.Keyword.CHAMPION]
+	champion_abyss_sovereign.is_champion  = true
+	champion_abyss_sovereign.minion_tags  = ["enemy_champion"]
+	champion_abyss_sovereign.faction      = "abyss_order"
+	all.append(champion_abyss_sovereign)
 
 	# --- Void Rift World — Act 3 enemy-only cards (dual cost: mana/essence + Void Sparks) ---
 

@@ -335,16 +335,9 @@ func on_minion_died_fleshbind(ctx: EventContext) -> void:
 # Seris — Fleshcraft branch
 # ---------------------------------------------------------------------------
 
-## flesh_infusion (T0) — When you play a Grafted Fiend, spend 1 Flesh to give it +200 ATK permanent.
-## Fires on ON_PLAYER_MINION_PLAYED (from hand), not ON_PLAYER_MINION_SUMMONED — Fiends
-## summoned by Soul Forge don't cost Flesh to buff (they cost Flesh to summon).
-func on_played_flesh_infusion(ctx: EventContext) -> void:
-	if ctx.minion == null or not _has_tag(ctx.minion, "grafted_fiend"):
-		return
-	if not _scene._spend_flesh(1):
-		return
-	BuffSystem.apply(ctx.minion, Enums.BuffType.ATK_BONUS, 200, "flesh_infusion", false, false)
-	_log("  Flesh Infusion: %s gains +200 ATK." % ctx.minion.card_data.card_name, _LOG_PLAYER)
+## flesh_infusion T0 — "spend 1 Flesh → +200 ATK on Grafted Fiend played from hand"
+## is declarative — see CardModRules.gd "flesh_infusion" rule. Only the kill-stack
+## counter half (formerly grafted_constitution T1, merged into T0) lives below.
 
 ## flesh_infusion T0 (formerly grafted_constitution T1) — Grafted Fiend gains kill stacks
 ## when it kills an enemy minion. _add_kill_stacks routes through the unified helper so
@@ -392,18 +385,10 @@ func on_played_grafting_ritual(ctx: EventContext) -> void:
 	if _scene.has_method("_refresh_slot_for"):
 		_scene._refresh_slot_for(target)
 
-## predatory_surge (T2) — Grafted Fiends enter with Swift.
-## The "3 kill stacks → Siphon" half of this talent lives in on_enemy_died_grafted_constitution
-## because it needs the kill_stacks counter that handler maintains. Registry registers both entry
-## points; this one only handles the on-summon Swift grant.
-func on_summon_predatory_surge(ctx: EventContext) -> void:
-	if ctx.minion == null or not _has_tag(ctx.minion, "grafted_fiend"):
-		return
-	# SWIFT is a MinionState, not a buff — mirrors the base-keyword SWIFT behaviour in
-	# MinionInstance.create so the minion can attack minions on summon turn.
-	if ctx.minion.state == Enums.MinionState.EXHAUSTED:
-		ctx.minion.state = Enums.MinionState.SWIFT
-		_log("  Predatory Surge: %s enters with Swift." % ctx.minion.card_data.card_name, _LOG_PLAYER)
+## predatory_surge T2 — Grafted Fiends enter with Swift. Declarative via CardModRules
+## "predatory_surge" rule (append_keywords [SWIFT]). The "3 kill stacks → Siphon"
+## half of the talent lives in on_enemy_died_grafted_constitution because it needs
+## the non-declarative kill_stacks counter.
 
 # ---------------------------------------------------------------------------
 # Seris — Corruption Engine branch
@@ -1365,13 +1350,59 @@ func on_enemy_turn_void_might(_ctx: EventContext) -> void:
 	_log("  Void Might: %s gains Critical Strike." % target.card_data.card_name, _LOG_ENEMY)
 
 ## abyss_awakened (Abyss Sovereign Phase 2): at enemy turn start, grant ALL
-## friendly minions +1 stack of CRITICAL_STRIKE.
+## friendly minions +1 stack of CRITICAL_STRIKE. While the Avatar of the Abyss
+## champion is alive, the grant is doubled to 2 stacks.
 func on_enemy_turn_abyss_awakened(_ctx: EventContext) -> void:
+	var stacks: int = 2 if _champion_as_is_alive() else 1
 	for m: MinionInstance in _scene.enemy_board:
-		BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike", false, false)
+		BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, stacks, "critical_strike", false, false)
 		_scene._refresh_slot_for(m)
 	if not _scene.enemy_board.is_empty():
-		_log("  Abyss Awakened: all enemy minions gain Critical Strike.", _LOG_ENEMY)
+		if stacks == 2:
+			_log("  Abyss Awakened (empowered): all enemy minions gain 2 Critical Strike.", _LOG_ENEMY)
+		else:
+			_log("  Abyss Awakened: all enemy minions gain Critical Strike.", _LOG_ENEMY)
+
+## ── Champion: Avatar of the Abyss (F15 Phase 2) ───────────────────────────
+## Summon condition: player has played 12 cards (minions + spells, total fight).
+## On summon: gains 2 Critical Strike.
+## Aura: while alive, abyss_awakened grants 2 stacks of Critical Strike instead
+## of 1 (handled inside on_enemy_turn_abyss_awakened).
+
+const _AS_THRESHOLD := 12
+const _AS_PIPS := 12
+
+func on_player_card_champion_as(_ctx: EventContext) -> void:
+	if _scene.get("_champion_as_summoned"):
+		return
+	_scene._champion_as_cards_played += 1
+	var total: int = _scene._champion_as_cards_played
+	var pips: int = mini(total, _AS_PIPS)
+	_scene._update_champion_progress(pips, _AS_PIPS)
+	_log("  Champion progress: %d / %d cards played." % [mini(total, _AS_THRESHOLD), _AS_THRESHOLD], _LOG_ENEMY)
+	# Gate the summon on Phase 2 so the avatar can never appear during P1, even
+	# if the player burns through 12 cards before the Sovereign's HP drops.
+	if total >= _AS_THRESHOLD and _scene.get("_sovereign_phase") == 2:
+		_summon_enemy_champion("champion_abyss_sovereign")
+		# Grant 2 Critical Strike on summon.
+		for m: MinionInstance in _scene.enemy_board:
+			if m.card_data.id == "champion_abyss_sovereign":
+				BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 2, "critical_strike", false, false)
+				_scene._refresh_slot_for(m)
+				break
+
+func on_enemy_died_champion_as(ctx: EventContext) -> void:
+	var minion := ctx.minion
+	if minion == null:
+		return
+	if minion.card_data.id == "champion_abyss_sovereign":
+		_on_enemy_champion_killed()
+
+func _champion_as_is_alive() -> bool:
+	for m in _scene.enemy_board:
+		if (m as MinionInstance).card_data.id == "champion_abyss_sovereign":
+			return true
+	return false
 
 ## abyssal_mandate (Abyss Sovereign Phase 1): the player's resource growth choice
 ## from the previous turn grants a matching discount to the Sovereign this turn.
@@ -1792,6 +1823,8 @@ func _summon_enemy_champion(card_id: String) -> void:
 			_scene.set("_champion_vc_summoned", true)
 		"champion_void_ritualist_prime":
 			_scene.set("_champion_vrp_summoned", true)
+		"champion_abyss_sovereign":
+			_scene.set("_champion_as_summoned", true)
 	var count: int = _scene.get("_champion_summon_count")
 	_scene.set("_champion_summon_count", count + 1)
 	_scene._summon_token(card_id, "enemy")

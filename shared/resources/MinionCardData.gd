@@ -30,7 +30,7 @@ extends CardData
 ## Magic shields (SHIELD_REGEN_1/2) regenerate at the start of the owner's turn.
 @export var shield_max: int = 0
 
-## Sub-type tag used for synergy triggers (e.g. "all your Demons gain +1 ATK")
+## Sub-type tag used for synergy triggers (e.g. "all your Demons gain +100 ATK")
 @export var minion_type: Enums.MinionType = Enums.MinionType.DEMON
 
 ## Keywords this minion has (e.g. [Enums.Keyword.TAUNT, Enums.Keyword.RUSH])

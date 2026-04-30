@@ -357,7 +357,7 @@ func _build_encounter(index: int) -> EnemyData:
 				"ABYSS SOVEREIGN",
 				"At last. The Abyss Sovereign — the source of all corruption, the end of all things. It has devoured worlds without count. Today, it faces something it has never encountered: defiance.",
 				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "abyssal_mandate", "dark_channeling"], "abyss_sovereign")
+				["void_might", "abyssal_mandate", "dark_channeling", "champion_abyss_sovereign"], "abyss_sovereign")
 	return null
 
 func _make_encounter(ename: String, ehp: int, pool: Array[String],

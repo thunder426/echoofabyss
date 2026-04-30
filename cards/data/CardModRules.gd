@@ -139,6 +139,48 @@ const RULES: Array = [
 		],
 		"append_description": "\nRUNE CALLER: Draw a Rune from your deck. It costs 1 less Mana this turn.",
 	},
+	# Seris Fleshcraft T0 — Flesh Infusion. Playing a Grafted Fiend from hand spends
+	# 1 Flesh to grant +200 ATK permanent. Was on_played_flesh_infusion handler.
+	# Migrated to clan-wide on-play step injection: SPEND_FLESH gates the BUFF_ATK
+	# via the standard "flesh_spent_this_cast" condition (same pattern as Mend the
+	# Flesh / Flesh-Stitched Horror). Fires only on hand play (on_play_effect_steps),
+	# not on Soul Forge token summons — same semantics as the original handler which
+	# listened on ON_PLAYER_MINION_PLAYED, not ON_PLAYER_MINION_SUMMONED.
+	# Filter is the "grafted_fiend" tag, so Grafted Reaver / Flesh Scout / Matron of
+	# Flesh inherit the same buff (matching the original _has_tag check).
+	{
+		"id":     "flesh_infusion",
+		"when":   { "talent": "flesh_infusion" },
+		"filter": { "tag": "grafted_fiend" },
+		"append_on_play_effect_steps": [
+			{"type": "SPEND_FLESH", "amount": 1},
+			{"type": "BUFF_ATK", "scope": "SELF", "amount": 200, "permanent": true,
+			 "source_tag": "flesh_infusion", "conditions": ["flesh_spent_this_cast"]},
+		],
+		# Two-part talent: declarative on-play half (above) + non-declarative
+		# on-kill half (CombatState._add_kill_stacks under has_talent flesh_infusion).
+		# Both halves are described here so the card reads end-to-end after talent.
+		"append_description": "\nON PLAY: Spend 1 Flesh: gain +200 ATK.\nWhenever this minion kills an enemy minion, gain +100 ATK and +100 HP.",
+	},
+	# Seris Fleshcraft T2 — Predatory Surge. Grafted Fiend tagged minions enter with
+	# Swift. Was on_summon_predatory_surge handler that flipped MinionState to SWIFT.
+	# Migrated by adding SWIFT to the card's keywords array — MinionInstance.create
+	# already converts EXHAUSTED→SWIFT for cards with the keyword, so behavior is
+	# identical for both hand play and token summons (which is correct: predatory_surge
+	# was on ON_PLAYER_MINION_SUMMONED, covering all summon paths).
+	# The "3 kill stacks → Siphon" half lives on under flesh_infusion's
+	# on_enemy_died_grafted_constitution handler (kill_stacks counter is non-declarative).
+	{
+		"id":     "predatory_surge",
+		"when":   { "talent": "predatory_surge" },
+		"filter": { "tag": "grafted_fiend" },
+		"append_keywords": [Enums.Keyword.SWIFT],
+		# Two-part talent: declarative SWIFT keyword (above) + non-declarative
+		# Siphon-at-3-kill_stacks half (CombatState._add_kill_stacks under has_talent
+		# predatory_surge). SWIFT is shown via the keyword field per CARD_DESCRIPTION_STYLE
+		# rule #39, so the description only carries the non-keyword on-kill clause.
+		"append_description": "\nAfter killing 3 enemy minions, gain SIPHON.",
+	},
 ]
 
 ## Returns the list of rules that match the given filter context. Side is

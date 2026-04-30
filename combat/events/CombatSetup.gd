@@ -77,10 +77,11 @@ const _REGISTRY: Dictionary = {
 	# ── Seris — Fleshcraft branch ────────────────────────────────────────────
 	"flesh_infusion": {
 		"triggers": [
-			{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "method": "on_played_flesh_infusion", "priority": 30 },
+			# T0 "spend 1 Flesh → +200 ATK when Grafted Fiend is played from hand" is
+			# declarative — see CardModRules.gd "flesh_infusion" rule.
 			# Grafted Constitution (formerly T1) was merged into Flesh Infusion; the +100/+100-on-kill
-			# trigger is now part of T0. Predatory Surge's "3 kill stacks → Siphon" still reads
-			# kill_stacks maintained by this handler.
+			# trigger stays here because kill_stacks is a non-declarative counter.
+			# Predatory Surge's "3 kill stacks → Siphon" still reads kill_stacks maintained by this handler.
 			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_grafted_constitution", "priority": 30 },
 		],
 		"stats":    {}
@@ -89,8 +90,11 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "method": "on_played_grafting_ritual", "priority": 20 }],
 		"stats":    {}
 	},
+	# predatory_surge — Grafted Fiends enter with Swift via CardModRules
+	# append_keywords. The "3 kill stacks → Siphon" half is non-declarative and
+	# lives in on_enemy_died_grafted_constitution (registered above under flesh_infusion).
 	"predatory_surge": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_predatory_surge", "priority": 30 }],
+		"triggers": [],
 		"stats":    {}
 	},
 	# deathless_flesh — no trigger; handled by CombatScene._try_save_from_death hook.
@@ -314,6 +318,14 @@ const _REGISTRY: Dictionary = {
 			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_champion_vrp",  "priority": 96 },
 		],
 		"stats": { "_champion_vrp_spells_cast": 0, "_champion_vrp_summoned": false }
+	},
+	"champion_abyss_sovereign": {
+		"triggers": [
+			{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "method": "on_player_card_champion_as", "priority": 91 },
+			{ "event": Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,    "method": "on_player_card_champion_as", "priority": 91 },
+			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED,    "method": "on_enemy_died_champion_as",  "priority": 95 },
+		],
+		"stats": { "_champion_as_cards_played": 0, "_champion_as_summoned": false }
 	},
 	# ── Act 3 enemy passives ──────────────────────────────────────────────────
 	"void_rift": {
