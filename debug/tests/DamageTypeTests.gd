@@ -58,6 +58,16 @@ static func run_all() -> void:
 	_test_void_bolt_spell_path_is_spell_source()
 	_test_void_bolt_minion_emitted_path_is_minion_source()
 
+	print("\n=== DamageType: Phase 8 (Korrath Armour) ===")
+	_test_armour_reduces_physical_damage()
+	_test_armour_min_100_floor()
+	_test_armour_floor_only_when_armour_present()
+	_test_armour_bypassed_by_spells()
+	_test_armour_break_strips_armour()
+	_test_armour_break_overflow_becomes_bonus_damage()
+	_test_armour_break_against_unarmoured_target()
+	_test_pierce_carry_uses_post_armour_damage()
+
 # ---------------------------------------------------------------------------
 # Phase 1 — pure data assertions on Enums.has_school() / SCHOOL_LINEAGE
 # ---------------------------------------------------------------------------
@@ -591,4 +601,125 @@ static func _test_void_spell_emits_void_school() -> void:
 					"void_lance step tagged VOID")
 			TestHarness.assert_true(Enums.has_school(step.damage_school, Enums.DamageSchool.VOID),
 					"VOID lineage — buffs/triggers keying off VOID hit it")
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Korrath Armour: physical damage reduction, min-100 floor, spell
+# bypass, Armour Break stripping, AB overflow as flat bonus damage, pierce
+# carries post-armour value to the hero.
+# ---------------------------------------------------------------------------
+
+static func _test_armour_reduces_physical_damage() -> void:
+	# 600 ATK attack vs 200 Armour → defender takes 400 (600 - 200, above floor).
+	if not TestHarness.begin_test("armour / physical attack reduced by armour value"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000   # raise HP so we can observe non-fatal damage
+	defender.armour = 200
+	var info := CombatManager.make_damage_info(600, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(defender.current_health, 600, "1000 - (600-200) = 600")
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 400,
+			"last_post_armour_damage exposes the reduced amount")
+
+static func _test_armour_min_100_floor() -> void:
+	# 200 ATK vs 900 Armour → would be -700 without the floor; clamped to 100.
+	if not TestHarness.begin_test("armour / 100 minimum damage floor when armour exceeds incoming"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	defender.armour = 900
+	var info := CombatManager.make_damage_info(200, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(defender.current_health, 900, "min-100 floor: 1000 - 100 = 900")
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 100,
+			"post-armour clamps to 100, not 0 or negative")
+
+static func _test_armour_floor_only_when_armour_present() -> void:
+	# A 50-damage MINION attack vs unarmoured (no armour, no AB) target lands as 50,
+	# not floored to 100. The floor is an armour-interaction rule, not a global min.
+	if not TestHarness.begin_test("armour / no floor applied when target has no armour and no AB"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 500
+	# defender.armour defaults to 0 from MinionCardData.armour
+	var info := CombatManager.make_damage_info(50, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(defender.current_health, 450, "raw 50 unchanged, no floor")
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 50, "post-armour == raw")
+
+static func _test_armour_bypassed_by_spells() -> void:
+	# A 300-damage SPELL vs 800 Armour → defender takes 300 (armour ignored).
+	if not TestHarness.begin_test("armour / spells bypass armour entirely"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	defender.armour = 800
+	var info := CombatManager.make_damage_info(300, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(defender.current_health, 700, "1000 - 300 = 700 (armour ignored)")
+
+static func _test_armour_break_strips_armour() -> void:
+	# 100 AB vs 300 Armour: effective_armour = 200, bonus = 0. 500 ATK → 300 damage.
+	if not TestHarness.begin_test("armour_break / reduces target armour for the calc"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	defender.armour = 300
+	BuffSystem.apply(defender, Enums.BuffType.ARMOUR_BREAK, 100, "test")
+	var info := CombatManager.make_damage_info(500, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 300,
+			"500 - max(0, 300-100) + max(0, 100-300) = 500 - 200 + 0 = 300")
+
+static func _test_armour_break_overflow_becomes_bonus_damage() -> void:
+	# 500 AB vs 200 Armour: effective_armour = 0, bonus = 300. 200 ATK → 500 damage.
+	if not TestHarness.begin_test("armour_break / excess AB beyond armour becomes flat bonus damage"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	defender.armour = 200
+	BuffSystem.apply(defender, Enums.BuffType.ARMOUR_BREAK, 500, "test")
+	var info := CombatManager.make_damage_info(200, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 500,
+			"200 - 0 + 300 = 500 (overflow AB is bonus damage)")
+
+static func _test_armour_break_against_unarmoured_target() -> void:
+	# AB vs 0-armour target functions as pure flat bonus damage. Floor still applies
+	# because AB triggers the armour-math path.
+	if not TestHarness.begin_test("armour_break / functions as flat bonus damage on unarmoured targets"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	BuffSystem.apply(defender, Enums.BuffType.ARMOUR_BREAK, 300, "test")
+	var info := CombatManager.make_damage_info(100, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 400,
+			"100 + 300 (full AB) = 400 — pure bonus on unarmoured target")
+
+static func _test_pierce_carry_uses_post_armour_damage() -> void:
+	# Ethereal Titan (600 ATK, PIERCE) attacks a 100-HP void_imp with 300 Armour.
+	# Post-armour damage = 600 - 300 = 300; defender dies (had 100 HP); pierce excess
+	# = 300 - 100 = 200 → hero damage 200, NOT 500 (the pre-armour 600 - 100 figure).
+	if not TestHarness.begin_test("armour / pierce carries post-armour damage to hero"):
+		return
+	var state := TestHarness.build_state()
+	var cap := HeroDmgCapture.new()
+	state.combat_manager.hero_damaged.connect(cap.on_emit)
+	var titan := TestHarness.spawn_friendly(state, "ethereal_titan")
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.armour = 300
+	state.combat_manager.resolve_minion_attack(titan, defender)
+	# Hero damage emissions are pierce excess (counter doesn't hit hero).
+	TestHarness.assert_true(cap.events.size() >= 1, "pierce emitted at least one event")
+	if cap.events.size() >= 1:
+		TestHarness.assert_eq(cap.events[0].get("amount"), 200,
+				"pierce excess = post-armour 300 - 100 HP = 200, not raw 600 - 100 = 500")
 

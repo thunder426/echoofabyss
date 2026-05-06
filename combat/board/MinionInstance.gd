@@ -13,6 +13,11 @@ extends RefCounted
 ## so effective_atk() can read it without a scene reference.
 static var corruption_inverts_on_friendly_demons: bool = false
 
+## Korrath Iron Resolve flag — when true, friendly Human minions gain ATK equal to
+## their current Armour value (passive, always active while the talent is unlocked).
+## Same flip-it-in-CombatSetup pattern as the Seris flag above.
+static var iron_resolve_active: bool = false
+
 # Who owns this minion
 var owner: String = "player"  # "player" or "enemy"
 
@@ -51,6 +56,15 @@ var aura_tags: Array[String] = []
 # Current shield HP — absorbs damage before HP; regenerated each turn if regen keyword present.
 var current_shield: int = 0
 
+## Korrath — current Armour. Reduces incoming physical attack damage; spells bypass.
+## Mutated only via add_armour() so the branch-1 T3 doubling check lives in one place.
+var armour: int = 0
+
+## Korrath — set of MinionInstance partners that have already triggered this minion's
+## FORMATION effect. Keyed by partner instance (Dictionary used as a set). Each pair fires
+## at most once; once a partner is added here the same partner cannot retrigger Formation.
+var formation_partners: Dictionary = {}
+
 # ---------------------------------------------------------------------------
 # Buff list — managed exclusively by BuffSystem
 # ---------------------------------------------------------------------------
@@ -84,6 +98,7 @@ static func create(data: MinionCardData, owner_id: String) -> MinionInstance:
 	instance.current_atk    = data.atk
 	instance.current_health = data.health
 	instance.current_shield = data.shield_max
+	instance.armour         = data.armour
 	instance.spawn_atk      = data.atk
 	instance.spawn_health   = data.health
 	# Minions are exhausted (cannot attack) on the turn they are summoned
@@ -114,6 +129,11 @@ func effective_atk() -> int:
 		atk += corruption_stacks
 	else:
 		atk -= corruption_stacks
+	# Korrath Iron Resolve: friendly Humans add their current Armour to ATK.
+	if iron_resolve_active \
+			and owner == "player" \
+			and card_data.minion_type == Enums.MinionType.HUMAN:
+		atk += armour
 	return maxi(0, atk)
 
 ## Maximum shield this minion can have (base + SHIELD_BONUS buffs).
@@ -194,6 +214,18 @@ func has_ethereal() -> bool:
 ## True if this minion has Pierce (excess kill damage carries to enemy hero).
 func has_pierce() -> bool:
 	return Enums.Keyword.PIERCE in card_data.keywords
+
+## Korrath — central armour mutator. All armour gains/losses go through this so the
+## branch-1 T3 Unbreakable "doubled armour gains on Abyssal Knight" check lives in one
+## place. Phase 3 will read scene._armour_doubled_on_knight and double `amount` for
+## abyssal_knight; for now this is a passthrough.
+##
+## Negative amounts are allowed (e.g. armour stripping); armour floors at 0.
+func add_armour(amount: int, scene: Object = null) -> void:
+	if amount > 0 and scene != null and scene.get("_armour_doubled_on_knight") == true \
+			and card_data != null and card_data.id == "abyssal_knight":
+		amount *= 2
+	armour = maxi(0, armour + amount)
 
 # ---------------------------------------------------------------------------
 # Turn lifecycle

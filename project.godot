@@ -26,6 +26,7 @@ TalentDatabase="*res://talents/TalentDatabase.gd"
 HeroDatabase="*res://heroes/HeroDatabase.gd"
 TestConfig="*res://debug/TestConfig.gd"
 AudioManager="*res://shared/scripts/AudioManager.gd"
+EscMenu="*res://shared/scripts/EscMenu.gd"
 
 [display]
 

@@ -1,0 +1,212 @@
+# Korrath, the Abyssal Commander — Hero Design Document
+
+**Version:** 0.1 (pre-alpha)
+**Faction:** Abyss Order
+**Status:** Design phase
+
+-----
+
+## 1. Hero Identity
+
+**Name:** Korrath, the Abyssal Commander
+**Faction:** Abyss Order
+**Resource System:** Standard Essence / Mana
+
+Korrath is a dark knight commander who channels abyssal energy through physical dominance, corruption stripping, and runic power. Unlike Vael’s imp swarm or Seris’s flesh economy, Korrath is built around a singular powerful frontline unit that transforms through branch investment — a patient, escalating threat that grows more dangerous the longer it survives.
+
+-----
+
+## 2. New Mechanics
+
+### Armour
+
+A defensive stat that reduces incoming physical attack damage by its value.
+
+|Rule             |Detail                                                               |
+|-----------------|---------------------------------------------------------------------|
+|Damage reduction |Reduces physical attack damage by Armour value                       |
+|Minimum damage   |Physical attacks always deal at least 100 damage regardless of Armour|
+|Spell interaction|Spells bypass Armour entirely — full damage always lands             |
+|Stacking         |Armour stacks permanently unless removed                             |
+
+### Armour Break
+
+A stackable debuff applied to enemy minions and heroes.
+
+|Rule                      |Detail                                                                                |
+|--------------------------|--------------------------------------------------------------------------------------|
+|Primary function          |Reduces target’s Armour by its value first                                            |
+|Secondary function        |If Armour Break exceeds target’s Armour, excess converts to flat bonus physical damage|
+|Against unarmoured targets|Functions purely as flat bonus physical damage                                        |
+|Stacking                  |Permanent, stacks indefinitely                                                        |
+
+**Resolution order for physical attacks against armoured targets:**
+
+1. Armour Break reduces target Armour first
+1. Remaining Armour reduces incoming damage
+1. If Armour Break exceeds Armour value, excess adds flat bonus damage
+1. Minimum 100 damage always applies
+
+### Formation (Keyword)
+
+When this minion is placed adjacent to another minion of the same race, trigger this effect once permanently. Order does not matter — the effect triggers regardless of which minion is placed first.
+
+- One-time trigger per minion pair
+- Does not retrigger if adjacency is broken and reformed
+- Each new adjacent same-race minion is a fresh Formation trigger
+
+-----
+
+## 3. Core Unit — Abyssal Knight
+
+|Card Name     |Cost|ATK|HP |Type       |Keywords|Effect|
+|--------------|----|---|---|-----------|--------|------|
+|Abyssal Knight|4E  |400|500|Human/Demon|—       |—     |
+
+
+> **Note:** Textless. Power comes entirely from branch talents and hero passives. Base race (Human or Demon) is determined by T0 talent choice per branch.
+
+-----
+
+## 4. Permanent Passives
+
+|Passive              |Effect                                                                    |
+|---------------------|--------------------------------------------------------------------------|
+|**Abyssal Commander**|Abyssal Knight costs 1 less Essence (effectively 3E)                      |
+|**Iron Legion**      |May include up to 4 copies of Abyssal Knight in the deck (normal cap is 2)|
+
+-----
+
+## 5. Talent Tree
+
+Korrath has 3 talent branches, each with 4 tiers. One talent point is granted at run start and one per act boss defeat (up to 4 total).
+
+-----
+
+### Branch 1 — Infernal Bulwark
+
+*Focus: Human formation, Armour stacking, patient investment, Guard capstone*
+
+The knight becomes a Human anchor for a disciplined formation. Armour accumulates through Formation triggers and converts directly into ATK. The capstone makes the knight an immovable guardian that doubles all future Armour gains.
+
+|Tier|ID              |Name             |Effect                                                                                                                                                                                                   |
+|----|----------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|T0  |iron_formation  |Iron Formation   |Abyssal Knight’s race becomes Human. Abyssal Knight gains the Formation keyword: the first time a Human is placed adjacent to the knight, it permanently gains 200 Armour and 200 HP (triggers once only)|
+|T1  |commanders_reach|Commander’s Reach|Aura: while Abyssal Knight is on board, adjacent friendly Humans apply 100 Armour Break to their attack target on each attack                                                                            |
+|T2  |iron_resolve    |Iron Resolve     |All friendly Humans gain ATK equal to their current Armour value (passive, always active)                                                                                                                |
+|T3  |unbreakable     |Unbreakable      |CAPSTONE: Abyssal Knight gains Guard. All Armour gains on Abyssal Knight are doubled                                                                                                                     |
+
+**Branch notes:**
+
+- T0 Formation is a one-time permanent trigger — does not retrigger on subsequent adjacent humans
+- T2 conversion is a live passive — as Armour changes, ATK updates accordingly
+- T3 Guard forces all enemy attacks into the knight; doubled Armour gains amplify T2’s ATK conversion simultaneously
+- Branch wants a human-heavy deck from run start
+
+-----
+
+### Branch 2 — Runic Knight
+
+*Focus: Double race tag, rune generation through attacks, rune aura absorption, Grand Ritual Chaos capstone*
+
+The knight transcends its origin through runic empowerment, gaining both Human and Demon tags. Every attack generates a random rune. Overflow runes are absorbed as permanent auras. The capstone fires Grand Ritual Chaos — three volatile effects with one randomly enhanced post-resolution.
+
+|Tier|ID                 |Name               |Effect                                                                                                                                                                                                                                                                                                                                               |
+|----|-------------------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|T0  |runic_transcendence|Runic Transcendence|Abyssal Knight gains both Human and Demon race tags simultaneously. Whenever Abyssal Knight attacks, place a random Rune on your board                                                                                                                                                                                                               |
+|T1  |runic_absorption   |Runic Absorption   |When your rune board is full (3 active runes) and Abyssal Knight generates a new rune, randomly destroy one active rune and permanently grant its aura to a random Abyssal Knight on board. Stacks — the same aura type can be granted multiple times                                                                                                |
+|T2  |runic_empowerment  |Runic Empowerment  |Choose one permanently: **Path of Demons** — when a Demon is summoned, deal 50 damage × total active rune auras (rune slots + knight aura stacks) to a random enemy, repeated that many times. **Path of Humans** — when a Human is summoned, give 50 ATK × total active rune auras to a random friendly minion, repeated that many times            |
+|T3  |grand_ritual_chaos |Grand Ritual: Chaos|CAPSTONE: Consume any 3 active runes → trigger 3 volatile effects simultaneously. Each effect has inherent damage/value variance (rolls within a range). After all effects resolve, randomly reveal one as Enhanced — its output is massively amplified. T1 triggers three times simultaneously, granting three rune auras to a random Abyssal Knight|
+
+**Rune aura count for T2 (X):**
+X = active rune slots on board + total aura stacks absorbed by all Abyssal Knights via T1
+
+**T1 interaction with T3:**
+Consuming 3 runes via Chaos triggers T1 three times — the knight absorbs three aura stacks in the same turn Chaos resolves. X increases by 3 after Chaos fires.
+
+**Branch notes:**
+
+- Random rune generation introduces variance the player adapts to rather than controls
+- T2 path choice commits the deck to Demon flood or Human summon identity
+- T3 Enhanced reveal happens after all effects resolve — the chaos is embraced, not gamed
+- Branch is dependent on the knight attacking consistently; removal stalls rune generation
+- Both demon and human paths remain functional without the knight via T2 summon triggers
+
+-----
+
+### Branch 3 — Abyssal Breaker
+
+*Focus: Demon knight, corruption as Armour stripper, Armour Break stacking, spell damage explosion capstone*
+
+The knight becomes a Demon and a living corruption engine. Every corruption stack strips enemy Armour. The knight applies corruption on every attack including to the enemy hero. T2 splits into spell burst or demon aggression paths. The capstone detonates accumulated Armour Break as spell damage on enemy death.
+
+|Tier|ID                 |Name               |Effect                                                                                                                                                                                                                                                                               |
+|----|-------------------|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|T0  |corrupting_presence|Corrupting Presence|Abyssal Knight’s race becomes Demon. Each stack of Corruption on an enemy also reduces that enemy’s Armour by 100                                                                                                                                                                    |
+|T1  |abyssal_strike     |Abyssal Strike     |Whenever Abyssal Knight attacks any target (minion or enemy hero), apply 1 Corruption stack to that target                                                                                                                                                                           |
+|T2  |breaker_path       |Breaker’s Path     |Choose one permanently: **Path of Ruination** — your spells apply 1 Corruption stack to their target on cast; each Corruption stack on a target increases spell damage it takes by 100. **Path of Destruction** — friendly Demon attacks apply 50 Armour Break to their attack target|
+|T3  |armour_explosion   |Armour Explosion   |CAPSTONE: When an enemy minion dies, deal spell damage to all enemies equal to that minion’s total accumulated Armour Break value                                                                                                                                                    |
+
+**Key interactions:**
+
+- T0 + T1: knight attacks simultaneously deal damage, apply corruption, and strip 100 Armour per stack — two debuff systems from one attack
+- Path of Ruination + T3: corruption stacks on surviving enemies increase spell damage taken, amplifying the explosion damage they receive
+- Path of Destruction + T3: demon attacks build Armour Break directly, feeding the explosion value
+- T3 explosion is spell damage — bypasses Armour on all targets hit, benefits from Path of Ruination’s corruption amplification
+- Branch wants a demon-heavy or spell-heavy deck depending on T2 path chosen
+
+-----
+
+## 6. Armour System Summary
+
+|Mechanic                          |Rule                                                               |
+|----------------------------------|-------------------------------------------------------------------|
+|Physical attacks vs Armour        |Damage reduced by Armour value, minimum 100                        |
+|Spells vs Armour                  |Spells bypass Armour entirely                                      |
+|Armour Break vs Armour            |Reduces Armour first, excess converts to flat bonus physical damage|
+|Armour Break vs no Armour         |Functions as flat bonus physical damage only                       |
+|Corruption vs Armour (Branch 3 T0)|Each corruption stack reduces target Armour by 100                 |
+|Armour to ATK (Branch 1 T2)       |All friendly Humans gain ATK equal to their Armour value           |
+|Armour gain doubling (Branch 1 T3)|All Armour gains on Abyssal Knight are doubled                     |
+
+-----
+
+## 7. Branch Comparison
+
+|Property         |Branch 1 — Infernal Bulwark                      |Branch 2 — Runic Knight          |Branch 3 — Abyssal Breaker        |
+|-----------------|-------------------------------------------------|---------------------------------|----------------------------------|
+|Knight race      |Human                                            |Human + Demon                    |Demon                             |
+|Deck composition |Human-heavy                                      |Human or Demon (T2 path)         |Demon or Spell-heavy (T2 path)    |
+|Play identity    |Patient, defensive, formation                    |Chaotic, escalating, magical     |Aggressive, combo, corruption     |
+|Win condition    |Armoured Guard knight with massive ATK conversion|Grand Ritual Chaos explosive turn|Armour explosion on enemy death   |
+|Armour role      |Offensive (converts to ATK)                      |Passive (Formation only)         |Defensive stripping via corruption|
+|Armour Break role|Adjacent human applicator                        |Minimal                          |Primary damage amplifier          |
+|Corruption role  |None                                             |None                             |Core setup mechanic               |
+|Rune interaction |None                                             |Core mechanic                    |None                              |
+
+-----
+
+## 8. Hero Comparison — Abyss Order
+
+|Property               |Vael                                            |Seris                                         |Korrath                                                  |
+|-----------------------|------------------------------------------------|----------------------------------------------|---------------------------------------------------------|
+|Core unit              |Void Imp                                        |Grafted Fiend                                 |Abyssal Knight                                           |
+|Core loop              |Imp swarm → void bolt burst                     |Demon death → Flesh accumulation → power spike|Knight investment → Armour/corruption → escalating threat|
+|Play speed             |Fast, aggressive                                |Medium, sacrifice-paced                       |Slow, investment-oriented                                |
+|New mechanic           |Void Marks                                      |Flesh, Siphon                                 |Armour, Armour Break, Formation                          |
+|Faction mechanisms used|Corruption, runes, rituals, sacrifice, void bolt|Corruption, sacrifice, demon synergy          |Corruption, runes (Branch 2), demon synergy, sacrifice   |
+
+-----
+
+## 9. Design Notes
+
+- **Textless core unit:** Abyssal Knight’s power comes entirely from branch investment. Early game it is an unremarkable body; mid-to-late game it transforms based on talent choices
+- **Three race identities:** Each branch changes the knight’s race at T0 — Human (Branch 1), Human+Demon (Branch 2), Demon (Branch 3). Three completely different deck compositions from the same hero
+- **Armour minimum damage floor:** Physical attacks always deal at least 100 damage regardless of Armour value, preventing immunity states
+- **Spell penetration:** Spells bypass Armour entirely, providing consistent counterplay for spell-heavy opponents
+- **Support card pool:** Not yet designed. Each branch has distinct needs — Branch 1 needs additional Armour generation for humans, Branch 2 needs rune generation fallback when knight is absent, Branch 3 needs corruption applicators and Armour Break sources to reach T3 explosion thresholds
+- **Starter deck:** Not yet designed. Two preset deck directions anticipated — Human-leaning and Demon-leaning — to signal composition choice from hero select
+
+-----
+
+*End of Korrath Hero Design Document · Echo of Abyss*

@@ -138,7 +138,19 @@ func get_card_for_combat(id: String, ctx: Dictionary) -> CardData:
 			var val = ovr[field]
 			if val is Array or val is Dictionary:
 				val = _deep_copy(val)
-			clone.set(field, val)
+			# Typed Array[int] fields (e.g. keywords) reject untyped assignment via
+			# clone.set() — same Godot-4 typing constraint that CardModRules handles
+			# in its append path. Replace by clearing the existing typed array and
+			# refilling, which preserves the element type via the typed-append path.
+			var existing = clone.get(field)
+			if val is Array and existing is Array:
+				var typed: Array = (existing as Array).duplicate()
+				typed.clear()
+				for item in val:
+					typed.append(item)
+				clone.set(field, typed)
+			else:
+				clone.set(field, val)
 
 	# Step 2: clan/filter delta rules (additive on top of overrides)
 	for rule_any in matching:
@@ -372,6 +384,63 @@ func _register_wanderer_cards() -> void:
 	grafted_fiend.faction        = "abyss_order"
 	grafted_fiend.art_path             = "res://assets/art/minions/abyss_order/grafted_fiend.png"
 	all.append(grafted_fiend)
+
+	# Abyssal Knight — Korrath's textless core unit. 4E / 400 / 500 with no race set
+	# at base; race + behaviour come from each branch's T0 talent override (Human for
+	# Infernal Bulwark, Human+Demon for Runic Knight, Demon for Abyssal Breaker).
+	# Two hero passives modify it: abyssal_commander (cost -1 → effectively 3E) and
+	# iron_legion (deck cap raised to 4). Both wired declaratively (CardModRules and
+	# DeckBuilderScene._EXTRA_COPY_RULES) — this card stays a plain stat block.
+	# minion_type defaults to DEMON because the field is required; branch T0 overrides
+	# replace it with the branch-appropriate race before the card hits combat.
+	var abyssal_knight := MinionCardData.new()
+	abyssal_knight.id           = "abyssal_knight"
+	abyssal_knight.card_name    = "Abyssal Knight"
+	abyssal_knight.essence_cost = 4
+	abyssal_knight.description  = ""
+	abyssal_knight.atk          = 400
+	abyssal_knight.health       = 500
+	abyssal_knight.minion_type  = Enums.MinionType.DEMON
+	abyssal_knight.minion_tags  = ["abyssal_knight"]
+	abyssal_knight.faction      = "abyss_order"
+	abyssal_knight.art_path     = ""
+	# Korrath Branch 1 — Infernal Bulwark talent overrides. Each higher-tier override
+	# carries forward the lower tiers' field replacements because talent_overrides are
+	# full-field replacements applied in array order, last write wins. Tier prereqs
+	# guarantee all lower-tier overrides on the same branch are active when a higher
+	# tier is, so the cumulative-replacement pattern stays consistent. Branches 2 and
+	# 3 will append their own overrides here in tasks 004-005.
+	abyssal_knight.talent_overrides = [
+		# T0 Iron Formation: knight becomes Human and gains FORMATION; first adjacent
+		# Human pair grants permanent +200 Armour and +200 HP via formation_effect_steps.
+		# The +200 Armour is doubled to +400 when T3 unbreakable is also active because
+		# MinionInstance.add_armour reads scene._armour_doubled_on_knight.
+		{
+			"talent_id":   "iron_formation",
+			"minion_type": Enums.MinionType.HUMAN,
+			"keywords":    [Enums.Keyword.FORMATION],
+			"formation_effect_steps": [
+				{"type": "BUFF_ARMOUR", "scope": "SELF", "amount": 200, "source_tag": "iron_formation"},
+				{"type": "BUFF_HP",     "scope": "SELF", "amount": 200, "source_tag": "iron_formation"},
+			],
+			"description": "FORMATION: First Human placed adjacent permanently grants +200 Armour and +200 HP.",
+		},
+		# T3 Unbreakable: adds GUARD on top of T0. Carries the full T0 override
+		# forward (race=HUMAN, FORMATION + GUARD keywords, formation_effect_steps).
+		# The "all armour gains doubled" half lives as a scene flag set in
+		# CombatSetup, read by MinionInstance.add_armour for this card id.
+		{
+			"talent_id":   "unbreakable",
+			"minion_type": Enums.MinionType.HUMAN,
+			"keywords":    [Enums.Keyword.FORMATION, Enums.Keyword.GUARD],
+			"formation_effect_steps": [
+				{"type": "BUFF_ARMOUR", "scope": "SELF", "amount": 200, "source_tag": "iron_formation"},
+				{"type": "BUFF_HP",     "scope": "SELF", "amount": 200, "source_tag": "iron_formation"},
+			],
+			"description": "GUARD\nFORMATION: First Human placed adjacent permanently grants +200 Armour and +200 HP.\nAll Armour gains on this minion are doubled.",
+		},
+	]
+	all.append(abyssal_knight)
 
 	# --- Seris Core Pool ------------------------------------------------------
 	# Hero-gated starter pool visible only when Seris is the active hero. Pool
@@ -2953,7 +3022,7 @@ func _register_wanderer_cards() -> void:
 		"dark_covenant": ["abyss_core"],    "abyssal_summoning_circle": ["abyss_core"],
 		"void_rune": ["abyss_core"],        "blood_rune": ["abyss_core"],
 		"dominion_rune": ["abyss_core"],    "shadow_rune": ["abyss_core"],
-		"grafted_fiend": ["abyss_core"],
+		"grafted_fiend": ["abyss_core"],   "abyssal_knight": ["abyss_core"],
 		# Seris Core Pool — visible only when Seris is the active hero (see DeckBuilderScene._deck_builder_pools_for_hero)
 		"void_spawning": ["seris_core"],
 		"fiendish_pact": ["seris_core"],

@@ -10,6 +10,7 @@ var _heroes: Dictionary = {}
 func _ready() -> void:
 	_register_lord_vael()
 	_register_seris()
+	_register_korrath()
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -129,4 +130,40 @@ func _register_seris() -> void:
 	h.hero_reward_pool = []
 
 	h.flavor = "\"Flesh remembers what the soul forgets.\"\n- Seris, the Fleshbinder"
+	_register(h)
+
+# ---------------------------------------------------------------------------
+# Korrath, the Abyssal Commander — third Abyss Order hero
+# ---------------------------------------------------------------------------
+
+func _register_korrath() -> void:
+	var h := HeroData.new()
+	h.id = "korrath"
+	h.hero_name = "Korrath"
+	h.title = "the Abyssal Commander"
+	h.faction = "Abyss Order"
+	# Art assets are not yet authored — leave paths empty so the hero-select scene
+	# falls back to placeholder rendering. Use /add-art once portraits are in.
+	h.portrait_path = ""
+	h.combat_portrait_path = ""
+	h.frame_path = "res://assets/art/hero_selection/abyss_order_hero_frame.png"
+
+	h.passives = [
+		_make_passive(
+			"abyssal_commander",
+			"- Abyssal Knight costs 1 less Essence.",
+			""
+		),
+		_make_passive(
+			"iron_legion",
+			"- You may include up to 4 copies of Abyssal Knight in your deck.",
+			""
+		),
+	]
+
+	h.talent_branch_ids = ["infernal_bulwark", "runic_knight", "abyssal_breaker"]
+
+	h.hero_reward_pool = []
+
+	h.flavor = "\"Iron is forged. Loyalty is broken. Both serve the Abyss.\"\n- Korrath, the Abyssal Commander"
 	_register(h)

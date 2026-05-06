@@ -22,6 +22,7 @@ extends RefCounted
 ## Buff types that count as debuffs — removed by Cleanse, kept by Dispel.
 const DEBUFF_TYPES: Array[int] = [
 	Enums.BuffType.CORRUPTION,
+	Enums.BuffType.ARMOUR_BREAK,
 ]
 
 # ---------------------------------------------------------------------------

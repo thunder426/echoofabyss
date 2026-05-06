@@ -17,7 +17,8 @@ const MAX_COPIES_CHAMPION := 1
 ## Champions always stay at MAX_COPIES_CHAMPION regardless.
 const _EXTRA_COPY_RULES: Array = [
 	{"passive_id": "void_imp_extra_copy", "match": {"kind": "card_id", "id": "void_imp"}},
-	{"passive_id": "grafted_affinity",    "match": {"kind": "tag",     "tag": "grafted_fiend"}},
+	{"passive_id": "grafted_affinity",    "match": {"kind": "card_id", "id": "grafted_fiend"}},
+	{"passive_id": "iron_legion",         "match": {"kind": "card_id", "id": "abyssal_knight"}},
 ]
 
 ## Returns the max number of copies of `card` the current hero's passives allow in a deck.

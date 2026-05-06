@@ -181,6 +181,16 @@ const RULES: Array = [
 		# rule #39, so the description only carries the non-keyword on-kill clause.
 		"append_description": "\nAfter killing 3 enemy minions, gain SIPHON.",
 	},
+	# Korrath hero passive — Abyssal Commander. Knight's essence_cost reduced by 1
+	# (4 → 3) for the entire combat. Baked at construction time so the discount is
+	# permanent within a run, distinct from per-copy CardInstance.essence_delta
+	# (which is reserved for per-cast "this turn" discounts like fiendish_pact).
+	{
+		"id":         "abyssal_commander",
+		"when":       { "hero_passive": "abyssal_commander" },
+		"filter":     { "tag": "abyssal_knight" },
+		"cost_delta": -1,
+	},
 ]
 
 ## Returns the list of rules that match the given filter context. Side is

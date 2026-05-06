@@ -15,6 +15,7 @@ enum EffectType {
 	HEAL_HERO,         # Restore amount HP to own hero
 	BUFF_ATK,          # Grant amount ATK to target(s); permanent flag controls temp vs perm
 	BUFF_HP,           # Grant amount max/current HP to target(s)
+	BUFF_ARMOUR,       # Korrath — grant amount Armour to target(s) via MinionInstance.add_armour (routes through scene._armour_doubled_on_knight gate)
 	CORRUPTION,        # Apply amount stacks of Corruption to target(s)
 	SUMMON,            # Summon token minion (card_id) for owner
 	DRAW,              # Draw amount cards
@@ -68,7 +69,7 @@ enum TargetScope {
 	TRIGGER_MINION,        # The minion that caused the trap/aura to fire
 	DEAD_MINION,           # The minion that just died (on-death passives)
 	SINGLE_RANDOM_TRAP,    # One random entry in the OWNER'S active_traps
-	ALL_TRAPS,             # All entries in the OWNER'S active_traps
+	ALL_TRAPS,             # All entries in BOTH players' active_traps (Hurricane — "including your own")
 	SINGLE_RANDOM_OPPONENT_TRAP,  # One random entry in the OPPONENT'S active_traps
 	ACTIVE_ENVIRONMENT,    # The active environment card (if any)
 	SINGLE_CHOSEN_TRAP_OR_ENV,  # ctx.chosen_object if set; falls back to random from traps+env

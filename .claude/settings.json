@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && [ -f tasks/build_tasks_html.py ] && python3 tasks/build_tasks_html.py >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

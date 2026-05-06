@@ -102,6 +102,29 @@ static func spawn_friendly(state: SimState, id: String) -> MinionInstance:
 static func spawn_enemy(state: SimState, id: String) -> MinionInstance:
 	return _spawn(state, id, "enemy")
 
+## Spawn a minion using state._card_for() so talent overrides and CardModRules
+## deltas are applied — needed when a test cares about the post-override stats
+## (e.g. Korrath's abyssal_knight under iron_formation needs to be HUMAN with the
+## FORMATION keyword). For most tests `spawn_friendly` (base stats) is enough.
+static func spawn_resolved_friendly(state: SimState, id: String) -> MinionInstance:
+	return _spawn_resolved(state, id, "player")
+
+static func _spawn_resolved(state: SimState, id: String, side: String) -> MinionInstance:
+	var data: MinionCardData = state._card_for(side, id) as MinionCardData
+	if data == null:
+		push_error("TestHarness: _card_for returned null for '%s'" % id)
+		return null
+	var inst := MinionInstance.create(data, side)
+	var board := state.player_board if side == "player" else state.enemy_board
+	var slots := state.player_slots if side == "player" else state.enemy_slots
+	board.append(inst)
+	for slot in slots:
+		if slot.minion == null:
+			slot.minion = inst
+			inst.slot_index = slot.index
+			break
+	return inst
+
 static func _spawn(state: SimState, id: String, side: String) -> MinionInstance:
 	var data: MinionCardData = CardDatabase.get_card(id) as MinionCardData
 	if data == null:
@@ -144,6 +167,13 @@ static func vael_state(talents: Array[String] = []) -> SimState:
 		"hero_id": "lord_vael",
 		"talents": talents,
 		"hero_passives": ["void_imp_boost"],
+	})
+
+static func korrath_state(talents: Array[String] = []) -> SimState:
+	return build_state({
+		"hero_id": "korrath",
+		"talents": talents,
+		"hero_passives": ["abyssal_commander", "iron_legion"],
 	})
 
 # ---------------------------------------------------------------------------

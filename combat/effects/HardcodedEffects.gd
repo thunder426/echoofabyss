@@ -142,7 +142,16 @@ func _fiendish_pact(ctx: EffectContext) -> void:
 ## #4 — dark_covenant_passive: symmetric — buffs owner's board
 func _dark_covenant_passive(ctx: EffectContext) -> void:
 	var board: Array = _scene._friendly_board(ctx.owner)
+	# Snapshot which minions already had the aura before we strip it. Humans that
+	# retained the aura keep their +100 max HP unchanged (just re-add the buff
+	# entry); humans newly gaining the aura get apply_hp_gain so current_health
+	# rises with the cap. Without this distinction, a per-turn re-apply would
+	# either grow current_health unboundedly (always apply_hp_gain) or fail to
+	# heal newly-eligible humans (always plain apply).
+	var had_aura: Dictionary = {}
 	for m in board:
+		if _has_source(m, "dark_covenant"):
+			had_aura[m.get_instance_id()] = true
 		BuffSystem.remove_source(m, "dark_covenant")
 	var has_human: bool = board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.HUMAN)
 	var has_demon: bool = board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.DEMON)
@@ -160,8 +169,27 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 	if has_demon:
 		for m in board:
 			if m.card_data.minion_type == Enums.MinionType.HUMAN:
-				m.current_health = mini(m.current_health + 100, m.card_data.health)
+				if had_aura.has(m.get_instance_id()):
+					BuffSystem.apply(m, Enums.BuffType.HP_BONUS, 100, "dark_covenant", false, false)
+				elif _scene.has_method("_request_buff_apply") and _scene.vfx_controller != null:
+					_scene._request_buff_apply(m, Enums.BuffType.HP_BONUS, 100, "dark_covenant", true)
+				else:
+					BuffSystem.apply_hp_gain(m, 100, "dark_covenant")
 				_scene._refresh_slot_for(m)
+	# Humans that lost the aura this tick (no demon present) may have current_health
+	# above their new (lower) effective max — clamp to prevent stale overshoot.
+	for m in board:
+		if had_aura.has(m.get_instance_id()) and not _has_source(m, "dark_covenant"):
+			var hp_cap: int = m.card_data.health + BuffSystem.sum_type(m, Enums.BuffType.HP_BONUS)
+			if m.current_health > hp_cap:
+				m.current_health = hp_cap
+				_scene._refresh_slot_for(m)
+
+func _has_source(minion: MinionInstance, source: String) -> bool:
+	for e in minion.buffs:
+		if (e as BuffEntry).source == source:
+			return true
+	return false
 
 ## #5 — dark_covenant_remove: symmetric — removes buffs from owner's board
 func _dark_covenant_remove(ctx: EffectContext) -> void:

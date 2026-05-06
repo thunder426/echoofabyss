@@ -108,8 +108,41 @@ signal enemy_spell_cast_done()
 ## True while a minion on-play VFX is playing (e.g. Frenzied Imp's hurl). EnemyAI
 ## and consecutive actions await on_play_vfx_done before continuing so the full
 ## visual plays out before the next card/attack.
-var _on_play_vfx_active: bool = false
+##
+## Ref-counted via _play_vfx_gate_count — direct writes to _on_play_vfx_active
+## are still supported for legacy callers, but they MUST set true→false in
+## pairs (one acquire, one release) or the count will drift out of sync. New
+## callers should prefer acquire_play_vfx_gate / release_play_vfx_gate so
+## overlapping VFX (BuffApplyVFX during a ritual orchestrator etc.) don't
+## clobber each other's gate state — release ONLY emits on_play_vfx_done
+## when the count drops to zero.
+var _play_vfx_gate_count: int = 0
+var _on_play_vfx_active: bool:
+	get: return _play_vfx_gate_count > 0
+	set(v):
+		# Bool-style writes are mapped to acquire/release so legacy sites
+		# keep working without code changes. true means "another gate-holder
+		# arrived"; false means "one holder finished". Multiple true writes
+		# stack like nested locks; multiple false writes drain the count.
+		if v:
+			_play_vfx_gate_count += 1
+		elif _play_vfx_gate_count > 0:
+			_play_vfx_gate_count -= 1
+			if _play_vfx_gate_count == 0:
+				on_play_vfx_done.emit()
 signal on_play_vfx_done()
+
+## Public acquire/release for new callers — explicit pair instead of relying
+## on the bool setter mapping. Symmetric: every acquire MUST be paired with
+## a release, even on early-exit paths.
+func acquire_play_vfx_gate() -> void:
+	_play_vfx_gate_count += 1
+
+func release_play_vfx_gate() -> void:
+	if _play_vfx_gate_count > 0:
+		_play_vfx_gate_count -= 1
+		if _play_vfx_gate_count == 0:
+			on_play_vfx_done.emit()
 
 ## Count of death animations currently playing (_animate_minion_death in-flight).
 ## EnemyAI and champion auto-summons await death_anims_done when this is > 0 so
@@ -1898,8 +1931,10 @@ func _on_buff_vfx_finished() -> void:
 	_active_buff_vfx_count -= 1
 	if _active_buff_vfx_count <= 0:
 		_active_buff_vfx_count = 0
+		# Setter handles the on_play_vfx_done emit when count hits zero — avoids
+		# clobbering an outer gate-holder (e.g. ritual_sacrifice orchestrator)
+		# that's still in flight while this BuffApplyVFX batch finishes.
 		_on_play_vfx_active = false
-		on_play_vfx_done.emit()
 
 ## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
 ## procedural chevron to the right of it, both timed to coincide with the chain
@@ -2038,6 +2073,31 @@ func _play_feral_reinforcement_vfx(source: MinionInstance, imp_card: CardData) -
 	if vfx_bridge != null:
 		await vfx_bridge.play_feral_reinforcement_vfx(source, imp_card)
 
+## Run the full Void Ritualist ritual_sacrifice sequence. CombatHandlers calls
+## this when scene-side VFX are available (live combat). The sim runs the
+## immediate-state path inline since it has no bridge.
+func _play_ritual_sacrifice_sequence(imp: MinionInstance,
+		blood_trap: TrapCardData, dominion_trap: TrapCardData,
+		blood_panel: Control, dominion_panel: Control,
+		targets: Array, damage: int,
+		summon_first_champion: bool,
+		on_kill_imp: Callable, on_remove_runes: Callable) -> void:
+	if vfx_bridge == null:
+		return
+	await vfx_bridge.play_ritual_sacrifice_sequence(imp,
+			blood_trap, dominion_trap, blood_panel, dominion_panel,
+			targets, damage, summon_first_champion,
+			on_kill_imp, on_remove_runes)
+
+## Champion summon entry point used by the ritual_sacrifice sequence — delegates
+## to the existing handler so champion progress + reveal + summon all run as
+## the original code path expected.
+func _on_ritual_sacrifice_summon_champion() -> void:
+	if _handlers == null:
+		return
+	if _handlers.has_method("on_ritual_sacrifice_champion_vr"):
+		_handlers.on_ritual_sacrifice_champion_vr()
+
 ## Return a random living enemy minion, or null if the board is empty.
 func _find_random_enemy_minion() -> MinionInstance:
 	return _find_random_minion(enemy_board)
@@ -2128,6 +2188,21 @@ func _find_random_minion(board: Array[MinionInstance]) -> MinionInstance:
 	if board.is_empty():
 		return null
 	return board[randi() % board.size()]
+
+## Pick up to `count` DISTINCT random minions from `board` and return them
+## as a target-list shape Array[Dictionary{kind: "minion", minion: ...}]
+## ready to feed the ritual projectile bridge. Always picks distinct minions
+## (shuffle + slice). If `board` has fewer than `count` minions, returns
+## fewer entries — callers are expected to handle that. No hero fallback;
+## that decision belongs to the caller.
+func _pick_random_minions(board: Array, count: int) -> Array:
+	var pool: Array = board.duplicate()
+	pool.shuffle()
+	var picks: int = mini(count, pool.size())
+	var out: Array = []
+	for i in picks:
+		out.append({"kind": "minion", "minion": pool[i]})
+	return out
 
 ## Return a random Corrupted minion from the given board array, or null if none exist.
 func _find_random_corrupted_minion(board: Array[MinionInstance]) -> MinionInstance:
@@ -3558,12 +3633,241 @@ func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 ## Delegated to CombatState — rune consumption + effect resolution. Scene
 ## handles UI cleanup (rune-glow tweens) since traps_changed signal subscribers
 ## don't know about glow state.
+##
+## Live combat plays the generic RitualFiringVFX before the state mutation so
+## the player sees the same "runes shine, lift off, spiral to center, merge"
+## beat the enemy ritual_sacrifice gets. The Demon Ascendant ritual gets a
+## fully custom flow (projectiles + summon beam) instead of falling through
+## to the generic EffectResolver path. Sim has no scene_facade and never
+## reaches this wrapper (handlers call state._fire_ritual via the facade
+## fallback), so sim retains the immediate-state path unchanged.
 func _fire_ritual(ritual: RitualData) -> void:
-	state._fire_ritual(ritual)
+	# ON_RUNE_PLACED fires synchronously inside _try_play_trap, but the rune's
+	# own RunePlacementVFX is deferred via _show_card_cast_anim's callback —
+	# so when this function is entered, the placement VFX hasn't started yet
+	# (or has just barely begun). Wait for it to complete before kicking off
+	# the ritual merge VFX so the player sees: place rune → halo lands → THEN
+	# ritual ignites, instead of the two animations overlapping.
+	await _wait_for_rune_placement_vfx()
+
+	if _is_demon_ascendant_ritual(ritual):
+		await _fire_demon_ascendant_player_ritual(ritual)
+	else:
+		await _play_player_ritual_vfx(ritual)
+		state._fire_ritual(ritual)
 	# Stop all glow tweens after consumption — prevents stale glow on repurposed slots
 	if trap_env_display != null:
 		for i in trap_slot_panels.size():
 			trap_env_display.stop_rune_glow(i)
+
+## Yield until the rune-placement chain (centered card preview → placement
+## VFX) has finished. Player rune placement queues a card preview tween via
+## _show_card_cast_anim BEFORE firing ON_RUNE_PLACED, then the preview's
+## tail callback spawns the actual RunePlacementVFX. So when _fire_ritual is
+## entered the placement VFX hasn't even been instantiated yet — the gate
+## (`_on_play_vfx_active`) is still false because RunePlacementVFX is the
+## one that sets it.
+##
+## Strategy: poll for the gate to flip ON within a reasonable window
+## (covers the ~1.07s card preview tween), then wait for it to flip off.
+## Times out if the gate never came on (e.g. ritual fired by some other
+## non-placement path), so we never deadlock.
+const _RITUAL_PLACEMENT_WAIT_TIMEOUT_SEC: float = 1.6  # > card preview (1.07s)
+
+func _wait_for_rune_placement_vfx() -> void:
+	# Phase 1: poll for the gate to come on (placement VFX has spawned and
+	# acquired _on_play_vfx_active = true). Bail after the timeout — if no
+	# placement is in flight, there's nothing to wait for.
+	var elapsed: float = 0.0
+	while not _on_play_vfx_active and elapsed < _RITUAL_PLACEMENT_WAIT_TIMEOUT_SEC:
+		await get_tree().process_frame
+		if not is_inside_tree():
+			return
+		elapsed += get_process_delta_time()
+
+	# Phase 2: gate is on (or timed out). If it's on, wait for the release.
+	# Loop in case multiple VFX are queued back-to-back.
+	while _on_play_vfx_active:
+		await on_play_vfx_done
+		if not is_inside_tree():
+			return
+
+## Recognise the Demon Ascendant ritual by name + required runes. Match by
+## name first (cheap), fall back to the rune set so a renamed ritual with
+## the same components still gets the projectile treatment.
+func _is_demon_ascendant_ritual(ritual: RitualData) -> bool:
+	if ritual == null:
+		return false
+	if ritual.ritual_name == "Demon Ascendant":
+		return true
+	var has_blood := false
+	var has_dominion := false
+	for r in ritual.required_runes:
+		if r == Enums.RuneType.BLOOD_RUNE:
+			has_blood = true
+		elif r == Enums.RuneType.DOMINION_RUNE:
+			has_dominion = true
+	return has_blood and has_dominion and ritual.required_runes.size() == 2
+
+## Player-side Demon Ascendant flow:
+##   1. Play RitualFiringVFX on the consumed runes.
+##   2. Remove the runes from active_traps + unregister auras (port from
+##      state._fire_ritual so live can run a custom step list afterwards).
+##   3. Pre-pick 2 random damage targets — random rolls happen here so the
+##      bridge tail just consumes the picks.
+##   4. Bridge fires 2 RitualProjectiles at targets + 1 beam at the player's
+##      empty slot. Damage applies on projectile impact, demon spawns at
+##      beam impact via summon_demon_with_sigil → VoidDemonSparkBurstVFX,
+##      and the tail awaits the FULL summon chain (sigil + burst + reveal)
+##      so the gate stays held until the demon has actually landed.
+##   5. Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge etc.)
+##      still respond.
+##
+## The whole flow holds _on_play_vfx_active for the entire duration so AI
+## and player actions can't slip in between the merge, tail, and demon
+## summon. _play_player_ritual_vfx normally toggles the gate itself; we
+## skip that by leaving the gate held externally and only releasing it
+## once everything (including ON_RITUAL_FIRED handlers) has run.
+func _fire_demon_ascendant_player_ritual(ritual: RitualData) -> void:
+	# Hold the gate continuously across the entire ritual. _play_player_ritual_vfx
+	# acquires/releases its own ref-counted gate, so this outer hold keeps the
+	# count >= 1 across the merge VFX and onward to the projectile/summon tail.
+	_on_play_vfx_active = true
+
+	# 1. Generic merge VFX. Inner acquire/release composes with the outer hold —
+	#    do NOT re-assert true after the await: the setter is ref-counted, and
+	#    every acquire must be matched by exactly one release.
+	await _play_player_ritual_vfx(ritual)
+	if not is_inside_tree():
+		_on_play_vfx_active = false
+		return
+
+	# 2. Remove the consumed runes from data (mirrors state._fire_ritual's
+	#    consumption loop). We re-pick indices fresh because the player may
+	#    have placed/removed traps during the VFX await window.
+	var consumed_indices: Array[int] = _pick_player_ritual_rune_indices(ritual)
+	if consumed_indices.size() < 2:
+		# Couldn't satisfy the ritual any more — bail without applying effects.
+		# Setter auto-emits on_play_vfx_done when count hits zero.
+		_on_play_vfx_active = false
+		return
+	consumed_indices.sort()
+	consumed_indices.reverse()
+	for i in consumed_indices:
+		var trap := active_traps[i] as TrapCardData
+		state._remove_rune_aura(trap)
+		active_traps.remove_at(i)
+	state.traps_changed.emit("player")
+	state._log("★ RITUAL — %s!" % ritual.ritual_name, 1)
+
+	# 3. Pre-pick up to 2 DISTINCT random enemy minions. Spec: "200 damage to
+	#    2 random enemy minions" — minions only (no hero fallback), and no
+	#    double-hit on the same minion. If the enemy board has 0 minions the
+	#    ritual lands no damage; with 1 minion it fires a single projectile.
+	var damage_targets: Array = _pick_random_minions(enemy_board, 2)
+
+	# 4. Projectile + beam tail. play_demon_ascendant_tail_for awaits the
+	#    full demon summon chain (sigil → spark burst → reveal trigger) so
+	#    the AI/player gate stays valid through every visual beat.
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	var origin: Vector2 = vp_size * 0.5
+	if vfx_bridge != null:
+		await vfx_bridge.play_demon_ascendant_tail_for("player", origin, damage_targets, 200)
+	else:
+		# No bridge — apply damage + summon directly so gameplay still resolves.
+		for t in damage_targets:
+			var info := CombatManager.make_damage_info(200, Enums.DamageSource.SPELL,
+					Enums.DamageSchool.NONE, null, "ritual_sacrifice")
+			var kind: String = t.get("kind", "") as String
+			if kind == "hero":
+				combat_manager.apply_hero_damage("enemy", info)
+			elif kind == "minion":
+				var m: MinionInstance = t.get("minion") as MinionInstance
+				if m != null and is_instance_valid(m):
+					combat_manager.apply_damage_to_minion(m, info)
+		_summon_token("void_demon", "player", 500, 500)
+
+	# 5. Fire ON_RITUAL_FIRED so other handlers (ritual_surge, etc.) react.
+	#    Run this BEFORE clearing the gate so any reactive VFX those handlers
+	#    spawn don't race with the AI.
+	if trigger_manager != null:
+		var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
+		trigger_manager.fire(fired_ctx)
+
+	# Release the gate now that every visual + state change has resolved.
+	# Setter auto-emits on_play_vfx_done when count hits zero.
+	_on_play_vfx_active = false
+
+## Identify which player rune slots will be consumed by `ritual` (mirroring
+## CombatState._fire_ritual's exact-then-wildcard pick order) and play the
+## generic RitualFiringVFX on them. Returns when the VFX finishes so the
+## state mutation that follows lines up with the merge beat.
+##
+## Bails quietly if vfx_bridge is null (test harnesses without VFX), the trap
+## panels haven't been resolved yet, or the picked indices don't fit cleanly
+## (e.g. malformed ritual). In any of those cases the caller proceeds directly
+## to state._fire_ritual.
+func _play_player_ritual_vfx(ritual: RitualData) -> void:
+	if vfx_bridge == null or ritual == null:
+		return
+	if trap_slot_panels.is_empty():
+		return
+	var consumed_indices: Array[int] = _pick_player_ritual_rune_indices(ritual)
+	if consumed_indices.size() < 2:
+		return
+	var slots: Array = []
+	var colors: Array = []
+	var arts: Array = []
+	for i in consumed_indices:
+		if i < 0 or i >= trap_slot_panels.size() or i >= active_traps.size():
+			return
+		var panel: Panel = trap_slot_panels[i] as Panel
+		if panel == null or not panel.is_inside_tree():
+			return
+		var trap: TrapCardData = active_traps[i] as TrapCardData
+		slots.append(panel)
+		colors.append(trap.rune_glow_color)
+		var art: Texture2D = null
+		if trap.battlefield_art_path != "" and ResourceLoader.exists(trap.battlefield_art_path):
+			art = load(trap.battlefield_art_path)
+		arts.append(art)
+	if vfx_controller == null:
+		return
+	var vfx := RitualFiringVFX.create(slots, colors, arts)
+	# Gate combat flow so trigger fan-out / enemy AI / spell chains pause while
+	# the merge plays out — same pattern as other awaited scene VFX. Setter
+	# is ref-counted so this composes safely if a parent flow already holds
+	# the gate (e.g. _fire_demon_ascendant_player_ritual).
+	_on_play_vfx_active = true
+	vfx_controller.spawn(vfx)
+	await vfx.finished
+	_on_play_vfx_active = false
+
+## Mirror of CombatState._fire_ritual's rune-pick algorithm — returns the
+## indices into `active_traps` that will be consumed, in pick order. Kept
+## lightweight (no state mutation) so the VFX can highlight the right slots
+## without coupling to the state mutator.
+func _pick_player_ritual_rune_indices(ritual: RitualData) -> Array[int]:
+	var consumed: Array[int] = []
+	for req in ritual.required_runes:
+		var found := false
+		for i in active_traps.size():
+			if i in consumed:
+				continue
+			var trap := active_traps[i] as TrapCardData
+			if trap.is_rune and not trap.is_wildcard_rune and trap.rune_type == req:
+				consumed.append(i)
+				found = true
+				break
+		if not found:
+			for i in active_traps.size():
+				if i in consumed:
+					continue
+				var trap := active_traps[i] as TrapCardData
+				if trap.is_rune and trap.is_wildcard_rune:
+					consumed.append(i)
+					break
+	return consumed
 
 
 ## Create a StyleBoxFlat with uniform border/corner settings.
@@ -4107,8 +4411,8 @@ func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstanc
 	_on_play_vfx_active = true
 	vfx_controller.spawn(vfx)
 	await vfx.finished
+	# Setter auto-emits on_play_vfx_done when count hits zero.
 	_on_play_vfx_active = false
-	on_play_vfx_done.emit()
 
 func _clear_slot_for(minion: MinionInstance, slots: Array[BoardSlot]) -> void:
 	for slot in slots:

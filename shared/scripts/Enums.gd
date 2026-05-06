@@ -46,6 +46,7 @@ enum Keyword {
 	VOID_MARK,      # Display-only pseudo-keyword: shown in tooltip on cards that apply Void Marks
 	RITUAL,         # Display-only pseudo-keyword: shown in tooltip on environment cards that define rituals
 	SACRIFICE,      # Display-only pseudo-keyword: shown on cards whose effect destroys a friendly minion as cost
+	FORMATION,      # Korrath — when placed adjacent to another minion of the same race, fires formation_effect_steps once permanently per pair
 }
 
 ## All game events that flow through TriggerManager.
@@ -212,4 +213,5 @@ enum BuffType {
 	GRANT_IMMUNE,       # Grants full damage immunity. Cannot take any damage. Dispellable.
 	# ---- Debuffs ----
 	CORRUPTION,      # Stacking ATK penalty. amount = penalty per stack (100 base, 200 w/ talent).
+	ARMOUR_BREAK,    # Korrath — stackable. Reduces target Armour for physical attacks; excess (AB > Armour) becomes flat bonus damage. Permanent unless cleansed.
 }

@@ -174,7 +174,16 @@ func commit_play_environment(inst: CardInstance) -> bool:
 	sim.enemy_hand.erase(inst)
 	inst.resolved_on_turn = sim._current_turn
 	sim.enemy_graveyard.append(inst)
+	# Tear down outgoing env's persistent aura with owner="enemy" (mirror of
+	# SimPlayerAgent.commit_play_environment for the player side).
+	var prev_env: EnvironmentCardData = sim.enemy_active_environment
+	if prev_env != null and not prev_env.on_replace_effect_steps.is_empty():
+		EffectResolver.run(prev_env.on_replace_effect_steps, EffectContext.make(sim, "enemy"))
 	sim.enemy_active_environment = env
+	if not env.on_enter_effect_steps.is_empty():
+		EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(sim, "enemy"))
+	if not env.passive_effect_steps.is_empty():
+		EffectResolver.run(env.passive_effect_steps, EffectContext.make(sim, "enemy"))
 	return sim.winner.is_empty()
 
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:

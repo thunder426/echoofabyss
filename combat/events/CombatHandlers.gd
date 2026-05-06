@@ -27,10 +27,13 @@ func setup(scene: Object) -> void:
 ## Old passive relic system removed — relics are now activated abilities.
 ## See RelicRuntime, RelicEffects, and RelicBar for the new system.
 
-func on_player_turn_environment(_ctx: EventContext) -> void:
-	if _scene.active_environment != null and not _scene.active_environment.passive_effect_steps.is_empty():
-		var ctx := EffectContext.make(_scene, "player")
-		EffectResolver.run(_scene.active_environment.passive_effect_steps, ctx)
+## Fires passive_effect_steps for every active environment on every turn start.
+## Each environment runs with ctx.owner = the side that played it, so DAMAGE_HERO
+## targets that side's opponent and _friendly_board() resolves correctly. An env
+## fires on its owner's turn unconditionally; it fires on the OTHER side's turn
+## only if fires_on_enemy_turn is true (read as "fires on both turns").
+func on_player_turn_environment(ctx_evt: EventContext) -> void:
+	_run_env_passives_for_turn(ctx_evt.event_type)
 
 func on_minion_turn_start_passives(_ctx: EventContext) -> void:
 	for m in _scene.player_board.duplicate():
@@ -64,12 +67,40 @@ func on_minion_turn_end_passives(ctx: EventContext) -> void:
 # ON_ENEMY_TURN_START
 # ---------------------------------------------------------------------------
 
-func on_enemy_turn_environment(_ctx: EventContext) -> void:
-	if _scene.active_environment != null \
-			and _scene.active_environment.fires_on_enemy_turn \
-			and not _scene.active_environment.passive_effect_steps.is_empty():
-		var ctx := EffectContext.make(_scene, "player")
-		EffectResolver.run(_scene.active_environment.passive_effect_steps, ctx)
+func on_enemy_turn_environment(ctx_evt: EventContext) -> void:
+	_run_env_passives_for_turn(ctx_evt.event_type)
+
+## Shared implementation for both ON_*_TURN_START env-passive sweeps. Walks both
+## sides' active environments; for each, owner == that side; only runs when the
+## current turn matches the owner OR the env's fires_on_enemy_turn flag is set.
+func _run_env_passives_for_turn(event_type: int) -> void:
+	var turn_owner: String = "player" if event_type == Enums.TriggerEvent.ON_PLAYER_TURN_START else "enemy"
+	for entry in _active_environments():
+		var env: EnvironmentCardData = entry["env"]
+		if env.passive_effect_steps.is_empty():
+			continue
+		var env_owner: String = entry["owner"]
+		if env_owner != turn_owner and not env.fires_on_enemy_turn:
+			continue
+		var ctx := EffectContext.make(_scene, env_owner)
+		EffectResolver.run(env.passive_effect_steps, ctx)
+
+## Returns [{env, owner}, ...] for every active environment across both sides.
+## Live: enemy env lives on enemy_ai.active_environment. Sim: enemy_active_environment.
+func _active_environments() -> Array:
+	var out: Array = []
+	if _scene.active_environment != null:
+		out.append({"env": _scene.active_environment, "owner": "player"})
+	var enemy_env: EnvironmentCardData = _enemy_active_environment()
+	if enemy_env != null:
+		out.append({"env": enemy_env, "owner": "enemy"})
+	return out
+
+func _enemy_active_environment() -> EnvironmentCardData:
+	var enemy_ai_obj: Object = _scene.get("enemy_ai")
+	if enemy_ai_obj != null:
+		return enemy_ai_obj.active_environment
+	return _scene.get("enemy_active_environment")
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_SPELL_CAST
@@ -185,6 +216,99 @@ func on_summon_board_synergies(ctx: EventContext) -> void:
 		if _scene.has_method("_check_champion_triggers"):
 			_scene._check_champion_triggers()
 
+## Korrath FORMATION — fires whenever a minion enters the board (either side). Walks
+## both adjacent slots on the summoned minion's own side and, for each same-race
+## neighbor, runs that minion's formation_effect_steps once per (A, B) pair.
+##
+## Bidirectional: a newly placed minion can trigger its OWN Formation against an
+## existing neighbor, AND an existing neighbor can trigger ITS Formation against the
+## newcomer. Each side's pair-tracking dict is independent so the asymmetric case
+## (only one of the two has FORMATION) works correctly.
+##
+## Pair memory lives on MinionInstance.formation_partners — once a partner is recorded
+## it can never re-trigger Formation, even if adjacency is broken (e.g. a middle minion
+## dies) and re-formed.
+func on_minion_summoned_formation(ctx: EventContext) -> void:
+	var summoned: MinionInstance = ctx.minion
+	if summoned == null or summoned.slot_index < 0:
+		return
+	var board: Array = _scene.player_board if summoned.owner == "player" else _scene.enemy_board
+	if board == null:
+		return
+	for raw in board:
+		var neighbor: MinionInstance = raw as MinionInstance
+		if neighbor == null or neighbor == summoned:
+			continue
+		var dx: int = absi(neighbor.slot_index - summoned.slot_index)
+		if dx != 1:
+			continue
+		_try_fire_formation(summoned, neighbor)
+		_try_fire_formation(neighbor, summoned)
+
+## Korrath T1 — Commander's Reach. On any player minion attack, if the attacker is
+## a friendly HUMAN adjacent to a friendly Abyssal Knight, apply 100 Armour Break to
+## the defender. Hero attacks no-op (no armour stat on heroes today; AB on heroes is
+## deferred to Branch 3 Path of Destruction work).
+##
+## Fires from CombatManager.resolve_minion_attack BEFORE damage resolution so the AB
+## reduces the Armour of THIS strike, not just future strikes — matches the design
+## ("apply 100 Armour Break to their attack target on each attack").
+func on_player_attack_commanders_reach(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.minion
+	if attacker == null or attacker.owner != "player":
+		return
+	if (attacker.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+		return
+	# Adjacency to a friendly Abyssal Knight is the gating condition.
+	if not _adjacent_to_friendly_knight(attacker):
+		return
+	var defender = ctx.defender
+	if not (defender is MinionInstance):
+		return  # Hero attacks: AB on heroes not modeled yet
+	BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 100,
+			"commanders_reach", false, false)
+
+## True if `actor` is in slot N and slot N±1 holds an Abyssal Knight on the same side.
+func _adjacent_to_friendly_knight(actor: MinionInstance) -> bool:
+	if actor == null or actor.slot_index < 0:
+		return false
+	var board: Array = _scene.player_board if actor.owner == "player" else _scene.enemy_board
+	if board == null:
+		return false
+	for raw in board:
+		var m: MinionInstance = raw as MinionInstance
+		if m == null or m == actor:
+			continue
+		if m.card_data == null or m.card_data.id != "abyssal_knight":
+			continue
+		if absi(m.slot_index - actor.slot_index) == 1:
+			return true
+	return false
+
+## Fires `actor`'s Formation against `partner` if conditions are met:
+##   - actor has FORMATION
+##   - same minion_type as partner
+##   - this pair hasn't already triggered actor's Formation
+## On success, runs formation_effect_steps with ctx.source = actor and records the pair
+## on actor.formation_partners so it cannot re-fire.
+func _try_fire_formation(actor: MinionInstance, partner: MinionInstance) -> void:
+	if actor == null or partner == null:
+		return
+	var card: MinionCardData = actor.card_data as MinionCardData
+	if card == null or not (Enums.Keyword.FORMATION in card.keywords):
+		return
+	if actor.formation_partners.has(partner):
+		return
+	if (partner.card_data as MinionCardData).minion_type != card.minion_type:
+		return
+	actor.formation_partners[partner] = true
+	if card.formation_effect_steps.is_empty():
+		return
+	var ectx := EffectContext.make(_scene, actor.owner)
+	ectx.source = actor
+	ectx.source_card_id = card.id
+	EffectResolver.run(card.formation_effect_steps, ectx)
+
 func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionInstance, summoned: MinionInstance) -> void:
 	match passive_id:
 		"void_amplifier_buff_demon":
@@ -287,14 +411,27 @@ func on_player_minion_sacrificed_board_passives(ctx: EventContext) -> void:
 
 func on_player_minion_died_board_passives(ctx: EventContext) -> void:
 	var dead := ctx.minion
-	if _scene.active_environment != null and not _scene.active_environment.on_player_minion_died_steps.is_empty():
-		var eff_ctx         := EffectContext.make(_scene, "player")
-		eff_ctx.dead_minion = dead
-		EffectResolver.run(_scene.active_environment.on_player_minion_died_steps, eff_ctx)
 	for m in _scene.player_board.duplicate():
 		var pid: String = (m.card_data as MinionCardData).passive_effect_id
 		if pid != "":
 			_apply_board_passive_on_death(pid, m, dead)
+
+## Environment on_player_minion_died_steps — global / side-agnostic.
+## The environment card has no owner-side: any active environment (player's or
+## enemy's) fires its steps for deaths on either side. "friendly" in the card
+## description is relative to the dying minion — so ctx.owner is set to the
+## dying minion's owner, which makes DAMAGE_HERO target that side's opponent.
+func on_minion_died_environment(ctx: EventContext) -> void:
+	var dead_owner: String = ctx.minion.owner if ctx.minion != null else ""
+	if dead_owner == "":
+		return
+	for entry in _active_environments():
+		var env: EnvironmentCardData = entry["env"]
+		if env.on_player_minion_died_steps.is_empty():
+			continue
+		var eff_ctx         := EffectContext.make(_scene, dead_owner)
+		eff_ctx.dead_minion = ctx.minion
+		EffectResolver.run(env.on_player_minion_died_steps, eff_ctx)
 
 func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInstance, dead: MinionInstance) -> void:
 	match passive_id:
@@ -740,10 +877,16 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 		for t in targets:
 			on_impact.call(t["minion"], t["stacks"])
 
-## Ritual Sacrifice — encounter 4 (Void Ritualist)
+## Ritual Sacrifice — encounter 5 (Void Ritualist)
 ## When a feral imp is summoned and enemy has Blood Rune + Dominion Rune active:
 ## consume both runes + the feral imp, deal 200 damage to 2 random player targets,
 ## Special Summon a 500/500 Demon on the enemy board.
+##
+## Live combat: delegates to the bridge orchestrator which plays the full
+## SacrificeVFX → rune-shine-and-merge → projectiles + beam → demon → champion
+## sequence with state changes synced to the visual beats.
+##
+## Sim: bridge isn't available, so the immediate-state path runs inline (no VFX).
 func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not _has_tag(minion, "feral_imp"):
@@ -761,30 +904,97 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 			dominion_idx = i
 	if blood_idx == -1 or dominion_idx == -1:
 		return
-	# Remove runes — unregister auras then erase (higher index first to preserve positions)
-	var hi := maxi(blood_idx, dominion_idx)
-	var lo := mini(blood_idx, dominion_idx)
-	_scene._remove_rune_aura(enemy_traps[hi] as TrapCardData, "enemy")
-	_scene._remove_rune_aura(enemy_traps[lo] as TrapCardData, "enemy")
-	_scene.enemy_ai.active_traps.remove_at(hi)
-	_scene.enemy_ai.active_traps.remove_at(lo)
-	if _scene.has_method("_update_enemy_trap_display"):
-		_scene._update_enemy_trap_display()
-	# Consume the feral imp that triggered this
-	_scene.combat_manager.kill_minion(minion)
-	var _prev_count = _scene.get("_ritual_sacrifice_count")
-	_scene.set("_ritual_sacrifice_count", (_prev_count if _prev_count != null else 0) + 1)
-	_scene._ritual_invoke_times += 1
-	_log("  Ritual Sacrifice: runes consumed + %s sacrificed — Demon Ascendant!" % minion.card_data.card_name, _LOG_ENEMY)
-	# Deal 200 damage to 2 random player targets (minion or hero if board is empty)
-	for _i in 2:
-		if _scene.player_board.is_empty():
-			_scene.combat_manager.apply_hero_damage("player",
-					CombatManager.make_damage_info(200, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "ritual_sacrifice"))
-		else:
-			var t: MinionInstance = _scene.player_board[randi() % _scene.player_board.size()]
-			_scene.combat_manager.apply_damage_to_minion(t,
-					CombatManager.make_damage_info(200, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "ritual_sacrifice"))
+
+	# Snapshot trap refs + panels BEFORE state mutation so the VFX can locate
+	# them. The runes will be removed inside the on_state_change callback below.
+	var blood_trap: TrapCardData    = enemy_traps[blood_idx] as TrapCardData
+	var dominion_trap: TrapCardData = enemy_traps[dominion_idx] as TrapCardData
+
+	# Pre-pick up to 2 DISTINCT random player minions so live and sim apply
+	# the same damage to the same minions (random rolls happen once, here,
+	# before any VFX gate). Demon Ascendant spec: minions only — if the board
+	# has fewer than 2 minions, fewer projectiles fire (no hero fallback,
+	# matches the player-side ritual).
+	var damage_pool: Array = (_scene.player_board as Array).duplicate()
+	damage_pool.shuffle()
+	var damage_targets: Array = []
+	var damage_picks: int = mini(2, damage_pool.size())
+	for i in damage_picks:
+		damage_targets.append({"kind": "minion", "minion": damage_pool[i]})
+
+	# Whether champion_void_ritualist will summon on this trigger (first ritual only).
+	var summon_first_champion: bool = not bool(_scene.get("_champion_vr_summoned"))
+
+	# Resolve trap panels for the ritual VFX (live only; sim has no panels).
+	var blood_panel: Control = null
+	var dominion_panel: Control = null
+	if _scene.get("enemy_trap_slot_panels") != null:
+		var panels: Array = _scene.enemy_trap_slot_panels
+		if blood_idx >= 0 and blood_idx < panels.size():
+			blood_panel = panels[blood_idx] as Control
+		if dominion_idx >= 0 and dominion_idx < panels.size():
+			dominion_panel = panels[dominion_idx] as Control
+
+	# State-change callbacks — split so the imp dies during SacrificeVFX while
+	# the runes stay on their panels until they visually fly out during the
+	# RitualFiringVFX merge. Sim runs both back-to-back as before.
+	var scene := _scene
+	var imp := minion
+	var card_name: String = minion.card_data.card_name
+
+	var on_kill_imp := func() -> void:
+		# Consume the feral imp that triggered this. Runs early so the imp
+		# leaves the slot during SacrificeVFX's dagger beat, matching the
+		# visual death.
+		scene.combat_manager.kill_minion(imp)
+		var _prev_count = scene.get("_ritual_sacrifice_count")
+		scene.set("_ritual_sacrifice_count", (_prev_count if _prev_count != null else 0) + 1)
+		scene._ritual_invoke_times += 1
+		_log("  Ritual Sacrifice: runes consumed + %s sacrificed — Demon Ascendant!" % card_name, _LOG_ENEMY)
+
+	var on_remove_runes := func() -> void:
+		# Remove runes — unregister auras then erase (higher index first to
+		# preserve positions). enemy_traps was captured above but its size
+		# could have changed if other handlers fired in between; re-index by
+		# trap reference for safety. Runs after RitualFiringVFX completes,
+		# so the panels visually empty when the runes are already gone.
+		var live_traps: Array = scene.enemy_ai.active_traps
+		var b_idx: int = live_traps.find(blood_trap)
+		var d_idx: int = live_traps.find(dominion_trap)
+		if b_idx == -1 or d_idx == -1:
+			return
+		var hi: int = maxi(b_idx, d_idx)
+		var lo: int = mini(b_idx, d_idx)
+		scene._remove_rune_aura(live_traps[hi] as TrapCardData, "enemy")
+		scene._remove_rune_aura(live_traps[lo] as TrapCardData, "enemy")
+		scene.enemy_ai.active_traps.remove_at(hi)
+		scene.enemy_ai.active_traps.remove_at(lo)
+		if scene.has_method("_update_enemy_trap_display"):
+			scene._update_enemy_trap_display()
+
+	# Live path — full VFX sequence with synced state changes.
+	if _scene.has_method("_play_ritual_sacrifice_sequence") and blood_panel != null and dominion_panel != null:
+		await _scene._play_ritual_sacrifice_sequence(
+				imp, blood_trap, dominion_trap,
+				blood_panel, dominion_panel,
+				damage_targets, 200,
+				summon_first_champion,
+				on_kill_imp, on_remove_runes)
+		return
+
+	# Sim / fallback path — run state changes + damage + summon + champion immediately.
+	on_kill_imp.call()
+	on_remove_runes.call()
+	for t in damage_targets:
+		var info := CombatManager.make_damage_info(200, Enums.DamageSource.SPELL,
+				Enums.DamageSchool.NONE, null, "ritual_sacrifice")
+		var kind: String = t.get("kind", "") as String
+		if kind == "hero":
+			_scene.combat_manager.apply_hero_damage("player", info)
+		elif kind == "minion":
+			var m: MinionInstance = t.get("minion") as MinionInstance
+			if m != null and is_instance_valid(m):
+				_scene.combat_manager.apply_damage_to_minion(m, info)
 	# Special Summon a 500/500 Demon
 	_scene._summon_token("void_demon", "enemy", 500, 500)
 	# Trigger Void Ritualist champion on first ritual

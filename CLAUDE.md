@@ -15,6 +15,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Read [`design/master_doc/ARCHITECTURE.md`](design/master_doc/ARCHITECTURE.md) before grepping the codebase.** It has a quick file-finder table ("looking for X → look in Y"), the autoload list, the combat state/shell/sim split, signal contracts on CombatScene/CombatState/TurnManager/CombatManager, and the architectural invariants (symmetric handlers, sim parity, declarative effects, animation gating). Keep it in sync when you add a new sub-system, autoload, or major file.
 
+## Task tracker
+
+Project work is logged in `tasks/` — one markdown file per task with frontmatter (`id`, `title`, `status`, `area`, `started`, `finished`) and a body. Open a task with `/task-start <title>` when starting a non-trivial user request; close it with `/task-done <id>` after, writing a short summary of what actually shipped. Use coarse granularity (one task per request, not per subtask — use TodoWrite for in-session subtasks). `tasks/TASKS.md` (index) and `tasks/tasks.html` (browser viewer) regenerate automatically via a `PostToolUse` hook — never edit them by hand.
+
 ## GDScript Rules
 
 - **Always use `: Type =` not `:=`** when reading from untyped Array or Dictionary — `:=` infers `Variant` from untyped collections and causes silent errors. Example: `var m: MinionInstance = state.player_slots[i]`, never `var m := state.player_slots[i]`.

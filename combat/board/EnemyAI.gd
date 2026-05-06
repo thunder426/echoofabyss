@@ -446,6 +446,12 @@ func commit_play_trap(inst: CardInstance) -> bool:
 	trap_placed.emit(trap)
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
+	if not is_inside_tree(): return false
+	# Gate the AI on any reactive on-play VFX (rune placement halo, ritual
+	# triggers fired off ON_RUNE_PLACED, etc.) so the next AI action doesn't
+	# overlap. Same pattern as commit_minion_play / commit_spell_cast.
+	if scene != null and scene.get("_on_play_vfx_active") == true:
+		await scene.on_play_vfx_done
 	return is_inside_tree()
 
 ## Play an environment card (resources already deducted).
@@ -454,10 +460,26 @@ func commit_play_environment(inst: CardInstance) -> bool:
 	var env := inst.card_data as EnvironmentCardData
 	hand.erase(inst)
 	_send_to_graveyard(inst)
+	# Tear down outgoing env's persistent aura with owner="enemy" so its
+	# on_replace_effect_steps strip enemy-side buffs (mirror of player path).
+	if active_environment != null and not active_environment.on_replace_effect_steps.is_empty():
+		var teardown_ctx := EffectContext.make(scene, "enemy")
+		EffectResolver.run(active_environment.on_replace_effect_steps, teardown_ctx)
 	active_environment = env
 	environment_placed.emit(env)
+	# Run on-enter and immediate passive effects with owner="enemy" so
+	# DAMAGE_HERO targets the player and _friendly_board() resolves to enemy.
+	if not env.on_enter_effect_steps.is_empty():
+		EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(scene, "enemy"))
+	if not env.passive_effect_steps.is_empty():
+		EffectResolver.run(env.passive_effect_steps, EffectContext.make(scene, "enemy"))
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
+	if not is_inside_tree(): return false
+	# Gate on any reactive VFX from environment placement (e.g.
+	# ON_RITUAL_ENVIRONMENT_PLAYED handlers can fire rituals, which spawn VFX).
+	if scene != null and scene.get("_on_play_vfx_active") == true:
+		await scene.on_play_vfx_done
 	return is_inside_tree()
 
 ## Execute a minion-vs-minion attack, handling cancel and redirect.

@@ -66,8 +66,12 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 			return [ctx.trigger_minion] if ctx.trigger_minion != null else []
 		EffectStep.TargetScope.DEAD_MINION:
 			return [ctx.dead_minion] if ctx.dead_minion != null else []
-		EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.ALL_TRAPS:
+		EffectStep.TargetScope.SINGLE_RANDOM_TRAP:
 			return scene._friendly_traps(ctx.owner).duplicate()
+		EffectStep.TargetScope.ALL_TRAPS:
+			# "Including your own" — Hurricane sweeps both sides. The DESTROY
+			# applier locates each trap on whichever side actually owns it.
+			return (scene._friendly_traps(ctx.owner) + scene._opponent_traps(ctx.owner)).duplicate()
 		EffectStep.TargetScope.SINGLE_RANDOM_OPPONENT_TRAP:
 			return scene._opponent_traps(ctx.owner).duplicate()
 		EffectStep.TargetScope.SINGLE_CHOSEN_TRAP_OR_ENV:

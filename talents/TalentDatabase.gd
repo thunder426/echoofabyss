@@ -8,6 +8,7 @@ var _talents: Dictionary = {}
 func _ready() -> void:
 	_register_lord_vael_talents()
 	_register_seris_talents()
+	_register_korrath_talents()
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -69,6 +70,9 @@ func get_branch_display_name(branch_id: String) -> String:
 		"fleshcraft":        "Fleshcraft",
 		"demon_forge":       "Demon Forge",
 		"corruption_engine": "Corruption Engine",
+		"infernal_bulwark":  "Infernal Bulwark",
+		"runic_knight":      "Runic Knight",
+		"abyssal_breaker":   "Abyssal Breaker",
 	}
 	return DISPLAY_NAMES.get(branch_id, branch_id)
 
@@ -81,6 +85,9 @@ func get_branch_description(branch_id: String) -> String:
 		"fleshcraft":        "Empower Grafted Fiends; grow them through kills.",
 		"demon_forge":       "Sacrifice Demons to forge greater ones.",
 		"corruption_engine": "Turn Corruption into power, detonate it for damage and Flesh.",
+		"infernal_bulwark":  "Forge a Human formation; convert Armour into devastating ATK.",
+		"runic_knight":      "Generate runes through combat; absorb their auras for chaos.",
+		"abyssal_breaker":   "Strip enemy Armour with Corruption; detonate at death.",
 	}
 	return DESCRIPTIONS.get(branch_id, "")
 
@@ -274,3 +281,34 @@ func _register_seris_talents() -> void:
 		"void_resonance_seris", "seris", "Void Resonance",
 		"CAPSTONE: When a friendly minion kills an enemy minion, gain 1 Flesh. When you cast a spell with 5 Flesh, consume all Flesh and cast the spell twice.",
 		"corruption_engine", 3, "void_amplification", "res://assets/art/talents/seris/icon_void_resonance.png"))
+
+# ---------------------------------------------------------------------------
+# Korrath — 12 talents across 3 branches (Branch 1 implemented; Branches 2-3
+# follow in tasks 004-005). Branch 2 T3 grand_ritual_chaos is deferred.
+# ---------------------------------------------------------------------------
+
+func _register_korrath_talents() -> void:
+
+	# -----------------------------------------------------------------------
+	# Branch 1 — Infernal Bulwark (Human formation, Armour stacking, Guard capstone)
+	# -----------------------------------------------------------------------
+
+	_register(_make(
+		"iron_formation", "korrath", "Iron Formation",
+		"Abyssal Knight becomes a Human and gains FORMATION: the first time a Human is placed adjacent, the knight permanently gains 200 Armour and 200 HP.",
+		"infernal_bulwark", 0, "", ""))
+
+	_register(_make(
+		"commanders_reach", "korrath", "Commander's Reach",
+		"Aura: while Abyssal Knight is on board, friendly Humans adjacent to it apply 100 Armour Break to their attack target on each attack.",
+		"infernal_bulwark", 1, "iron_formation", ""))
+
+	_register(_make(
+		"iron_resolve", "korrath", "Iron Resolve",
+		"All friendly Humans gain ATK equal to their current Armour value.",
+		"infernal_bulwark", 2, "commanders_reach", ""))
+
+	_register(_make(
+		"unbreakable", "korrath", "Unbreakable",
+		"CAPSTONE: Abyssal Knight gains GUARD. All Armour gains on Abyssal Knight are doubled.",
+		"infernal_bulwark", 3, "iron_resolve", ""))

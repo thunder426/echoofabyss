@@ -352,7 +352,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					var r: TrapCardData = ctx.source_rune
 					if r != null and r in ctx.scene.active_traps:
 						if r.is_rune:
-							ctx.scene._remove_rune_aura(r)
+							ctx.scene._remove_rune_aura(r, ctx.owner)
 						ctx.scene.active_traps.erase(r)
 						ctx.scene._update_trap_display()
 				return
@@ -403,6 +403,14 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				scene._request_buff_apply(target, Enums.BuffType.HP_BONUS, amount, tag_hp, true)
 			else:
 				BuffSystem.apply_hp_gain(target, amount, tag_hp, not silent_hp)
+				scene._refresh_slot_for(target)
+
+		EffectStep.EffectType.BUFF_ARMOUR:
+			# Korrath — armour is a stat on MinionInstance, not a BuffSystem entry.
+			# Route through add_armour() so Branch 1 T3 Unbreakable's "all armour
+			# gains on the knight are doubled" check stays in one place.
+			if target is MinionInstance:
+				(target as MinionInstance).add_armour(amount, scene)
 				scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.HEAL_MINION:

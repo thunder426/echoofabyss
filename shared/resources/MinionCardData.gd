@@ -30,6 +30,12 @@ extends CardData
 ## Magic shields (SHIELD_REGEN_1/2) regenerate at the start of the owner's turn.
 @export var shield_max: int = 0
 
+## Korrath — base Armour. Reduces incoming physical (DamageSource.MINION) damage with a
+## min-100 floor; spells bypass it entirely. 0 means the card has no armour stat (no
+## armour math runs against it). Mutated at runtime via MinionInstance.add_armour() so
+## branch-1 T3 doubling can be centralized in one place.
+@export var armour: int = 0
+
 ## Sub-type tag used for synergy triggers (e.g. "all your Demons gain +100 ATK")
 @export var minion_type: Enums.MinionType = Enums.MinionType.DEMON
 
@@ -112,6 +118,13 @@ extends CardData
 ## Reduces the Mana cost of all player spells by this amount while this minion is on board.
 ## Multiple minions stack (e.g. two Archmagus = -2). Floor is 0.
 @export var mana_cost_discount: int = 0
+
+## Korrath FORMATION — declarative effect steps fired the first time this minion ends up
+## adjacent to another minion of the same race. Each unique partner is one Formation
+## trigger; the pair is tracked on MinionInstance.formation_partners so it cannot re-fire
+## even if adjacency is broken and reformed. EffectResolver runs these with ctx.source =
+## this minion. Empty = the FORMATION keyword fires no steps (still tracks pair tagging).
+@export var formation_effect_steps: Array = []
 
 ## Family / synergy tags used for data-driven queries instead of hardcoded card ID checks.
 ## Examples: "void_imp", "base_void_imp", "senior_void_imp", "void_champion", "imp_overseer".

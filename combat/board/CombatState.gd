@@ -225,20 +225,30 @@ func _apply_void_mark(amount: int) -> void:
 ## then run any bespoke aura_on_remove_steps. Symmetric across scene/sim.
 ## `owner` defaults to "player" (scene caller).
 func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
+	# Match on (rune_id, owner) — both sides can have the same rune_id active
+	# at once (e.g. player + enemy both placed dominion_rune). Without the
+	# owner check this used to remove the wrong side's handler entry, leaking
+	# a stale aura that would buff future summons on the wrong board.
 	for i in _rune_aura_handlers.size():
-		if _rune_aura_handlers[i].rune_id == rune.id:
-			for entry in _rune_aura_handlers[i].entries:
-				trigger_manager.unregister(entry.event, entry.handler)
+		var entry: Dictionary = _rune_aura_handlers[i]
+		if entry.rune_id == rune.id and entry.get("owner", "player") == owner:
+			for sub in entry.entries:
+				trigger_manager.unregister(sub.event, sub.handler)
 			_rune_aura_handlers.remove_at(i)
 			break
 	# Auto-cleanup: strip one layer of every source_tag declared in aura_effect_steps
-	# from both boards. One rune copy = one layer stripped, mirroring the prior bespoke
-	# Dominion teardown. No-op for runes whose aura steps don't carry a source_tag.
+	# from the SAME side this rune was on. One rune copy = one layer stripped,
+	# mirroring the prior bespoke Dominion teardown. No-op for runes whose
+	# aura steps don't carry a source_tag.
+	#
+	# Side-scoped: a rune only ever buffs its own side's minions (its trigger
+	# fires for its own ON_*_MINION_SUMMONED), so its source_tag layers only
+	# ever exist on its own board. Stripping from the other board would
+	# remove a layer that came from the OTHER side's dominion when both
+	# boards have the same rune active.
+	var board_to_clean: Array = player_board if owner == "player" else enemy_board
 	for tag in _harvest_aura_source_tags(rune):
-		for m in player_board:
-			BuffSystem.remove_one_source(m, tag)
-			_refresh_slot_for(m)
-		for m in enemy_board:
+		for m in board_to_clean:
 			BuffSystem.remove_one_source(m, tag)
 			_refresh_slot_for(m)
 	if not rune.aura_on_remove_steps.is_empty():
@@ -683,7 +693,10 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 		var ctx := EffectContext.make(_get_scene_facade(), owner)
 		EffectResolver.run(rune.aura_on_place_steps, ctx)
 	if not entries.is_empty():
-		_rune_aura_handlers.append({rune_id = rune.id, entries = entries})
+		# Track owner alongside rune_id so _remove_rune_aura can target the
+		# correct side's handler when both boards have the same rune type
+		# active simultaneously (e.g. mirror match-up of dominion_rune).
+		_rune_aura_handlers.append({rune_id = rune.id, owner = owner, entries = entries})
 
 ## True if the trigger fires on a minion entering the board (either side).
 ## Used to gate aura_backfill_on_place to triggers where backfill has clear semantics.
@@ -1328,6 +1341,10 @@ var _champion_vw_summoned: bool = false
 var _vw_behemoth_plays: int = 0
 var _vw_bastion_plays: int = 0
 var _void_echo_fired_this_turn: bool = false
+## Korrath T3 Unbreakable — when true, MinionInstance.add_armour() doubles positive
+## armour gains for the abyssal_knight card. Set via CombatSetup._REGISTRY stats when
+## the unbreakable talent is unlocked.
+var _armour_doubled_on_knight: bool = false
 var _vw_death_crit_grants: int = 0
 var _vw_behemoth_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
 var _vw_bastion_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}

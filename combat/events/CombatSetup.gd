@@ -124,6 +124,34 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_TURN_END, "method": "on_turn_end_forge_auras", "priority": 30 }],
 		"stats":    {}
 	},
+	# ── Korrath — Infernal Bulwark branch ────────────────────────────────────
+	# T0 iron_formation: declarative — talent_overrides on abyssal_knight set
+	# minion_type=HUMAN, FORMATION keyword, and formation_effect_steps. The
+	# Phase 1 Formation handler does the rest. No trigger handler needed.
+	"iron_formation": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# T1 commanders_reach: ON_PLAYER_ATTACK handler applies 100 AB to defender
+	# when attacker is a friendly Human adjacent to a friendly Abyssal Knight.
+	"commanders_reach": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_commanders_reach", "priority": 30 }],
+		"stats":    {}
+	},
+	# T2 iron_resolve: live passive read in MinionInstance.effective_atk via the
+	# static `iron_resolve_active` flag. Flag flipped on/off in CombatSetup.setup
+	# right alongside the existing corruption_inverts_on_friendly_demons flag.
+	"iron_resolve": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# T3 unbreakable: declarative GUARD via talent_overrides on the knight; the
+	# armour-doubling half is the scene flag below, read by MinionInstance.add_armour.
+	"unbreakable": {
+		"triggers": [],
+		"stats":    { "_armour_doubled_on_knight": true }
+	},
+
 	# ── Seris — Corruption Engine branch ─────────────────────────────────────
 	# corrupt_flesh — the ATK inversion is a MinionInstance global flag; the activated
 	# ability (button → scene._seris_corrupt_activate) has no trigger. Turn-start reset
@@ -428,6 +456,10 @@ func setup(
 	tm.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,     h.on_void_archmagus_spell,               0)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED,  h.on_player_minion_played_effect,       10)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_summon_board_synergies,           30)
+	# Korrath FORMATION — keyword on any minion. Priority 8 fires before presence
+	# auras (7) so a Formation that grants a tag/race is reflected when auras recompute.
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_minion_summoned_formation,        8)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  h.on_minion_summoned_formation,        8)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED,   h.on_enemy_minion_played_effect,         5)
 	# Generic minion presence-aura recompute — fires on every summon/death/sacrifice on
 	# either side. Walks MinionCardData.presence_aura_steps on every minion and recomputes
@@ -439,6 +471,8 @@ func setup(
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED,  h.on_minion_event_presence_auras, 7)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SACRIFICED,   h.on_minion_event_presence_auras, 7)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_player_minion_died_board_passives,  0)
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_minion_died_environment,            0)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     h.on_minion_died_environment,            0)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SACRIFICED, h.on_player_minion_sacrificed_board_passives, 0)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    h.on_minion_died_death_effect,           5)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED,     h.on_minion_died_death_effect,           5)
@@ -462,6 +496,7 @@ func setup(
 	# Reset per-combat globals, then set from active talents. Resetting here is important
 	# for sim batches where CombatSetup is reused across many state instances.
 	MinionInstance.corruption_inverts_on_friendly_demons = "corrupt_flesh" in talents
+	MinionInstance.iron_resolve_active = "iron_resolve" in talents
 
 	# ── Conditional: registry-driven registration and stat overrides ──────────
 	for id in talents:       _apply(id, tm, h, scene)

@@ -64,10 +64,24 @@ var last_counter_damage: int = 0
 var last_attack_hp_delta: int = 0
 ## HP+shield delta on the attacker for the last counter. Used for the HP tween.
 var last_counter_hp_delta: int = 0
+## Post-armour damage from the last `_deal_damage` invocation (i.e. what entered the
+## shield/HP pool after Korrath Armour reduction and Armour Break math). Pierce overkill
+## reads this so it carries the *landed* damage to the enemy hero, not the raw atk value.
+## Defaults to 0 between calls — callers must read it immediately after `_deal_damage`.
+var last_post_armour_damage: int = 0
 
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	if scene != null:
 		scene._last_attacker = attacker
+	# Korrath — fire ON_PLAYER_ATTACK BEFORE damage resolves so handlers (e.g.
+	# commanders_reach) can apply Armour Break to the defender in time to affect
+	# this strike. Player-side only; ON_ENEMY_ATTACK is fired from CombatScene's
+	# enemy attack input path, not here, to keep that side's existing wiring intact.
+	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK, "player")
+		atk_ctx.minion = attacker
+		atk_ctx.defender = defender
+		scene.trigger_manager.fire(atk_ctx)
 	var atk_damage := _apply_crit(attacker)
 
 	# ETHEREAL: defender takes 50% reduced physical damage from minion attacks
@@ -79,15 +93,18 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	var pre_hp := defender.current_health
 	var pre_shield := defender.current_shield
 	_deal_damage(defender, _attack_damage_info(atk_damage, attacker))
+	var landed_damage: int = last_post_armour_damage
 	last_attack_hp_delta = maxi(0, pre_hp - defender.current_health)
 	# Effective damage = post-Ethereal amount that reached the body (0 if Immune).
 	last_attack_damage = atk_damage if not defender.has_immune() else 0
 
-	# PIERCE: excess kill damage carries through to the enemy hero. School inherits
-	# from the attacker so a Void minion's pierce overkill stays Void-flavored.
+	# PIERCE: excess kill damage carries through to the enemy hero. Uses post-armour
+	# damage (the value that actually reached the defender's pool) so Korrath Armour
+	# reduces both the kill damage AND the carry — armour is fully effective. School
+	# inherits from the attacker so a Void minion's pierce overkill stays Void-flavored.
 	if attacker.has_pierce() and defender.current_health <= 0:
 		var total_effective_hp := pre_hp + pre_shield
-		var excess := maxi(0, atk_damage - total_effective_hp)
+		var excess := maxi(0, landed_damage - total_effective_hp)
 		if excess > 0:
 			var target_owner := "player" if defender.owner == "player" else "enemy"
 			apply_hero_damage(target_owner, _attack_damage_info(excess, attacker))
@@ -125,6 +142,13 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
 	if scene != null:
 		scene._last_attacker = attacker
+	# Korrath — same on-attack trigger as minion-vs-minion. Defender encoded as a
+	# string sentinel ("enemy_hero" / "player_hero") so handlers can branch on type.
+	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK, "player")
+		atk_ctx.minion = attacker
+		atk_ctx.defender = "%s_hero" % target_owner
+		scene.trigger_manager.fire(atk_ctx)
 	var damage := _apply_crit(attacker)
 	if damage > 0:
 		apply_hero_damage(target_owner, _attack_damage_info(damage, attacker))
@@ -153,6 +177,7 @@ func apply_hero_damage(target: String, info: Dictionary) -> void:
 ## Reduce a minion's HP using a DamageInfo. Shield absorbs first. Emit minion_vanished
 ## if HP reaches 0. Source/school are stashed for downstream resistances and triggers.
 func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
+	last_post_armour_damage = 0
 	var damage: int = info.get("amount", 0)
 	if damage <= 0:
 		return
@@ -160,6 +185,24 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 		if scene != null and scene.get("_immune_dmg_prevented") != null:
 			scene._immune_dmg_prevented += damage
 		return
+	# Korrath — Armour math for physical attacks (DamageSource.MINION). Spells and
+	# minion-emitted SPELL-source effects bypass armour entirely.
+	# Resolution order per design/KORRATH_HERO_DESIGN:
+	#   1. Armour Break stacks reduce the target's effective Armour.
+	#   2. Remaining Armour reduces incoming damage.
+	#   3. Excess Armour Break (AB > Armour) becomes flat bonus physical damage.
+	#   4. The post-armour total floors at 100 — physical attacks always land at least 100.
+	# Floor only applies when armour math actually ran (target has armour OR AB stacks);
+	# a 50-ATK pawn vs an unarmoured target still deals 50, not 100.
+	var source: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
+	if source == Enums.DamageSource.MINION:
+		var armour_break: int = BuffSystem.sum_type(minion, Enums.BuffType.ARMOUR_BREAK)
+		var has_armour_math: bool = minion.armour > 0 or armour_break > 0
+		if has_armour_math:
+			var effective_armour: int = maxi(0, minion.armour - armour_break)
+			var bonus: int = maxi(0, armour_break - minion.armour)
+			damage = maxi(100, damage - effective_armour + bonus)
+	last_post_armour_damage = damage
 	# Shield absorbs damage before HP
 	if minion.current_shield > 0:
 		var absorbed := mini(damage, minion.current_shield)

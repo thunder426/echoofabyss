@@ -178,8 +178,9 @@ func play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
 			remaining_ref[0] -= 1
 			if remaining_ref[0] <= 0:
 				scene._flush_deferred_deaths()
+				# Setter auto-emits on_play_vfx_done when count hits zero —
+				# avoids clobbering an outer gate-holder (e.g. ritual orchestrator).
 				scene._on_play_vfx_active = false
-				scene.on_play_vfx_done.emit()
 		, CONNECT_ONE_SHOT)
 		vfx_controller.spawn(vfx)
 
@@ -207,8 +208,8 @@ func play_feral_reinforcement_vfx(source: MinionInstance, _imp_card: CardData) -
 	var vfx := FeralReinforcementVFX.create(slot, enemy_panel, ui_root, _scene)
 	var scene := _scene
 	vfx.finished.connect(func() -> void:
-		scene._on_play_vfx_active = false
-		scene.on_play_vfx_done.emit(),
+		# Setter auto-emits on_play_vfx_done when count hits zero.
+		scene._on_play_vfx_active = false,
 		CONNECT_ONE_SHOT)
 	vfx_controller.spawn(vfx)
 
@@ -262,8 +263,8 @@ func play_rune_placement_vfx(trap: TrapCardData, owner: String) -> void:
 		var trap_env = scene.trap_env_display
 		if trap_env != null:
 			trap_env.reveal_slot_after_placement(captured_owner, captured_idx)
-		scene._on_play_vfx_active = false
-		scene.on_play_vfx_done.emit(),
+		# Setter auto-emits on_play_vfx_done when count hits zero.
+		scene._on_play_vfx_active = false,
 		CONNECT_ONE_SHOT)
 	vfx_controller.spawn(vfx)
 	await vfx.finished
@@ -316,8 +317,8 @@ func play_brood_call_vfx(owner: String) -> void:
 	_scene._on_play_vfx_active = true
 	var scene := _scene
 	vfx.finished.connect(func() -> void:
-		scene._on_play_vfx_active = false
-		scene.on_play_vfx_done.emit(),
+		# Setter auto-emits on_play_vfx_done when count hits zero.
+		scene._on_play_vfx_active = false,
 		CONNECT_ONE_SHOT)
 	vfx_controller.spawn(vfx)
 	await vfx.finished
@@ -386,6 +387,393 @@ func spawn_atk_chevron(minion: MinionInstance) -> void:
 	chevron.position = Vector2(text_right_x + gap, lbl.position.y + y_offset)
 	chevron.set_size(chevron_size)
 	chevron.play()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ritual Sacrifice — Void Ritualist (encounter 5) full sequence orchestration.
+#
+# Plays the entire ritual_sacrifice flow with visuals leading the gameplay state
+# changes, so the runes/damage/summon land synced to the VFX beats:
+#
+#   1. SacrificeVFX on the imp's slot — dagger plunge + sigil + drain + shatter.
+#      Imp kill happens after the dagger plunge so trigger order matches the
+#      pre-VFX behavior; we just emit the bus signal so SacrificeVFX plays the
+#      visual track in parallel with the kill.
+#   2. Slot shine — the imp's (now-empty) slot + both rune slots brighten in
+#      unison via RitualFiringVFX (handled inside that VFX as part of phase 1).
+#   3. Liftoff + travel + merge — runes spiral to screen center and fuse.
+#   4. Demon Ascendant tail — at merge, fire 2 RitualProjectiles (red) at the
+#      chosen damage targets and 1 violet summon-variant RitualProjectile at
+#      the empty enemy slot. Damage applies on each red projectile's impact_hit
+#      beat. The summon bolt's impact_hit triggers RitualSummonImpactVFX
+#      (transparent stroke-only shockwaves + slot shake), which then hands off
+#      to summon_demon_with_sigil → VoidDemonSparkBurstVFX as before.
+#   5. Champion arrives — sequential, only after demon summon has played.
+#
+# All gameplay state writes (rune removal, imp kill, damage, demon spawn) move
+# inside this method so timing is centralized; the handler in CombatHandlers.gd
+# simply delegates here when a scene-side bridge is available.
+# ─────────────────────────────────────────────────────────────────────────────
+
+## Run the full ritual_sacrifice visual + state sequence.
+##
+## imp                — the feral imp that triggered the ritual (will be killed).
+## blood_trap         — the BLOOD_RUNE TrapCardData about to be consumed.
+## dominion_trap      — the DOMINION_RUNE TrapCardData about to be consumed.
+## blood_panel        — Panel for the blood rune's trap slot.
+## dominion_panel     — Panel for the dominion rune's trap slot.
+## targets            — Array of dictionaries describing the 2 damage targets:
+##                      {"kind": "minion"|"hero", "minion": MinionInstance|null}
+##                      (resolved by the caller from the player board state).
+## damage             — int damage per target (200 for the existing ritual).
+## summon_first_champion — if true, summon champion_void_ritualist after demon.
+##
+## Awaitable. Returns when the entire sequence finishes (champion included).
+func play_ritual_sacrifice_sequence(imp: MinionInstance,
+		blood_trap: TrapCardData, dominion_trap: TrapCardData,
+		blood_panel: Control, dominion_panel: Control,
+		targets: Array, damage: int,
+		summon_first_champion: bool,
+		on_kill_imp: Callable,
+		on_remove_runes: Callable) -> void:
+	if _scene == null or vfx_controller == null or imp == null or not is_instance_valid(imp):
+		# Bridge unavailable — caller should fall back to the immediate path.
+		return
+
+	# Block enemy AI / player input while the ritual plays out.
+	_scene._on_play_vfx_active = true
+	var scene := _scene
+
+	# ── Step 1: Imp sacrifice VFX. Find the imp's slot before the kill ─────
+	# (after kill_minion the slot lookup may return null). The runes stay on
+	# their panels through the entire sacrifice — they only leave when the
+	# RitualFiringVFX lifts them off in step 2.
+	var imp_slot: BoardSlot = scene._find_slot_for(imp)
+
+	# Emit on the SacrificeSystem bus first so the existing bus listener on
+	# CombatScene spawns SacrificeVFX (dagger, sigil, drain, shatter) on the
+	# imp's slot. SacrificeVFX freezes the slot internally during the dagger
+	# beat. We then run kill_minion so the original ON_ENEMY_MINION_DIED path
+	# still fires (preserving trigger order — Blood Rune subscribes to both
+	# DIED and SACRIFICED, and switching events here would silently change
+	# what handlers run for non-rune passives).
+	if imp_slot != null:
+		SacrificeSystem.emit(imp, "ritual_sacrifice")
+
+	# Kill the imp + bump the ritual counters now so SacrificeVFX has the
+	# right state. Runes stay on the panels for the entire sacrifice; they
+	# get removed at the end of the merge phase.
+	if on_kill_imp.is_valid():
+		on_kill_imp.call()
+
+	# Wait for SacrificeVFX to land its dagger + drain + shatter before the
+	# rune shine begins. Total = MINION_VISIBLE + DRAIN + SHATTER. This length
+	# matches the natural read of "the imp dies, then the runes ignite."
+	var sacrifice_total: float = SacrificeVFX.MINION_VISIBLE_DURATION \
+			+ SacrificeVFX.DRAIN_DURATION + SacrificeVFX.SHATTER_DURATION
+	await scene.get_tree().create_timer(sacrifice_total).timeout
+	if not is_inside_tree() or not is_instance_valid(scene):
+		_clear_play_gate(scene)
+		return
+
+	# ── Step 2-4: Rune shine + travel + merge, then projectiles + beam ─────
+	# The imp's slot is now empty — pass it as an extra shine slot so it
+	# brightens alongside the runes (the "ignition" beat the user requested).
+	var rune_slots: Array[Control] = [blood_panel, dominion_panel]
+	var rune_colors: Array = [
+		blood_trap.rune_glow_color if blood_trap != null else Color(0.55, 0.08, 0.08, 1),
+		dominion_trap.rune_glow_color if dominion_trap != null else Color(0.10, 0.20, 0.55, 1),
+	]
+	var rune_arts: Array = [
+		_load_battlefield_art(blood_trap),
+		_load_battlefield_art(dominion_trap),
+	]
+	var extra_shine: Array[Control] = []
+	if imp_slot != null and is_instance_valid(imp_slot):
+		extra_shine.append(imp_slot)
+
+	var ritual_vfx := RitualFiringVFX.create(rune_slots, rune_colors, rune_arts, extra_shine)
+	# Capture the screen center before spawning so we can build the tail
+	# launches while the merge is happening.
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	var merge_center: Vector2 = vp_size * 0.5
+
+	# When the merge phase begins, fire the tail (projectiles + beam). The
+	# RitualFiringVFX still finishes naturally at the end of its merge phase.
+	var tail_started_ref: Array = [false]
+	var demon_done_ref: Array   = [false]
+	var bridge := self
+	ritual_vfx.sequence().on(RitualFiringVFX.BEAT_MERGE_COMPLETE, func() -> void:
+		if tail_started_ref[0]:
+			return
+		tail_started_ref[0] = true
+		bridge._fire_demon_ascendant_tail(
+				merge_center, targets, damage, demon_done_ref))
+
+	vfx_controller.spawn(ritual_vfx)
+	await ritual_vfx.finished
+
+	# ── Now the runes have visually flown out of their panels — remove them
+	# from data + refresh the trap display. Doing this *after* the merge
+	# matches the visual: the panels appear empty because the runes left.
+	if on_remove_runes.is_valid():
+		on_remove_runes.call()
+
+	# Wait for the demon-summon tail to finish before champion / unblock.
+	while not demon_done_ref[0]:
+		if not is_inside_tree() or not is_instance_valid(scene):
+			_clear_play_gate(scene)
+			return
+		await scene.get_tree().create_timer(0.05).timeout
+
+	# ── Step 5: Champion summon (only on first ritual) ─────────────────────
+	if summon_first_champion:
+		# Update champion progress + summon. The handler exposes this via
+		# on_ritual_sacrifice_champion_vr; we call it through state's handlers
+		# ref. Falls back to a direct scene call if available.
+		if scene.has_method("_on_ritual_sacrifice_summon_champion"):
+			await scene._on_ritual_sacrifice_summon_champion()
+		else:
+			# Direct fallback — handler is reachable via state._handlers_ref on
+			# both live and sim, but live-side scene shim may not exist.
+			if state != null and state.has_method("_summon_champion_void_ritualist"):
+				state._summon_champion_void_ritualist()
+
+	_clear_play_gate(scene)
+
+## Fire the Demon Ascendant tail: 2 RitualProjectiles to damage targets,
+## 1 beam to the summoner's empty slot, then summon void_demon at beam impact.
+##
+## Damage application is gated on each projectile's impact_hit so the screen
+## flash + popup land synced to the bolt's arrival. Demon summon runs once the
+## beam lands.
+##
+## owner: which side fires the ritual ("enemy" for ritual_sacrifice passive,
+##        "player" for the abyssal_summoning_circle ritual). Decides which
+##        board the demon spawns on and which slots count as "empty target".
+##
+## done_ref[0] is set to true when the demon summon completes (so the parent
+## sequence can move on to the champion beat / unblock).
+func _fire_demon_ascendant_tail(origin: Vector2, targets: Array, damage: int,
+		done_ref: Array, owner: String = "enemy") -> void:
+	if _scene == null or vfx_controller == null:
+		done_ref[0] = true
+		return
+	var scene := _scene
+
+	# Resolve the summoner-side empty slot the demon will land in. _summon_token
+	# picks the same first-empty slot when called with the same owner, so the
+	# beam impact and the actual summon converge on the same panel.
+	var owner_slots: Array = scene.enemy_slots if owner == "enemy" else scene.player_slots
+	var demon_slot: BoardSlot = null
+	for s in owner_slots:
+		if (s as BoardSlot).is_empty():
+			demon_slot = s as BoardSlot
+			break
+
+	# ── Fire damage projectiles ────────────────────────────────────────────
+	var projectile_count: int = mini(targets.size(), 2)
+	var projectiles_done: Array = [0]
+	for i in projectile_count:
+		var t: Dictionary = targets[i]
+		var to_pos: Vector2 = _resolve_target_position(t, owner)
+		if to_pos == Vector2.ZERO:
+			# Couldn't resolve a screen position — apply damage immediately
+			# and count the slot as done.
+			_apply_ritual_damage(t, damage, owner)
+			projectiles_done[0] += 1
+			continue
+		var bolt := RitualProjectile.create(origin, to_pos)
+		var captured_target: Dictionary = t
+		var captured_owner: String = owner
+		bolt.impact_hit.connect(func(_idx: int) -> void:
+			_apply_ritual_damage(captured_target, damage, captured_owner),
+			CONNECT_ONE_SHOT)
+		bolt.finished.connect(func() -> void:
+			projectiles_done[0] += 1,
+			CONNECT_ONE_SHOT)
+		vfx_controller.spawn(bolt)
+
+	# ── Fire summon bolt + shockwave arrival ───────────────────────────────
+	# A third RitualProjectile (violet, heavier than the damage bolts) arcs
+	# from the merged orb into the empty enemy slot. On impact we play the
+	# RitualSummonImpactVFX (transparent stroke-only shockwaves + slot shake),
+	# then hand off to the existing summon flow (sigil + spark burst + reveal).
+	if demon_slot != null and demon_slot.is_inside_tree():
+		var summon_to: Vector2 = demon_slot.global_position + demon_slot.size * 0.5
+		var summon_bolt := RitualProjectile.create_for_summon(origin, summon_to)
+		var summon_done_ref: Array = [false]
+		var captured_owner_summon: String = owner
+		var bridge := self
+		var captured_slot: BoardSlot = demon_slot
+		var captured_impact_pos: Vector2 = summon_to
+		# At bolt impact: punctuate with the shockwave + slot shake, then kick
+		# off the demon summon. We track when the FULL summon completes — not
+		# just the impact — so the parent flow keeps its gate held until the
+		# demon has fully landed and ON_*_MINION_SUMMONED has fired.
+		summon_bolt.impact_hit.connect(func(_idx: int) -> void:
+			if scene == null or not is_instance_valid(scene):
+				return
+			var shock := RitualSummonImpactVFX.create(captured_impact_pos, captured_slot)
+			vfx_controller.spawn(shock)
+			bridge._summon_void_demon_synced(captured_owner_summon, summon_done_ref),
+			CONNECT_ONE_SHOT)
+		vfx_controller.spawn(summon_bolt)
+		# Wait for the WHOLE demon summon to complete — shockwave + sigil VFX
+		# + spark burst + reveal trigger all done. summon_done_ref flips true
+		# at the end of _summon_void_demon_synced.
+		while not summon_done_ref[0]:
+			if not is_inside_tree() or not is_instance_valid(scene):
+				done_ref[0] = true
+				return
+			await scene.get_tree().create_timer(0.05).timeout
+	else:
+		# No empty slot for the demon — fall back to the original summon path.
+		# This shouldn't happen during a normal ritual since we already picked
+		# the slot, but bail safely if state shifted under us.
+		if scene != null and is_instance_valid(scene):
+			scene._summon_token("void_demon", owner, 500, 500)
+
+	# Wait for both projectiles to finish their fade so the screen isn't
+	# cluttered when the champion arrives.
+	while projectiles_done[0] < projectile_count:
+		if not is_inside_tree() or not is_instance_valid(scene):
+			done_ref[0] = true
+			return
+		await scene.get_tree().create_timer(0.05).timeout
+
+	done_ref[0] = true
+
+## Public entry — run the Demon Ascendant projectile + beam tail synchronously.
+## Used by the player ritual path which doesn't have a parent orchestrator.
+## Returns when the entire tail is done (projectiles faded + demon summoned).
+func play_demon_ascendant_tail_for(owner: String, origin: Vector2,
+		targets: Array, damage: int) -> void:
+	var done_ref: Array = [false]
+	_fire_demon_ascendant_tail(origin, targets, damage, done_ref, owner)
+	while not done_ref[0]:
+		if _scene == null or not is_instance_valid(_scene):
+			return
+		await _scene.get_tree().create_timer(0.05).timeout
+
+## Spawn a 500/500 void_demon for `owner` and AWAIT the full summon VFX —
+## sigil → spark burst → reveal trigger — flipping done_ref[0] true only
+## after every visual beat has landed. Used by the Demon Ascendant ritual
+## tail so the parent flow can hold the AI/player gate until the demon is
+## fully on the board (not just until the beam fades).
+##
+## Mirrors the relevant slice of CombatScene._summon_token + the
+## CardVfxRegistry void_demon dispatch, inlined so we can `await` the
+## sigil/burst chain instead of fire-and-forget. State changes (board
+## append, minion_summoned signal, ON_*_MINION_SUMMONED trigger) stay
+## consistent with the standard summon path.
+func _summon_void_demon_synced(owner: String, done_ref: Array) -> void:
+	if _scene == null or not is_instance_valid(_scene) or vfx_controller == null:
+		done_ref[0] = true
+		return
+	var scene := _scene
+	var data: MinionCardData = scene._card_for(owner, "void_demon") as MinionCardData
+	if data == null:
+		done_ref[0] = true
+		return
+	var slots: Array = scene.player_slots if owner == "player" else scene.enemy_slots
+	var board: Array = scene.player_board if owner == "player" else scene.enemy_board
+	var slot: BoardSlot = null
+	for s in slots:
+		if (s as BoardSlot).is_empty():
+			slot = s as BoardSlot
+			break
+	if slot == null:
+		done_ref[0] = true
+		return
+
+	var instance := MinionInstance.create(data, owner)
+	instance.current_atk    = 500
+	instance.spawn_atk      = 500
+	instance.current_health = 500
+	instance.spawn_health   = 500
+	board.append(instance)
+	if scene.state != null:
+		scene.state.minion_summoned.emit(owner, instance, slot.index)
+
+	# This is the key change: await the full sigil → burst → reveal chain.
+	# summon_demon_with_sigil ends by calling _reveal_after_sigil, which
+	# fires ON_*_MINION_SUMMONED. By awaiting the function itself we wait
+	# for that whole chain to complete.
+	await summon_demon_with_sigil(instance, data, slot, owner)
+	done_ref[0] = true
+
+## Resolve a damage target's screen-space center. owner is the side firing
+## the projectile, used to find the correct hero panel ("hero" target is
+## always the OPPOSING hero — enemy ritual hits player hero, player ritual
+## hits enemy hero).
+func _resolve_target_position(target: Dictionary, owner: String = "enemy") -> Vector2:
+	if _scene == null:
+		return Vector2.ZERO
+	var kind: String = target.get("kind", "") as String
+	if kind == "minion":
+		var m: MinionInstance = target.get("minion") as MinionInstance
+		if m == null or not is_instance_valid(m):
+			return Vector2.ZERO
+		var slot: BoardSlot = _scene._find_slot_for(m)
+		if slot == null or not slot.is_inside_tree():
+			return Vector2.ZERO
+		return slot.global_position + slot.size * 0.5
+	if kind == "hero":
+		# Opposing hero — enemy ritual targets player hero, player ritual
+		# targets enemy hero.
+		var hero_panel: Control = _scene._player_status_panel if owner == "enemy" \
+				else _scene._enemy_status_panel
+		if hero_panel == null or not hero_panel.is_inside_tree():
+			return Vector2.ZERO
+		return hero_panel.global_position + hero_panel.size * 0.5
+	return Vector2.ZERO
+
+## Apply ritual damage to a single target. Mirrors the gameplay logic from
+## the original handler, kept here so projectile impact_hit can fire it inline.
+## owner ("enemy"|"player") is the side firing the ritual — "hero" damage
+## hits the OPPOSING hero.
+##
+## Also spawns a floating damage popup at the impact location. Hero damage
+## popups are emitted automatically via _flash_hero through the hero_damaged
+## signal chain, but minion damage doesn't auto-popup — apply_damage_to_minion
+## just deals damage. So we spawn the popup explicitly here, mirroring how
+## attack resolution and Plague spawn popups at their hit sites.
+func _apply_ritual_damage(target: Dictionary, damage: int, owner: String = "enemy") -> void:
+	if _scene == null or _scene.combat_manager == null:
+		return
+	var info := CombatManager.make_damage_info(damage, Enums.DamageSource.SPELL,
+			Enums.DamageSchool.NONE, null, "ritual_sacrifice")
+	var kind: String = target.get("kind", "") as String
+	if kind == "hero":
+		var target_hero: String = "player" if owner == "enemy" else "enemy"
+		_scene.combat_manager.apply_hero_damage(target_hero, info)
+	elif kind == "minion":
+		var m: MinionInstance = target.get("minion") as MinionInstance
+		if m != null and is_instance_valid(m):
+			# Spawn the popup BEFORE applying damage — if this kill triggers a
+			# death that frees the slot, we still want the popup at the slot's
+			# screen-space location. _find_slot_for is safe to call now since
+			# the minion is still on the board.
+			var slot: BoardSlot = _scene._find_slot_for(m)
+			if slot != null and is_instance_valid(slot) and slot.is_inside_tree():
+				spawn_damage_popup(slot.get_global_rect().get_center(), damage,
+						false, Enums.DamageSchool.NONE)
+			_scene.combat_manager.apply_damage_to_minion(m, info)
+
+## Load a TrapCardData's battlefield art if one is set, else null.
+func _load_battlefield_art(trap: TrapCardData) -> Texture2D:
+	if trap == null or trap.battlefield_art_path == "":
+		return null
+	if not ResourceLoader.exists(trap.battlefield_art_path):
+		return null
+	return load(trap.battlefield_art_path) as Texture2D
+
+func _clear_play_gate(scene: Node) -> void:
+	if scene != null and is_instance_valid(scene):
+		# Setter is ref-counted and auto-emits on_play_vfx_done when count
+		# hits zero — this releases the orchestrator's hold without clobbering
+		# any other concurrent gate-holders.
+		scene._on_play_vfx_active = false
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Champion summon entrance — banner + screen shake + gold flash + ripple
