@@ -253,7 +253,7 @@ static func _filter_matches(filter: Dictionary, card: CardData) -> bool:
 				if not (needed in Enums.MinionType):
 					push_warning("CardModRules: unknown minion_type '%s'" % needed)
 					return false
-				if mc.minion_type != Enums.MinionType[needed]:
+				if not mc.is_race(Enums.MinionType[needed]):
 					return false
 			"clan":
 				if mc.clan != needed:

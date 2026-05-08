@@ -304,7 +304,7 @@ func _consume_fiendish_pact_discount() -> void:
 	for inst in player_hand:
 		if inst == null or inst.card_data == null:
 			continue
-		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			inst.essence_delta = 0
 
 ## (`_spell_dmg` inherited from CombatState.)

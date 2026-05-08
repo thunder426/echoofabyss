@@ -333,7 +333,7 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 			var type_val: int = Enums.MinionType.get(type_name, -1)
 			for m in agent.friendly_board:
 				if m.card_data is MinionCardData and \
-						(m.card_data as MinionCardData).minion_type == type_val:
+						(m.card_data as MinionCardData).is_race(type_val):
 					return true
 			return false
 		"board_not_full":
@@ -907,7 +907,7 @@ func _pick_best_friendly_with_tag(tag: String) -> MinionInstance:
 func _pick_best_friendly_with_type(mtype: Enums.MinionType) -> MinionInstance:
 	var best: MinionInstance = null
 	for m: MinionInstance in agent.friendly_board:
-		if m.card_data.minion_type == mtype:
+		if (m.card_data as MinionCardData).is_race(mtype):
 			if best == null or m.effective_atk() > best.effective_atk():
 				best = m
 	return best

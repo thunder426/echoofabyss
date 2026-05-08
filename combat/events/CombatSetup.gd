@@ -152,6 +152,64 @@ const _REGISTRY: Dictionary = {
 		"stats":    { "_armour_doubled_on_knight": true }
 	},
 
+	# ── Korrath — Abyssal Breaker branch ─────────────────────────────────────
+	# T0 corrupting_presence: knight retag is declarative (talent_overrides on
+	# abyssal_knight). The Corruption-strips-Armour half is the scene flag
+	# below, read in CombatManager._deal_damage.
+	"corrupting_presence": {
+		"triggers": [],
+		"stats":    { "_corrupting_presence_active": true }
+	},
+	# T1 abyssal_strike: ON_PLAYER_ATTACK handler applies 1 Corruption to the
+	# defender when the attacker is the abyssal_knight.
+	"abyssal_strike": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_abyssal_strike", "priority": 25 }],
+		"stats":    {}
+	},
+	# T2 path_of_ruination: spell-side amplification + corruption-on-cast. Both
+	# halves live inside EffectResolver's DAMAGE_MINION step, gated by the flag.
+	"path_of_ruination": {
+		"triggers": [],
+		"stats":    { "_path_of_ruination_active": true }
+	},
+	# T2 path_of_destruction: ON_PLAYER_ATTACK handler — friendly Demon attacks
+	# apply 50 AB to the defender. Same trigger as commanders_reach but
+	# different filter (Demon, no adjacency requirement).
+	"path_of_destruction": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_path_of_destruction", "priority": 28 }],
+		"stats":    {}
+	},
+	# T3 armour_explosion: ON_ENEMY_MINION_DIED handler snapshots the dead
+	# minion's AB sum and deals it as spell damage to the remaining enemy board.
+	"armour_explosion": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_armour_explosion", "priority": 35 }],
+		"stats":    {}
+	},
+
+	# ── Korrath — Runic Knight branch ────────────────────────────────────────
+	# T0 runic_transcendence: dual race tag is declarative (talent_overrides on
+	# abyssal_knight). The on-attack rune-generation half is the trigger handler.
+	"runic_transcendence": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_runic_transcendence", "priority": 20 }],
+		"stats":    {}
+	},
+	# T1 runic_absorption: stateless — read by CombatState._korrath_place_random_rune
+	# via `"runic_absorption" in talents` when the rune board is full.
+	"runic_absorption": {
+		"triggers": [],
+		"stats":    {}
+	},
+	# T2 path_of_demons / path_of_humans: ON_PLAYER_MINION_SUMMONED handlers fire
+	# repeated effects scaled by X (active rune slots + absorbed aura stacks).
+	"path_of_demons": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_path_of_demons", "priority": 35 }],
+		"stats":    {}
+	},
+	"path_of_humans": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_path_of_humans", "priority": 35 }],
+		"stats":    {}
+	},
+
 	# ── Seris — Corruption Engine branch ─────────────────────────────────────
 	# corrupt_flesh — the ATK inversion is a MinionInstance global flag; the activated
 	# ability (button → scene._seris_corrupt_activate) has no trigger. Turn-start reset

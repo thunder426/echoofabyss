@@ -154,7 +154,7 @@ func _friendly_slots(owner: String) -> Array:
 func _count_type_on_board(type: int, owner: String) -> int:
 	var count := 0
 	for m in _friendly_board(owner):
-		if (m as MinionInstance).card_data.minion_type == type:
+		if ((m as MinionInstance).card_data as MinionCardData).is_race(type):
 			count += 1
 	return count
 
@@ -328,7 +328,7 @@ func _on_flesh_spent(_amount: int) -> void:
 func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
 	if _fiendish_pact_pending <= 0:
 		return 0
-	if mc == null or mc.minion_type != Enums.MinionType.DEMON:
+	if mc == null or not mc.is_race(Enums.MinionType.DEMON):
 		return 0
 	return mini(_fiendish_pact_pending, mc.essence_cost)
 
@@ -343,7 +343,7 @@ func _pre_player_spell_cast(_spell: SpellCardData) -> void:
 	if _has_talent("void_amplification"):
 		var total_stacks: int = 0
 		for m in player_board:
-			if (m.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+			if (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 				total_stacks += BuffSystem.count_type(m, Enums.BuffType.CORRUPTION)
 		_player_spell_damage_bonus = total_stacks * 50
 	else:
@@ -591,7 +591,7 @@ func _on_demon_sacrificed(minion: MinionInstance, _source_tag: String) -> void:
 		return
 	if not (minion.card_data is MinionCardData):
 		return
-	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return
 	# Fiend Offering — sacrificed a Grafted Fiend, spend 2 Flesh → Lesser Demon.
 	# Auto-spends when affordable (no opt-out UI yet); board-full still consumes Flesh.
@@ -908,7 +908,7 @@ func _seris_corrupt_apply(target: MinionInstance) -> bool:
 		return false
 	if target == null or target.owner != "player":
 		return false
-	if (target.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+	if not (target.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return false
 	# Note: scene's _spend_flesh path (Flesh.spend) logs and emits flesh_changed.
 	# Sim mutates player_flesh directly via inherited setter — same emission.
@@ -1345,6 +1345,85 @@ var _void_echo_fired_this_turn: bool = false
 ## armour gains for the abyssal_knight card. Set via CombatSetup._REGISTRY stats when
 ## the unbreakable talent is unlocked.
 var _armour_doubled_on_knight: bool = false
+
+## Korrath B3 T0 Corrupting Presence — when true, CombatManager._deal_damage strips
+## an additional 100 effective Armour per Corruption stack on enemy targets, ahead
+## of Armour Break (corruption is treated as armour erosion, AB does its strip+overflow
+## on the post-corruption value). No overflow conversion for corruption.
+var _corrupting_presence_active: bool = false
+
+## Korrath B3 T2 Path of Ruination — when true, EffectResolver's DAMAGE_MINION step
+## (a) applies +100 spell damage per Corruption stack on the target before damage
+## resolves and (b) applies 1 Corruption to the target after the hit. Both halves
+## live inside the resolver so AOE spells naturally hit each target once.
+var _path_of_ruination_active: bool = false
+
+## Korrath B2 — five rune card IDs randomly placed by Runic Transcendence's
+## on-attack rune generation. Order is irrelevant; randomness comes from `randi()`.
+const KORRATH_RUNE_IDS: Array[String] = [
+	"void_rune", "blood_rune", "dominion_rune", "shadow_rune", "soul_rune",
+]
+
+## Maximum runes the player can have on board at once (matches the visible UI
+## trap_slot_panels count). Hardcoded here because state needs it for Korrath B2
+## absorption logic without reaching into the scene's UI panels.
+const KORRATH_RUNE_BOARD_CAP: int = 3
+
+## Korrath B2 T0 — place a random rune on the player's board. If the rune board
+## is full and B2 T1 `runic_absorption` is unlocked, absorb a random existing rune's
+## aura into a random friendly Abyssal Knight first (freeing a slot). If full and T1
+## is NOT unlocked, the new rune is silently dropped. Symmetric across scene/sim.
+func _korrath_place_random_rune() -> void:
+	if active_traps.size() >= KORRATH_RUNE_BOARD_CAP:
+		if "runic_absorption" in talents:
+			_korrath_absorb_random_rune()
+		else:
+			return  # board full, no absorption — drop the new rune
+	var rune_id: String = KORRATH_RUNE_IDS[randi() % KORRATH_RUNE_IDS.size()]
+	var rune: TrapCardData = CardDatabase.get_card(rune_id) as TrapCardData
+	if rune == null:
+		return
+	active_traps.append(rune)
+	_apply_rune_aura(rune, "player")
+	if trigger_manager != null:
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_RUNE_PLACED, "player")
+		ctx.card = rune
+		trigger_manager.fire(ctx)
+
+## Korrath B2 T1 — pick a random rune from the player's board, remove it, and
+## record its rune_type as a permanent aura tag on a random friendly Abyssal
+## Knight. Same accumulator pattern as Seris's aura_tags. The destroyed rune's
+## board aura is fully cleaned up via the standard `_remove_rune_aura` path; the
+## absorbed tag lives on the knight for X-counting in path_of_demons / path_of_humans.
+func _korrath_absorb_random_rune() -> void:
+	if active_traps.is_empty():
+		return
+	var runes: Array = active_traps.filter(func(t): return (t as TrapCardData).is_rune)
+	if runes.is_empty():
+		return
+	var victim: TrapCardData = runes[randi() % runes.size()]
+	var knights: Array = player_board.filter(
+		func(m): return m != null and m.card_data != null and m.card_data.id == "abyssal_knight")
+	if not knights.is_empty():
+		var knight: MinionInstance = knights[randi() % knights.size()]
+		# Aura tag stored as the rune card id (e.g. "void_rune"). Stacks naturally —
+		# multiple absorptions of the same type all go in.
+		knight.aura_tags.append(victim.id)
+	_remove_rune_aura(victim, "player")
+	active_traps.erase(victim)
+
+## Total absorbed-rune-aura stacks across all friendly Abyssal Knights on board.
+## Used by path_of_demons / path_of_humans X-counting (X = active_rune_slots + this).
+func _korrath_absorbed_aura_count() -> int:
+	var count: int = 0
+	for raw in player_board:
+		var m: MinionInstance = raw as MinionInstance
+		if m == null or m.card_data == null or m.card_data.id != "abyssal_knight":
+			continue
+		for tag in m.aura_tags:
+			if tag in KORRATH_RUNE_IDS:
+				count += 1
+	return count
 var _vw_death_crit_grants: int = 0
 var _vw_behemoth_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}
 var _vw_bastion_lost: Dictionary = {"consumed": 0, "damage": 0, "combat": 0, "survived": 0}

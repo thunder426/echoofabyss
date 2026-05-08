@@ -439,6 +439,30 @@ func _register_wanderer_cards() -> void:
 			],
 			"description": "GUARD\nFORMATION: First Human placed adjacent permanently grants +200 Armour and +200 HP.\nAll Armour gains on this minion are doubled.",
 		},
+		# Branch 3 T0 Corrupting Presence: knight retags Demon. The "Corruption strips
+		# Armour by 100/stack" half is a CombatManager._deal_damage rule gated by the
+		# scene flag set in CombatSetup — no card field needed for that half.
+		# Branch 3 has no FORMATION/GUARD or formation steps; race-only override.
+		# Branches are mutually exclusive in normal play (committed_branch lock), so
+		# this never coexists with iron_formation/unbreakable in the same run.
+		{
+			"talent_id":   "corrupting_presence",
+			"minion_type": Enums.MinionType.DEMON,
+			"description": "Each stack of Corruption you apply also reduces target Armour by 100.",
+		},
+		# Branch 2 T0 Runic Transcendence: knight gains BOTH Human and Demon race
+		# tags. Primary stays HUMAN; DEMON goes in extra_minion_types. Race-aware
+		# code reads via MinionCardData.is_race() so the knight matches both
+		# Demon-summon talents (path_of_demons) and Human-summon talents
+		# (path_of_humans), plus all the existing race-filtered systems
+		# (Seris fleshbind, Dominion Rune aura, etc.). The rune-on-attack half
+		# is wired in CombatHandlers.on_player_attack_runic_transcendence.
+		{
+			"talent_id":          "runic_transcendence",
+			"minion_type":        Enums.MinionType.HUMAN,
+			"extra_minion_types": [Enums.MinionType.DEMON],
+			"description":        "Counts as both Human and Demon. Whenever this minion attacks, place a random Rune on your board.",
+		},
 	]
 	all.append(abyssal_knight)
 

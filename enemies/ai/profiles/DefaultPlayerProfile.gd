@@ -91,6 +91,6 @@ func _has_cheap_token(state: Object) -> bool:
 func _demon_count(state: Object) -> int:
 	var n := 0
 	for m in state.player_board:
-		if (m as MinionInstance).card_data.minion_type == Enums.MinionType.DEMON:
+		if ((m as MinionInstance).card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			n += 1
 	return n

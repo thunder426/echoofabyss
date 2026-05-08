@@ -35,13 +35,13 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 	match cond:
 		# --- Target type conditions ---
 		"is_demon":
-			return target is MinionInstance and target.card_data.minion_type == Enums.MinionType.DEMON
+			return target is MinionInstance and (target.card_data as MinionCardData).is_race(Enums.MinionType.DEMON)
 		"is_human":
-			return target is MinionInstance and target.card_data.minion_type == Enums.MinionType.HUMAN
+			return target is MinionInstance and (target.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN)
 		"is_spirit":
-			return target is MinionInstance and target.card_data.minion_type == Enums.MinionType.SPIRIT
+			return target is MinionInstance and (target.card_data as MinionCardData).is_race(Enums.MinionType.SPIRIT)
 		"is_beast":
-			return target is MinionInstance and target.card_data.minion_type == Enums.MinionType.BEAST
+			return target is MinionInstance and (target.card_data as MinionCardData).is_race(Enums.MinionType.BEAST)
 		"is_void_imp":
 			return target is MinionInstance and scene._minion_has_tag(target, "void_imp")
 		"is_corrupted":
@@ -131,9 +131,9 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 
 		# --- Dead minion conditions (on_player_minion_died_steps context) ---
 		"dead_is_demon":
-			return ctx.dead_minion != null and ctx.dead_minion.card_data.minion_type == Enums.MinionType.DEMON
+			return ctx.dead_minion != null and (ctx.dead_minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON)
 		"dead_is_human":
-			return ctx.dead_minion != null and ctx.dead_minion.card_data.minion_type == Enums.MinionType.HUMAN
+			return ctx.dead_minion != null and (ctx.dead_minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN)
 		"dead_is_void_imp":
 			return ctx.dead_minion != null and scene._minion_has_tag(ctx.dead_minion, "void_imp")
 

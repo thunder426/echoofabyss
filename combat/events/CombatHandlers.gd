@@ -257,7 +257,7 @@ func on_player_attack_commanders_reach(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.minion
 	if attacker == null or attacker.owner != "player":
 		return
-	if (attacker.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+	if not (attacker.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		return
 	# Adjacency to a friendly Abyssal Knight is the gating condition.
 	if not _adjacent_to_friendly_knight(attacker):
@@ -267,6 +267,116 @@ func on_player_attack_commanders_reach(ctx: EventContext) -> void:
 		return  # Hero attacks: AB on heroes not modeled yet
 	BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 100,
 			"commanders_reach", false, false)
+
+## Korrath B2 T0 — Runic Transcendence on-attack half. Whenever the Abyssal Knight
+## attacks (any target), place a random rune on the player's board. Board-full +
+## absorption logic lives in CombatState._korrath_place_random_rune.
+func on_player_attack_runic_transcendence(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.minion
+	if attacker == null or attacker.card_data == null:
+		return
+	if attacker.card_data.id != "abyssal_knight":
+		return
+	_scene._korrath_place_random_rune()
+
+## Korrath B2 T2 — Path of Demons. When a Demon is summoned on the player side, deal
+## 50 damage to a random enemy, repeated X times — where X = active rune slots +
+## total absorbed aura stacks across friendly Abyssal Knights. Repeats the dmg
+## random-pick X times so each iteration may hit a different enemy.
+func on_summon_path_of_demons(ctx: EventContext) -> void:
+	var summoned: MinionInstance = ctx.minion
+	if summoned == null or summoned.owner != "player":
+		return
+	if not (summoned.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
+		return
+	var x: int = _korrath_x_count()
+	if x <= 0:
+		return
+	for _i in x:
+		var pool: Array = (_scene.enemy_board as Array).filter(
+			func(m): return m != null and m.current_health > 0)
+		if pool.is_empty():
+			return
+		var target: MinionInstance = pool[randi() % pool.size()]
+		var info := CombatManager.make_damage_info(50, Enums.DamageSource.SPELL,
+				Enums.DamageSchool.NONE, summoned, "path_of_demons")
+		_scene.combat_manager.apply_damage_to_minion(target, info)
+
+## Korrath B2 T2 — Path of Humans. When a Human is summoned on the player side, give
+## 50 ATK to a random friendly minion, repeated X times. X uses the same formula as
+## path_of_demons. Each repetition may pick a different friendly minion.
+func on_summon_path_of_humans(ctx: EventContext) -> void:
+	var summoned: MinionInstance = ctx.minion
+	if summoned == null or summoned.owner != "player":
+		return
+	if not (summoned.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
+		return
+	var x: int = _korrath_x_count()
+	if x <= 0:
+		return
+	for _i in x:
+		var pool: Array = (_scene.player_board as Array).filter(
+			func(m): return m != null and m.current_health > 0)
+		if pool.is_empty():
+			return
+		var target: MinionInstance = pool[randi() % pool.size()]
+		BuffSystem.apply(target, Enums.BuffType.ATK_BONUS, 50, "path_of_humans", false, false)
+		_scene._refresh_slot_for(target)
+
+## X = active rune slots on board + total absorbed-aura stacks across friendly knights.
+func _korrath_x_count() -> int:
+	var rune_slots: int = 0
+	for trap in _scene.active_traps:
+		if (trap as TrapCardData).is_rune:
+			rune_slots += 1
+	return rune_slots + _scene._korrath_absorbed_aura_count()
+
+## Korrath B3 T1 — Abyssal Strike. Knight applies 1 Corruption stack to its attack
+## target on every attack. Hero-target case is skipped (corruption-on-hero is not
+## modeled today; same gap as commanders_reach).
+func on_player_attack_abyssal_strike(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.minion
+	if attacker == null or attacker.card_data == null:
+		return
+	if attacker.card_data.id != "abyssal_knight":
+		return
+	var defender = ctx.defender
+	if not (defender is MinionInstance):
+		return
+	_scene._corrupt_minion(defender as MinionInstance)
+
+## Korrath B3 T2 — Path of Destruction. Friendly Demon attacks apply 50 Armour Break
+## to the attack target. No adjacency requirement (unlike commanders_reach).
+func on_player_attack_path_of_destruction(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.minion
+	if attacker == null or attacker.owner != "player":
+		return
+	if not (attacker.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
+		return
+	var defender = ctx.defender
+	if not (defender is MinionInstance):
+		return  # Hero AB not modeled
+	BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 50,
+			"path_of_destruction", false, false)
+
+## Korrath B3 T3 — Armour Explosion. When an enemy minion dies, snapshot its total
+## Armour Break stacks and deal that as spell damage to every other enemy minion on
+## the board. The dead minion itself is excluded (already at 0 HP). Damage is
+## DamageSource.SPELL so it bypasses any armour the targets have.
+func on_enemy_died_armour_explosion(ctx: EventContext) -> void:
+	var dead: MinionInstance = ctx.minion
+	if dead == null:
+		return
+	var ab_total: int = BuffSystem.sum_type(dead, Enums.BuffType.ARMOUR_BREAK)
+	if ab_total <= 0:
+		return
+	for raw in (_scene.enemy_board as Array).duplicate():
+		var m: MinionInstance = raw as MinionInstance
+		if m == null or m == dead or m.current_health <= 0:
+			continue
+		var info := CombatManager.make_damage_info(ab_total, Enums.DamageSource.SPELL,
+				Enums.DamageSchool.NONE, dead, "armour_explosion")
+		_scene.combat_manager.apply_damage_to_minion(m, info)
 
 ## True if `actor` is in slot N and slot N±1 holds an Abyssal Knight on the same side.
 func _adjacent_to_friendly_knight(actor: MinionInstance) -> bool:
@@ -299,7 +409,7 @@ func _try_fire_formation(actor: MinionInstance, partner: MinionInstance) -> void
 		return
 	if actor.formation_partners.has(partner):
 		return
-	if (partner.card_data as MinionCardData).minion_type != card.minion_type:
+	if not card.shares_race(partner.card_data as MinionCardData):
 		return
 	actor.formation_partners[partner] = true
 	if card.formation_effect_steps.is_empty():
@@ -312,7 +422,7 @@ func _try_fire_formation(actor: MinionInstance, partner: MinionInstance) -> void
 func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionInstance, summoned: MinionInstance) -> void:
 	match passive_id:
 		"void_amplifier_buff_demon":
-			if summoned.card_data.minion_type == Enums.MinionType.DEMON and summoned != passive_owner:
+			if (summoned.card_data as MinionCardData).is_race(Enums.MinionType.DEMON) and summoned != passive_owner:
 				BuffSystem.apply(summoned, Enums.BuffType.ATK_BONUS, 100, "void_amplifier", false, false)
 				summoned.current_health += 100
 				_scene._refresh_slot_for(summoned)
@@ -399,7 +509,7 @@ func on_player_minion_sacrificed_board_passives(ctx: EventContext) -> void:
 	var sacd: MinionInstance = ctx.minion
 	if sacd == null or not (sacd.card_data is MinionCardData):
 		return
-	if (sacd.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+	if not (sacd.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		# Currently only Forge Acolyte cares, and it cares about Demons. Add more
 		# branches here if other passives need non-Demon sacrifice triggers.
 		return
@@ -436,7 +546,7 @@ func on_minion_died_environment(ctx: EventContext) -> void:
 func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInstance, dead: MinionInstance) -> void:
 	match passive_id:
 		"void_spark_on_friendly_death":
-			if dead.card_data.minion_type == Enums.MinionType.DEMON \
+			if (dead.card_data as MinionCardData).is_race(Enums.MinionType.DEMON) \
 					and _scene.has_method("_summon_void_spark"):
 				_scene._summon_void_spark()
 		"deal_200_hero_on_friendly_death":
@@ -448,7 +558,7 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 				_log("  Abyssal Sacrificer: %s died → 1 Void Mark." % dead.card_data.card_name, _LOG_PLAYER)
 				_scene._apply_void_mark(1)
 		"soul_taskmaster_gain_atk":
-			if dead.card_data.minion_type == Enums.MinionType.DEMON and dead != passive_owner:
+			if (dead.card_data as MinionCardData).is_race(Enums.MinionType.DEMON) and dead != passive_owner:
 				BuffSystem.apply(passive_owner, Enums.BuffType.ATK_BONUS, 50, "soul_taskmaster_stack", false, false)
 				_scene._refresh_slot_for(passive_owner)
 				_log("  Soul Taskmaster: Demon died → gains +50 ATK.", _LOG_PLAYER)
@@ -464,7 +574,7 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 func on_minion_died_fleshbind(ctx: EventContext) -> void:
 	if ctx.minion == null or not (ctx.minion.card_data is MinionCardData):
 		return
-	if (ctx.minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+	if not (ctx.minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return
 	_scene._gain_flesh(1)
 
@@ -501,7 +611,7 @@ func on_played_grafting_ritual(ctx: EventContext) -> void:
 	if target.owner != ctx.minion.owner:
 		return
 	var tc := target.card_data as MinionCardData
-	if tc == null or tc.minion_type != Enums.MinionType.DEMON:
+	if tc == null or not tc.is_race(Enums.MinionType.DEMON):
 		return
 	# Transform in place — swap card_data and reset runtime state.
 	# _card_for so the transformed Fiend inherits any clan rules / overrides.
@@ -539,7 +649,7 @@ func on_corruption_removed_detonation(ctx: EventContext) -> void:
 		return
 	if ctx.minion.owner != "player":
 		return
-	if (ctx.minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+	if not (ctx.minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return
 	var stacks: int = ctx.damage
 	if stacks <= 0:
@@ -808,7 +918,7 @@ func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
-	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		return
 	_scene.set("_imp_caller_fired", true)
 	var feral_imps: Array[CardData] = []
@@ -828,7 +938,7 @@ func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
 ## When a human is summoned: apply 1 Corruption to a random player minion.
 func on_enemy_summon_corrupt_authority_human(ctx: EventContext) -> void:
 	var minion := ctx.minion
-	if minion == null or (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+	if minion == null or not (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		return
 	if _scene.player_board.is_empty():
 		return
@@ -1006,7 +1116,7 @@ func on_enemy_summon_void_unraveling_human(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
-	if (minion.card_data as MinionCardData).minion_type != Enums.MinionType.HUMAN:
+	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		return
 	var _prev = _scene.get("_spark_spawned_count")
 	_scene.set("_spark_spawned_count", (_prev if _prev != null else 0) + 1)
@@ -1340,7 +1450,7 @@ func on_spark_consumed_spirit_resonance(ctx: EventContext) -> void:
 	var minion: MinionInstance = ctx.minion
 	if minion == null:
 		return
-	if minion.card_data.minion_type != Enums.MinionType.SPIRIT:
+	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.SPIRIT):
 		return
 	if not minion.has_critical_strike():
 		return
@@ -1351,7 +1461,7 @@ func on_spark_consumed_champion_vw(ctx: EventContext) -> void:
 	var minion: MinionInstance = ctx.minion
 	if minion == null:
 		return
-	if minion.card_data.minion_type != Enums.MinionType.SPIRIT:
+	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.SPIRIT):
 		return
 	# Champion already summoned — no further tracking needed
 	if _scene.get("_champion_vw_summoned"):
@@ -1381,7 +1491,7 @@ func on_enemy_died_champion_vw(ctx: EventContext) -> void:
 	# to a random friendly minion.
 	if not _champion_vw_is_alive():
 		return
-	if minion.card_data.minion_type != Enums.MinionType.SPIRIT:
+	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.SPIRIT):
 		return
 	var candidates: Array[MinionInstance] = []
 	for m: MinionInstance in _scene.enemy_board:

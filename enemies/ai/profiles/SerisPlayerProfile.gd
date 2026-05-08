@@ -114,7 +114,7 @@ func _maybe_corrupt_flesh() -> void:
 		return
 	var best: MinionInstance = null
 	for m in agent.friendly_board:
-		if (m.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		if not (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			continue
 		if best == null or m.effective_atk() > best.effective_atk():
 			best = m

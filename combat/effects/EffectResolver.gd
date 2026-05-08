@@ -377,7 +377,13 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				var info := _build_damage_info(step, ctx, dmg)
 				scene.combat_manager.apply_hero_damage(scene._opponent_of(ctx.owner), info)
 			else:
+				# Korrath B3 T2 Path of Ruination — pre-damage amplification (read
+				# corruption stacks BEFORE we apply our own) + post-damage corruption
+				# application. Per-target, per-step, so AOE spells naturally hit each
+				# target once and single-target spells get +100 / stack on this hit.
+				dmg = _path_of_ruination_amplify(dmg, target, ctx)
 				scene._spell_dmg(target, dmg, _build_damage_info(step, ctx, dmg))
+				_path_of_ruination_apply_corruption(target, ctx)
 
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
@@ -545,6 +551,37 @@ static func _race_from_string(name: String) -> int:
 static func _build_damage_info(step: EffectStep, ctx: EffectContext, amount: int) -> Dictionary:
 	var source: Enums.DamageSource = Enums.DamageSource.MINION if ctx.source != null else Enums.DamageSource.SPELL
 	return CombatManager.make_damage_info(amount, source, step.damage_school, ctx.source, ctx.source_card_id)
+
+## Korrath B3 T2 Path of Ruination — pre-damage amplification half. Player-side only.
+## Reads the target's current CORRUPTION buff stack count and adds 100 damage per
+## stack to the spell hit. Reads BEFORE the talent's own corruption application so a
+## newly-corrupted target doesn't double-amplify on the same hit.
+static func _path_of_ruination_amplify(base: int, target, ctx: EffectContext) -> int:
+	if ctx.owner != "player":
+		return base
+	if ctx.scene == null or ctx.scene.get("_path_of_ruination_active") != true:
+		return base
+	if not (target is MinionInstance):
+		return base  # hero corruption not modeled
+	# count_type, not sum_type — Corruption entries store the per-stack ATK penalty
+	# as `amount` (100 base, 200 w/ talent). We want stack COUNT.
+	var stacks: int = BuffSystem.count_type(target as MinionInstance, Enums.BuffType.CORRUPTION)
+	return base + stacks * 100
+
+## Korrath B3 T2 Path of Ruination — post-damage corruption application half.
+## Adds 1 Corruption stack to the target after the spell hit lands. Skipped when
+## the target died from the hit so we don't corrupt a vanishing minion.
+static func _path_of_ruination_apply_corruption(target, ctx: EffectContext) -> void:
+	if ctx.owner != "player":
+		return
+	if ctx.scene == null or ctx.scene.get("_path_of_ruination_active") != true:
+		return
+	if not (target is MinionInstance):
+		return
+	var m: MinionInstance = target
+	if m.current_health <= 0:
+		return
+	ctx.scene._corrupt_minion(m)
 
 ## Apply dark_channeling spell damage multiplier (enemy-only, flag set by handler).
 static func _dark_channeling_dmg(base: int, ctx: EffectContext) -> int:

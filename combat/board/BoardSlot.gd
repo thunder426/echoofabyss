@@ -822,7 +822,7 @@ func flash_atk_debuff() -> void:
 			and minion != null \
 			and minion.owner == "player" \
 			and minion.card_data is MinionCardData \
-			and minion.card_data.minion_type == Enums.MinionType.DEMON
+			and (minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON)
 	var flash_color: Color = Color(0.55, 2.4, 0.45, 1.0) if inverted else Color(2.4, 0.35, 0.35, 1.0)
 	var original: Color = _atk_label.modulate
 	var tw := _atk_label.create_tween()

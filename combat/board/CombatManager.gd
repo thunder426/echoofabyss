@@ -188,19 +188,32 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 	# Korrath — Armour math for physical attacks (DamageSource.MINION). Spells and
 	# minion-emitted SPELL-source effects bypass armour entirely.
 	# Resolution order per design/KORRATH_HERO_DESIGN:
-	#   1. Armour Break stacks reduce the target's effective Armour.
+	#   0. (B3 corrupting_presence) Each Corruption stack on an enemy target erodes
+	#      that target's effective Armour by 100 — this is armour erosion, not strip;
+	#      no overflow conversion. Player-side talent so it only fires when target is
+	#      enemy-owned.
+	#   1. Armour Break stacks reduce the target's (post-corruption) effective Armour.
 	#   2. Remaining Armour reduces incoming damage.
-	#   3. Excess Armour Break (AB > Armour) becomes flat bonus physical damage.
+	#   3. Excess Armour Break (AB > armour-after-corruption) becomes flat bonus damage.
 	#   4. The post-armour total floors at 100 — physical attacks always land at least 100.
-	# Floor only applies when armour math actually ran (target has armour OR AB stacks);
-	# a 50-ATK pawn vs an unarmoured target still deals 50, not 100.
+	# Floor only applies when armour math actually ran (target has armour OR AB stacks
+	# OR corruption-strip is in play); a 50-ATK pawn vs an unarmoured untouched target
+	# still deals 50, not 100.
 	var source: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
 	if source == Enums.DamageSource.MINION:
 		var armour_break: int = BuffSystem.sum_type(minion, Enums.BuffType.ARMOUR_BREAK)
-		var has_armour_math: bool = minion.armour > 0 or armour_break > 0
+		var corrupt_strip: int = 0
+		if scene != null \
+				and scene.get("_corrupting_presence_active") == true \
+				and minion.owner == "enemy":
+			# count_type, not sum_type — Corruption entries store the per-stack ATK
+			# penalty as `amount` (100 base, 200 w/ talent). We want stack COUNT.
+			corrupt_strip = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION) * 100
+		var has_armour_math: bool = minion.armour > 0 or armour_break > 0 or corrupt_strip > 0
 		if has_armour_math:
-			var effective_armour: int = maxi(0, minion.armour - armour_break)
-			var bonus: int = maxi(0, armour_break - minion.armour)
+			var armour_after_corruption: int = maxi(0, minion.armour - corrupt_strip)
+			var effective_armour: int = maxi(0, armour_after_corruption - armour_break)
+			var bonus: int = maxi(0, armour_break - armour_after_corruption)
 			damage = maxi(100, damage - effective_armour + bonus)
 	last_post_armour_damage = damage
 	# Shield absorbs damage before HP

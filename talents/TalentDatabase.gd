@@ -312,3 +312,64 @@ func _register_korrath_talents() -> void:
 		"unbreakable", "korrath", "Unbreakable",
 		"CAPSTONE: Abyssal Knight gains GUARD. All Armour gains on Abyssal Knight are doubled.",
 		"infernal_bulwark", 3, "iron_resolve", ""))
+
+	# -----------------------------------------------------------------------
+	# Branch 3 — Abyssal Breaker (Demon knight, Corruption strips Armour, capstone explosion)
+	#
+	# T2 is a sibling-talent tier: path_of_ruination and path_of_destruction both
+	# require abyssal_strike, both belong to this branch. With four total talent
+	# picks per run the player can only unlock one of them in practice. T3
+	# armour_explosion's prereq is abyssal_strike (T1) rather than either T2
+	# sibling — TalentData.requires holds a single string, so this is the
+	# closest fit; in normal play the player picks T2 before T3 anyway.
+	# -----------------------------------------------------------------------
+
+	_register(_make(
+		"corrupting_presence", "korrath", "Corrupting Presence",
+		"Abyssal Knight becomes a Demon. Each stack of Corruption on an enemy also reduces that enemy's Armour by 100.",
+		"abyssal_breaker", 0, "", ""))
+
+	_register(_make(
+		"abyssal_strike", "korrath", "Abyssal Strike",
+		"Whenever Abyssal Knight attacks any target, apply 1 Corruption stack to that target.",
+		"abyssal_breaker", 1, "corrupting_presence", ""))
+
+	_register(_make(
+		"path_of_ruination", "korrath", "Path of Ruination",
+		"Your spells apply 1 Corruption stack to their target on cast. Each Corruption stack on a target increases spell damage it takes by 100.",
+		"abyssal_breaker", 2, "abyssal_strike", ""))
+
+	_register(_make(
+		"path_of_destruction", "korrath", "Path of Destruction",
+		"Friendly Demon attacks apply 50 Armour Break to their attack target.",
+		"abyssal_breaker", 2, "abyssal_strike", ""))
+
+	_register(_make(
+		"armour_explosion", "korrath", "Armour Explosion",
+		"CAPSTONE: When an enemy minion dies, deal spell damage to all enemy minions equal to that minion's accumulated Armour Break value.",
+		"abyssal_breaker", 3, "abyssal_strike", ""))
+
+	# -----------------------------------------------------------------------
+	# Branch 2 — Runic Knight (T0/T1/T2; T3 grand_ritual_chaos deferred until
+	# the RitualVariance system lands. Same sibling-T2 pattern as Branch 3.)
+	# -----------------------------------------------------------------------
+
+	_register(_make(
+		"runic_transcendence", "korrath", "Runic Transcendence",
+		"Abyssal Knight gains both Human and Demon race tags simultaneously. Whenever it attacks, place a random Rune on your board.",
+		"runic_knight", 0, "", ""))
+
+	_register(_make(
+		"runic_absorption", "korrath", "Runic Absorption",
+		"When your rune board is full and Abyssal Knight generates a new rune, randomly destroy one active rune and permanently grant its aura to a random Abyssal Knight on board. Stacks.",
+		"runic_knight", 1, "runic_transcendence", ""))
+
+	_register(_make(
+		"path_of_demons", "korrath", "Path of Demons",
+		"Whenever a Demon is summoned, deal 50 damage to a random enemy, repeated X times — where X = active rune slots + total absorbed aura stacks across friendly Abyssal Knights.",
+		"runic_knight", 2, "runic_absorption", ""))
+
+	_register(_make(
+		"path_of_humans", "korrath", "Path of Humans",
+		"Whenever a Human is summoned, give 50 ATK to a random friendly minion, repeated X times — where X = active rune slots + total absorbed aura stacks across friendly Abyssal Knights.",
+		"runic_knight", 2, "runic_absorption", ""))

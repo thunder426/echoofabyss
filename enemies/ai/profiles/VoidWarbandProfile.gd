@@ -108,7 +108,7 @@ func _pay_sparks_smart(plan: Array[MinionInstance], deck_type: DeckType) -> void
 			continue
 		if not agent.is_alive():
 			return
-		var is_crit_spirit: bool = m.card_data.minion_type == Enums.MinionType.SPIRIT \
+		var is_crit_spirit: bool = (m.card_data as MinionCardData).is_race(Enums.MinionType.SPIRIT) \
 			and m.has_critical_strike()
 		if is_crit_spirit and _empty_slot_count() <= 0:
 			# Board full — preserve crit for consume (resonance +1 fuel)

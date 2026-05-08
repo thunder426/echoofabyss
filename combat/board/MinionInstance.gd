@@ -125,14 +125,14 @@ func effective_atk() -> int:
 	# Seris Corrupt Flesh: friendly Demons treat Corruption as +ATK instead of -ATK.
 	if corruption_inverts_on_friendly_demons \
 			and owner == "player" \
-			and card_data.minion_type == Enums.MinionType.DEMON:
+			and (card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		atk += corruption_stacks
 	else:
 		atk -= corruption_stacks
 	# Korrath Iron Resolve: friendly Humans add their current Armour to ATK.
 	if iron_resolve_active \
 			and owner == "player" \
-			and card_data.minion_type == Enums.MinionType.HUMAN:
+			and (card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		atk += armour
 	return maxi(0, atk)
 
@@ -201,7 +201,7 @@ func effective_spark_value(scene: Object = null) -> int:
 	# Passive applies to enemy Spirit minions with crit
 	if owner != "enemy":
 		return base
-	if card_data.minion_type != Enums.MinionType.SPIRIT:
+	if not (card_data as MinionCardData).is_race(Enums.MinionType.SPIRIT):
 		return base
 	if not has_critical_strike():
 		return base

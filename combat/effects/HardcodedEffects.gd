@@ -127,7 +127,7 @@ func _fiendish_pact(ctx: EffectContext) -> void:
 			continue
 		if not (inst.card_data is MinionCardData):
 			continue
-		if (inst.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+		if not (inst.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			continue
 		inst.essence_delta = mini(inst.essence_delta, -2)
 		count += 1
@@ -153,11 +153,11 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 		if _has_source(m, "dark_covenant"):
 			had_aura[m.get_instance_id()] = true
 		BuffSystem.remove_source(m, "dark_covenant")
-	var has_human: bool = board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.HUMAN)
-	var has_demon: bool = board.any(func(m: MinionInstance) -> bool: return m.card_data.minion_type == Enums.MinionType.DEMON)
+	var has_human: bool = board.any(func(m: MinionInstance) -> bool: return (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN))
+	var has_demon: bool = board.any(func(m: MinionInstance) -> bool: return (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON))
 	if has_human:
 		for m in board:
-			if m.card_data.minion_type == Enums.MinionType.DEMON:
+			if (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 				# Defer to BuffApplyVFX's chevron beat in live combat (state
 				# mutation aligned with visible value tween). Sim falls back to
 				# immediate apply via the null vfx_controller check.
@@ -168,7 +168,7 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 					_scene._refresh_slot_for(m)
 	if has_demon:
 		for m in board:
-			if m.card_data.minion_type == Enums.MinionType.HUMAN:
+			if (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 				if had_aura.has(m.get_instance_id()):
 					BuffSystem.apply(m, Enums.BuffType.HP_BONUS, 100, "dark_covenant", false, false)
 				elif _scene.has_method("_request_buff_apply") and _scene.vfx_controller != null:
@@ -240,7 +240,7 @@ func _soul_rune_death(ctx: EffectContext) -> void:
 	var is_owner_turn: bool = (is_player_turn == true) if ctx.owner == "player" else (is_player_turn == false)
 	if is_owner_turn:
 		return
-	if ctx.trigger_minion == null or ctx.trigger_minion.card_data.minion_type != Enums.MinionType.DEMON:
+	if ctx.trigger_minion == null or not (ctx.trigger_minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return
 	_scene.set("_soul_rune_fires_this_turn", fires + 1)
 	var mult: int = _scene._rune_aura_multiplier()

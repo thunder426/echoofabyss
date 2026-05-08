@@ -118,8 +118,8 @@ func _play_minions_smart() -> void:
 			var b_mc := b.card_data as MinionCardData
 			var a_is_imp: bool = "feral_imp" in a_mc.minion_tags
 			var b_is_imp: bool = "feral_imp" in b_mc.minion_tags
-			var a_is_human: bool = a_mc.minion_type == Enums.MinionType.HUMAN
-			var b_is_human: bool = b_mc.minion_type == Enums.MinionType.HUMAN
+			var a_is_human: bool = a_mc.is_race(Enums.MinionType.HUMAN)
+			var b_is_human: bool = b_mc.is_race(Enums.MinionType.HUMAN)
 			# Priority: if corruption exists, imps first (for detonation); else humans first
 			var a_prio: int = 0
 			var b_prio: int = 0
@@ -183,14 +183,14 @@ func _pick_execution_target():
 
 func _has_friendly_human() -> bool:
 	for m in agent.friendly_board:
-		if m.card_data is MinionCardData and (m.card_data as MinionCardData).minion_type == Enums.MinionType.HUMAN:
+		if m.card_data is MinionCardData and (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 			return true
 	return false
 
 func _count_friendly_humans() -> int:
 	var count := 0
 	for m in agent.friendly_board:
-		if m.card_data is MinionCardData and (m.card_data as MinionCardData).minion_type == Enums.MinionType.HUMAN:
+		if m.card_data is MinionCardData and (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 			count += 1
 	return count
 

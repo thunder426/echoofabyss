@@ -242,7 +242,7 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 func _void_execution_damage() -> int:
 	for m in agent.friendly_board:
 		if m.card_data is MinionCardData and \
-				(m.card_data as MinionCardData).minion_type == Enums.MinionType.HUMAN:
+				(m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 			return 700
 	return 500
 

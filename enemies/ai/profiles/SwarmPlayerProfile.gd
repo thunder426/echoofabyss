@@ -94,7 +94,7 @@ func _play_dark_empowerment() -> void:
 		# Find highest-HP Demon on board
 		var best: MinionInstance = null
 		for m in agent.friendly_board:
-			if m.card_data.minion_type == Enums.MinionType.DEMON:
+			if (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 				if best == null or m.current_health > best.current_health:
 					best = m
 		if best == null:
@@ -116,7 +116,7 @@ func _should_place_dominion_rune() -> bool:
 		return false
 	var demon_count := 0
 	for m in agent.friendly_board:
-		if m.card_data.minion_type == Enums.MinionType.DEMON:
+		if (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			demon_count += 1
 	return demon_count >= 2
 
@@ -187,7 +187,7 @@ func _grow_swarm(state: Object, turn: int) -> void:
 func _board_demon_count(state: Object) -> int:
 	var n := 0
 	for m in state.player_board:
-		if (m as MinionInstance).card_data.minion_type == Enums.MinionType.DEMON:
+		if ((m as MinionInstance).card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			n += 1
 	return n
 

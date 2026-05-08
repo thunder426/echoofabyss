@@ -127,7 +127,7 @@ func spell_highlight_color_picker(spell: SpellCardData) -> Callable:
 		"dark_empowerment":
 			var demon_color := Color(0.70, 0.30, 1.00, 1.0)
 			return func(s: BoardSlot) -> Color:
-				if s.minion != null and s.minion.card_data.minion_type == Enums.MinionType.DEMON:
+				if s.minion != null and (s.minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 					return demon_color
 				return Color(0, 0, 0, 0)
 		_:
@@ -170,13 +170,13 @@ func is_valid_minion_on_play_target(minion: MinionInstance, target_type: String)
 		"friendly_minion_other":  return true
 		"friendly_demon":
 			return minion != null and minion.card_data is MinionCardData \
-				and (minion.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON
+				and (minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON)
 	return false
 
 func is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
-		"friendly_human":    return minion.card_data.minion_type == Enums.MinionType.HUMAN
-		"friendly_demon":    return minion.card_data.minion_type == Enums.MinionType.DEMON
+		"friendly_human":    return (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN)
+		"friendly_demon":    return (minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON)
 		"friendly_minion":   return true
 		"friendly_void_imp": return _scene._minion_has_tag(minion, "void_imp")
 		"friendly_feral_imp": return _scene._minion_has_tag(minion, "feral_imp")

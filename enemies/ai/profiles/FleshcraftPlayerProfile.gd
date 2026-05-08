@@ -94,7 +94,7 @@ func _maybe_fiendish_pact() -> void:
 	for inst in agent.hand:
 		if inst.card_data is MinionCardData:
 			var mc := inst.card_data as MinionCardData
-			if mc.minion_type == Enums.MinionType.DEMON:
+			if mc.is_race(Enums.MinionType.DEMON):
 				demons.append(mc)
 	if demons.is_empty():
 		return
@@ -193,7 +193,7 @@ func _pick_grafting_ritual_target() -> MinionInstance:
 	var best_value: int = 9999
 	for m in agent.friendly_board:
 		var md := m.card_data as MinionCardData
-		if md == null or md.minion_type != Enums.MinionType.DEMON:
+		if md == null or not md.is_race(Enums.MinionType.DEMON):
 			continue
 		if "grafted_fiend" in md.minion_tags:
 			continue
@@ -219,7 +219,7 @@ func _pick_butcher_sac_target() -> MinionInstance:
 			continue
 		if "grafted_fiend" in md.minion_tags:
 			fiends.append(m)
-		elif md.minion_type == Enums.MinionType.DEMON:
+		elif md.is_race(Enums.MinionType.DEMON):
 			non_fiend_demons.append(m)
 		else:
 			non_demons.append(m)
@@ -282,7 +282,7 @@ func pick_spell_target(spell: SpellCardData):
 		# Pass 2: any friendly Demon.
 		for m in agent.friendly_board:
 			var md := m.card_data as MinionCardData
-			if md == null or md.minion_type != Enums.MinionType.DEMON:
+			if md == null or not md.is_race(Enums.MinionType.DEMON):
 				continue
 			if best == null or m.effective_atk() > best.effective_atk():
 				best = m

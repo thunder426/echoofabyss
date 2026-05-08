@@ -64,7 +64,7 @@ func empty_slot_count() -> int:
 func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
 	var mc := inst.card_data as MinionCardData
 	# Seris Starter — consume Fiendish Pact pending discount if this is a Demon
-	if mc.minion_type == Enums.MinionType.DEMON and sim._fiendish_pact_pending > 0:
+	if mc.is_race(Enums.MinionType.DEMON) and sim._fiendish_pact_pending > 0:
 		sim._consume_fiendish_pact_discount()
 	var instance := MinionInstance.create(mc, "player")
 	instance.card_instance = inst

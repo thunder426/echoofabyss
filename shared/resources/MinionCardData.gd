@@ -39,6 +39,32 @@ extends CardData
 ## Sub-type tag used for synergy triggers (e.g. "all your Demons gain +100 ATK")
 @export var minion_type: Enums.MinionType = Enums.MinionType.DEMON
 
+## Korrath B2 — secondary race tags. Most minions have a single race (`minion_type`).
+## Multi-race minions (e.g. Abyssal Knight under runic_transcendence becomes Human +
+## Demon) list extra races here. ALL race-aware code must read via `is_race(type)` so
+## the primary and the extras are checked together; never compare `minion_type` directly.
+@export var extra_minion_types: Array[int] = []
+
+## True if this card carries the given race — either as `minion_type` or in
+## `extra_minion_types`. Replaces every `minion_type == X` comparison in the codebase.
+func is_race(type: int) -> bool:
+	if minion_type == type:
+		return true
+	return type in extra_minion_types
+
+## True if this card and `other` share at least one race. Used by Korrath FORMATION
+## (which fires when adjacent minions share a race) so a multi-race knight matches both
+## Human and Demon partners.
+func shares_race(other: MinionCardData) -> bool:
+	if other == null:
+		return false
+	if is_race(other.minion_type):
+		return true
+	for t in other.extra_minion_types:
+		if is_race(t):
+			return true
+	return false
+
 ## Keywords this minion has (e.g. [Enums.Keyword.TAUNT, Enums.Keyword.RUSH])
 @export var keywords: Array[int] = []
 

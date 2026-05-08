@@ -2148,7 +2148,7 @@ func _consume_fiendish_pact_discount() -> void:
 	for inst in turn_manager.player_hand:
 		if inst == null or inst.card_data == null:
 			continue
-		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			inst.essence_delta = 0
 	if has_method("_refresh_hand_spell_costs"):
 		_refresh_hand_spell_costs()
@@ -2298,7 +2298,7 @@ func _maybe_spawn_aura_pulse(card: CardData, slot: BoardSlot) -> void:
 
 ## Count minions of a given type on the specified owner's board.
 func _count_type_on_board(type: Enums.MinionType, owner: String) -> int:
-	return _friendly_board(owner).filter(func(m: MinionInstance): return m.card_data.minion_type == type).size()
+	return _friendly_board(owner).filter(func(m: MinionInstance): return (m.card_data as MinionCardData).is_race(type)).size()
 
 ## Return true if there is at least one empty player slot.
 func _has_empty_player_slot() -> bool:
@@ -2815,7 +2815,7 @@ func _seris_corrupt_activate() -> void:
 	# Check there's at least one valid target (friendly Demon) before entering target mode.
 	var has_target := false
 	for m in player_board:
-		if (m.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON:
+		if (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			has_target = true
 			break
 	if not has_target:
@@ -2826,7 +2826,7 @@ func _seris_corrupt_activate() -> void:
 	_highlight_slots(player_slots,
 		func(s: BoardSlot) -> bool:
 			return not s.is_empty() \
-				and (s.minion.card_data as MinionCardData).minion_type == Enums.MinionType.DEMON)
+				and (s.minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON))
 	_log("  Corrupt Flesh: pick a friendly Demon (right-click to cancel).", _LogType.PLAYER)
 
 ## Applies Corrupt Flesh to the clicked minion. Called from _on_player_slot_clicked_occupied
@@ -2835,7 +2835,7 @@ func _seris_corrupt_activate() -> void:
 func _seris_corrupt_apply_target(minion: MinionInstance) -> void:
 	_seris_corrupt_targeting = false
 	_clear_all_highlights()
-	if minion != null and (minion.card_data as MinionCardData).minion_type != Enums.MinionType.DEMON:
+	if minion != null and not (minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		_log("  Corrupt Flesh: target must be a friendly Demon.", _LogType.PLAYER)
 		return
 	state._seris_corrupt_apply(minion)
