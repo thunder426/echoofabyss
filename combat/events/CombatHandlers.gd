@@ -246,9 +246,8 @@ func on_minion_summoned_formation(ctx: EventContext) -> void:
 		_try_fire_formation(neighbor, summoned)
 
 ## Korrath T1 — Commander's Reach. On any player minion attack, if the attacker is
-## a friendly HUMAN adjacent to a friendly Abyssal Knight, apply 100 Armour Break to
-## the defender. Hero attacks no-op (no armour stat on heroes today; AB on heroes is
-## deferred to Branch 3 Path of Destruction work).
+## a friendly HUMAN adjacent to a friendly Abyssal Knight, apply 100 Armour Break
+## to the defender (minion or enemy hero).
 ##
 ## Fires from CombatManager.resolve_minion_attack BEFORE damage resolution so the AB
 ## reduces the Armour of THIS strike, not just future strikes — matches the design
@@ -263,10 +262,12 @@ func on_player_attack_commanders_reach(ctx: EventContext) -> void:
 	if not _adjacent_to_friendly_knight(attacker):
 		return
 	var defender = ctx.defender
-	if not (defender is MinionInstance):
-		return  # Hero attacks: AB on heroes not modeled yet
-	BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 100,
-			"commanders_reach", false, false)
+	if defender is MinionInstance:
+		BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 100,
+				"commanders_reach", false, false)
+	elif defender is String and defender == "enemy_hero":
+		_scene.state.apply_hero_buff("enemy", Enums.BuffType.ARMOUR_BREAK, 100,
+				"commanders_reach")
 
 ## Korrath B2 T0 — Runic Transcendence on-attack half. Whenever the Abyssal Knight
 ## attacks (any target), place a random rune on the player's board. Board-full +
@@ -332,8 +333,9 @@ func _korrath_x_count() -> int:
 	return rune_slots + _scene._korrath_absorbed_aura_count()
 
 ## Korrath B3 T1 — Abyssal Strike. Knight applies 1 Corruption stack to its attack
-## target on every attack. Hero-target case is skipped (corruption-on-hero is not
-## modeled today; same gap as commanders_reach).
+## target on every attack — minion or enemy hero. Routes through state's
+## _corrupt_minion / _corrupt_hero so corrupting_presence's one-shot AB emission
+## (when active) fires consistently regardless of target type.
 func on_player_attack_abyssal_strike(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.minion
 	if attacker == null or attacker.card_data == null:
@@ -341,12 +343,14 @@ func on_player_attack_abyssal_strike(ctx: EventContext) -> void:
 	if attacker.card_data.id != "abyssal_knight":
 		return
 	var defender = ctx.defender
-	if not (defender is MinionInstance):
-		return
-	_scene._corrupt_minion(defender as MinionInstance)
+	if defender is MinionInstance:
+		_scene._corrupt_minion(defender as MinionInstance)
+	elif defender is String and defender == "enemy_hero":
+		_scene.state._corrupt_hero("enemy")
 
-## Korrath B3 T2 — Path of Destruction. Friendly Demon attacks apply 50 Armour Break
-## to the attack target. No adjacency requirement (unlike commanders_reach).
+## Korrath B3 T2 — Path of Destruction. Friendly Demon attacks apply 50 Armour
+## Break to the attack target (minion or enemy hero). No adjacency requirement
+## (unlike commanders_reach).
 func on_player_attack_path_of_destruction(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.minion
 	if attacker == null or attacker.owner != "player":
@@ -354,10 +358,12 @@ func on_player_attack_path_of_destruction(ctx: EventContext) -> void:
 	if not (attacker.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return
 	var defender = ctx.defender
-	if not (defender is MinionInstance):
-		return  # Hero AB not modeled
-	BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 50,
-			"path_of_destruction", false, false)
+	if defender is MinionInstance:
+		BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 50,
+				"path_of_destruction", false, false)
+	elif defender is String and defender == "enemy_hero":
+		_scene.state.apply_hero_buff("enemy", Enums.BuffType.ARMOUR_BREAK, 50,
+				"path_of_destruction")
 
 ## Korrath B3 T3 — Armour Explosion. When an enemy minion dies, snapshot its total
 ## Armour Break stacks and deal that as spell damage to every other enemy minion on

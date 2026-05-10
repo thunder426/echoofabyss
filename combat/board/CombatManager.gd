@@ -168,11 +168,49 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 # ---------------------------------------------------------------------------
 
 ## Apply hero damage carrying full DamageInfo. All hero damage routes through here.
+##
+## Korrath — physical attacks (DamageSource.MINION) run through hero Armour and
+## Armour Break math identical to the minion path; spells bypass entirely.
+## `info.amount` is rewritten to the post-armour value before the signal fires
+## so listeners (CombatScene/SimState) and downstream telemetry see the value
+## that actually lands. PR1 (task 014): hero armour and AB are always 0/empty,
+## so this is a no-op for behavior; PR2 wires the three Korrath handlers and
+## the math becomes load-bearing.
 func apply_hero_damage(target: String, info: Dictionary) -> void:
 	var amount: int = info.get("amount", 0)
 	if amount <= 0:
 		return
+	if scene != null and info.get("source", Enums.DamageSource.SPELL) == Enums.DamageSource.MINION:
+		var hero: HeroState = scene.player_hero if target == "player" else scene.enemy_hero
+		if hero != null:
+			amount = _apply_armour_math(hero, amount)
+			info["amount"] = amount
+			if amount <= 0:
+				return
 	hero_damaged.emit(target, info)
+
+## Korrath armour resolution shared by minion and hero damage paths. Returns the
+## post-armour damage to apply. `target` is duck-typed on `armour: int` and
+## `buffs: Array[BuffEntry]` (MinionInstance or HeroState).
+##
+## Two-bucket model: Armour reduces damage; ARMOUR_BREAK reduces effective armour
+## first, with excess (AB > armour) becoming flat bonus damage. Branch 3 T0
+## corrupting_presence emits a permanent AB stack at the moment a corruption
+## stack is applied to an enemy target — that AB lives in BuffSystem like any
+## other AB and naturally flows through this math; corruption stacks themselves
+## are NOT read here. See design/KORRATH_HERO_DESIGN section "Armour".
+##
+## Floor only applies when armour math actually ran (target has armour OR AB
+## stacks); a 50-ATK pawn vs an unarmoured untouched target still deals 50, not
+## 100.
+func _apply_armour_math(target: Object, damage: int) -> int:
+	var armour: int = target.armour
+	var armour_break: int = BuffSystem.sum_type(target, Enums.BuffType.ARMOUR_BREAK)
+	if armour == 0 and armour_break == 0:
+		return damage
+	var effective_armour: int = maxi(0, armour - armour_break)
+	var bonus: int = maxi(0, armour_break - armour)
+	return maxi(100, damage - effective_armour + bonus)
 
 ## Reduce a minion's HP using a DamageInfo. Shield absorbs first. Emit minion_vanished
 ## if HP reaches 0. Source/school are stashed for downstream resistances and triggers.
@@ -186,35 +224,12 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 			scene._immune_dmg_prevented += damage
 		return
 	# Korrath — Armour math for physical attacks (DamageSource.MINION). Spells and
-	# minion-emitted SPELL-source effects bypass armour entirely.
-	# Resolution order per design/KORRATH_HERO_DESIGN:
-	#   0. (B3 corrupting_presence) Each Corruption stack on an enemy target erodes
-	#      that target's effective Armour by 100 — this is armour erosion, not strip;
-	#      no overflow conversion. Player-side talent so it only fires when target is
-	#      enemy-owned.
-	#   1. Armour Break stacks reduce the target's (post-corruption) effective Armour.
-	#   2. Remaining Armour reduces incoming damage.
-	#   3. Excess Armour Break (AB > armour-after-corruption) becomes flat bonus damage.
-	#   4. The post-armour total floors at 100 — physical attacks always land at least 100.
-	# Floor only applies when armour math actually ran (target has armour OR AB stacks
-	# OR corruption-strip is in play); a 50-ATK pawn vs an unarmoured untouched target
-	# still deals 50, not 100.
+	# minion-emitted SPELL-source effects bypass armour entirely. corrupting_presence
+	# emits its AB stack at corruption-apply time (see CombatState._corrupt_minion);
+	# this path just runs the standard armour/AB math.
 	var source: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
 	if source == Enums.DamageSource.MINION:
-		var armour_break: int = BuffSystem.sum_type(minion, Enums.BuffType.ARMOUR_BREAK)
-		var corrupt_strip: int = 0
-		if scene != null \
-				and scene.get("_corrupting_presence_active") == true \
-				and minion.owner == "enemy":
-			# count_type, not sum_type — Corruption entries store the per-stack ATK
-			# penalty as `amount` (100 base, 200 w/ talent). We want stack COUNT.
-			corrupt_strip = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION) * 100
-		var has_armour_math: bool = minion.armour > 0 or armour_break > 0 or corrupt_strip > 0
-		if has_armour_math:
-			var armour_after_corruption: int = maxi(0, minion.armour - corrupt_strip)
-			var effective_armour: int = maxi(0, armour_after_corruption - armour_break)
-			var bonus: int = maxi(0, armour_break - armour_after_corruption)
-			damage = maxi(100, damage - effective_armour + bonus)
+		damage = _apply_armour_math(minion, damage)
 	last_post_armour_damage = damage
 	# Shield absorbs damage before HP
 	if minion.current_shield > 0:

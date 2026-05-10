@@ -57,6 +57,31 @@ func on_state_void_marks_changed(side: String, _value: int) -> void:
 	if side == "enemy" and _scene._enemy_hero_panel:
 		_scene._enemy_hero_panel.update(_scene.enemy_hp, _scene.enemy_hp_max, _scene.enemy_ai, _scene.enemy_void_marks)
 
+## Korrath — refresh the appropriate hero panel's debuff badges. State signals
+## (hero_armour_changed, hero_buff_changed) route through here so the panel sees
+## one update path; values are always read fresh off HeroState + BuffSystem so
+## a future second source of armour/AB/corruption picks up automatically.
+func _refresh_hero_korrath_badges(side: String) -> void:
+	if _scene == null or state == null:
+		return
+	var hero: HeroState = state.player_hero if side == "player" else state.enemy_hero
+	if hero == null:
+		return
+	var ab_total: int = BuffSystem.sum_type(hero, Enums.BuffType.ARMOUR_BREAK)
+	var corrupt_stacks: int = BuffSystem.count_type(hero, Enums.BuffType.CORRUPTION)
+	if side == "player":
+		if _scene._player_hero_panel:
+			_scene._player_hero_panel.update_korrath_debuffs(hero.armour, ab_total, corrupt_stacks)
+	else:
+		if _scene._enemy_hero_panel:
+			_scene._enemy_hero_panel.update_korrath_debuffs(hero.armour, ab_total, corrupt_stacks)
+
+func on_state_hero_armour_changed(side: String, _value: int) -> void:
+	_refresh_hero_korrath_badges(side)
+
+func on_state_hero_buff_changed(side: String) -> void:
+	_refresh_hero_korrath_badges(side)
+
 ## Subscriber to CombatState.combat_log — forwards to the on-screen CombatLog.
 ## Lets handlers and effects log via state without holding a scene reference.
 func on_state_combat_log(msg: String, log_type: int) -> void:

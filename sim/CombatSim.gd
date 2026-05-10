@@ -89,6 +89,7 @@ const _PLAYER_PROFILES: Dictionary = {
 	"scored":     preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
 	"seris":      preload("res://enemies/ai/profiles/SerisPlayerProfile.gd"),
 	"fleshcraft": preload("res://enemies/ai/profiles/FleshcraftPlayerProfile.gd"),
+	"korrath":    preload("res://enemies/ai/profiles/KorrathPlayerProfile.gd"),
 }
 
 ## Maximum turns before declaring a draw — prevents infinite loops.

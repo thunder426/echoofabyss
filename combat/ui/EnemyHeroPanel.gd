@@ -30,6 +30,14 @@ var _enemy_status_hand_label: Label = null
 var _enemy_status_marks_row: HBoxContainer = null
 var _enemy_status_marks_label: Label = null
 
+# Korrath — single net-armour row (icon swaps on sign) + separate Corruption row.
+# Positive net → green Armour icon; negative → red Armour Break icon; zero hides.
+var _enemy_armour_net_row: HBoxContainer = null
+var _enemy_armour_net_icon: TextureRect = null
+var _enemy_armour_net_label: Label = null
+var _enemy_corruption_row: HBoxContainer = null
+var _enemy_corruption_label: Label = null
+
 # -- Champion progress ------------------------------------------------------
 var _champion_progress_row: HBoxContainer = null
 var _champion_progress_label: Label = null
@@ -368,6 +376,18 @@ func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
 	_enemy_status_marks_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_enemy_status_marks_row.add_child(_enemy_status_marks_label)
 
+	# Korrath — net Armour/AB single row + Corruption stack badge.
+	_enemy_armour_net_row = _build_korrath_badge_row(right_col,
+			"res://assets/art/icons/icon_armour.png", Color(0.70, 1.00, 0.55, 1))
+	for child in _enemy_armour_net_row.get_children():
+		if child is TextureRect:
+			_enemy_armour_net_icon = child
+		elif child is Label:
+			_enemy_armour_net_label = child
+	_enemy_corruption_row = _build_korrath_badge_row(right_col,
+			"res://assets/art/icons/icon_corruption.png", Color(0.85, 0.55, 1.00, 1))
+	_enemy_corruption_label = _enemy_corruption_row.get_child(_enemy_corruption_row.get_child_count() - 1) as Label
+
 	# Champion progress row
 	_champion_progress_row = HBoxContainer.new()
 	_champion_progress_row.add_theme_constant_override("separation", 4)
@@ -432,6 +452,59 @@ func update(enemy_hp: int, enemy_hp_max: int, enemy_ai: Node, enemy_void_marks: 
 ## Internal initial refresh (called at end of setup with zeroed-out values).
 func _update() -> void:
 	update(0, 0, null, 0)
+
+## Korrath — refresh debuff badges. Armour and Armour Break share one row
+## driven by the signed net (armour - armour_break): positive shows green
+## Armour, negative shows red Armour Break, zero hides. Corruption is its own
+## independent stack badge.
+func update_korrath_debuffs(armour: int, armour_break: int, corruption_stacks: int) -> void:
+	if _enemy_armour_net_row != null:
+		var net: int = armour - armour_break
+		if net == 0:
+			_enemy_armour_net_row.visible = false
+		else:
+			_enemy_armour_net_row.visible = true
+			if net > 0:
+				if _enemy_armour_net_icon != null and ResourceLoader.exists("res://assets/art/icons/icon_armour.png"):
+					_enemy_armour_net_icon.texture = load("res://assets/art/icons/icon_armour.png")
+				if _enemy_armour_net_label != null:
+					_enemy_armour_net_label.text = "Armour %d" % net
+					_enemy_armour_net_label.add_theme_color_override("font_color", Color(0.70, 1.00, 0.55, 1))
+			else:
+				if _enemy_armour_net_icon != null and ResourceLoader.exists("res://assets/art/icons/icon_armour_break.png"):
+					_enemy_armour_net_icon.texture = load("res://assets/art/icons/icon_armour_break.png")
+				if _enemy_armour_net_label != null:
+					_enemy_armour_net_label.text = "Armour Break %d" % -net
+					_enemy_armour_net_label.add_theme_color_override("font_color", Color(1.00, 0.45, 0.45, 1))
+	if _enemy_corruption_row != null:
+		_enemy_corruption_row.visible = corruption_stacks > 0
+		if corruption_stacks > 0 and _enemy_corruption_label != null:
+			_enemy_corruption_label.text = "Corrupt ×%d" % corruption_stacks
+
+## Build a hidden-by-default badge row with an icon + label, matching the
+## void-mark pattern. Returns the row; the label is the last child so callers
+## can grab it via `row.get_child(-1)`.
+func _build_korrath_badge_row(parent: Container, icon_path: String, label_color: Color) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.visible = false
+	parent.add_child(row)
+	if ResourceLoader.exists(icon_path):
+		var icon := TextureRect.new()
+		icon.texture             = load(icon_path)
+		icon.stretch_mode        = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.expand_mode         = TextureRect.EXPAND_IGNORE_SIZE
+		icon.custom_minimum_size = Vector2(14, 14)
+		icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		icon.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+		row.add_child(icon)
+	var lbl := Label.new()
+	lbl.add_theme_font_size_override("font_size", 12)
+	lbl.add_theme_color_override("font_color", label_color)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(lbl)
+	return row
 
 # ---------------------------------------------------------------------------
 # Hero attack pulse

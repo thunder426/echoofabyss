@@ -109,7 +109,15 @@
       "Bash(\"C:/Thunder/work/Projects/Godot/Godot_v4.6.1-stable_win64_console.exe\" --headless -s debug/BalanceSimBatch.gd)",
       "Bash(\"C:/Thunder/work/Projects/Godot/Godot_v4.6.1-stable_win64_console.exe\" --headless res://debug/tests/RunAllTests.tscn)",
       "Bash(git status *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(sort -t':' -k3 -rn)",
+      "Bash(python3)",
+      "Bash(godot --headless --check-only --path .)",
+      "Bash(godot --version)",
+      "Bash(godot --headless --path . --import)",
+      "Bash(godot --headless --path . res://debug/BalanceSimBatch.tscn -- --act 1 --preset swarm --runs 50 --seed 42)",
+      "Bash(godot --headless --path . res://debug/BalanceSimBatch.tscn -- --act 1 --runs 30 --seed 42)",
+      "Bash(godot --headless --path . res://debug/BalanceSimBatch.tscn -- --act 1 --preset death_circle --runs 5 --seed 42)"
     ]
   }
 }

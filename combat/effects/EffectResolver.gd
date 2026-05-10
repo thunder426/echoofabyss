@@ -38,8 +38,15 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var dmg      := _dark_channeling_dmg(_amount(step, ctx), ctx)
 				var opponent := "enemy" if ctx.owner == "player" else "player"
+				# Korrath B3 T2 Path of Ruination — symmetric with DAMAGE_MINION:
+				# amplify by per-stack corruption on the targeted hero, then apply
+				# 1 Corruption stack post-damage. The string sentinel matches the
+				# DAMAGE_MINION enemy_hero branch's contract.
+				var hero_target: String = "%s_hero" % opponent
+				dmg = _path_of_ruination_amplify(dmg, hero_target, ctx)
 				var info := _build_damage_info(step, ctx, dmg)
 				ctx.scene.combat_manager.apply_hero_damage(opponent, info)
+				_path_of_ruination_apply_corruption(hero_target, ctx)
 			return
 
 		EffectStep.EffectType.HEAL_HERO:
@@ -159,13 +166,12 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# Adjust the cost delta on the CardInstance most recently added to a hand
 			# in this run (TUTOR or ADD_CARD). step.amount is the delta — negative
 			# means cheaper. step.resource picks the axis: "mana" → mana_delta,
-			# "essence" → essence_delta. No-op (with warning) if the previous step
-			# didn't add anything or resource is missing/unknown.
+			# "essence" → essence_delta. Silent no-op if no prior step added a card
+			# (TUTOR legitimately no-ops when the deck has no matching cards left,
+			# e.g. rune_caller after all runes are tutored).
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var inst_to_mod: CardInstance = ctx.last_added_instance
-				if inst_to_mod == null:
-					push_warning("MOD_LAST_ADDED_COST: no card was added by a previous step in this run")
-				else:
+				if inst_to_mod != null:
 					match step.resource:
 						"mana":
 							inst_to_mod.mana_delta += step.amount
@@ -374,8 +380,13 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 		EffectStep.EffectType.DAMAGE_MINION:
 			var dmg: int = _dark_channeling_dmg(amount, ctx)
 			if target is String and target == "enemy_hero":
+				# Hero-target branch (e.g. void_devourer, AOE that hits hero).
+				# Korrath B3 T2 Path of Ruination amplifier and post-application
+				# also fire here so the talent reads symmetric with the minion path.
+				dmg = _path_of_ruination_amplify(dmg, target, ctx)
 				var info := _build_damage_info(step, ctx, dmg)
 				scene.combat_manager.apply_hero_damage(scene._opponent_of(ctx.owner), info)
+				_path_of_ruination_apply_corruption(target, ctx)
 			else:
 				# Korrath B3 T2 Path of Ruination — pre-damage amplification (read
 				# corruption stacks BEFORE we apply our own) + post-damage corruption
@@ -556,32 +567,49 @@ static func _build_damage_info(step: EffectStep, ctx: EffectContext, amount: int
 ## Reads the target's current CORRUPTION buff stack count and adds 100 damage per
 ## stack to the spell hit. Reads BEFORE the talent's own corruption application so a
 ## newly-corrupted target doesn't double-amplify on the same hit.
+## Target may be a MinionInstance or the "enemy_hero" / "player_hero" string sentinel
+## used by hero-targeted spell paths (DAMAGE_HERO / DAMAGE_MINION enemy_hero / VOID_BOLT).
 static func _path_of_ruination_amplify(base: int, target, ctx: EffectContext) -> int:
 	if ctx.owner != "player":
 		return base
 	if ctx.scene == null or ctx.scene.get("_path_of_ruination_active") != true:
 		return base
-	if not (target is MinionInstance):
-		return base  # hero corruption not modeled
+	var buff_holder: Object = null
+	if target is MinionInstance:
+		buff_holder = target
+	elif target is String:
+		var state: CombatState = ctx.scene.state if ctx.scene.get("state") != null else ctx.scene
+		if target == "enemy_hero":
+			buff_holder = state.enemy_hero
+		elif target == "player_hero":
+			buff_holder = state.player_hero
+	if buff_holder == null:
+		return base
 	# count_type, not sum_type — Corruption entries store the per-stack ATK penalty
 	# as `amount` (100 base, 200 w/ talent). We want stack COUNT.
-	var stacks: int = BuffSystem.count_type(target as MinionInstance, Enums.BuffType.CORRUPTION)
+	var stacks: int = BuffSystem.count_type(buff_holder, Enums.BuffType.CORRUPTION)
 	return base + stacks * 100
 
 ## Korrath B3 T2 Path of Ruination — post-damage corruption application half.
 ## Adds 1 Corruption stack to the target after the spell hit lands. Skipped when
-## the target died from the hit so we don't corrupt a vanishing minion.
+## the minion target died from the hit so we don't corrupt a vanishing minion.
+## Hero targets always receive the stack (no death-snapshot ambiguity).
 static func _path_of_ruination_apply_corruption(target, ctx: EffectContext) -> void:
 	if ctx.owner != "player":
 		return
 	if ctx.scene == null or ctx.scene.get("_path_of_ruination_active") != true:
 		return
-	if not (target is MinionInstance):
-		return
-	var m: MinionInstance = target
-	if m.current_health <= 0:
-		return
-	ctx.scene._corrupt_minion(m)
+	if target is MinionInstance:
+		var m: MinionInstance = target
+		if m.current_health <= 0:
+			return
+		ctx.scene._corrupt_minion(m)
+	elif target is String:
+		var state: CombatState = ctx.scene.state if ctx.scene.get("state") != null else ctx.scene
+		if target == "enemy_hero":
+			state._corrupt_hero("enemy")
+		elif target == "player_hero":
+			state._corrupt_hero("player")
 
 ## Apply dark_channeling spell damage multiplier (enemy-only, flag set by handler).
 static func _dark_channeling_dmg(base: int, ctx: EffectContext) -> int:

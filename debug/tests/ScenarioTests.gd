@@ -53,6 +53,8 @@ static func run_all() -> void:
 	_sovereign_with_vael_talents()
 	_rune_tempo_multi_match()
 	_void_imp_dmg_evidence()
+	_korrath_iron_legion_match_to_completion()
+	_korrath_abyssal_vanguard_match_to_completion()
 
 ## Pull a preset deck by id. Returns a typed Array[String] of card ids.
 static func _deck(preset_id: String) -> Array[String]:
@@ -756,3 +758,46 @@ static func _multi_match_rng_stability() -> void:
 	TestHarness.assert_true(all_clean, "all 5 matches declared a winner and did not hit MAX_TURNS")
 	TestHarness.assert_true(all_valid_winner, "all 5 matches had a valid winner string")
 	TestHarness.assert_true(total_turns > 0, "at least one match progressed past turn 0")
+
+# ---------------------------------------------------------------------------
+# Korrath smoke tests — verify the new KorrathPlayerProfile + starter decks
+# pilot a full match to completion without crashing or stalling. Iron Legion
+# exercises Branch 1 (Bulwark — Human formation, armour stacking, T3 GUARD);
+# Abyssal Vanguard exercises Branch 3 (Breaker — Demon retag, corruption,
+# AB stacks, capstone explosion). Branch 2 sim coverage waits for the balance
+# task — these two cover the two deck shapes the player can pick at hero select.
+# ---------------------------------------------------------------------------
+
+static func _korrath_iron_legion_match_to_completion() -> void:
+	if not TestHarness.begin_test("scenario / Korrath Iron Legion (full Bulwark talents) vs feral_pack", null):
+		return
+	var sim := CombatSim.new()
+	var deck := _deck("korrath_iron_legion")
+	if deck.is_empty():
+		return
+	var talents: Array[String] = ["iron_formation", "commanders_reach", "iron_resolve", "unbreakable"]
+	var passives: Array[String] = ["abyssal_commander", "iron_legion"]
+	var result: Dictionary = await sim.run(
+		deck, "feral_pack", [] as Array[String],
+		3000, 2000,
+		talents, "korrath", passives,
+		[] as Array[String], {}, false, false,
+		[] as Array[String], "korrath")
+	TestHarness.assert_clean_finish(result, "korrath iron_legion v feral_pack")
+
+static func _korrath_abyssal_vanguard_match_to_completion() -> void:
+	if not TestHarness.begin_test("scenario / Korrath Abyssal Vanguard (full Breaker talents) vs feral_pack", null):
+		return
+	var sim := CombatSim.new()
+	var deck := _deck("korrath_abyssal_vanguard")
+	if deck.is_empty():
+		return
+	var talents: Array[String] = ["corrupting_presence", "abyssal_strike", "path_of_ruination", "armour_explosion"]
+	var passives: Array[String] = ["abyssal_commander", "iron_legion"]
+	var result: Dictionary = await sim.run(
+		deck, "feral_pack", [] as Array[String],
+		3000, 2000,
+		talents, "korrath", passives,
+		[] as Array[String], {}, false, false,
+		[] as Array[String], "korrath")
+	TestHarness.assert_clean_finish(result, "korrath abyssal_vanguard v feral_pack")

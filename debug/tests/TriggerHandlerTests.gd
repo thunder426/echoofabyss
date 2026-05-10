@@ -139,6 +139,7 @@ static func run_all() -> void:
 	# Korrath Phase 4 — Branch 3 Abyssal Breaker talents
 	_corrupting_presence_retags_knight_demon()
 	_corrupting_presence_strips_armour_per_corruption_stack()
+	_corrupting_presence_inactive_no_ab_on_corruption()
 	_corrupting_presence_does_not_apply_to_friendly_targets()
 	_abyssal_strike_applies_corruption_on_attack()
 	_abyssal_strike_ignores_non_knight_attackers()
@@ -159,6 +160,23 @@ static func run_all() -> void:
 	_path_of_demons_fires_x_times()
 	_path_of_humans_fires_x_times()
 	_path_of_demons_x_includes_absorbed_auras()
+	# Korrath — hero Armour / Armour Break (PR2 / task 015)
+	_commanders_reach_applies_ab_to_enemy_hero()
+	_path_of_destruction_demon_applies_ab_to_enemy_hero()
+	_hero_armour_reduces_minion_source_damage()
+	_hero_armour_does_not_reduce_spell_damage()
+	_hero_ab_overflow_adds_bonus_physical_damage()
+	_hero_physical_damage_floors_at_100()
+	_apply_hero_buff_emits_hero_buff_changed()
+	_add_hero_armour_emits_hero_armour_changed()
+	# Korrath — hero corruption (PR3 / task 016)
+	_corrupt_hero_applies_corruption_stack()
+	_corrupt_hero_with_corrupting_presence_emits_ab_on_enemy()
+	_corrupt_hero_with_corrupting_presence_no_ab_on_player_side()
+	_abyssal_strike_corrupts_enemy_hero_on_attack()
+	_path_of_ruination_amplifies_damage_hero_step()
+	_path_of_ruination_applies_corruption_to_enemy_hero_post_spell()
+	_path_of_ruination_amplifies_void_bolt_to_enemy_hero()
 
 # ---------------------------------------------------------------------------
 # Fleshbind passive — +1 Flesh on Demon death
@@ -2307,35 +2325,56 @@ static func _corrupting_presence_retags_knight_demon() -> void:
 	state.teardown()
 
 static func _corrupting_presence_strips_armour_per_corruption_stack() -> void:
-	# Enemy minion: 200 armour, 1 Corruption stack. Corruption strips 100 effective
-	# armour. 600 ATK attack → max(100, 600 - (200-100)) = 500 damage.
+	# New one-shot model: applying a Corruption stack to an enemy target while
+	# corrupting_presence is active also emits a permanent +100 ARMOUR_BREAK
+	# stack. Cleansing the corruption later does NOT unwind the AB (separate
+	# debuff after creation).
 	var state := TestHarness.korrath_state(["corrupting_presence"])
-	if not TestHarness.begin_test("corrupting_presence / 1 Corruption strips 100 effective armour", state):
+	if not TestHarness.begin_test("corrupting_presence / corruption-apply on enemy emits 100 AB stack", state):
 		return
 	var defender := TestHarness.spawn_enemy(state, "void_imp")
 	defender.current_health = 1000
 	defender.armour = 200
-	BuffSystem.apply(defender, Enums.BuffType.CORRUPTION, 100, "test")  # 1 stack (amount=100 per stack)
+	state._corrupt_minion(defender)
+	TestHarness.assert_eq(BuffSystem.sum_type(defender, Enums.BuffType.ARMOUR_BREAK), 100,
+			"100 AB stack emitted by corrupting_presence")
+	# Cleanse corruption — AB persists.
+	BuffSystem.remove_type(defender, Enums.BuffType.CORRUPTION)
+	TestHarness.assert_eq(BuffSystem.sum_type(defender, Enums.BuffType.ARMOUR_BREAK), 100,
+			"AB stays after corruption removed (one-shot, not coupled)")
+	# 600 ATK attack: armour 200, AB 100 → effective_armour 100, no overflow.
+	# 600 - 100 = 500 damage.
 	var info := CombatManager.make_damage_info(600, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
 	state.combat_manager._deal_damage(defender, info)
 	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 500,
-			"600 - max(0, 200-100) = 500 (corruption strips 100 armour)")
+			"600 - (200 armour - 100 AB) = 500 damage")
 	state.teardown()
 
 static func _corrupting_presence_does_not_apply_to_friendly_targets() -> void:
-	# Same talent, but the corrupted target is FRIENDLY (player-owned). Talent is
-	# player-side — friendly minion's armour is not stripped by its own corruption.
+	# Talent is player-side: corrupting an enemy emits AB on the enemy. If a
+	# player-owned minion gets corrupted (e.g. enemy CultistPatrol applying
+	# corruption), no AB fires on the friendly minion.
 	var state := TestHarness.korrath_state(["corrupting_presence"])
-	if not TestHarness.begin_test("corrupting_presence / does not strip friendly minion armour", state):
+	if not TestHarness.begin_test("corrupting_presence / friendly target receives no AB on corruption", state):
 		return
 	var friendly := TestHarness.spawn_friendly(state, "void_imp")
 	friendly.current_health = 1000
 	friendly.armour = 200
-	BuffSystem.apply(friendly, Enums.BuffType.CORRUPTION, 100, "test")
-	var info := CombatManager.make_damage_info(600, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
-	state.combat_manager._deal_damage(friendly, info)
-	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 400,
-			"600 - 200 = 400 (corruption-strip skipped for friendly target)")
+	state._corrupt_minion(friendly)
+	TestHarness.assert_eq(BuffSystem.sum_type(friendly, Enums.BuffType.ARMOUR_BREAK), 0,
+			"no AB on friendly target — talent only fires for enemy-owned")
+	state.teardown()
+
+static func _corrupting_presence_inactive_no_ab_on_corruption() -> void:
+	# Without the talent picked, corrupting an enemy does not emit AB. Sanity
+	# check that the AB emission is talent-gated.
+	var state := TestHarness.korrath_state([])
+	if not TestHarness.begin_test("corrupting_presence / inactive: no AB emitted on corruption-apply", state):
+		return
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	state._corrupt_minion(defender)
+	TestHarness.assert_eq(BuffSystem.sum_type(defender, Enums.BuffType.ARMOUR_BREAK), 0,
+			"no AB without corrupting_presence active")
 	state.teardown()
 
 static func _abyssal_strike_applies_corruption_on_attack() -> void:
@@ -2611,4 +2650,226 @@ static func _path_of_demons_x_includes_absorbed_auras() -> void:
 	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": demon})
 	TestHarness.assert_eq(enemy.current_health, 1000 - 100,
 			"X = 1 rune + 1 absorbed = 2 → 100 damage total")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Korrath — Armour / Armour Break on heroes (task 015 / PR2)
+# Heroes accept the same Armour stat and ARMOUR_BREAK BuffSystem entries that
+# minions do; the damage math runs through the shared CombatManager helper.
+# ---------------------------------------------------------------------------
+
+static func _commanders_reach_applies_ab_to_enemy_hero() -> void:
+	# Knight at slot 0, Human at slot 1 (adjacent), Human attacks enemy hero.
+	# 100 AB lands on enemy_hero before damage resolves.
+	var state := TestHarness.korrath_state(["iron_formation", "commanders_reach"])
+	if not TestHarness.begin_test("commanders_reach / hero target receives 100 AB on adjacent Human attack", state):
+		return
+	var _knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")
+	var human   := _place_korrath_human(state, 1)
+	human.state = Enums.MinionState.NORMAL
+	state.combat_manager.resolve_minion_attack_hero(human, "enemy")
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 100,
+			"enemy hero carries 100 AB stack from commanders_reach")
+	state.teardown()
+
+static func _path_of_destruction_demon_applies_ab_to_enemy_hero() -> void:
+	# Friendly Demon attacks enemy hero → 50 AB on enemy hero.
+	var state := TestHarness.korrath_state(["corrupting_presence", "abyssal_strike", "path_of_destruction"])
+	if not TestHarness.begin_test("path_of_destruction / hero target receives 50 AB on Demon attack", state):
+		return
+	var demon := TestHarness.spawn_friendly(state, "void_imp")  # DEMON
+	demon.state = Enums.MinionState.NORMAL
+	state.combat_manager.resolve_minion_attack_hero(demon, "enemy")
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 50,
+			"enemy hero carries 50 AB stack from path_of_destruction")
+	state.teardown()
+
+static func _hero_armour_reduces_minion_source_damage() -> void:
+	# 200 ATK attacker vs hero with 150 armour → 200 - 150 = 50 < 100 floor → 100 damage.
+	# Use a higher base attack so we can verify reduction without hitting the floor:
+	# 500 ATK vs 200 armour → 300 damage.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("hero armour / reduces incoming MINION-source damage by armour value"):
+		return
+	state.enemy_hero.armour = 200
+	var info := CombatManager.make_damage_info(500, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(state.enemy_hp, 2000 - 300,
+			"500 ATK - 200 armour = 300 damage landed on hero")
+	state.teardown()
+
+static func _hero_armour_does_not_reduce_spell_damage() -> void:
+	# Spells bypass hero armour entirely.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("hero armour / SPELL-source damage bypasses armour"):
+		return
+	state.enemy_hero.armour = 200
+	var info := CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(state.enemy_hp, 2000 - 500,
+			"500 spell damage bypasses 200 hero armour — full hit lands")
+	state.teardown()
+
+static func _hero_ab_overflow_adds_bonus_physical_damage() -> void:
+	# Hero has 100 armour, 250 AB. AB strips armour first (100 → 0); excess 150 becomes
+	# bonus damage on top of base. 500 ATK + 150 bonus - 0 effective armour = 650.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("hero AB / excess Armour Break above armour becomes bonus damage"):
+		return
+	state.enemy_hero.armour = 100
+	BuffSystem.apply(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK, 250, "test_seed", false, false)
+	var info := CombatManager.make_damage_info(500, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(state.enemy_hp, 2000 - 650,
+			"500 ATK + (250 AB - 100 armour = 150 bonus) = 650 damage")
+	state.teardown()
+
+static func _hero_physical_damage_floors_at_100() -> void:
+	# 200 ATK vs 500 armour: 200 - 500 = -300 → floor to 100. Hero takes 100.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("hero armour / physical attacks always deal at least 100 (floor)"):
+		return
+	state.enemy_hero.armour = 500
+	var info := CombatManager.make_damage_info(200, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(state.enemy_hp, 2000 - 100,
+			"floor: 200 ATK vs 500 armour → 100 damage minimum")
+	state.teardown()
+
+static func _apply_hero_buff_emits_hero_buff_changed() -> void:
+	# state.apply_hero_buff(...) emits hero_buff_changed so UI can refresh.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("apply_hero_buff / emits hero_buff_changed"):
+		return
+	var fired_sides: Array[String] = []
+	state.hero_buff_changed.connect(func(side: String) -> void: fired_sides.append(side))
+	state.apply_hero_buff("enemy", Enums.BuffType.ARMOUR_BREAK, 100, "test")
+	TestHarness.assert_eq(fired_sides.size(), 1, "one emission")
+	if fired_sides.size() == 1:
+		TestHarness.assert_eq(fired_sides[0], "enemy", "fired for enemy side")
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 100,
+			"buff entry actually appended to enemy_hero.buffs")
+	state.teardown()
+
+static func _add_hero_armour_emits_hero_armour_changed() -> void:
+	# state.add_hero_armour(...) emits hero_armour_changed with post-mutation value.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("add_hero_armour / emits hero_armour_changed with new value"):
+		return
+	var fired: Array = []
+	state.hero_armour_changed.connect(func(side: String, v: int) -> void:
+		fired.append({"side": side, "value": v}))
+	state.add_hero_armour("player", 250)
+	TestHarness.assert_eq(fired.size(), 1, "one emission")
+	if fired.size() == 1:
+		TestHarness.assert_eq(fired[0].side, "player", "fired for player side")
+		TestHarness.assert_eq(fired[0].value, 250, "value reflects post-mutation armour")
+	TestHarness.assert_eq(state.player_hero.armour, 250, "armour field updated")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Korrath — hero corruption (task 016 / PR3)
+# Corruption is now a hero-side stat too. Damage paths reach corruption via:
+#   - abyssal_strike: knight attack on enemy hero applies 1 stack
+#   - path_of_ruination: spells targeting hero amplify by 100×stacks + apply 1 post-hit
+#   - corrupting_presence: each corruption-apply on an enemy emits a one-shot 100 AB
+# ---------------------------------------------------------------------------
+
+static func _corrupt_hero_applies_corruption_stack() -> void:
+	# state._corrupt_hero(side) lands one CORRUPTION buff entry (count == 1).
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("_corrupt_hero / applies one Corruption stack"):
+		return
+	state._corrupt_hero("enemy")
+	TestHarness.assert_eq(BuffSystem.count_type(state.enemy_hero, Enums.BuffType.CORRUPTION), 1,
+			"1 Corruption stack on enemy hero")
+	state.teardown()
+
+static func _corrupt_hero_with_corrupting_presence_emits_ab_on_enemy() -> void:
+	# With corrupting_presence active, _corrupt_hero("enemy") also drops 100 AB.
+	# Cleansing the corruption later doesn't unwind the AB (separate debuffs).
+	var state := TestHarness.korrath_state(["corrupting_presence"])
+	if not TestHarness.begin_test("_corrupt_hero / corrupting_presence emits 100 AB on enemy hero", state):
+		return
+	state._corrupt_hero("enemy")
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 100,
+			"100 AB stack emitted by corrupting_presence")
+	BuffSystem.remove_type(state.enemy_hero, Enums.BuffType.CORRUPTION)
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 100,
+			"AB persists after corruption removed (one-shot, not coupled)")
+	state.teardown()
+
+static func _corrupt_hero_with_corrupting_presence_no_ab_on_player_side() -> void:
+	# corrupting_presence's AB emission is enemy-only (per design "on an enemy").
+	# Corrupting the player hero never fires the AB, even with the talent active.
+	var state := TestHarness.korrath_state(["corrupting_presence"])
+	if not TestHarness.begin_test("_corrupt_hero / corrupting_presence does not fire on player hero", state):
+		return
+	state._corrupt_hero("player")
+	TestHarness.assert_eq(BuffSystem.sum_type(state.player_hero, Enums.BuffType.ARMOUR_BREAK), 0,
+			"no AB on player hero — talent only fires for enemy targets")
+	state.teardown()
+
+static func _abyssal_strike_corrupts_enemy_hero_on_attack() -> void:
+	# Knight attacks enemy hero → 1 Corruption stack lands on enemy_hero.
+	# With corrupting_presence active, also 100 AB.
+	var state := TestHarness.korrath_state(["corrupting_presence", "abyssal_strike"])
+	if not TestHarness.begin_test("abyssal_strike / hero target receives corruption + corrupting_presence AB", state):
+		return
+	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")
+	knight.state = Enums.MinionState.NORMAL
+	state.combat_manager.resolve_minion_attack_hero(knight, "enemy")
+	TestHarness.assert_eq(BuffSystem.count_type(state.enemy_hero, Enums.BuffType.CORRUPTION), 1,
+			"enemy hero carries 1 Corruption from abyssal_strike")
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 100,
+			"corrupting_presence emits 100 AB on the corruption-apply")
+	state.teardown()
+
+static func _path_of_ruination_amplifies_damage_hero_step() -> void:
+	# Pre-load 2 stacks on enemy hero. DAMAGE_HERO step base 500 → +200 amp = 700.
+	var state := TestHarness.korrath_state(["corrupting_presence", "abyssal_strike", "path_of_ruination"])
+	if not TestHarness.begin_test("path_of_ruination / DAMAGE_HERO amplified by hero corruption stacks", state):
+		return
+	BuffSystem.apply(state.enemy_hero, Enums.BuffType.CORRUPTION, 100, "test")
+	BuffSystem.apply(state.enemy_hero, Enums.BuffType.CORRUPTION, 100, "test")
+	var pre_hp: int = state.enemy_hp
+	var spell := TestHarness.make_test_spell([
+		{"type": "DAMAGE_HERO", "amount": 500, "damage_school": "VOID"},
+	])
+	var ctx := TestHarness.make_ctx(state, "player", null, null)
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(state.enemy_hp, pre_hp - 700,
+			"500 + (2 stacks × 100) = 700 spell damage to enemy hero")
+	state.teardown()
+
+static func _path_of_ruination_applies_corruption_to_enemy_hero_post_spell() -> void:
+	# DAMAGE_HERO without prior stacks: base 100 (no amp), 1 stack lands post-hit.
+	var state := TestHarness.korrath_state(["corrupting_presence", "abyssal_strike", "path_of_ruination"])
+	if not TestHarness.begin_test("path_of_ruination / DAMAGE_HERO applies 1 stack post-spell", state):
+		return
+	var pre_hp: int = state.enemy_hp
+	var spell := TestHarness.make_test_spell([
+		{"type": "DAMAGE_HERO", "amount": 100, "damage_school": "VOID"},
+	])
+	var ctx := TestHarness.make_ctx(state, "player", null, null)
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(state.enemy_hp, pre_hp - 100, "100 raw damage (no amp on first hit)")
+	TestHarness.assert_eq(BuffSystem.count_type(state.enemy_hero, Enums.BuffType.CORRUPTION), 1,
+			"1 Corruption applied post-damage to enemy hero")
+	state.teardown()
+
+static func _path_of_ruination_amplifies_void_bolt_to_enemy_hero() -> void:
+	# Void Bolt is a spell hitting the enemy hero — should amplify by hero corruption
+	# stacks and apply 1 stack post-hit. Use _deal_void_bolt_damage with is_minion_emitted
+	# false (the SPELL path) to mirror what a hand-cast Void Bolt does.
+	var state := TestHarness.korrath_state(["corrupting_presence", "abyssal_strike", "path_of_ruination"])
+	if not TestHarness.begin_test("path_of_ruination / Void Bolt spell amplified + applies stack on enemy hero", state):
+		return
+	BuffSystem.apply(state.enemy_hero, Enums.BuffType.CORRUPTION, 100, "test")  # 1 pre-stack
+	var pre_hp: int = state.enemy_hp
+	state._deal_void_bolt_damage(500, null, false, false)  # 500 base, SPELL source
+	TestHarness.assert_eq(state.enemy_hp, pre_hp - 600,
+			"500 + (1 stack × 100) = 600 Void Bolt damage to enemy hero")
+	TestHarness.assert_eq(BuffSystem.count_type(state.enemy_hero, Enums.BuffType.CORRUPTION), 2,
+			"second stack landed post-Void Bolt")
 	state.teardown()

@@ -649,6 +649,19 @@ func _show_occupied_state() -> void:
 		_status_bar_add_interactive_icon("icon_spirit_fuel.png", "SPIRIT FUEL",
 			"Can be consumed to pay %d Spark cost." % mc.spark_value)
 		_status_bar_add_count("x%d" % mc.spark_value, Color(0.75, 0.50, 1.00, 1))
+	# Korrath — single net Armour/AB icon. Positive net = green Armour (reduces
+	# physical damage), negative = red Armour Break (already strips through any
+	# armour and adds bonus damage). Zero hides.
+	var armour_break_total: int = BuffSystem.sum_type(minion, Enums.BuffType.ARMOUR_BREAK)
+	var armour_net: int = minion.armour - armour_break_total
+	if armour_net > 0:
+		_status_bar_add_interactive_icon("icon_armour.png", "ARMOUR",
+			"%d — Reduces incoming physical attack damage. Spells bypass; minimum 100 damage always lands." % armour_net)
+		_status_bar_add_count(str(armour_net), Color(0.70, 1.00, 0.55, 1))
+	elif armour_net < 0:
+		_status_bar_add_interactive_icon("icon_armour_break.png", "ARMOUR BREAK",
+			"%d — Net armour debt; physical hits add this as flat bonus damage." % -armour_net)
+		_status_bar_add_count(str(-armour_net), Color(1.00, 0.45, 0.45, 1))
 	if corruption_total > 0:
 		var stacks := corruption_total / 100
 		_status_bar_add_interactive_icon("icon_corruption.png", "CORRUPTION",

@@ -20,6 +20,16 @@ var _hp_bar_drain: ColorRect = null
 var _hp_bar_bg: Control = null
 var _hp_bar_tween: Tween = null
 
+# -- Korrath debuff badges --------------------------------------------------
+# Single net-armour row: icon + label swap based on sign of (armour - sum AB).
+# Positive → green Armour icon; negative → red Armour Break icon; zero hides.
+var _armour_net_row: HBoxContainer = null
+var _armour_net_icon: TextureRect = null
+var _armour_net_label: Label = null
+# Separate Corruption stack badge — independent from armour math.
+var _corruption_row: HBoxContainer = null
+var _corruption_label: Label = null
+
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
@@ -119,6 +129,20 @@ func setup(scene: Node2D, ui_root: Node) -> void:
 	_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_hp_label)
 
+	# Korrath — single net-armour row (icon swaps on sign) + separate Corruption row.
+	# Hidden when their respective values are zero so non-Korrath fights stay clean.
+	_armour_net_row = _build_korrath_badge_row(vbox,
+			"res://assets/art/icons/icon_armour.png", Color(0.70, 1.00, 0.55, 1))
+	# Children: [icon, label] — grab refs so we can mutate texture/color/text live.
+	for child in _armour_net_row.get_children():
+		if child is TextureRect:
+			_armour_net_icon = child
+		elif child is Label:
+			_armour_net_label = child
+	_corruption_row = _build_korrath_badge_row(vbox,
+			"res://assets/art/icons/icon_corruption.png", Color(0.85, 0.55, 1.00, 1))
+	_corruption_label = _corruption_row.get_child(_corruption_row.get_child_count() - 1) as Label
+
 	# Hero-specific resource bar (Seris Flesh/Forge) — null for heroes without matching passives.
 	resource_bar = SerisResourceBar.maybe_create(_scene)
 	if resource_bar != null:
@@ -141,6 +165,57 @@ func update(current_hp: int, max_hp: int) -> void:
 			_animate_hp_drain(_hp_bar_drain, _hp_bar_bg, old_ratio, new_ratio)
 		elif new_ratio > old_ratio + 0.001:
 			_animate_hp_heal(_hp_bar_bg, old_ratio, new_ratio)
+
+## Korrath — refresh Korrath debuff badges. Armour and AB share one row whose
+## icon and label swap based on the signed net (armour - armour_break): positive
+## shows green Armour, negative shows red Armour Break, zero hides. Corruption
+## is its own independent stack badge.
+func update_korrath_debuffs(armour: int, armour_break: int, corruption_stacks: int) -> void:
+	if _armour_net_row != null:
+		var net: int = armour - armour_break
+		if net == 0:
+			_armour_net_row.visible = false
+		else:
+			_armour_net_row.visible = true
+			if net > 0:
+				if _armour_net_icon != null and ResourceLoader.exists("res://assets/art/icons/icon_armour.png"):
+					_armour_net_icon.texture = load("res://assets/art/icons/icon_armour.png")
+				if _armour_net_label != null:
+					_armour_net_label.text = "Armour %d" % net
+					_armour_net_label.add_theme_color_override("font_color", Color(0.70, 1.00, 0.55, 1))
+			else:
+				if _armour_net_icon != null and ResourceLoader.exists("res://assets/art/icons/icon_armour_break.png"):
+					_armour_net_icon.texture = load("res://assets/art/icons/icon_armour_break.png")
+				if _armour_net_label != null:
+					_armour_net_label.text = "Armour Break %d" % -net
+					_armour_net_label.add_theme_color_override("font_color", Color(1.00, 0.45, 0.45, 1))
+	if _corruption_row != null:
+		_corruption_row.visible = corruption_stacks > 0
+		if corruption_stacks > 0 and _corruption_label != null:
+			_corruption_label.text = "Corrupt ×%d" % corruption_stacks
+
+## Build a hidden-by-default badge row with an icon + label.
+func _build_korrath_badge_row(parent: Container, icon_path: String, label_color: Color) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.visible = false
+	parent.add_child(row)
+	if ResourceLoader.exists(icon_path):
+		var icon := TextureRect.new()
+		icon.texture             = load(icon_path)
+		icon.stretch_mode        = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.expand_mode         = TextureRect.EXPAND_IGNORE_SIZE
+		icon.custom_minimum_size = Vector2(14, 14)
+		icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		icon.mouse_filter        = Control.MOUSE_FILTER_IGNORE
+		row.add_child(icon)
+	var lbl := Label.new()
+	lbl.add_theme_font_size_override("font_size", 12)
+	lbl.add_theme_color_override("font_color", label_color)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(lbl)
+	return row
 
 # ---------------------------------------------------------------------------
 # HP bar helpers (duplicated from EnemyHeroPanel — small, no base class needed)

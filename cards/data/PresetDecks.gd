@@ -114,6 +114,49 @@ const DECKS: Array = [
 			"flesh_rend", "flesh_rend",
 		],
 	},
+	# ── Korrath, the Abyssal Commander ─────────────────────────────────────
+	# Iron Legion — Human-heavy frame for Branch 1 Infernal Bulwark or Branch 2
+	# Runic Knight (Human-path). Four knights anchor the build; the Human
+	# minion package gives Formation partners on day one and Iron Resolve
+	# fodder once T2 lands. Dominion Rune is hedged: it buffs Demon-knight
+	# under Runic Transcendence's dual-tag, and any future demon allies.
+	{
+		"id":   "korrath_iron_legion",
+		"hero": "korrath",
+		"name": "Iron Legion",
+		"desc": "A Human-heavy frame for Infernal Bulwark or Runic Knight (Human path). Four Abyssal Knights anchor the formation; Cultists and Soul Collectors fill out the Human pair count. Dominion Rune buffs the knight under Runic Transcendence.",
+		"cards": [
+			"abyssal_knight", "abyssal_knight", "abyssal_knight", "abyssal_knight",
+			"abyss_cultist", "abyss_cultist",
+			"soul_collector", "soul_collector",
+			"corruption_weaver",
+			"traveling_merchant", "traveling_merchant",
+			"roadside_drifter",
+			"spell_taxer",
+			"abyssal_sacrifice",
+			"dominion_rune",
+		],
+	},
+	# Abyssal Vanguard — Demon-heavy frame for Branch 3 Abyssal Breaker. Knight
+	# becomes a Demon under Corrupting Presence; Void Imps and Shadow Hounds fuel
+	# Path of Destruction's Demon-attack AB stacks. Abyssal Sacrifice + Shadow
+	# Rune apply Corruption to enemies, which Corrupting Presence converts into
+	# armour strip and Path of Ruination's spells amplify by +100/stack.
+	{
+		"id":   "korrath_abyssal_vanguard",
+		"hero": "korrath",
+		"name": "Abyssal Vanguard",
+		"desc": "A Demon-heavy frame for Abyssal Breaker. Knight retags Demon under Corrupting Presence; Void Imps and Shadow Hounds drive Path of Destruction's AB stacks. Shadow Rune seeds Corruption on enemy entry to fuel Path of Ruination spell amplification.",
+		"cards": [
+			"abyssal_knight", "abyssal_knight", "abyssal_knight", "abyssal_knight",
+			"void_imp", "void_imp", "void_imp", "void_imp",
+			"shadow_hound", "shadow_hound",
+			"abyssal_brute",
+			"abyssal_sacrifice", "abyssal_sacrifice",
+			"shadow_rune",
+			"dominion_rune",
+		],
+	},
 ]
 
 ## Return the cards array for the given deck id, or [] if not found.

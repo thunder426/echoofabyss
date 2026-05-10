@@ -333,9 +333,14 @@ func _consume_fiendish_pact_discount() -> void:
 
 ## Forwards BuffSystem.corruption_removed into this sim's TriggerManager so
 ## Corrupt Detonation (and other ON_CORRUPTION_REMOVED listeners) fire during sims.
-func _on_corruption_removed_bus(minion: MinionInstance, stacks: int) -> void:
-	if trigger_manager == null or minion == null or stacks <= 0:
+## Hero targets currently have no listeners — silently skip rather than fabricate
+## a minion-shaped EventContext.
+func _on_corruption_removed_bus(target: Object, stacks: int) -> void:
+	if trigger_manager == null or target == null or stacks <= 0:
 		return
+	if not (target is MinionInstance):
+		return
+	var minion: MinionInstance = target
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
 	ctx.minion = minion
 	ctx.damage = stacks

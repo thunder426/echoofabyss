@@ -22,6 +22,17 @@ signal hp_changed(side: String, new_hp: int, max_hp: int, delta: int)
 ## (Currently only enemy_void_marks is tracked; player-side stays at 0.)
 signal void_marks_changed(side: String, value: int)
 
+## Emitted whenever a hero's Armour value changes. `side` is "player" or "enemy",
+## `value` is the post-mutation armour amount. Live UI subscribes to refresh the
+## hero panel armour badge; sim has no subscriber. Korrath only.
+signal hero_armour_changed(side: String, value: int)
+
+## Emitted whenever any buff entry on a hero is added or removed. `side` is the
+## affected hero. Coalescing-style — listeners read whatever sums they need
+## (e.g. ARMOUR_BREAK total via BuffSystem.sum_type) rather than parsing a
+## per-buff payload. Live UI subscribes to refresh hero-panel debuff badges.
+signal hero_buff_changed(side: String)
+
 ## Emitted on every landed damage hit. Drives sim's dmg_log diagnostic and live
 ## combat's damage popups. `source` is "player"/"enemy" — the side that dealt
 ## damage. `target` is the side or minion-instance-id receiving. `school` uses
@@ -220,6 +231,26 @@ func _apply_void_mark(amount: int) -> void:
 		return
 	enemy_void_marks += amount
 	_log("  Void Mark x%d applied! (total: %d)" % [amount, enemy_void_marks], 1)  # CombatLog.LogType.PLAYER = 1
+
+## Korrath — add Armour to a hero. Routes through HeroState.add_armour for the
+## central mutation point and emits hero_armour_changed for UI.
+func add_hero_armour(side: String, amount: int) -> void:
+	if amount == 0:
+		return
+	var hero: HeroState = player_hero if side == "player" else enemy_hero
+	hero.add_armour(amount)
+	hero_armour_changed.emit(side, hero.armour)
+
+## Korrath — apply a buff/debuff entry to a hero. Wraps BuffSystem.apply (which
+## duck-types on `buffs`) and emits hero_buff_changed so the panel-badge UI can
+## refresh. Today this is the entry point for ARMOUR_BREAK on heroes
+## (commanders_reach, path_of_destruction); future hero-side buffs flow through
+## here too. `is_temp` and `emit_vfx` mirror BuffSystem.apply.
+func apply_hero_buff(side: String, type: int, amount: int,
+		source: String = "", is_temp: bool = false, emit_vfx: bool = false) -> void:
+	var hero: HeroState = player_hero if side == "player" else enemy_hero
+	BuffSystem.apply(hero, type, amount, source, is_temp, emit_vfx)
+	hero_buff_changed.emit(side)
 
 ## Remove rune aura handlers, auto-strip source_tag buffs declared in aura_effect_steps,
 ## then run any bespoke aura_on_remove_steps. Symmetric across scene/sim.
@@ -815,6 +846,15 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
 	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
 	var total: int = base_damage + bonus
+	# Korrath B3 T2 Path of Ruination — when active and this Void Bolt is a SPELL
+	# (cast from hand or fired by a player rune), amplify by 100 per Corruption
+	# stack on the enemy hero, then apply 1 stack post-damage. Minion-emitted
+	# Void Bolts (void_manifestation talent retag of basic attack) are MINION
+	# source and don't qualify as spells per the talent text.
+	var ruination_active: bool = (not is_minion_emitted) and _path_of_ruination_active
+	if ruination_active:
+		var stacks: int = BuffSystem.count_type(enemy_hero, Enums.BuffType.CORRUPTION)
+		total += stacks * 100
 	if bonus > 0:
 		_log("  Void Bolt: %d dmg (base %d + %d from %d marks)" % [total, base_damage, bonus, enemy_void_marks], 1)  # PLAYER
 	else:
@@ -833,6 +873,8 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 	combat_manager.apply_hero_damage("enemy",
 			CombatManager.make_damage_info(total, src, Enums.DamageSchool.VOID_BOLT, source_minion, base_source))
 	_void_bolt_total_dmg += total
+	if ruination_active:
+		_corrupt_hero("enemy")
 
 ## Apply enemy-cast Void Bolt damage to the player hero. Does not participate
 ## in Void Marks (those only apply to the enemy hero). Live combat's wrapper
@@ -944,6 +986,10 @@ func _try_save_from_death(minion: MinionInstance) -> bool:
 	return false
 
 ## Apply one Corruption stack to a minion (each stack reduces ATK by 100).
+## When Korrath B3 T0 corrupting_presence is active, also emits a one-shot
+## permanent +100 ARMOUR_BREAK stack onto enemy targets — the AB is not coupled
+## to the corruption stack after creation, so cleansing the corruption later
+## leaves the AB intact (permanent armour reduction, per design).
 ## Logs and refreshes the slot via signals — live UI subscriber animates the
 ## refresh; sim has no subscribers so the call is data-only. Live combat
 ## additionally spawns CorruptionApplyVFX in the CombatScene wrapper.
@@ -951,7 +997,23 @@ func _corrupt_minion(target: MinionInstance) -> void:
 	var penalty := 100
 	BuffSystem.apply(target, Enums.BuffType.CORRUPTION, penalty, "corruption", false, false)
 	_log("  %s is Corrupted! (−%d ATK)" % [target.card_data.card_name, penalty], 2)  # CombatLog.LogType.ENEMY = 2
+	if _corrupting_presence_active and target.owner == "enemy":
+		BuffSystem.apply(target, Enums.BuffType.ARMOUR_BREAK, 100, "corrupting_presence", false, false)
 	_refresh_slot_for(target)
+
+## Apply one Corruption stack to a hero. Mirror of _corrupt_minion for the hero
+## debuff path (abyssal_strike against enemy hero, path_of_ruination spells
+## targeting hero). Same corrupting_presence one-shot AB rule applies on the
+## enemy hero. No ATK penalty (heroes have no ATK stat); corruption is read by
+## path_of_ruination's spell-amp and its own future hooks.
+func _corrupt_hero(side: String) -> void:
+	apply_hero_buff(side, Enums.BuffType.CORRUPTION, 100, "corruption")
+	if _corrupting_presence_active and side == "enemy":
+		apply_hero_buff(side, Enums.BuffType.ARMOUR_BREAK, 100, "corrupting_presence")
+	# Log type swaps by which side received the debuff: enemy-corrupted is good
+	# news for the player (PLAYER), player-corrupted is bad (ENEMY).
+	var hero_label: String = "You are" if side == "player" else "Enemy hero is"
+	_log("  %s Corrupted!" % hero_label, 1 if side == "enemy" else 2)
 
 ## Generic minion heal — restores HP up to the effective max (base + HP_BONUS
 ## buffs). No-op if amount ≤ 0 or minion is dead. Logs + refreshes via signals.
@@ -1026,36 +1088,44 @@ func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 	return true
 
 # ---------------------------------------------------------------------------
-# Hero state — `player_hp` and `enemy_hp` are properties so writes emit
-# `hp_changed` automatically. Direct backing-field writes (`_player_hp_value =`)
-# bypass the signal and should NOT be used outside CombatState.
+# Hero state — `player_hp` / `enemy_hp` / `player_hp_max` / `enemy_hp_max` are
+# property forwarders onto `player_hero` / `enemy_hero` (HeroState). The backing
+# HeroState carries hp/hp_max plus Korrath Armour and a buffs container that
+# BuffSystem reads via duck-typing (PR2 wires AB on heroes). Writes to player_hp
+# emit `hp_changed` automatically. Direct hero.hp writes bypass the signal and
+# should NOT be used outside CombatState.
 # ---------------------------------------------------------------------------
 
-var _player_hp_value: int = 0
-var player_hp: int:
-	get: return _player_hp_value
-	set(v):
-		if v == _player_hp_value:
-			return
-		var delta := v - _player_hp_value
-		_player_hp_value = v
-		hp_changed.emit("player", v, player_hp_max, delta)
+var player_hero: HeroState = HeroState.create("player", 0)
+var enemy_hero:  HeroState = HeroState.create("enemy",  0)
 
-var _enemy_hp_value: int = 0
-var enemy_hp: int:
-	get: return _enemy_hp_value
+var player_hp: int:
+	get: return player_hero.hp
 	set(v):
-		if v == _enemy_hp_value:
+		if v == player_hero.hp:
 			return
-		var delta := v - _enemy_hp_value
-		_enemy_hp_value = v
-		hp_changed.emit("enemy", v, enemy_hp_max, delta)
+		var delta := v - player_hero.hp
+		player_hero.hp = v
+		hp_changed.emit("player", v, player_hero.hp_max, delta)
+
+var enemy_hp: int:
+	get: return enemy_hero.hp
+	set(v):
+		if v == enemy_hero.hp:
+			return
+		var delta := v - enemy_hero.hp
+		enemy_hero.hp = v
+		hp_changed.emit("enemy", v, enemy_hero.hp_max, delta)
 
 ## Player hero max HP — set by CombatScene._ready from GameManager.player_hp_max
 ## (varies with hero/talents). Sim sets this directly via SimState.setup() and
 ## currently leaves it at 0 since sim runs on absolute HP values; setup overrides.
-var player_hp_max: int = 0
-var enemy_hp_max: int = 0
+var player_hp_max: int:
+	get: return player_hero.hp_max
+	set(v): player_hero.hp_max = v
+var enemy_hp_max: int:
+	get: return enemy_hero.hp_max
+	set(v): enemy_hero.hp_max = v
 
 # ---------------------------------------------------------------------------
 # Combat lifecycle

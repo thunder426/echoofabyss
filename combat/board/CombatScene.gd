@@ -169,6 +169,14 @@ var enemy_hp_max: int:
 	get: return state.enemy_hp_max
 	set(v): state.enemy_hp_max = v
 
+## Hero containers — forwarded so CombatManager / handlers / effects can route
+## hero-targeted reads (Armour, Armour Break) through one instance regardless of
+## live vs. sim. PR2 wires Korrath handlers against these.
+var player_hero: HeroState:
+	get: return state.player_hero
+var enemy_hero: HeroState:
+	get: return state.enemy_hero
+
 # Player hero status panel
 var _player_hero_panel: PlayerHeroPanel = null
 var _player_status_panel: Control = null  ## alias → _player_hero_panel (backward-compat)
@@ -664,6 +672,8 @@ func _ready() -> void:
 	# panels, pip bar) so connecting before those exist is safe.
 	state.hp_changed.connect(_on_state_hp_changed)
 	state.void_marks_changed.connect(_on_state_void_marks_changed)
+	state.hero_armour_changed.connect(_on_state_hero_armour_changed)
+	state.hero_buff_changed.connect(_on_state_hero_buff_changed)
 	state.spell_damage_dealt.connect(_on_state_spell_damage_dealt)
 	state.combat_log.connect(_on_state_combat_log)
 	state.minion_stats_changed.connect(_on_state_minion_stats_changed)
@@ -1699,9 +1709,19 @@ var _double_cast_in_progress: bool:
 ## so the corruption icon + "x2" count linger on the status bar until something
 ## else triggers a redraw. Refresh immediately so the icon/count clear in sync
 ## with the detonation pulse (or any other corruption-removing path).
-func _on_corruption_removed(minion: MinionInstance, stacks: int) -> void:
-	if trigger_manager == null or minion == null or stacks <= 0:
+func _on_corruption_removed(target: Object, stacks: int) -> void:
+	if trigger_manager == null or target == null or stacks <= 0:
 		return
+	# Hero targets: emit hero_buff_changed so the badge re-reads stacks.
+	# No minion-keyed ON_CORRUPTION_REMOVED triggers fire today (Corrupt
+	# Detonation etc. are minion-only by design).
+	if target is HeroState:
+		var hero: HeroState = target
+		state.hero_buff_changed.emit(hero.side)
+		return
+	if not (target is MinionInstance):
+		return
+	var minion: MinionInstance = target
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
 	ctx.minion = minion
 	ctx.damage = stacks
@@ -3151,6 +3171,14 @@ func _on_state_hp_changed(side: String, new_hp: int, mx: int, delta: int) -> voi
 func _on_state_void_marks_changed(side: String, value: int) -> void:
 	if combat_ui != null:
 		combat_ui.on_state_void_marks_changed(side, value)
+
+func _on_state_hero_armour_changed(side: String, value: int) -> void:
+	if combat_ui != null:
+		combat_ui.on_state_hero_armour_changed(side, value)
+
+func _on_state_hero_buff_changed(side: String) -> void:
+	if combat_ui != null:
+		combat_ui.on_state_hero_buff_changed(side)
 
 func _on_state_combat_log(msg: String, log_type: int) -> void:
 	if combat_ui != null:
