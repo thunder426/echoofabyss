@@ -73,12 +73,15 @@ var last_post_armour_damage: int = 0
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	if scene != null:
 		scene._last_attacker = attacker
-	# Korrath — fire ON_PLAYER_ATTACK BEFORE damage resolves so handlers (e.g.
-	# commanders_reach) can apply Armour Break to the defender in time to affect
-	# this strike. Player-side only; ON_ENEMY_ATTACK is fired from CombatScene's
-	# enemy attack input path, not here, to keep that side's existing wiring intact.
+	# Korrath — two-phase attack trigger. PRE fires before damage resolves so
+	# handlers that need to mutate the strike (corrupting_strike adds Corruption
+	# pre-hit, runeforge_strike places a rune) run in time. POST fires after the
+	# defender's damage is applied but before counter-attack, so AB-residual
+	# handlers (path_of_shattering, banner_of_the_order rider) leave AB on the
+	# target without softening the same strike. Player-side only; ON_ENEMY_ATTACK
+	# stays single-phase pre-damage (fired from CombatScene's enemy attack path).
 	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
-		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK, "player")
+		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_PRE, "player")
 		atk_ctx.minion = attacker
 		atk_ctx.defender = defender
 		scene.trigger_manager.fire(atk_ctx)
@@ -97,6 +100,16 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	last_attack_hp_delta = maxi(0, pre_hp - defender.current_health)
 	# Effective damage = post-Ethereal amount that reached the body (0 if Immune).
 	last_attack_damage = atk_damage if not defender.has_immune() else 0
+
+	# Korrath — fire ON_PLAYER_ATTACK_POST after defender damage resolves, before
+	# pierce/counter. AB-residual handlers run here; if defender died, AB lands on
+	# a dead minion harmlessly (ON_ENEMY_MINION_DIED already fired from _deal_damage,
+	# so Shattering Doom snapshotted the pre-POST AB total, by design).
+	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+		var post_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_POST, "player")
+		post_ctx.minion = attacker
+		post_ctx.defender = defender
+		scene.trigger_manager.fire(post_ctx)
 
 	# PIERCE: excess kill damage carries through to the enemy hero. Uses post-armour
 	# damage (the value that actually reached the defender's pool) so Korrath Armour
@@ -142,12 +155,13 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
 	if scene != null:
 		scene._last_attacker = attacker
-	# Korrath — same on-attack trigger as minion-vs-minion. Defender encoded as a
-	# string sentinel ("enemy_hero" / "player_hero") so handlers can branch on type.
+	# Korrath — same two-phase attack trigger as minion-vs-minion. Defender is a
+	# string sentinel ("enemy_hero" / "player_hero") so handlers branch on type.
+	var defender_sentinel := "%s_hero" % target_owner
 	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
-		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK, "player")
+		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_PRE, "player")
 		atk_ctx.minion = attacker
-		atk_ctx.defender = "%s_hero" % target_owner
+		atk_ctx.defender = defender_sentinel
 		scene.trigger_manager.fire(atk_ctx)
 	var damage := _apply_crit(attacker)
 	if damage > 0:
@@ -156,6 +170,13 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 			hero_healed.emit(attacker.owner, damage)
 		if attacker.has_siphon():
 			_siphon_self_heal(attacker, damage)
+	# POST fires after hero damage resolves; AB residual on the enemy hero is
+	# meaningful because heroes carry an Armour stat (task 007).
+	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+		var post_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_POST, "player")
+		post_ctx.minion = attacker
+		post_ctx.defender = defender_sentinel
+		scene.trigger_manager.fire(post_ctx)
 	attacker.attack_count += 1
 	_check_post_crit(attacker)
 	attacker.state = Enums.MinionState.EXHAUSTED
@@ -169,18 +190,16 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 
 ## Apply hero damage carrying full DamageInfo. All hero damage routes through here.
 ##
-## Korrath — physical attacks (DamageSource.MINION) run through hero Armour and
-## Armour Break math identical to the minion path; spells bypass entirely.
-## `info.amount` is rewritten to the post-armour value before the signal fires
-## so listeners (CombatScene/SimState) and downstream telemetry see the value
-## that actually lands. PR1 (task 014): hero armour and AB are always 0/empty,
-## so this is a no-op for behavior; PR2 wires the three Korrath handlers and
-## the math becomes load-bearing.
+## Korrath — armour math runs whenever the damage school does NOT bypass armour
+## (see `_school_bypasses_armour`). PHYSICAL/ARCANE/NONE go through; VOID lineage
+## and TRUE_DMG bypass. `info.amount` is rewritten to the post-armour value before
+## the signal fires so listeners (CombatScene/SimState) and downstream telemetry
+## see the value that actually lands.
 func apply_hero_damage(target: String, info: Dictionary) -> void:
 	var amount: int = info.get("amount", 0)
 	if amount <= 0:
 		return
-	if scene != null and info.get("source", Enums.DamageSource.SPELL) == Enums.DamageSource.MINION:
+	if scene != null and not _school_bypasses_armour(info.get("school", Enums.DamageSchool.NONE)):
 		var hero: HeroState = scene.player_hero if target == "player" else scene.enemy_hero
 		if hero != null:
 			amount = _apply_armour_math(hero, amount)
@@ -188,6 +207,13 @@ func apply_hero_damage(target: String, info: Dictionary) -> void:
 			if amount <= 0:
 				return
 	hero_damaged.emit(target, info)
+
+## Returns true if `school` bypasses armour entirely (VOID lineage + TRUE_DMG).
+## Gating armour on school (not source) lets PHYSICAL/ARCANE spells respect armour
+## while VOID-school minion-emitted effects bypass it — see task 019 / design/DAMAGE_TYPE_SYSTEM.md.
+static func _school_bypasses_armour(school: int) -> bool:
+	return Enums.has_school(school, Enums.DamageSchool.VOID) \
+			or Enums.has_school(school, Enums.DamageSchool.TRUE_DMG)
 
 ## Korrath armour resolution shared by minion and hero damage paths. Returns the
 ## post-armour damage to apply. `target` is duck-typed on `armour: int` and
@@ -223,12 +249,14 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 		if scene != null and scene.get("_immune_dmg_prevented") != null:
 			scene._immune_dmg_prevented += damage
 		return
-	# Korrath — Armour math for physical attacks (DamageSource.MINION). Spells and
-	# minion-emitted SPELL-source effects bypass armour entirely. corrupting_presence
-	# emits its AB stack at corruption-apply time (see CombatState._corrupt_minion);
-	# this path just runs the standard armour/AB math.
-	var source: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
-	if source == Enums.DamageSource.MINION:
+	# Korrath — Armour math gates by school, not source. PHYSICAL/ARCANE/NONE
+	# (and any future non-bypass school) go through armour and Armour Break math;
+	# VOID lineage and TRUE_DMG bypass entirely. This lets PHYSICAL spells like
+	# shatterstrike respect armour while VOID minion-emitted effects still bypass.
+	# corrupting_presence emits its AB stack at corruption-apply time (see
+	# CombatState._corrupt_minion); this path just runs the standard armour/AB math.
+	var school: int = info.get("school", Enums.DamageSchool.NONE)
+	if not _school_bypasses_armour(school):
 		damage = _apply_armour_math(minion, damage)
 	last_post_armour_damage = damage
 	# Shield absorbs damage before HP

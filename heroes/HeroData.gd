@@ -38,9 +38,5 @@ var passives: Array[HeroPassive] = []
 ## Use TalentDatabase.get_branch(id) to get the talent nodes for each branch.
 var talent_branch_ids: Array[String] = []
 
-## Card IDs that are added to the reward pool when this hero has permanently unlocked them
-## (boss drops). RewardScene reads this instead of hardcoding per-hero pool names.
-var hero_reward_pool: Array[String] = []
-
 ## Flavour quote shown on the hero select card.
 var flavor: String = ""

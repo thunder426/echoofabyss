@@ -38,15 +38,15 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var dmg      := _dark_channeling_dmg(_amount(step, ctx), ctx)
 				var opponent := "enemy" if ctx.owner == "player" else "player"
-				# Korrath B3 T2 Path of Ruination — symmetric with DAMAGE_MINION:
+				# Korrath B3 T2 Path of Corruption — symmetric with DAMAGE_MINION:
 				# amplify by per-stack corruption on the targeted hero, then apply
 				# 1 Corruption stack post-damage. The string sentinel matches the
 				# DAMAGE_MINION enemy_hero branch's contract.
 				var hero_target: String = "%s_hero" % opponent
-				dmg = _path_of_ruination_amplify(dmg, hero_target, ctx)
+				dmg = _path_of_corruption_amplify(dmg, hero_target, ctx, step.damage_school)
 				var info := _build_damage_info(step, ctx, dmg)
 				ctx.scene.combat_manager.apply_hero_damage(opponent, info)
-				_path_of_ruination_apply_corruption(hero_target, ctx)
+				_path_of_corruption_apply_corruption(hero_target, ctx)
 			return
 
 		EffectStep.EffectType.HEAL_HERO:
@@ -381,20 +381,20 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			var dmg: int = _dark_channeling_dmg(amount, ctx)
 			if target is String and target == "enemy_hero":
 				# Hero-target branch (e.g. void_devourer, AOE that hits hero).
-				# Korrath B3 T2 Path of Ruination amplifier and post-application
+				# Korrath B3 T2 Path of Corruption amplifier and post-application
 				# also fire here so the talent reads symmetric with the minion path.
-				dmg = _path_of_ruination_amplify(dmg, target, ctx)
+				dmg = _path_of_corruption_amplify(dmg, target, ctx, step.damage_school)
 				var info := _build_damage_info(step, ctx, dmg)
 				scene.combat_manager.apply_hero_damage(scene._opponent_of(ctx.owner), info)
-				_path_of_ruination_apply_corruption(target, ctx)
+				_path_of_corruption_apply_corruption(target, ctx)
 			else:
-				# Korrath B3 T2 Path of Ruination — pre-damage amplification (read
+				# Korrath B3 T2 Path of Corruption — pre-damage amplification (read
 				# corruption stacks BEFORE we apply our own) + post-damage corruption
 				# application. Per-target, per-step, so AOE spells naturally hit each
 				# target once and single-target spells get +100 / stack on this hit.
-				dmg = _path_of_ruination_amplify(dmg, target, ctx)
+				dmg = _path_of_corruption_amplify(dmg, target, ctx, step.damage_school)
 				scene._spell_dmg(target, dmg, _build_damage_info(step, ctx, dmg))
-				_path_of_ruination_apply_corruption(target, ctx)
+				_path_of_corruption_apply_corruption(target, ctx)
 
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
@@ -563,16 +563,21 @@ static func _build_damage_info(step: EffectStep, ctx: EffectContext, amount: int
 	var source: Enums.DamageSource = Enums.DamageSource.MINION if ctx.source != null else Enums.DamageSource.SPELL
 	return CombatManager.make_damage_info(amount, source, step.damage_school, ctx.source, ctx.source_card_id)
 
-## Korrath B3 T2 Path of Ruination — pre-damage amplification half. Player-side only.
+## Korrath B3 T2 Path of Corruption — pre-damage amplification half. Player-side only.
 ## Reads the target's current CORRUPTION buff stack count and adds 100 damage per
 ## stack to the spell hit. Reads BEFORE the talent's own corruption application so a
 ## newly-corrupted target doesn't double-amplify on the same hit.
 ## Target may be a MinionInstance or the "enemy_hero" / "player_hero" string sentinel
 ## used by hero-targeted spell paths (DAMAGE_HERO / DAMAGE_MINION enemy_hero / VOID_BOLT).
-static func _path_of_ruination_amplify(base: int, target, ctx: EffectContext) -> int:
+## `school` is the damage step's damage_school — the amp only fires when the school
+## satisfies VOID_CORRUPTION (corruption-flavored spells), so neutral/PHYSICAL/VOID_BOLT
+## spells are unaffected even when the talent is active.
+static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, school: int = Enums.DamageSchool.VOID_CORRUPTION) -> int:
 	if ctx.owner != "player":
 		return base
-	if ctx.scene == null or ctx.scene.get("_path_of_ruination_active") != true:
+	if ctx.scene == null or ctx.scene.get("_path_of_corruption_active") != true:
+		return base
+	if not Enums.has_school(school, Enums.DamageSchool.VOID_CORRUPTION):
 		return base
 	var buff_holder: Object = null
 	if target is MinionInstance:
@@ -590,14 +595,14 @@ static func _path_of_ruination_amplify(base: int, target, ctx: EffectContext) ->
 	var stacks: int = BuffSystem.count_type(buff_holder, Enums.BuffType.CORRUPTION)
 	return base + stacks * 100
 
-## Korrath B3 T2 Path of Ruination — post-damage corruption application half.
+## Korrath B3 T2 Path of Corruption — post-damage corruption application half.
 ## Adds 1 Corruption stack to the target after the spell hit lands. Skipped when
 ## the minion target died from the hit so we don't corrupt a vanishing minion.
 ## Hero targets always receive the stack (no death-snapshot ambiguity).
-static func _path_of_ruination_apply_corruption(target, ctx: EffectContext) -> void:
+static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> void:
 	if ctx.owner != "player":
 		return
-	if ctx.scene == null or ctx.scene.get("_path_of_ruination_active") != true:
+	if ctx.scene == null or ctx.scene.get("_path_of_corruption_active") != true:
 		return
 	if target is MinionInstance:
 		var m: MinionInstance = target

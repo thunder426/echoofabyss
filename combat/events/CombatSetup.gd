@@ -124,7 +124,7 @@ const _REGISTRY: Dictionary = {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_TURN_END, "method": "on_turn_end_forge_auras", "priority": 30 }],
 		"stats":    {}
 	},
-	# ── Korrath — Infernal Bulwark branch ────────────────────────────────────
+	# ── Korrath — Iron Vanguard branch ───────────────────────────────────────
 	# T0 iron_formation: declarative — talent_overrides on abyssal_knight set
 	# minion_type=HUMAN, FORMATION keyword, and formation_effect_steps. The
 	# Phase 1 Formation handler does the rest. No trigger handler needed.
@@ -132,10 +132,11 @@ const _REGISTRY: Dictionary = {
 		"triggers": [],
 		"stats":    {}
 	},
-	# T1 commanders_reach: ON_PLAYER_ATTACK handler applies 100 AB to defender
-	# when attacker is a friendly Human adjacent to a friendly Abyssal Knight.
+	# T1 commanders_reach: ON_FORMATION_TRIGGERED handler grants +50 permanent
+	# Armour to every friendly Human whenever any friendly Formation fires.
+	# Stacks across multiple Formation triggers in a combat.
 	"commanders_reach": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_commanders_reach", "priority": 30 }],
+		"triggers": [{ "event": Enums.TriggerEvent.ON_FORMATION_TRIGGERED, "method": "on_formation_triggered_commanders_reach", "priority": 30 }],
 		"stats":    {}
 	},
 	# T2 iron_resolve: live passive read in MinionInstance.effective_atk via the
@@ -160,37 +161,40 @@ const _REGISTRY: Dictionary = {
 		"triggers": [],
 		"stats":    { "_corrupting_presence_active": true }
 	},
-	# T1 abyssal_strike: ON_PLAYER_ATTACK handler applies 1 Corruption to the
-	# defender when the attacker is the abyssal_knight.
-	"abyssal_strike": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_abyssal_strike", "priority": 25 }],
+	# T1 corrupting_strike: PRE handler — corruption stack lands before damage so it
+	# composes with Corrupting Presence's Armour strip on the same strike.
+	"corrupting_strike": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK_PRE, "method": "on_player_attack_corrupting_strike", "priority": 25 }],
 		"stats":    {}
 	},
-	# T2 path_of_ruination: spell-side amplification + corruption-on-cast. Both
+	# T2 path_of_corruption: spell-side amplification + corruption-on-cast. Both
 	# halves live inside EffectResolver's DAMAGE_MINION step, gated by the flag.
-	"path_of_ruination": {
+	"path_of_corruption": {
 		"triggers": [],
-		"stats":    { "_path_of_ruination_active": true }
+		"stats":    { "_path_of_corruption_active": true }
 	},
-	# T2 path_of_destruction: ON_PLAYER_ATTACK handler — friendly Demon attacks
-	# apply 50 AB to the defender. Same trigger as commanders_reach but
-	# different filter (Demon, no adjacency requirement).
-	"path_of_destruction": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_path_of_destruction", "priority": 28 }],
+	# T2 path_of_shattering: POST handler — friendly Demon attacks leave 50 AB as a
+	# post-damage residual on the defender. Damage hits full Armour first; AB lingers
+	# to soften the next incoming hit and to feed Shattering Doom's snapshot across
+	# multiple attacks. See KORRATH_HERO_DESIGN §11 "AB-on-attack timing convention".
+	"path_of_shattering": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK_POST, "method": "on_player_attack_path_of_shattering", "priority": 28 }],
 		"stats":    {}
 	},
-	# T3 armour_explosion: ON_ENEMY_MINION_DIED handler snapshots the dead
+	# T3 shattering_doom: ON_ENEMY_MINION_DIED handler snapshots the dead
 	# minion's AB sum and deals it as spell damage to the remaining enemy board.
-	"armour_explosion": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_armour_explosion", "priority": 35 }],
+	"shattering_doom": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_DIED, "method": "on_enemy_died_shattering_doom", "priority": 35 }],
 		"stats":    {}
 	},
 
 	# ── Korrath — Runic Knight branch ────────────────────────────────────────
-	# T0 runic_transcendence: dual race tag is declarative (talent_overrides on
+	# T0 runeforge_strike: dual race tag is declarative (talent_overrides on
 	# abyssal_knight). The on-attack rune-generation half is the trigger handler.
-	"runic_transcendence": {
-		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK, "method": "on_player_attack_runic_transcendence", "priority": 20 }],
+	# PRE phase — placing the rune doesn't interact with damage; either phase works,
+	# PRE is chosen for consistency with the "Pre-damage side effects" group.
+	"runeforge_strike": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_ATTACK_PRE, "method": "on_player_attack_runeforge_strike", "priority": 20 }],
 		"stats":    {}
 	},
 	# T1 runic_absorption: stateless — read by CombatState._korrath_place_random_rune
@@ -207,6 +211,15 @@ const _REGISTRY: Dictionary = {
 	},
 	"path_of_humans": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "method": "on_summon_path_of_humans", "priority": 35 }],
+		"stats":    {}
+	},
+	# T3 grand_ritual_chaos: fires on ON_RUNE_PLACED when the rune board reaches 3.
+	# Custom flow (not a RitualData) because it consumes ANY 3 runes and selects
+	# one of three volatile effects as Enhanced post-resolution. Priority 10 keeps
+	# it after standard grand_ritual checks (priority 0) so type-matched rituals
+	# would have fired first if they were also configured — they currently aren't.
+	"grand_ritual_chaos": {
+		"triggers": [{ "event": Enums.TriggerEvent.ON_RUNE_PLACED, "method": "on_rune_placed_grand_ritual_chaos", "priority": 10 }],
 		"stats":    {}
 	},
 

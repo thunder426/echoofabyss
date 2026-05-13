@@ -209,26 +209,28 @@ func _on_launch_pressed() -> void:
 ## Card Test — generic preset with enemy targets on board, infinite resources,
 ## and high HP. Claude command fills hand_input / enemy_hand_input before launch.
 func _preset_card_test() -> void:
-	# Fight 5 Void Ritualist — ritual_sacrifice passive end-to-end test.
-	# Enemy plays Blood + Dominion runes (2 mana each), then humans (cult_fanatic
-	# triggers feral_reinforcement → draws a rabid_imp), then the imp triggers
-	# ritual_sacrifice: both runes consumed, imp dies, 200 dmg to 2 player
-	# targets, Demon Ascendant 500/500 spawns, champion_void_ritualist arrives
-	# on first ritual. Player gets abyssal_plague to clear the demon between
-	# rituals so the loop can repeat.
+	# Damage school popup color test — cast each spell to verify the
+	# two-color popup palette renders correctly:
+	#   void_bolt        → VOID_BOLT       → purple fill + white outline
+	#   void_execution   → VOID            → pure purple (no contrast)
+	#   flesh_rend       → VOID_FLESH      → purple fill + red outline
+	#   abyssal_plague   → VOID_CORRUPTION → purple fill + green outline
+	#   arcane_strike    → NONE            → default red (no outline)
+	# Three enemy minions pre-placed so single-target spells have targets;
+	# infinite resources so all casts land regardless of cost.
 	_preset_ai_profile        = "void_ritualist"
-	_preset_passives          = ["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"]
-	_hand_input.text          = "abyssal_summoning_circle, blood_rune, blood_rune, blood_rune, dominion_rune, dominion_rune, dominion_rune"
+	_preset_passives          = []
+	_hand_input.text          = "void_bolt, void_bolt, void_execution, void_execution, flesh_rend, flesh_rend, abyssal_plague, abyssal_plague, arcane_strike, arcane_strike"
 	_player_deck_input.text   = ""
 	_player_board_input.text  = ""
-	_enemy_hand_input.text    = "blood_rune, dominion_rune, cult_fanatic, rabid_imp, dark_command"
-	_enemy_board_input.text   = ""
+	_enemy_hand_input.text    = ""
+	_enemy_board_input.text   = "shadow_hound, abyssal_brute, void_stalker"
 	_player_traps_input.text  = ""
 	_enemy_traps_input.text   = ""
-	_enemy_deck_input.text    = "blood_rune, dominion_rune, cult_fanatic, cult_fanatic, rabid_imp, rabid_imp, dark_command, rabid_imp"
-	_preset_enemy_start_essence_max = 2
-	_preset_enemy_start_mana_max    = 2
-	_enemy_name_input.text    = "Void Ritualist"
+	_enemy_deck_input.text    = ""
+	_preset_enemy_start_essence_max = 0
+	_preset_enemy_start_mana_max    = 0
+	_enemy_name_input.text    = "Card Test Dummy"
 	_player_hp_input.value    = 9999
 	_enemy_hp_input.value     = 9999
 	_inf_res_check.button_pressed = true

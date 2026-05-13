@@ -40,7 +40,7 @@ extends CardData
 @export var minion_type: Enums.MinionType = Enums.MinionType.DEMON
 
 ## Korrath B2 — secondary race tags. Most minions have a single race (`minion_type`).
-## Multi-race minions (e.g. Abyssal Knight under runic_transcendence becomes Human +
+## Multi-race minions (e.g. Abyssal Knight under runeforge_strike becomes Human +
 ## Demon) list extra races here. ALL race-aware code must read via `is_race(type)` so
 ## the primary and the extras are checked together; never compare `minion_type` directly.
 @export var extra_minion_types: Array[int] = []

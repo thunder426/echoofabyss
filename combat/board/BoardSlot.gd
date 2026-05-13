@@ -464,9 +464,6 @@ func refresh_stats_only() -> void:
 		_hp_label.add_theme_color_override("font_color", Color(0.35, 1.00, 0.50, 1))
 		_snap_hp_label(str(minion.current_health))
 
-const _ABYSS_HEROES     := ["lord_vael", "seris"]
-const _ABYSS_EMPTY_SLOT := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
-
 func _show_empty_state() -> void:
 	# Kill any in-flight stat tweens — the slot is now empty, the previous
 	# minion's HP/ATK animation must not keep writing to the labels.
@@ -481,9 +478,10 @@ func _show_empty_state() -> void:
 	blank.bg_color = Color(0, 0, 0, 0)
 	add_theme_stylebox_override("panel", blank)
 
-	# Abyss hero: show empty slot image
-	if GameManager.current_hero in _ABYSS_HEROES and ResourceLoader.exists(_ABYSS_EMPTY_SLOT):
-		_frame_rect.texture = load(_ABYSS_EMPTY_SLOT)
+	# Faction empty-slot image (if the current hero's faction has one)
+	var _empty_bg := HeroDatabase.empty_slot_bg_for_hero(GameManager.current_hero)
+	if _empty_bg != "" and ResourceLoader.exists(_empty_bg):
+		_frame_rect.texture = load(_empty_bg)
 		_frame_rect.visible = true
 	else:
 		_frame_rect.visible = false

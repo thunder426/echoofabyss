@@ -74,8 +74,10 @@ func _build_ui() -> void:
 	add_child(_root_vbox)
 
 	# Title
+	var hero_for_title := HeroDatabase.get_hero(GameManager.current_hero)
+	var hero_title_name: String = hero_for_title.hero_name if hero_for_title else "Hero"
 	var title := Label.new()
-	title.text = "TALENT TREE - Lord Vael"
+	title.text = "TALENT TREE - %s" % hero_title_name.to_upper()
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color(0.75, 0.35, 1.0, 1))
@@ -207,18 +209,62 @@ func _make_branch_column(branch: String) -> VBoxContainer:
 	var sep := HSeparator.new()
 	col.add_child(sep)
 
-	# Talent buttons (tier 0 -> 3)
+	# Group talents by tier so sibling-tier rows (e.g. Korrath B2/B3 T2) show
+	# side-by-side, communicating the "choose 1 of N" branching visually.
 	var talents := TalentDatabase.get_branch(branch)
+	var tiers: Dictionary = {}    # tier int -> Array[TalentData]
 	for talent in talents:
-		var btn := _make_talent_button(talent)
-		_talent_buttons[talent.id] = btn
-		col.add_child(btn)
+		if not tiers.has(talent.tier):
+			tiers[talent.tier] = []
+		tiers[talent.tier].append(talent)
+
+	var tier_keys: Array = tiers.keys()
+	tier_keys.sort()
+	for tier in tier_keys:
+		var row_talents: Array = tiers[tier]
+		col.add_child(_make_tier_row(row_talents))
 
 	return col
 
-func _make_talent_button(talent: TalentData) -> Button:
+## Build one tier row. Single talent -> one wide button centered.
+## Sibling talents -> "CHOOSE ONE" label above, two narrower buttons side by side.
+func _make_tier_row(row_talents: Array) -> Control:
+	var wrapper := VBoxContainer.new()
+	wrapper.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrapper.add_theme_constant_override("separation", 4)
+
+	if row_talents.size() >= 2:
+		var choose_label := Label.new()
+		choose_label.text = "— CHOOSE ONE —"
+		choose_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		choose_label.add_theme_font_size_override("font_size", 12)
+		choose_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.30, 0.95))
+		wrapper.add_child(choose_label)
+
+		var hbox := HBoxContainer.new()
+		hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+		hbox.add_theme_constant_override("separation", 12)
+		hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		for talent in row_talents:
+			var btn := _make_talent_button(talent, true)
+			_talent_buttons[talent.id] = btn
+			hbox.add_child(btn)
+		wrapper.add_child(hbox)
+	else:
+		var talent: TalentData = row_talents[0]
+		var btn := _make_talent_button(talent, false)
+		_talent_buttons[talent.id] = btn
+		wrapper.add_child(btn)
+
+	return wrapper
+
+func _make_talent_button(talent: TalentData, narrow: bool = false) -> Button:
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(460, 72)
+	if narrow:
+		btn.custom_minimum_size = Vector2(224, 72)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		btn.custom_minimum_size = Vector2(460, 72)
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_apply_btn_style(btn)
 	btn.pressed.connect(_on_talent_pressed.bind(talent.id))
@@ -262,7 +308,8 @@ func _make_talent_button(talent: TalentData) -> Button:
 	var label := Label.new()
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", 16 if narrow else 18)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(label)
 	_talent_labels[talent.id] = label

@@ -23,7 +23,7 @@ var attacker: MinionInstance = null
 ## Null for untargeted effects or enemy-owned plays.
 var target: MinionInstance = null
 
-## Korrath — the defender of an attack action (ON_PLAYER_ATTACK / ON_ENEMY_ATTACK).
+## Korrath — the defender of an attack action (ON_PLAYER_ATTACK_PRE/POST / ON_ENEMY_ATTACK).
 ## Variant so it can carry either a MinionInstance (minion-vs-minion attack) or a
 ## String sentinel "enemy_hero" / "player_hero" (minion-vs-hero attack). Null when
 ## the trigger fires without an attack defender (most events).

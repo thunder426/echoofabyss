@@ -143,7 +143,7 @@ func on_state_minion_stats_changed(minion: MinionInstance) -> void:
 ## When `_capturing_spell_popups` is set on scene (P4B inverted spell flow),
 ## the popup AND the refresh are deferred together — drained at VFX impact_hit
 ## via _drain_pending_spell_popups so the visual sync is preserved.
-func on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
+func on_state_spell_damage_dealt(target: MinionInstance, damage: int, school: int = Enums.DamageSchool.NONE) -> void:
 	if _scene == null or target == null:
 		return
 	var slot: BoardSlot = _scene._find_slot_for(target)
@@ -156,12 +156,12 @@ func on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
 	var to_hp: int = maxi(from_hp - damage, 0)
 	if _scene._capturing_spell_popups:
 		_scene._pending_spell_popups.append({
-			slot = slot, damage = damage, minion = target,
+			slot = slot, damage = damage, minion = target, school = school,
 			from_hp = from_hp, to_hp = to_hp,
 		})
 		return
 	_scene._flash_slot(slot)
-	_scene._spawn_damage_popup(slot.get_global_rect().get_center(), damage)
+	_scene._spawn_damage_popup(slot.get_global_rect().get_center(), damage, false, school)
 	# Anchor HP tween to the popup spawn moment — same call, guaranteed sync.
 	if slot.has_method("animate_hp_change"):
 		slot.animate_hp_change(from_hp, to_hp)

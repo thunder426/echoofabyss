@@ -245,34 +245,27 @@ func on_minion_summoned_formation(ctx: EventContext) -> void:
 		_try_fire_formation(summoned, neighbor)
 		_try_fire_formation(neighbor, summoned)
 
-## Korrath T1 — Commander's Reach. On any player minion attack, if the attacker is
-## a friendly HUMAN adjacent to a friendly Abyssal Knight, apply 100 Armour Break
-## to the defender (minion or enemy hero).
-##
-## Fires from CombatManager.resolve_minion_attack BEFORE damage resolution so the AB
-## reduces the Armour of THIS strike, not just future strikes — matches the design
-## ("apply 100 Armour Break to their attack target on each attack").
-func on_player_attack_commanders_reach(ctx: EventContext) -> void:
-	var attacker: MinionInstance = ctx.minion
-	if attacker == null or attacker.owner != "player":
+## Korrath T1 — Commander's Reach. Whenever any friendly minion's FORMATION fires,
+## permanently grant +50 Armour to every friendly Human on the same side. Stacks
+## across multiple Formation triggers in a combat. Buff routes through MinionInstance
+## .add_armour() so T3 unbreakable still doubles the knight's portion.
+func on_formation_triggered_commanders_reach(ctx: EventContext) -> void:
+	var actor: MinionInstance = ctx.minion
+	if actor == null or actor.owner != "player":
 		return
-	if not (attacker.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
-		return
-	# Adjacency to a friendly Abyssal Knight is the gating condition.
-	if not _adjacent_to_friendly_knight(attacker):
-		return
-	var defender = ctx.defender
-	if defender is MinionInstance:
-		BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 100,
-				"commanders_reach", false, false)
-	elif defender is String and defender == "enemy_hero":
-		_scene.state.apply_hero_buff("enemy", Enums.BuffType.ARMOUR_BREAK, 100,
-				"commanders_reach")
+	for raw in _scene.player_board:
+		var m: MinionInstance = raw as MinionInstance
+		if m == null or m.card_data == null:
+			continue
+		if not (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
+			continue
+		m.add_armour(50, _scene)
+		_scene._refresh_slot_for(m)
 
-## Korrath B2 T0 — Runic Transcendence on-attack half. Whenever the Abyssal Knight
+## Korrath B2 T0 — Runeforge Strike on-attack half. Whenever the Abyssal Knight
 ## attacks (any target), place a random rune on the player's board. Board-full +
 ## absorption logic lives in CombatState._korrath_place_random_rune.
-func on_player_attack_runic_transcendence(ctx: EventContext) -> void:
+func on_player_attack_runeforge_strike(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.minion
 	if attacker == null or attacker.card_data == null:
 		return
@@ -332,11 +325,84 @@ func _korrath_x_count() -> int:
 			rune_slots += 1
 	return rune_slots + _scene._korrath_absorbed_aura_count()
 
-## Korrath B3 T1 — Abyssal Strike. Knight applies 1 Corruption stack to its attack
+## Korrath B2 T3 — Grand Ritual: Chaos. Fires on ON_RUNE_PLACED whenever the rune
+## board reaches 3. Consumes ALL 3 active runes, fires three volatile effects with
+## per-effect damage/value variance, then randomly picks one as Enhanced (×3 output)
+## and re-applies that bonus on top. The "T1 triggers three times simultaneously"
+## clause from the design doc is now satisfied implicitly — each of the three
+## _remove_rune_aura calls below routes through the centralized B2 T1 hook in
+## CombatState._remove_rune_aura, granting one absorbed-aura stack per consumed
+## rune (each pick may land on a different Abyssal Knight).
+func on_rune_placed_grand_ritual_chaos(_ctx: EventContext) -> void:
+	# Re-entrancy guard: removing the runes will not re-fire this handler
+	# (ON_RUNE_PLACED only fires on placement), but a defensive check on the
+	# rune count keeps the path predictable.
+	var runes: Array = (_scene.active_traps as Array).filter(
+			func(t): return (t as TrapCardData).is_rune)
+	if runes.size() < 3:
+		return
+
+	# ── Consume any 3 runes (oldest first). Clean up auras via _remove_rune_aura
+	# so board passives drop correctly; mirror the bookkeeping in _fire_ritual.
+	var to_consume: Array = runes.slice(0, 3)
+	for rune in to_consume:
+		_scene._remove_rune_aura(rune as TrapCardData, "player")
+		(_scene.active_traps as Array).erase(rune)
+	_scene.state.traps_changed.emit("player")
+	_log("★ GRAND RITUAL: CHAOS — three runes shatter!", _LOG_PLAYER)
+
+	# ── Roll variance for each effect, then randomly pick one to Enhance (×3).
+	var burst_amount: int = randi_range(200, 400)
+	var sweep_amount: int = randi_range(100, 250)
+	var forge_amount: int = randi_range(200, 400)
+	var enhanced_idx: int = randi() % 3
+	if enhanced_idx == 0: burst_amount *= 3
+	elif enhanced_idx == 1: sweep_amount *= 3
+	else: forge_amount *= 3
+	var enhanced_label: String = ["Burst", "Sweep", "Forge"][enhanced_idx]
+	_log("  Enhanced: %s!" % enhanced_label, _LOG_PLAYER)
+
+	# ── Effect 1 (Burst) — single-target spell damage to a random enemy minion.
+	var enemy_pool: Array = (_scene.enemy_board as Array).filter(
+			func(m): return m != null and (m as MinionInstance).current_health > 0)
+	if not enemy_pool.is_empty():
+		var target: MinionInstance = enemy_pool[randi() % enemy_pool.size()]
+		var info := CombatManager.make_damage_info(burst_amount, Enums.DamageSource.SPELL,
+				Enums.DamageSchool.NONE, null, "grand_ritual_chaos")
+		_scene.combat_manager.apply_damage_to_minion(target, info)
+		_log("  Burst: %d spell dmg to %s." % [burst_amount, target.card_data.card_name], _LOG_PLAYER)
+
+	# ── Effect 2 (Sweep) — spell damage to ALL enemy minions. Snapshot pool so
+	# mid-resolution deaths don't mutate iteration.
+	var sweep_targets: Array = (_scene.enemy_board as Array).filter(
+			func(m): return m != null and (m as MinionInstance).current_health > 0)
+	if not sweep_targets.is_empty():
+		_log("  Sweep: %d spell dmg to all enemy minions." % sweep_amount, _LOG_PLAYER)
+		for t in sweep_targets:
+			var info := CombatManager.make_damage_info(sweep_amount, Enums.DamageSource.SPELL,
+					Enums.DamageSchool.NONE, null, "grand_ritual_chaos")
+			_scene.combat_manager.apply_damage_to_minion(t as MinionInstance, info)
+
+	# ── Effect 3 (Forge) — permanent ATK to a random friendly minion.
+	var friendly_pool: Array = (_scene.player_board as Array).filter(
+			func(m): return m != null and (m as MinionInstance).current_health > 0)
+	if not friendly_pool.is_empty():
+		var fwd: MinionInstance = friendly_pool[randi() % friendly_pool.size()]
+		BuffSystem.apply(fwd, Enums.BuffType.ATK_BONUS, forge_amount,
+				"grand_ritual_chaos", false, false)
+		_scene._refresh_slot_for(fwd)
+		_log("  Forge: +%d ATK to %s." % [forge_amount, fwd.card_data.card_name], _LOG_PLAYER)
+
+	# Fire ON_RITUAL_FIRED so ritual_surge and other ritual-listeners react.
+	if _scene.trigger_manager != null:
+		var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
+		_scene.trigger_manager.fire(fired_ctx)
+
+## Korrath B3 T1 — Corrupting Strike. Knight applies 1 Corruption stack to its attack
 ## target on every attack — minion or enemy hero. Routes through state's
 ## _corrupt_minion / _corrupt_hero so corrupting_presence's one-shot AB emission
 ## (when active) fires consistently regardless of target type.
-func on_player_attack_abyssal_strike(ctx: EventContext) -> void:
+func on_player_attack_corrupting_strike(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.minion
 	if attacker == null or attacker.card_data == null:
 		return
@@ -348,10 +414,9 @@ func on_player_attack_abyssal_strike(ctx: EventContext) -> void:
 	elif defender is String and defender == "enemy_hero":
 		_scene.state._corrupt_hero("enemy")
 
-## Korrath B3 T2 — Path of Destruction. Friendly Demon attacks apply 50 Armour
-## Break to the attack target (minion or enemy hero). No adjacency requirement
-## (unlike commanders_reach).
-func on_player_attack_path_of_destruction(ctx: EventContext) -> void:
+## Korrath B3 T2 — Path of Shattering. Friendly Demon attacks apply 50 Armour
+## Break to the attack target (minion or enemy hero).
+func on_player_attack_path_of_shattering(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.minion
 	if attacker == null or attacker.owner != "player":
 		return
@@ -360,16 +425,16 @@ func on_player_attack_path_of_destruction(ctx: EventContext) -> void:
 	var defender = ctx.defender
 	if defender is MinionInstance:
 		BuffSystem.apply(defender as MinionInstance, Enums.BuffType.ARMOUR_BREAK, 50,
-				"path_of_destruction", false, false)
+				"path_of_shattering", false, false)
 	elif defender is String and defender == "enemy_hero":
 		_scene.state.apply_hero_buff("enemy", Enums.BuffType.ARMOUR_BREAK, 50,
-				"path_of_destruction")
+				"path_of_shattering")
 
-## Korrath B3 T3 — Armour Explosion. When an enemy minion dies, snapshot its total
+## Korrath B3 T3 — Shattering Doom. When an enemy minion dies, snapshot its total
 ## Armour Break stacks and deal that as spell damage to every other enemy minion on
 ## the board. The dead minion itself is excluded (already at 0 HP). Damage is
 ## DamageSource.SPELL so it bypasses any armour the targets have.
-func on_enemy_died_armour_explosion(ctx: EventContext) -> void:
+func on_enemy_died_shattering_doom(ctx: EventContext) -> void:
 	var dead: MinionInstance = ctx.minion
 	if dead == null:
 		return
@@ -381,25 +446,8 @@ func on_enemy_died_armour_explosion(ctx: EventContext) -> void:
 		if m == null or m == dead or m.current_health <= 0:
 			continue
 		var info := CombatManager.make_damage_info(ab_total, Enums.DamageSource.SPELL,
-				Enums.DamageSchool.NONE, dead, "armour_explosion")
+				Enums.DamageSchool.NONE, dead, "shattering_doom")
 		_scene.combat_manager.apply_damage_to_minion(m, info)
-
-## True if `actor` is in slot N and slot N±1 holds an Abyssal Knight on the same side.
-func _adjacent_to_friendly_knight(actor: MinionInstance) -> bool:
-	if actor == null or actor.slot_index < 0:
-		return false
-	var board: Array = _scene.player_board if actor.owner == "player" else _scene.enemy_board
-	if board == null:
-		return false
-	for raw in board:
-		var m: MinionInstance = raw as MinionInstance
-		if m == null or m == actor:
-			continue
-		if m.card_data == null or m.card_data.id != "abyssal_knight":
-			continue
-		if absi(m.slot_index - actor.slot_index) == 1:
-			return true
-	return false
 
 ## Fires `actor`'s Formation against `partner` if conditions are met:
 ##   - actor has FORMATION
@@ -418,12 +466,19 @@ func _try_fire_formation(actor: MinionInstance, partner: MinionInstance) -> void
 	if not card.shares_race(partner.card_data as MinionCardData):
 		return
 	actor.formation_partners[partner] = true
-	if card.formation_effect_steps.is_empty():
-		return
-	var ectx := EffectContext.make(_scene, actor.owner)
-	ectx.source = actor
-	ectx.source_card_id = card.id
-	EffectResolver.run(card.formation_effect_steps, ectx)
+	if not card.formation_effect_steps.is_empty():
+		var ectx := EffectContext.make(_scene, actor.owner)
+		ectx.source = actor
+		ectx.source_card_id = card.id
+		EffectResolver.run(card.formation_effect_steps, ectx)
+	# Fire ON_FORMATION_TRIGGERED so talents like commanders_reach can react —
+	# fires even when formation_effect_steps is empty so future "any FORMATION
+	# trigger" effects don't depend on the step list being populated.
+	if _scene.trigger_manager != null:
+		var tctx := EventContext.make(Enums.TriggerEvent.ON_FORMATION_TRIGGERED, actor.owner)
+		tctx.minion = actor
+		tctx.target = partner
+		_scene.trigger_manager.fire(tctx)
 
 func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionInstance, summoned: MinionInstance) -> void:
 	match passive_id:

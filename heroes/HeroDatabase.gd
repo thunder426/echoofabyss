@@ -30,6 +30,21 @@ func get_all_heroes() -> Array[HeroData]:
 		result.append(h as HeroData)
 	return result
 
+## Faction-keyed visual config. Add a new entry here when a new faction
+## ships its own slot artwork — keeps slot rendering generic instead of
+## branching on individual hero ids.
+const _FACTION_EMPTY_SLOT_BG := {
+	"Abyss Order": "res://assets/art/frames/abyss_order/abyss_empty_slot.png",
+}
+
+## Empty board/trap-slot background path for the given hero's faction,
+## or "" if the faction has no custom slot art.
+func empty_slot_bg_for_hero(hero_id: String) -> String:
+	var hero := get_hero(hero_id)
+	if hero == null:
+		return ""
+	return _FACTION_EMPTY_SLOT_BG.get(hero.faction, "")
+
 ## Returns true if the given hero has the specified passive active.
 ## Use this in combat code instead of `current_hero == "lord_vael"` guards.
 func has_passive(hero_id: String, passive_id: String) -> bool:
@@ -63,7 +78,7 @@ func _register_lord_vael() -> void:
 	var h := HeroData.new()
 	h.id = "lord_vael"
 	h.hero_name = "Lord Vael"
-	h.title = "Void Caller"
+	h.title = "The Void Caller"
 	h.faction = "Abyss Order"
 	h.portrait_path = "res://assets/art/hero_selection/hero_portrait/lord_vael_portrait.png"
 	h.combat_portrait_path = "res://assets/art/heroes/combat_portraits/lord_vael_portrait_bf.png"
@@ -85,14 +100,6 @@ func _register_lord_vael() -> void:
 	# Branch IDs - must match TalentData.branch values registered in TalentDatabase.
 	# Display names are resolved via TalentDatabase.get_branch_display_name(id).
 	h.talent_branch_ids = ["swarm", "rune_master", "void_bolt"]
-
-	# Cards available in the reward pool once permanently unlocked (boss drops).
-	# Mirrors the "vael_common" pool in CardDatabase.
-	h.hero_reward_pool = [
-		"imp_recruiter", "blood_pact",
-		"soul_taskmaster", "soul_shatter",
-		"void_amplifier", "soul_rune",
-	]
 
 	h.flavor = "\"The Abyss does not consume - it remembers.\"\n- Lord Vael, at the Rift Convergence"
 	_register(h)
@@ -127,8 +134,6 @@ func _register_seris() -> void:
 
 	h.talent_branch_ids = ["fleshcraft", "demon_forge", "corruption_engine"]
 
-	h.hero_reward_pool = []
-
 	h.flavor = "\"Flesh remembers what the soul forgets.\"\n- Seris, the Fleshbinder"
 	_register(h)
 
@@ -142,9 +147,7 @@ func _register_korrath() -> void:
 	h.hero_name = "Korrath"
 	h.title = "the Abyssal Commander"
 	h.faction = "Abyss Order"
-	# Art assets are not yet authored — leave paths empty so the hero-select scene
-	# falls back to placeholder rendering. Use /add-art once portraits are in.
-	h.portrait_path = ""
+	h.portrait_path = "res://assets/art/hero_selection/hero_portrait/korrath_portrait.png"
 	h.combat_portrait_path = ""
 	h.frame_path = "res://assets/art/hero_selection/abyss_order_hero_frame.png"
 
@@ -161,9 +164,7 @@ func _register_korrath() -> void:
 		),
 	]
 
-	h.talent_branch_ids = ["infernal_bulwark", "runic_knight", "abyssal_breaker"]
-
-	h.hero_reward_pool = []
+	h.talent_branch_ids = ["iron_vanguard", "runic_knight", "abyssal_breaker"]
 
 	h.flavor = "\"Iron is forged. Loyalty is broken. Both serve the Abyss.\"\n- Korrath, the Abyssal Commander"
 	_register(h)

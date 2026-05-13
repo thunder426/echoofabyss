@@ -3914,15 +3914,12 @@ func _apply_slot_style(panel: Panel, bg: Color, border: Color) -> void:
 		img.visible = false
 	panel.add_theme_stylebox_override("panel", _create_stylebox(bg, border))
 
-const _ABYSS_EMPTY_SLOT_PATH := "res://assets/art/frames/abyss_order/abyss_empty_slot.png"
-const _ABYSS_HEROES_LIST     := ["lord_vael", "seris"]
-
-## Apply the abyss empty-slot image (or fallback dark style) to a plain Panel.
+## Apply the faction empty-slot image (or fallback dark style) to a plain Panel.
 ## Pass lbl=null if the panel has no text label to manage.
 func _apply_empty_slot(panel: Panel, lbl: Label) -> void:
-	var is_abyss: bool = GameManager.current_hero in _ABYSS_HEROES_LIST
+	var empty_bg: String = HeroDatabase.empty_slot_bg_for_hero(GameManager.current_hero)
 	var img := panel.get_node_or_null("_empty_slot_bg") as TextureRect
-	if is_abyss and ResourceLoader.exists(_ABYSS_EMPTY_SLOT_PATH):
+	if empty_bg != "" and ResourceLoader.exists(empty_bg):
 		# Transparent panel so the image shows through
 		var blank := StyleBoxFlat.new()
 		blank.bg_color = Color(0, 0, 0, 0)
@@ -3936,7 +3933,7 @@ func _apply_empty_slot(panel: Panel, lbl: Label) -> void:
 			img.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			img.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			panel.add_child(img)
-		img.texture = load(_ABYSS_EMPTY_SLOT_PATH)
+		img.texture = load(empty_bg)
 		img.visible = true
 		if lbl:
 			lbl.visible = false
@@ -4680,9 +4677,9 @@ var _pending_hero_popups: Array = []  # Array[{kind, target, amount, school, is_
 ## drain at end of VFX via _drain_pending_spell_popups.
 var _pending_corruption_apply: Array = []  # Array[{slot: BoardSlot, minion: MinionInstance}]
 
-func _on_state_spell_damage_dealt(target: MinionInstance, damage: int) -> void:
+func _on_state_spell_damage_dealt(target: MinionInstance, damage: int, school: int = Enums.DamageSchool.NONE) -> void:
 	if combat_ui != null:
-		combat_ui.on_state_spell_damage_dealt(target, damage)
+		combat_ui.on_state_spell_damage_dealt(target, damage, school)
 
 ## Drain queued spell popups (minion + hero) — called from spell VFX
 ## controllers' resolve_damage callback at impact_hit so popups sync with
@@ -4697,7 +4694,8 @@ func _drain_pending_spell_popups() -> void:
 		var slot: BoardSlot = p.slot
 		if slot != null and is_instance_valid(slot):
 			_flash_slot(slot)
-			_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage)
+			var p_school: int = p.school if p.has("school") else Enums.DamageSchool.NONE
+			_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage, false, p_school)
 			if slot.has_method("animate_hp_change") and p.has("from_hp"):
 				slot.animate_hp_change(p.from_hp, p.to_hp)
 	_pending_spell_popups.clear()
@@ -4758,7 +4756,8 @@ func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
 			_pending_spell_popups.remove_at(i)
 			if is_instance_valid(slot):
 				_flash_slot(slot)
-				_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage)
+				var p_school: int = p.school if p.has("school") else Enums.DamageSchool.NONE
+				_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage, false, p_school)
 				if slot.has_method("animate_hp_change") and p.has("from_hp"):
 					slot.animate_hp_change(p.from_hp, p.to_hp)
 			found_popup = true

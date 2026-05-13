@@ -32,13 +32,16 @@ Future sources (e.g. `FATIGUE`) can be added as needed.
 
 What kind of damage it is.
 
-| School      | Notes                                                          |
-| ----------- | -------------------------------------------------------------- |
-| `NONE`      | Default. Surfaces forgotten tags loudly — see "Defaults" below |
-| `PHYSICAL`  | Default for minion basic attacks                               |
-| `VOID`      | Void faction default                                           |
-| `VOID_BOLT` | Sub-school of `VOID` (see Lineage)                             |
-| `TRUE_DMG`  | Bypasses school resistances. `TRUE` is a GDScript reserved word |
+| School             | Notes                                                          |
+| ------------------ | -------------------------------------------------------------- |
+| `NONE`             | Minion-emitted default (battlecries, deathrattles, auras). Surfaces forgotten tags loudly — see "Defaults" below. **Not valid for spell DAMAGE_* steps** — lint-enforced at load |
+| `PHYSICAL`         | Default for minion basic attacks; also the mundane-hit spell flavor (e.g. `precision_strike`) |
+| `ARCANE`           | Generic neutral magic — `arcane_strike` and other neutral spells without a more specific flavor |
+| `VOID`             | Void faction default                                           |
+| `VOID_BOLT`        | Sub-school of `VOID`. Bolt-themed direct burst — `void_bolt`, `void_detonation`. Triggers bolt passives |
+| `VOID_FLESH`       | Sub-school of `VOID`. Flesh/visceral damage — `flesh_rend`, `flesh_eruption`, `resonant_outburst`. Gates Seris's Void Amplification |
+| `VOID_CORRUPTION`  | Sub-school of `VOID`. Corruption-themed damage — `abyssal_plague`, future Korrath corruption spells. Gates Korrath's Path of Corruption |
+| `TRUE_DMG`         | Bypasses school resistances. `TRUE` is a GDScript reserved word |
 
 More schools (`FIRE`, `FROST`, `BLEEDING`, `POISON`, `HOLY`, `CHAOS`, …) added on demand. **Resist the urge to define schools speculatively** — only add what cards actually use.
 
@@ -55,11 +58,14 @@ Each school declares the array of schools it satisfies — itself plus its paren
 
 ```gdscript
 const SCHOOL_LINEAGE := {
-    DamageSchool.NONE:      [],
-    DamageSchool.PHYSICAL:  [DamageSchool.PHYSICAL],
-    DamageSchool.VOID:      [DamageSchool.VOID],
-    DamageSchool.VOID_BOLT: [DamageSchool.VOID_BOLT, DamageSchool.VOID],
-    DamageSchool.TRUE_DMG:  [DamageSchool.TRUE_DMG],
+    DamageSchool.NONE:            [],
+    DamageSchool.PHYSICAL:        [DamageSchool.PHYSICAL],
+    DamageSchool.ARCANE:          [DamageSchool.ARCANE],
+    DamageSchool.VOID:            [DamageSchool.VOID],
+    DamageSchool.VOID_BOLT:       [DamageSchool.VOID_BOLT, DamageSchool.VOID],
+    DamageSchool.VOID_FLESH:      [DamageSchool.VOID_FLESH, DamageSchool.VOID],
+    DamageSchool.VOID_CORRUPTION: [DamageSchool.VOID_CORRUPTION, DamageSchool.VOID],
+    DamageSchool.TRUE_DMG:        [DamageSchool.TRUE_DMG],
     # Examples for future schools:
     # DamageSchool.BLEEDING: [DamageSchool.BLEEDING, DamageSchool.PHYSICAL],
     # DamageSchool.BURNING:  [DamageSchool.BURNING, DamageSchool.FIRE],
@@ -73,13 +79,15 @@ static func has_school(school: DamageSchool, target: DamageSchool) -> bool:
 
 ### Examples
 
-| DamageInfo school | Satisfies         | "+20% void" buffs it? | Bolt passive triggers? |
-| ----------------- | ----------------- | --------------------- | ---------------------- |
-| `VOID`            | VOID              | yes                   | no                     |
-| `VOID_BOLT`       | VOID_BOLT, VOID   | yes                   | yes                    |
-| `BLEEDING`        | BLEEDING, PHYSICAL | "+20% physical" yes  | n/a                    |
-| `PHYSICAL`        | PHYSICAL          | "+20% physical" yes   | n/a                    |
-| `NONE`            | (none)            | no                    | no                     |
+| DamageInfo school   | Satisfies                  | "+20% void" buffs it? | Bolt passive triggers? | Seris Void Amplification (Flesh amp)? | Korrath Path of Corruption (Corruption amp)? |
+| ------------------- | -------------------------- | --------------------- | ---------------------- | ------------------------------------- | -------------------------------------------- |
+| `VOID`              | VOID                       | yes                   | no                     | no                                    | no                                           |
+| `VOID_BOLT`         | VOID_BOLT, VOID            | yes                   | yes                    | no (sibling)                          | no (sibling)                                 |
+| `VOID_FLESH`        | VOID_FLESH, VOID           | yes                   | no                     | **yes**                               | no (sibling)                                 |
+| `VOID_CORRUPTION`   | VOID_CORRUPTION, VOID      | yes                   | no                     | no (sibling)                          | **yes**                                      |
+| `BLEEDING`          | BLEEDING, PHYSICAL         | "+20% physical" yes   | n/a                    | no                                    | no                                           |
+| `PHYSICAL`          | PHYSICAL                   | "+20% physical" yes   | n/a                    | no                                    | no                                           |
+| `NONE`              | (none)                     | no                    | no                     | no                                    | no                                           |
 
 ### Multi-parent (future)
 
@@ -146,9 +154,10 @@ var source = Enums.DamageSource.MINION if ctx.source != null else Enums.DamageSo
 | ------------------------------------------------------- | ----------- |
 | Minion basic attack (default)                           | `PHYSICAL`  |
 | Minion-emitted effect (default)                         | `NONE`      |
-| Spell with explicit `damage_school` on the EffectStep   | as declared |
+| Spell DAMAGE_* step (required, lint-enforced)           | as declared (must be non-NONE) |
 | `EffectStep.VOID_BOLT` (special EffectType)             | `VOID_BOLT` (via `_deal_void_bolt_damage` wrapper) |
-| Spell / environment without `damage_school`             | `NONE`      |
+| Trap / ritual / environment DAMAGE_* step               | as declared, or `NONE` |
+| HARDCODED spell step                                    | as the handler declares (e.g. `soul_shatter` → `VOID`) |
 | Talent / passive override at the call site              | as the override declares |
 
 **Key principle: school is opt-in, not auto-derived.** We considered (and rejected) faction-default rules like "all abyss_order minions auto-tag VOID." Two reasons:
@@ -167,12 +176,15 @@ Talents intercept at the call site rather than overriding `damage_school` on the
 
 ### Currently tagged (Phase 7 audit results)
 
-| School      | Cards                                                                                          |
-| ----------- | ---------------------------------------------------------------------------------------------- |
-| `VOID`      | `abyssal_plague`, `void_execution`, `rift_collapse`, `void_lance`, `void_shatter` (spells); `abyssal_summoning_circle` death effect; `_abyss_ritual_circle_passive` hardcoded handler |
-| `VOID_BOLT` | `void_bolt` spell; `void_rune` aura; Soul Cataclysm ritual; `_void_detonation` hardcoded; all `EffectStep.VOID_BOLT` invocations |
-| `PHYSICAL`  | All minion basic attacks (default in `_attack_damage_info`)                                    |
-| `NONE`      | All minion-emitted effects (Void Imp on-play, Senior Void Imp on-play, Runic Void Imp, Void Netter, Nyx'ael turn-start, Frenzied Imp); generic spells (`arcane_strike`, `precision_strike`); Seris flesh-themed spells (`flesh_eruption`, `resonant_outburst`); neutral traps |
+| School             | Cards                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------- |
+| `VOID`             | `void_execution`, `rift_collapse`, `void_lance`, `void_shatter`, `runic_blast`, `void_screech`, `sovereigns_decree`, `soul_shatter` (spells); `abyssal_summoning_circle` death effect; `_abyss_ritual_circle_passive` hardcoded handler |
+| `VOID_BOLT`        | `void_bolt` spell; `void_rune` aura; Soul Cataclysm ritual; `_void_detonation` hardcoded; all `EffectStep.VOID_BOLT` invocations |
+| `VOID_FLESH`       | `flesh_rend`, `flesh_eruption`, `resonant_outburst`. Seris's flesh-themed Abyss spells — exclusively amplified by Void Amplification (+50/stack across friendly Demons). |
+| `VOID_CORRUPTION`  | `abyssal_plague`, future Korrath corruption spells. Corruption-themed Abyss spells — exclusively amplified by Korrath's Path of Corruption (+100/stack on target). |
+| `ARCANE`           | `arcane_strike`. Generic neutral magic.                                                       |
+| `PHYSICAL`         | All minion basic attacks (default in `_attack_damage_info`); `precision_strike` spell         |
+| `NONE`             | All minion-emitted effects (Void Imp on-play, Senior Void Imp on-play, Runic Void Imp, Void Netter, Nyx'ael turn-start, Frenzied Imp, void-touched imp on-death); neutral traps. **Spells are NOT allowed to be `NONE` — task 018 lint-enforces.** |
 
 ## Defaults: why `NONE`, not `PHYSICAL`
 
@@ -186,7 +198,19 @@ Defaulting to `PHYSICAL` would silently absorb forgotten tags. A new Void card w
 
 Missing tags become obvious during playtest or sim, not silent miscalibrations.
 
-`PHYSICAL` is reserved for emissions that *meaningfully are physical* — minion basic attacks. It's an opinion, not a fallback.
+`PHYSICAL` is reserved for emissions that *meaningfully are physical* — minion basic attacks and explicit physical spells. It's an opinion, not a fallback.
+
+### Spells: school is required, lint-enforced
+
+`NONE` is valid for minion-emitted effects (on-play, on-death, auras, hardcoded handlers), but **not** for spell DAMAGE_* steps. Every `SpellCardData` with a `DAMAGE_MINION` / `DAMAGE_HERO` / `DAMAGE_ANY` step must declare a non-NONE `damage_school`. `CardDatabase._validate_spell_damage_schools()` runs at load and fails fast with the offending card id and step index if anything is untagged.
+
+The rule scope:
+
+- **Spells** — must declare a school. Generic neutral spells use `ARCANE` or `PHYSICAL` based on flavor; faction spells use the faction's flavor (e.g. `VOID` for Abyss Order).
+- **Minion-emitted effects** — keep defaulting to `NONE` unless the design wants school-keyed interactions (e.g. `abyssal_summoning_circle`'s on-death effect uses `VOID` because it's themed corruption).
+- **Traps, rituals, environments** — same as minion-emitted: `NONE` default, opt in when flavored.
+- **EffectStep.VOID_BOLT** — special EffectType that emits via `_deal_void_bolt_damage`; no `damage_school` field needed.
+- **HARDCODED spell steps** — bypass the lint because the school is set in code (see `soul_shatter` → `VOID` in `HardcodedEffects.gd`).
 
 ## Implementation Map
 
@@ -207,11 +231,16 @@ Where each piece lives in the codebase:
 - **`SPELL_IMMUNE`** — blocks `info.source == SPELL`. Source-keyed (not school-keyed), so a SPELL-immune minion absorbs any spell-school combination but still takes minion-attack damage.
 - **`ETHEREAL`** — amplifies SPELL-source damage by 50% in `apply_damage_to_minion`; reduces minion basic-attack damage by 50% in `resolve_minion_attack`. Source-keyed only — schools are not exempted.
 - **Void Bolt scaling** — per-Void-Mark scaling stays on `_deal_void_bolt_damage` (the EffectStep.VOID_BOLT path). The school is metadata; the scaling is mechanics. Don't conflate them.
+- **Korrath Armour / Armour Break** — **school-keyed, not source-keyed** (task 019). `CombatManager._school_bypasses_armour(school)` returns true for the VOID lineage and `TRUE_DMG`; everything else (PHYSICAL, ARCANE, NONE) runs through `_apply_armour_math`. So a PHYSICAL spell (`shatterstrike`) respects armour; a VOID minion-emitted effect bypasses it. Armour Break amplifies every non-bypassing hit, including PHYSICAL/ARCANE spells — this is a real power increase for Korrath B3 Path of Shattering + spell builds.
+
+### Source vs school for armour: why the gate moved
+
+Before task 019, the armour gate was `info.source == MINION` — i.e. minion attacks reduced by armour, everything else bypassed. That collapsed two distinct concerns into one axis: a "physical spell" couldn't exist because being a spell meant bypassing armour. Once the design called for PHYSICAL spells (`shatterstrike`) that interact with the Armour system, the gate had to switch to the orthogonal axis — school — and the source distinction became irrelevant for the armour decision. Minion basic attacks still respect armour because they default to PHYSICAL school in `_attack_damage_info`, not because their source is MINION.
 
 ## Card Authoring Implications
 
-- New damage-dealing cards default to `NONE` school. Set `damage_school` explicitly when the card has a deliberate flavor (e.g. `"damage_school": "VOID"` for an abyss_order spell).
-- Minion-emitted effects (on-play, deathrattle, hardcoded handlers) generally stay `NONE` unless the design wants school-keyed buff interactions. The current rule is conservative: spells get tagged, minion effects don't.
+- **New damage-dealing spells must declare a `damage_school` — lint-enforced at load.** Pick the flavor that matches the card: `VOID` (and sub-schools) for Abyss spells, `ARCANE` for generic neutral magic, `PHYSICAL` for mundane-hit neutrals.
+- Minion-emitted effects (on-play, deathrattle, hardcoded handlers) generally stay `NONE` unless the design wants school-keyed buff interactions. The conservative rule for non-spell sources: opt in when flavored; otherwise stay `NONE`.
 - Talent-driven retags happen at the call site (see `piercing_void` and `void_manifestation` examples). Don't bake talent assumptions into `damage_school` data.
 - "When you take X damage" / "Your X damage +Y%" cards: handler reads `ctx.damage_info.school` and uses `Enums.has_school(school, X)` for the predicate. Direct `==` is wrong — it misses sub-schools.
 

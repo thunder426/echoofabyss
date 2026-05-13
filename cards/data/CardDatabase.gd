@@ -387,7 +387,7 @@ func _register_wanderer_cards() -> void:
 
 	# Abyssal Knight — Korrath's textless core unit. 4E / 400 / 500 with no race set
 	# at base; race + behaviour come from each branch's T0 talent override (Human for
-	# Infernal Bulwark, Human+Demon for Runic Knight, Demon for Abyssal Breaker).
+	# Iron Vanguard, Human+Demon for Runic Knight, Demon for Abyssal Breaker).
 	# Two hero passives modify it: abyssal_commander (cost -1 → effectively 3E) and
 	# iron_legion (deck cap raised to 4). Both wired declaratively (CardModRules and
 	# DeckBuilderScene._EXTRA_COPY_RULES) — this card stays a plain stat block.
@@ -404,7 +404,7 @@ func _register_wanderer_cards() -> void:
 	abyssal_knight.minion_tags  = ["abyssal_knight"]
 	abyssal_knight.faction      = "abyss_order"
 	abyssal_knight.art_path     = ""
-	# Korrath Branch 1 — Infernal Bulwark talent overrides. Each higher-tier override
+	# Korrath Branch 1 — Iron Vanguard talent overrides. Each higher-tier override
 	# carries forward the lower tiers' field replacements because talent_overrides are
 	# full-field replacements applied in array order, last write wins. Tier prereqs
 	# guarantee all lower-tier overrides on the same branch are active when a higher
@@ -450,15 +450,15 @@ func _register_wanderer_cards() -> void:
 			"minion_type": Enums.MinionType.DEMON,
 			"description": "Each stack of Corruption you apply also reduces target Armour by 100.",
 		},
-		# Branch 2 T0 Runic Transcendence: knight gains BOTH Human and Demon race
+		# Branch 2 T0 Runeforge Strike: knight gains BOTH Human and Demon race
 		# tags. Primary stays HUMAN; DEMON goes in extra_minion_types. Race-aware
 		# code reads via MinionCardData.is_race() so the knight matches both
 		# Demon-summon talents (path_of_demons) and Human-summon talents
 		# (path_of_humans), plus all the existing race-filtered systems
 		# (Seris fleshbind, Dominion Rune aura, etc.). The rune-on-attack half
-		# is wired in CombatHandlers.on_player_attack_runic_transcendence.
+		# is wired in CombatHandlers.on_player_attack_runeforge_strike.
 		{
-			"talent_id":          "runic_transcendence",
+			"talent_id":          "runeforge_strike",
 			"minion_type":        Enums.MinionType.HUMAN,
 			"extra_minion_types": [Enums.MinionType.DEMON],
 			"description":        "Counts as both Human and Demon. Whenever this minion attacks, place a random Rune on your board.",
@@ -520,11 +520,11 @@ func _register_wanderer_cards() -> void:
 	flesh_rend.id              = "flesh_rend"
 	flesh_rend.card_name       = "Flesh Rend"
 	flesh_rend.cost            = 2
-	flesh_rend.description     = "Deal 300 damage to a minion or enemy hero. If you have 3+ Flesh, deal 600 instead."
+	flesh_rend.description     = "Deal 300 VOID FLESH damage to a minion or enemy hero. If you have 3+ Flesh, deal 600 instead."
 	flesh_rend.requires_target = true
 	flesh_rend.target_type     = "any_minion_or_enemy_hero"
 	flesh_rend.effect_steps    = [
-		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300, "bonus_amount": 300, "bonus_conditions": ["flesh_gte_3"]},
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300, "bonus_amount": 300, "bonus_conditions": ["flesh_gte_3"], "damage_school": "VOID_FLESH"},
 	]
 	flesh_rend.art_path        = "res://assets/art/spells/abyss_order/flesh_rend.png"
 	flesh_rend.faction         = "abyss_order"
@@ -607,13 +607,13 @@ func _register_wanderer_cards() -> void:
 	flesh_eruption.id          = "flesh_eruption"
 	flesh_eruption.card_name   = "Flesh Eruption"
 	flesh_eruption.cost        = 3
-	flesh_eruption.description = "Deal 250 damage to all enemies. Spend 2 Flesh: deal 400 damage instead."
+	flesh_eruption.description = "Deal 250 VOID FLESH damage to all enemies. Spend 2 Flesh: deal 400 instead."
 	flesh_eruption.effect_steps = [
 		{"type": "SPEND_FLESH", "amount": 2},
 		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 250,
-			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"]},
+			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"], "damage_school": "VOID_FLESH"},
 		{"type": "DAMAGE_HERO", "amount": 250,
-			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"]},
+			"bonus_amount": 150, "bonus_conditions": ["flesh_spent_this_cast"], "damage_school": "VOID_FLESH"},
 	]
 	flesh_eruption.art_path    = "res://assets/art/spells/abyss_order/flesh_eruption.png"
 	flesh_eruption.faction     = "abyss_order"
@@ -989,13 +989,13 @@ func _register_wanderer_cards() -> void:
 	resonant_outburst.id          = "resonant_outburst"
 	resonant_outburst.card_name   = "Resonant Outburst"
 	resonant_outburst.cost        = 2
-	resonant_outburst.description = "Deal 100 damage to all enemies. Spend 2 Flesh: deal 300 instead."
+	resonant_outburst.description = "Deal 100 VOID FLESH damage to all enemies. Spend 2 Flesh: deal 300 instead."
 	resonant_outburst.effect_steps = [
 		{"type": "SPEND_FLESH", "amount": 2},
 		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100,
-			"bonus_amount": 200, "bonus_conditions": ["flesh_spent_this_cast"]},
+			"bonus_amount": 200, "bonus_conditions": ["flesh_spent_this_cast"], "damage_school": "VOID_FLESH"},
 		{"type": "DAMAGE_HERO", "amount": 100,
-			"bonus_amount": 200, "bonus_conditions": ["flesh_spent_this_cast"]},
+			"bonus_amount": 200, "bonus_conditions": ["flesh_spent_this_cast"], "damage_school": "VOID_FLESH"},
 	]
 	resonant_outburst.art_path    = "res://assets/art/spells/abyss_order/resonant_outburst.png"
 	resonant_outburst.faction     = "abyss_order"
@@ -1132,10 +1132,10 @@ func _register_wanderer_cards() -> void:
 	abyssal_plague.id          = "abyssal_plague"
 	abyssal_plague.card_name   = "Abyssal Plague"
 	abyssal_plague.cost        = 2
-	abyssal_plague.description = "Apply 1 CORRUPTION to all enemy minions. Deal 100 damage to all enemy minions."
+	abyssal_plague.description = "Apply 1 CORRUPTION to all enemy minions. Deal 100 VOID CORRUPTION damage to all enemy minions."
 	abyssal_plague.effect_steps = [
 		{"type": "CORRUPTION",    "scope": "ALL_ENEMY", "amount": 1},
-		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100, "damage_school": "VOID"},
+		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 100, "damage_school": "VOID_CORRUPTION"},
 	]
 	abyssal_plague.faction     = "abyss_order"
 	abyssal_plague.art_path    = "res://assets/art/spells/abyss_order/abyssal_plague.png"
@@ -1407,7 +1407,7 @@ func _register_wanderer_cards() -> void:
 
 	arcane_strike.faction         = "neutral"
 	arcane_strike.art_path        = "res://assets/art/spells/neutral/arcane_strike.png"
-	arcane_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300}]
+	arcane_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300, "damage_school": "ARCANE"}]
 	all.append(arcane_strike)
 
 	var purge := SpellCardData.new()
@@ -1455,7 +1455,7 @@ func _register_wanderer_cards() -> void:
 
 	precision_strike.faction         = "neutral"
 	precision_strike.art_path        = "res://assets/art/spells/neutral/precision_strike.png"
-	precision_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 600}]
+	precision_strike.effect_steps    = [{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 600, "damage_school": "PHYSICAL"}]
 	all.append(precision_strike)
 
 	var hurricane := SpellCardData.new()
@@ -2124,9 +2124,9 @@ func _register_wanderer_cards() -> void:
 	runic_blast.description = "Deal 200 damage to 2 random enemy minions. If you have 2+ Runes, deal 200 to all enemy minions instead."
 	runic_blast.effect_steps = [
 		{"type": "DAMAGE_MINION", "scope": "ALL_ENEMY", "amount": 200,
-		 "conditions": ["owner_runes_gte_2"]},
+		 "conditions": ["owner_runes_gte_2"], "damage_school": "VOID"},
 		{"type": "DAMAGE_MINION", "scope": "SINGLE_RANDOM", "amount": 200,
-		 "random_picks": 2, "conditions": ["not_owner_runes_gte_2"]},
+		 "random_picks": 2, "conditions": ["not_owner_runes_gte_2"], "damage_school": "VOID"},
 	]
 	runic_blast.art_path    = "res://assets/art/spells/abyss_order/runic_blast.png"
 	runic_blast.faction     = "abyss_order"
@@ -2384,6 +2384,7 @@ func _register_wanderer_cards() -> void:
 	void_screech.effect_steps = [{
 		"type": "DAMAGE_HERO", "amount": 250,
 		"bonus_amount": 100, "bonus_conditions": ["feral_imp_count_gte_3"],
+		"damage_school": "VOID",
 	}]
 	void_screech.faction   = "abyss_order"
 	void_screech.art_path  = "res://assets/art/spells/feral_imp_clan/void_screech.png"
@@ -2833,7 +2834,7 @@ func _register_wanderer_cards() -> void:
 	sovereigns_decree.void_spark_cost  = 2
 	sovereigns_decree.description      = "Deal 300 damage to enemy hero. Apply 2 Corruption to all enemy minions."
 	sovereigns_decree.effect_steps     = [
-		{"type": "DAMAGE_HERO", "amount": 300},
+		{"type": "DAMAGE_HERO", "amount": 300, "damage_school": "VOID"},
 		{"type": "CORRUPTION", "scope": "ALL_ENEMY", "amount": 2},
 	]
 	sovereigns_decree.faction          = "abyss_order"
@@ -3202,3 +3203,40 @@ func _register_wanderer_cards() -> void:
 
 	for c in all:
 		_register(c)
+
+	_validate_spell_damage_schools(all)
+
+
+## Lint-enforces task 018: every SpellCardData that emits a DAMAGE_MINION / DAMAGE_HERO /
+## DAMAGE_ANY effect step must declare a non-NONE damage_school. Minion-emitted effects
+## and trap/environment damage still default to NONE — only spell-source damage is gated.
+## Fails fast at load with the offending card id and step index so the convention can't rot.
+func _validate_spell_damage_schools(all: Array) -> void:
+	var damaging_types := {"DAMAGE_MINION": true, "DAMAGE_HERO": true, "DAMAGE_ANY": true}
+	var offenders: Array[String] = []
+	for c in all:
+		if not (c is SpellCardData):
+			continue
+		var steps: Array = c.effect_steps
+		for i in steps.size():
+			var step: Dictionary = steps[i]
+			var t: String = String(step.get("type", ""))
+			if not damaging_types.has(t):
+				continue
+			var raw = step.get("damage_school", null)
+			var school_id: int = Enums.DamageSchool.NONE
+			if raw is String:
+				if raw in Enums.DamageSchool:
+					school_id = Enums.DamageSchool[raw]
+				else:
+					offenders.append("%s (step %d, type=%s, unknown school '%s')" % [c.id, i, t, raw])
+					continue
+			elif raw != null:
+				school_id = int(raw)
+			if school_id == Enums.DamageSchool.NONE:
+				offenders.append("%s (step %d, type=%s)" % [c.id, i, t])
+	if offenders.is_empty():
+		return
+	var msg := "CardDatabase: spell DAMAGE_* steps must declare a non-NONE damage_school. Offenders: %s" % ", ".join(offenders)
+	push_error(msg)
+	assert(false, msg)

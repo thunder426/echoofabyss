@@ -62,6 +62,12 @@ const _BTN_PRESSED_PATH := "res://assets/art/buttons/button_pressed.png"
 const _PANEL_W := 560
 const _PANEL_H := 700
 
+const _HERO_TITLE_FONT_MAX := 26
+const _HERO_TITLE_FONT_MIN := 18
+const _HERO_TITLE_FULL_SIZE_CHARS := 24
+const _HERO_TITLE_SHRINK_CHARS := 1
+const _HERO_TITLE_ROW_H := 34
+
 # Page-level faction selection — written to GameManager on hero choose
 var _selected_faction: String = "abyss_order"
 var _faction_btns: Array[Button] = []
@@ -229,10 +235,12 @@ func _make_hero_panel(hero: HeroData, theme: FactionTheme) -> PanelContainer:
 
 	# Name · title
 	var name_lbl := Label.new()
-	name_lbl.text = "%s  ·  %s" % [hero.hero_name, hero.title]
+	name_lbl.text = "%s - %s" % [hero.hero_name, hero.title]
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_lbl.custom_minimum_size = Vector2(0, _HERO_TITLE_ROW_H)
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.add_theme_font_size_override("font_size", 26)
+	name_lbl.add_theme_font_size_override("font_size", _hero_title_font_size(name_lbl.text))
 	name_lbl.add_theme_color_override("font_color", Color(0.98, 0.94, 0.78, 1))
 	name_lbl.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.85))
 	name_lbl.add_theme_constant_override("outline_size", 3)
@@ -397,6 +405,11 @@ func _apply_bg(theme: FactionTheme) -> void:
 		_bg_tex.texture = load(theme.bg_path)
 	else:
 		_bg_tex.texture = null
+
+func _hero_title_font_size(text: String) -> int:
+	var overflow_chars: int = max(0, text.length() - _HERO_TITLE_FULL_SIZE_CHARS)
+	var shrink: int = ceili(float(overflow_chars) / float(_HERO_TITLE_SHRINK_CHARS))
+	return maxi(_HERO_TITLE_FONT_MIN, _HERO_TITLE_FONT_MAX - shrink)
 
 func _set_faction_btn_style(btn: Button, selected: bool, theme: FactionTheme) -> void:
 	var s := StyleBoxFlat.new()

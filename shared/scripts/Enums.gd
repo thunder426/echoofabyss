@@ -70,7 +70,8 @@ enum TriggerEvent {
 	ON_PLAYER_MINION_SUMMONED,  # Player minion enters the board from ANY source (ctx.minion, ctx.card)
 	ON_PLAYER_SPELL_CAST,       # Player casts a spell (ctx.card)
 	ON_PLAYER_TRAP_PLACED,      # Player places a trap (ctx.card)
-	ON_PLAYER_ATTACK,           # Player minion attacks (ctx.minion = attacker; fires BEFORE attack)
+	ON_PLAYER_ATTACK_PRE,       # Player minion attacks — fires BEFORE damage resolves (ctx.minion=attacker, ctx.defender=MinionInstance or "X_hero" string)
+	ON_PLAYER_ATTACK_POST,      # Player minion attacks — fires AFTER damage resolves on the defender, before counter-attack. Same ctx shape. AB-residual handlers (path_of_shattering, banner_of_the_order rider) live here.
 	ON_PLAYER_ENVIRONMENT_PLACED, # Player places an environment card (ctx.card)
 
 	# ---- Minion death ----
@@ -103,6 +104,10 @@ enum TriggerEvent {
 	ON_CORRUPTION_REMOVED,      # Corruption stacks removed from a minion by any means — death, Purge, Cleanse, enemy effect.
 	                            # ctx.minion = the minion, ctx.owner = minion owner, ctx.damage = stacks removed.
 
+	# ---- Formation ----
+	ON_FORMATION_TRIGGERED,     # Korrath — a friendly minion's FORMATION fired (ctx.minion = actor whose Formation ran,
+	                            # ctx.target = partner that satisfied the pairing, ctx.owner = actor's side).
+
 	# ---- Combat lifecycle ----
 	ON_COMBAT_START,            # Combat has begun
 	ON_COMBAT_END,              # Combat ended (victory or defeat)
@@ -126,8 +131,12 @@ static func mirror_trigger(trigger: TriggerEvent) -> TriggerEvent:
 		TriggerEvent.ON_ENEMY_MINION_SACRIFICED:  return TriggerEvent.ON_PLAYER_MINION_SACRIFICED
 		TriggerEvent.ON_PLAYER_SPELL_CAST:       return TriggerEvent.ON_ENEMY_SPELL_CAST
 		TriggerEvent.ON_ENEMY_SPELL_CAST:        return TriggerEvent.ON_PLAYER_SPELL_CAST
-		TriggerEvent.ON_PLAYER_ATTACK:           return TriggerEvent.ON_ENEMY_ATTACK
-		TriggerEvent.ON_ENEMY_ATTACK:            return TriggerEvent.ON_PLAYER_ATTACK
+		# Enemy side stays single-phase (pre-damage only) — traps and champion AI all
+		# fire before damage. Both player phases mirror to the same enemy event; the
+		# enemy-side mirror picks PRE as the closest 1:1.
+		TriggerEvent.ON_PLAYER_ATTACK_PRE:        return TriggerEvent.ON_ENEMY_ATTACK
+		TriggerEvent.ON_PLAYER_ATTACK_POST:       return TriggerEvent.ON_ENEMY_ATTACK
+		TriggerEvent.ON_ENEMY_ATTACK:             return TriggerEvent.ON_PLAYER_ATTACK_PRE
 		TriggerEvent.ON_HERO_DAMAGED:            return TriggerEvent.ON_ENEMY_HERO_DAMAGED
 		TriggerEvent.ON_ENEMY_HERO_DAMAGED:      return TriggerEvent.ON_HERO_DAMAGED
 		TriggerEvent.ON_PLAYER_SPARK_CONSUMED:   return TriggerEvent.ON_ENEMY_SPARK_CONSUMED
@@ -171,20 +180,26 @@ enum DamageSource {
 enum DamageSchool {
 	NONE,
 	PHYSICAL,
+	ARCANE,           # Generic neutral magic — arcane_strike etc. No parent.
 	VOID,
-	VOID_BOLT,  # Sub-school of VOID — see SCHOOL_LINEAGE
-	TRUE_DMG,   # Bypasses school resistances. Named TRUE_DMG because TRUE is a GDScript reserved word.
+	VOID_BOLT,        # Sub-school of VOID — bolt-themed direct burst (void_bolt, void_detonation). Triggers bolt passives.
+	VOID_FLESH,       # Sub-school of VOID — flesh/visceral damage (flesh_rend, flesh_eruption, resonant_outburst). Gates Seris's Void Amplification.
+	VOID_CORRUPTION,  # Sub-school of VOID — corruption-themed damage (abyssal_plague, future Korrath corruption spells). Gates Korrath's Path of Corruption.
+	TRUE_DMG,         # Bypasses school resistances. Named TRUE_DMG because TRUE is a GDScript reserved word.
 }
 
 ## Maps each school to the array of schools it satisfies (itself plus parents).
 ## Predicate `has_school()` walks this — never compare schools with `==` outside this file.
 ## Adding a sub-school: include itself first, then parent chain.
 const SCHOOL_LINEAGE := {
-	DamageSchool.NONE:      [],
-	DamageSchool.PHYSICAL:  [DamageSchool.PHYSICAL],
-	DamageSchool.VOID:      [DamageSchool.VOID],
-	DamageSchool.VOID_BOLT: [DamageSchool.VOID_BOLT, DamageSchool.VOID],
-	DamageSchool.TRUE_DMG:  [DamageSchool.TRUE_DMG],
+	DamageSchool.NONE:            [],
+	DamageSchool.PHYSICAL:        [DamageSchool.PHYSICAL],
+	DamageSchool.ARCANE:          [DamageSchool.ARCANE],
+	DamageSchool.VOID:            [DamageSchool.VOID],
+	DamageSchool.VOID_BOLT:       [DamageSchool.VOID_BOLT, DamageSchool.VOID],
+	DamageSchool.VOID_FLESH:      [DamageSchool.VOID_FLESH, DamageSchool.VOID],
+	DamageSchool.VOID_CORRUPTION: [DamageSchool.VOID_CORRUPTION, DamageSchool.VOID],
+	DamageSchool.TRUE_DMG:        [DamageSchool.TRUE_DMG],
 }
 
 ## Returns true if `school` satisfies `target` (i.e. target is school itself or one of its parents).

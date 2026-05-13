@@ -1,11 +1,11 @@
 ---
 id: "013"
 title: Remove dead hero_reward_pool field from HeroData
-status: active
+status: done
 area: meta
 priority: normal
 started: 2026-05-09
-finished:
+finished: 2026-05-12
 ---
 
 ## Description
@@ -22,7 +22,8 @@ Out of scope: any change to actual pool contents or to talent-gated unlock logic
 ## Work log
 
 - 2026-05-09: opened.
+- 2026-05-12: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Took option 1 (delete the field). Removed `hero_reward_pool` declaration + docstring from `HeroData.gd`, dropped the three assignments in `HeroDatabase.gd` (Vael's 6-card mirror of `vael_common`, Seris's empty list, Korrath's empty list), and pruned the stale field doc line from `design/master_doc/DESIGN_DOCUMENT.md`. `RewardScene._get_active_support_pool_ids()` remains the single source of truth via hardcoded pool-name lookups. Full test suite passes (678/681; the 3 remaining failures are pre-existing `KNOWN BUG` entries unrelated to this change).

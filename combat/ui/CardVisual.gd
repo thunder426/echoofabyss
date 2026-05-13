@@ -424,7 +424,15 @@ func setup(data: CardData) -> void:
 	if is_minion:
 		var md := data as MinionCardData
 		if race_label:
-			var type_str := _minion_type_string(md.minion_type)
+			var type_parts: Array[String] = []
+			var primary_str := _minion_type_string(md.minion_type)
+			if primary_str != "":
+				type_parts.append(primary_str)
+			for extra_type in md.extra_minion_types:
+				var extra_str := _minion_type_string(extra_type)
+				if extra_str != "" and not (extra_str in type_parts):
+					type_parts.append(extra_str)
+			var type_str := " / ".join(type_parts)
 			race_label.text    = type_str
 			race_label.visible = type_str != ""
 			var _rfaction: String = data.faction if data != null else "default"
@@ -918,8 +926,21 @@ const _TRIGGER_TERMS: Array[String] = [
 	"FERAL IMPS", "FERAL IMP", # clan name — plural before singular to avoid partial match
 ]
 
+## Damage-school terms in the description ("VOID FLESH", "VOID CORRUPTION",
+## etc.) get bolded + faction-color-highlighted alongside other trigger
+## terms — same treatment as keywords like ON PLAY, CORRUPTION, RUNE.
+## Listed longest-first so "VOID" doesn't match inside "VOID BOLT" etc.
+const _SCHOOL_TERMS: Array[String] = [
+	"VOID CORRUPTION", "VOID FLESH", "VOID BOLT", "VOID", "PHYSICAL",
+]
+
 func _highlight_triggers(text: String) -> String:
 	var result := text
+	# Schools first (longest-first ordering) so "VOID" doesn't pre-match inside
+	# "VOID BOLT" etc. Same color treatment as other keywords — the popup is
+	# where the school-specific palette lives.
+	for term in _SCHOOL_TERMS:
+		result = result.replace(term, "[color=#" + _kw_color_hex + "][b]" + term + "[/b][/color]")
 	for term in _TRIGGER_TERMS:
 		result = result.replace(term, "[color=#" + _kw_color_hex + "][b]" + term + "[/b][/color]")
 	return result

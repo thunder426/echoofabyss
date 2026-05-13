@@ -792,7 +792,7 @@ static func _korrath_abyssal_vanguard_match_to_completion() -> void:
 	var deck := _deck("korrath_abyssal_vanguard")
 	if deck.is_empty():
 		return
-	var talents: Array[String] = ["corrupting_presence", "abyssal_strike", "path_of_ruination", "armour_explosion"]
+	var talents: Array[String] = ["corrupting_presence", "corrupting_strike", "path_of_corruption", "shattering_doom"]
 	var passives: Array[String] = ["abyssal_commander", "iron_legion"]
 	var result: Dictionary = await sim.run(
 		deck, "feral_pack", [] as Array[String],

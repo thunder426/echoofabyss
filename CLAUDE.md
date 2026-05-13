@@ -39,8 +39,11 @@ Both run headless via `godot --headless --path . <scene>`.
 3. If the card has art, use the `/add-art` skill to wire up `art_path` (and `battlefield_art_path` for minions).
 4. Use declarative `effect_steps` (EffectStep objects) — avoid adding to HardcodedEffects.gd.
 5. Follow card description style rules in `design/master_doc/CARD_DESCRIPTION_STYLE.md`.
-6. For damage-dealing steps (DAMAGE_HERO / DAMAGE_MINION), set `damage_school` only when the card has deliberate flavor (e.g. `"damage_school": "VOID"`). Default `NONE` is correct for generic spells and minion-emitted effects. See `design/DAMAGE_TYPE_SYSTEM.md`.
+6. For damage-dealing steps (DAMAGE_HERO / DAMAGE_MINION / DAMAGE_ANY):
+   - **Spells** — `damage_school` is **required** (lint-enforced at load by `CardDatabase._validate_spell_damage_schools`). Use `VOID` (and sub-schools) for Abyss flavor, `ARCANE` for generic neutral magic, `PHYSICAL` for mundane-hit neutrals.
+   - **Minion-emitted effects, traps, environments** — default `NONE` is fine; opt in (e.g. `"damage_school": "VOID"`) only when the design wants school-keyed interactions.
+   - See `design/DAMAGE_TYPE_SYSTEM.md`.
 
 ## Adding New Trigger Handlers
 
-Register via `TriggerManager.register_handler(TriggerEvent.X, callable, priority)` inside `CombatSetup.gd` (for real combat) and `sim/SimTriggerSetup.gd` (for simulation). Both must stay in sync.
+Register via `TriggerManager.register_handler(TriggerEvent.X, callable, priority)` inside `CombatSetup.gd` only — `SimTriggerSetup.gd` delegates talent/hero/enemy-passive registration to `CombatSetup.setup()`, and `SimState extends CombatState` so handlers using `_scene.player_board`, `_refresh_slot_for`, etc. work identically in sim. No duplicate registration needed.

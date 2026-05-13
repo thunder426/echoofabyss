@@ -20,6 +20,7 @@ static func run_all() -> void:
 	_test_lineage_unrelated()
 	_test_lineage_none_empty()
 	_test_lineage_true_isolated()
+	_test_lineage_void_subschools_are_siblings()
 
 	print("\n=== DamageType: Phase 2 (DamageInfo + CombatManager) ===")
 	_test_make_damage_info_fields()
@@ -50,7 +51,7 @@ static func run_all() -> void:
 	print("\n=== DamageType: Phase 7 (card audit) ===")
 	_test_void_imp_on_play_emits_none_school()
 	_test_void_bolt_spell_emits_void_bolt_school()
-	_test_arcane_strike_remains_none_school()
+	_test_arcane_strike_is_arcane_school()
 	_test_void_spell_emits_void_school()
 	_test_player_hero_damage_fires_trigger_with_info()
 	_test_enemy_hero_damage_fires_trigger_with_info()
@@ -62,11 +63,19 @@ static func run_all() -> void:
 	_test_armour_reduces_physical_damage()
 	_test_armour_min_100_floor()
 	_test_armour_floor_only_when_armour_present()
-	_test_armour_bypassed_by_spells()
+	_test_armour_bypassed_by_void_spell()
 	_test_armour_break_strips_armour()
 	_test_armour_break_overflow_becomes_bonus_damage()
 	_test_armour_break_against_unarmoured_target()
 	_test_pierce_carry_uses_post_armour_damage()
+
+	print("\n=== DamageType: Phase 9 (Task 019 — armour gated by school) ===")
+	_test_armour_reduces_physical_spell()
+	_test_armour_reduces_arcane_spell()
+	_test_armour_bypassed_by_void_corruption_spell()
+	_test_armour_break_amplifies_physical_spell()
+	_test_hero_armour_reduces_physical_spell()
+	_test_hero_armour_bypassed_by_void_spell()
 
 # ---------------------------------------------------------------------------
 # Phase 1 — pure data assertions on Enums.has_school() / SCHOOL_LINEAGE
@@ -117,6 +126,34 @@ static func _test_lineage_true_isolated() -> void:
 			"TRUE_DMG does not satisfy PHYSICAL (bypasses, not a kind of)")
 	TestHarness.assert_false(Enums.has_school(Enums.DamageSchool.PHYSICAL, Enums.DamageSchool.TRUE_DMG),
 			"PHYSICAL does not satisfy TRUE_DMG")
+
+static func _test_lineage_void_subschools_are_siblings() -> void:
+	if not TestHarness.begin_test("lineage / VOID_BOLT, VOID_FLESH, VOID_CORRUPTION are siblings under VOID"):
+		return
+	# Self
+	TestHarness.assert_true(Enums.has_school(Enums.DamageSchool.VOID_FLESH, Enums.DamageSchool.VOID_FLESH),
+			"VOID_FLESH satisfies VOID_FLESH")
+	TestHarness.assert_true(Enums.has_school(Enums.DamageSchool.VOID_CORRUPTION, Enums.DamageSchool.VOID_CORRUPTION),
+			"VOID_CORRUPTION satisfies VOID_CORRUPTION")
+	# Parent satisfaction — a "+X to VOID damage" buff should hit any sibling
+	TestHarness.assert_true(Enums.has_school(Enums.DamageSchool.VOID_FLESH, Enums.DamageSchool.VOID),
+			"VOID_FLESH satisfies VOID (+VOID damage buffs reach flesh)")
+	TestHarness.assert_true(Enums.has_school(Enums.DamageSchool.VOID_CORRUPTION, Enums.DamageSchool.VOID),
+			"VOID_CORRUPTION satisfies VOID (+VOID damage buffs reach corruption)")
+	# Sibling non-satisfaction — Flesh amps don't reach Corruption / Bolt, etc.
+	TestHarness.assert_false(Enums.has_school(Enums.DamageSchool.VOID_BOLT, Enums.DamageSchool.VOID_FLESH),
+			"VOID_BOLT does not satisfy VOID_FLESH (siblings under VOID, distinct amps)")
+	TestHarness.assert_false(Enums.has_school(Enums.DamageSchool.VOID_BOLT, Enums.DamageSchool.VOID_CORRUPTION),
+			"VOID_BOLT does not satisfy VOID_CORRUPTION (siblings under VOID, distinct amps)")
+	TestHarness.assert_false(Enums.has_school(Enums.DamageSchool.VOID_FLESH, Enums.DamageSchool.VOID_CORRUPTION),
+			"VOID_FLESH does not satisfy VOID_CORRUPTION (siblings: Seris's flesh amp does not reach Korrath's corruption spells)")
+	TestHarness.assert_false(Enums.has_school(Enums.DamageSchool.VOID_CORRUPTION, Enums.DamageSchool.VOID_FLESH),
+			"VOID_CORRUPTION does not satisfy VOID_FLESH (symmetric: Korrath's corruption amp does not reach Seris's flesh spells)")
+	# Parent does not satisfy child
+	TestHarness.assert_false(Enums.has_school(Enums.DamageSchool.VOID, Enums.DamageSchool.VOID_FLESH),
+			"VOID (generic) does not satisfy VOID_FLESH — only tagged flesh damage benefits from flesh-specific amps")
+	TestHarness.assert_false(Enums.has_school(Enums.DamageSchool.VOID, Enums.DamageSchool.VOID_CORRUPTION),
+			"VOID (generic) does not satisfy VOID_CORRUPTION — only tagged corruption damage benefits from corruption-specific amps")
 
 # ---------------------------------------------------------------------------
 # Phase 2 — DamageInfo construction + CombatManager entry points + signals
@@ -457,21 +494,19 @@ static func _test_void_bolt_spell_emits_void_bolt_school() -> void:
 		TestHarness.assert_true(Enums.has_school(cap.events[0].get("school"), Enums.DamageSchool.VOID),
 				"VOID_BOLT also satisfies VOID via lineage")
 
-static func _test_arcane_strike_remains_none_school() -> void:
-	# Generic neutral spell — kept untagged on purpose. Verifies we didn't over-tag.
-	# If a future audit decides arcane_strike should have a school, this test reminds you to update.
-	if not TestHarness.begin_test("card_audit / arcane_strike stays NONE (intentional)"):
+static func _test_arcane_strike_is_arcane_school() -> void:
+	# Task 018: every SpellCardData with a DAMAGE_* step must declare a non-NONE school.
+	# arcane_strike is the canonical neutral ARCANE spell — locks in the rule.
+	if not TestHarness.begin_test("card_audit / arcane_strike is ARCANE"):
 		return
-	var state := TestHarness.build_state()
 	var spell := CardDatabase.get_card("arcane_strike") as SpellCardData
 	if spell == null:
-		# Card may have been renamed/removed — skip silently rather than fail.
 		return
 	for raw in spell.effect_steps:
 		var step: EffectStep = raw if raw is EffectStep else EffectStep.from_dict(raw)
 		if step.effect_type in [EffectStep.EffectType.DAMAGE_HERO, EffectStep.EffectType.DAMAGE_MINION]:
-			TestHarness.assert_eq(step.damage_school, Enums.DamageSchool.NONE,
-					"arcane_strike damage step is NONE — generic spell, no school flavor")
+			TestHarness.assert_eq(step.damage_school, Enums.DamageSchool.ARCANE,
+					"arcane_strike damage step is ARCANE")
 
 ## Captures EventContexts for trigger event probes.
 class CtxCapture extends RefCounted:
@@ -650,9 +685,10 @@ static func _test_armour_floor_only_when_armour_present() -> void:
 	TestHarness.assert_eq(defender.current_health, 450, "raw 50 unchanged, no floor")
 	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 50, "post-armour == raw")
 
-static func _test_armour_bypassed_by_spells() -> void:
-	# A 300-damage SPELL vs 800 Armour → defender takes 300 (armour ignored).
-	if not TestHarness.begin_test("armour / spells bypass armour entirely"):
+static func _test_armour_bypassed_by_void_spell() -> void:
+	# A 300-damage VOID spell vs 800 Armour → defender takes 300 (VOID bypasses armour).
+	# Under task-019's school gate: VOID lineage + TRUE_DMG bypass; PHYSICAL/ARCANE do not.
+	if not TestHarness.begin_test("armour / VOID spell bypasses armour entirely"):
 		return
 	var state := TestHarness.build_state()
 	var defender := TestHarness.spawn_enemy(state, "void_imp")
@@ -660,7 +696,7 @@ static func _test_armour_bypassed_by_spells() -> void:
 	defender.armour = 800
 	var info := CombatManager.make_damage_info(300, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID)
 	state.combat_manager._deal_damage(defender, info)
-	TestHarness.assert_eq(defender.current_health, 700, "1000 - 300 = 700 (armour ignored)")
+	TestHarness.assert_eq(defender.current_health, 700, "1000 - 300 = 700 (VOID bypasses armour)")
 
 static func _test_armour_break_strips_armour() -> void:
 	# 100 AB vs 300 Armour: effective_armour = 200, bonus = 0. 500 ATK → 300 damage.
@@ -722,4 +758,95 @@ static func _test_pierce_carry_uses_post_armour_damage() -> void:
 	if cap.events.size() >= 1:
 		TestHarness.assert_eq(cap.events[0].get("amount"), 200,
 				"pierce excess = post-armour 300 - 100 HP = 200, not raw 600 - 100 = 500")
+
+# ---------------------------------------------------------------------------
+# Phase 9 — Task 019: armour math gated by damage school, not source. PHYSICAL/
+# ARCANE spells respect armour; VOID lineage and TRUE_DMG bypass. Armour Break
+# now amplifies non-bypassing spell damage too (real power increase for
+# Korrath B3 spell builds — flagged in the balance pass, not special-cased).
+# ---------------------------------------------------------------------------
+
+static func _test_armour_reduces_physical_spell() -> void:
+	# 400 PHYSICAL spell (e.g. shatterstrike) vs 200 armour → 200 lands.
+	if not TestHarness.begin_test("armour / PHYSICAL spell reduced by armour (school-gated)"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	defender.armour = 200
+	var info := CombatManager.make_damage_info(400, Enums.DamageSource.SPELL, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 200,
+			"PHYSICAL spell 400 - 200 armour = 200 (was 400 under old source-only gate)")
+
+static func _test_armour_reduces_arcane_spell() -> void:
+	# 400 ARCANE spell vs 200 armour → 200 lands. ARCANE has no bypass — neutral magic.
+	if not TestHarness.begin_test("armour / ARCANE spell reduced by armour (school-gated)"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	defender.armour = 200
+	var info := CombatManager.make_damage_info(400, Enums.DamageSource.SPELL, Enums.DamageSchool.ARCANE)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 200,
+			"ARCANE spell 400 - 200 armour = 200")
+
+static func _test_armour_bypassed_by_void_corruption_spell() -> void:
+	# 300 VOID_CORRUPTION (sub-school of VOID) vs 800 armour → full 300 lands.
+	if not TestHarness.begin_test("armour / VOID_CORRUPTION spell bypasses armour (sub-school of VOID)"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	defender.armour = 800
+	var info := CombatManager.make_damage_info(300, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID_CORRUPTION)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(defender.current_health, 700,
+			"VOID_CORRUPTION inherits VOID's armour bypass via SCHOOL_LINEAGE")
+
+static func _test_armour_break_amplifies_physical_spell() -> void:
+	# Spell-cast AB amplification — PHYSICAL spell vs 0-armour target with stacked AB.
+	# 300 PHYSICAL + 200 AB (full bonus on 0 armour) = 500. Previously, AB was inert
+	# for spell hits because the source-only gate skipped the armour-math path.
+	if not TestHarness.begin_test("armour_break / amplifies PHYSICAL spell damage above raw"):
+		return
+	var state := TestHarness.build_state()
+	var defender := TestHarness.spawn_enemy(state, "void_imp")
+	defender.current_health = 1000
+	BuffSystem.apply(defender, Enums.BuffType.ARMOUR_BREAK, 200, "test")
+	var info := CombatManager.make_damage_info(300, Enums.DamageSource.SPELL, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager._deal_damage(defender, info)
+	TestHarness.assert_eq(state.combat_manager.last_post_armour_damage, 500,
+			"300 + 200 AB (full bonus, no armour) = 500 — AB now amplifies non-bypassing spells")
+
+static func _test_hero_armour_reduces_physical_spell() -> void:
+	# Hero variant: PHYSICAL spell vs hero with 200 armour → 200 lands.
+	if not TestHarness.begin_test("hero armour / PHYSICAL spell reduced by hero armour"):
+		return
+	var state := TestHarness.build_state()
+	var cap := HeroDmgCapture.new()
+	state.combat_manager.hero_damaged.connect(cap.on_emit)
+	state.enemy_hero.armour = 200
+	var info := CombatManager.make_damage_info(400, Enums.DamageSource.SPELL, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(cap.events.size(), 1, "one emission")
+	if cap.events.size() == 1:
+		TestHarness.assert_eq(cap.events[0].get("amount"), 200,
+				"PHYSICAL spell 400 - hero armour 200 = 200 lands on hero")
+
+static func _test_hero_armour_bypassed_by_void_spell() -> void:
+	# Hero variant: VOID spell vs 200 hero armour → full 400 lands.
+	if not TestHarness.begin_test("hero armour / VOID spell bypasses hero armour"):
+		return
+	var state := TestHarness.build_state()
+	var cap := HeroDmgCapture.new()
+	state.combat_manager.hero_damaged.connect(cap.on_emit)
+	state.enemy_hero.armour = 200
+	var info := CombatManager.make_damage_info(400, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(cap.events.size(), 1, "one emission")
+	if cap.events.size() == 1:
+		TestHarness.assert_eq(cap.events[0].get("amount"), 400,
+				"VOID spell bypasses hero armour entirely")
 

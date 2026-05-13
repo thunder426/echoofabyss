@@ -77,8 +77,10 @@ signal environment_changed(env: EnvironmentCardData)
 ## Emitted by `_spell_dmg` after damage is applied to a minion target. Live
 ## combat subscribes to spawn the damage popup + slot flash; sim has no
 ## subscriber. `damage` is the pre-bonus amount the call site passed (not
-## including _player_spell_damage_bonus added inside _spell_dmg).
-signal spell_damage_dealt(target: MinionInstance, damage: int)
+## including _player_spell_damage_bonus added inside _spell_dmg). `school`
+## carries the damage_school from the originating EffectStep (NONE if the
+## caller passed no info dict) — popup color reads from this.
+signal spell_damage_dealt(target: MinionInstance, damage: int, school: int)
 
 ## Emitted after a minion has been removed from its side's board (post-erase).
 ## `slot_index` is the slot it occupied (or -1 if not found). External
@@ -244,7 +246,7 @@ func add_hero_armour(side: String, amount: int) -> void:
 ## Korrath — apply a buff/debuff entry to a hero. Wraps BuffSystem.apply (which
 ## duck-types on `buffs`) and emits hero_buff_changed so the panel-badge UI can
 ## refresh. Today this is the entry point for ARMOUR_BREAK on heroes
-## (commanders_reach, path_of_destruction); future hero-side buffs flow through
+## (commanders_reach, path_of_shattering); future hero-side buffs flow through
 ## here too. `is_temp` and `emit_vfx` mirror BuffSystem.apply.
 func apply_hero_buff(side: String, type: int, amount: int,
 		source: String = "", is_temp: bool = false, emit_vfx: bool = false) -> void:
@@ -256,6 +258,15 @@ func apply_hero_buff(side: String, type: int, amount: int,
 ## then run any bespoke aura_on_remove_steps. Symmetric across scene/sim.
 ## `owner` defaults to "player" (scene caller).
 func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
+	# Korrath B2 T1 (runic_absorption): every player-side rune destroy/consume —
+	# overflow, ritual fire, Grand Ritual: Chaos, Runic Substitution, Cyclone-style
+	# spells, etc. — grants an aura stack of this rune's id to a random friendly
+	# Abyssal Knight. Stack is silently lost if no Knight is on board. Routed
+	# through this single chokepoint so all current and future destroy paths
+	# inherit the behavior without each site re-implementing the grant.
+	if owner == "player" and rune != null and rune.is_rune \
+			and "runic_absorption" in talents:
+		_korrath_grant_absorbed_aura(rune.id)
 	# Match on (rune_id, owner) — both sides can have the same rune_id active
 	# at once (e.g. player + enemy both placed dominion_rune). Without the
 	# owner check this used to remove the wrong side's handler entry, leaking
@@ -453,7 +464,8 @@ func cast_player_hero_spell(spell: SpellCardData) -> void:
 						base_dmg += s.bonus_amount
 				if school == Enums.DamageSchool.NONE:
 					school = s.damage_school
-	var total: int = base_dmg + _player_spell_damage_bonus
+	var bonus: int = _player_spell_damage_bonus if Enums.has_school(school, Enums.DamageSchool.VOID_FLESH) else 0
+	var total: int = base_dmg + bonus
 	_log("  %s: %d Void damage to enemy hero." % [spell.card_name, total], 1)  # PLAYER
 	combat_manager.apply_hero_damage("enemy",
 			CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, school, null, spell.id))
@@ -527,10 +539,18 @@ func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, toke
 ## + damage popup; sim has no subscriber and so just applies the damage.
 ##
 ## Both callers pass the PRE-bonus damage; the bonus is added once here.
+## The bonus only applies when the damage school satisfies VOID_FLESH —
+## Void Amplification is a flesh-flavored amp (Seris cards are blood/flesh
+## themed), so neutral/PHYSICAL/VOID/VOID_BOLT/VOID_CORRUPTION spells are
+## unaffected even when the player has the talent active.
 func _spell_dmg(target: MinionInstance, amount: int, info: Dictionary = {}) -> void:
 	if target == null:
 		return
-	var total: int = amount + _player_spell_damage_bonus
+	var school: int = Enums.DamageSchool.NONE
+	if not info.is_empty() and info.has("school"):
+		school = info["school"]
+	var bonus: int = _player_spell_damage_bonus if Enums.has_school(school, Enums.DamageSchool.VOID_FLESH) else 0
+	var total: int = amount + bonus
 	if info.is_empty():
 		info = CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE)
 	else:
@@ -541,7 +561,7 @@ func _spell_dmg(target: MinionInstance, amount: int, info: Dictionary = {}) -> v
 	# (and any kill chain that clears the slot) cause _find_slot_for(target)
 	# to return null and the popup is silently dropped — matches the OLD
 	# CombatScene._spell_dmg pattern of capturing the slot before damage.
-	spell_damage_dealt.emit(target, amount)
+	spell_damage_dealt.emit(target, amount, school)
 	combat_manager.apply_damage_to_minion(target, info)
 
 ## Seris — tick the Forge Counter by `amount`. Logs the new value and returns
@@ -846,15 +866,14 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
 	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
 	var total: int = base_damage + bonus
-	# Korrath B3 T2 Path of Ruination — when active and this Void Bolt is a SPELL
-	# (cast from hand or fired by a player rune), amplify by 100 per Corruption
-	# stack on the enemy hero, then apply 1 stack post-damage. Minion-emitted
-	# Void Bolts (void_manifestation talent retag of basic attack) are MINION
-	# source and don't qualify as spells per the talent text.
-	var ruination_active: bool = (not is_minion_emitted) and _path_of_ruination_active
-	if ruination_active:
-		var stacks: int = BuffSystem.count_type(enemy_hero, Enums.BuffType.CORRUPTION)
-		total += stacks * 100
+	# Korrath B3 T2 Path of Corruption — gated by school: Path of Corruption
+	# only amplifies VOID_CORRUPTION-tagged damage. Void Bolt damage is
+	# VOID_BOLT (sibling of VOID_CORRUPTION under VOID parent), so it does
+	# NOT satisfy has_school(VOID_BOLT, VOID_CORRUPTION) → no amp. This branch
+	# is kept for the post-damage corruption application below (the talent's
+	# second half still fires on spell-cast Void Bolts). Minion-emitted Void
+	# Bolts (void_manifestation talent retag) don't qualify as spells.
+	var ruination_active: bool = (not is_minion_emitted) and _path_of_corruption_active
 	if bonus > 0:
 		_log("  Void Bolt: %d dmg (base %d + %d from %d marks)" % [total, base_damage, bonus, enemy_void_marks], 1)  # PLAYER
 	else:
@@ -1002,10 +1021,10 @@ func _corrupt_minion(target: MinionInstance) -> void:
 	_refresh_slot_for(target)
 
 ## Apply one Corruption stack to a hero. Mirror of _corrupt_minion for the hero
-## debuff path (abyssal_strike against enemy hero, path_of_ruination spells
+## debuff path (corrupting_strike against enemy hero, path_of_corruption spells
 ## targeting hero). Same corrupting_presence one-shot AB rule applies on the
 ## enemy hero. No ATK penalty (heroes have no ATK stat); corruption is read by
-## path_of_ruination's spell-amp and its own future hooks.
+## path_of_corruption's spell-amp and its own future hooks.
 func _corrupt_hero(side: String) -> void:
 	apply_hero_buff(side, Enums.BuffType.CORRUPTION, 100, "corruption")
 	if _corrupting_presence_active and side == "enemy":
@@ -1422,13 +1441,13 @@ var _armour_doubled_on_knight: bool = false
 ## on the post-corruption value). No overflow conversion for corruption.
 var _corrupting_presence_active: bool = false
 
-## Korrath B3 T2 Path of Ruination — when true, EffectResolver's DAMAGE_MINION step
+## Korrath B3 T2 Path of Corruption — when true, EffectResolver's DAMAGE_MINION step
 ## (a) applies +100 spell damage per Corruption stack on the target before damage
 ## resolves and (b) applies 1 Corruption to the target after the hit. Both halves
 ## live inside the resolver so AOE spells naturally hit each target once.
-var _path_of_ruination_active: bool = false
+var _path_of_corruption_active: bool = false
 
-## Korrath B2 — five rune card IDs randomly placed by Runic Transcendence's
+## Korrath B2 — five rune card IDs randomly placed by Runeforge Strike's
 ## on-attack rune generation. Order is irrelevant; randomness comes from `randi()`.
 const KORRATH_RUNE_IDS: Array[String] = [
 	"void_rune", "blood_rune", "dominion_rune", "shadow_rune", "soul_rune",
@@ -1440,15 +1459,21 @@ const KORRATH_RUNE_IDS: Array[String] = [
 const KORRATH_RUNE_BOARD_CAP: int = 3
 
 ## Korrath B2 T0 — place a random rune on the player's board. If the rune board
-## is full and B2 T1 `runic_absorption` is unlocked, absorb a random existing rune's
-## aura into a random friendly Abyssal Knight first (freeing a slot). If full and T1
-## is NOT unlocked, the new rune is silently dropped. Symmetric across scene/sim.
+## is full and B2 T1 `runic_absorption` is unlocked, destroy a random existing rune
+## to free a slot — the destruction routes through _remove_rune_aura and grants
+## the absorbed aura automatically via the centralized T1 hook. If full and T1 is
+## NOT unlocked, the new rune is silently dropped (board unchanged). Symmetric
+## across scene/sim.
 func _korrath_place_random_rune() -> void:
 	if active_traps.size() >= KORRATH_RUNE_BOARD_CAP:
-		if "runic_absorption" in talents:
-			_korrath_absorb_random_rune()
-		else:
-			return  # board full, no absorption — drop the new rune
+		if not ("runic_absorption" in talents):
+			return  # board full, no T1 — drop the new rune
+		var runes: Array = active_traps.filter(func(t): return (t as TrapCardData).is_rune)
+		if runes.is_empty():
+			return
+		var victim: TrapCardData = runes[randi() % runes.size()]
+		_remove_rune_aura(victim, "player")
+		active_traps.erase(victim)
 	var rune_id: String = KORRATH_RUNE_IDS[randi() % KORRATH_RUNE_IDS.size()]
 	var rune: TrapCardData = CardDatabase.get_card(rune_id) as TrapCardData
 	if rune == null:
@@ -1460,27 +1485,18 @@ func _korrath_place_random_rune() -> void:
 		ctx.card = rune
 		trigger_manager.fire(ctx)
 
-## Korrath B2 T1 — pick a random rune from the player's board, remove it, and
-## record its rune_type as a permanent aura tag on a random friendly Abyssal
-## Knight. Same accumulator pattern as Seris's aura_tags. The destroyed rune's
-## board aura is fully cleaned up via the standard `_remove_rune_aura` path; the
-## absorbed tag lives on the knight for X-counting in path_of_demons / path_of_humans.
-func _korrath_absorb_random_rune() -> void:
-	if active_traps.is_empty():
-		return
-	var runes: Array = active_traps.filter(func(t): return (t as TrapCardData).is_rune)
-	if runes.is_empty():
-		return
-	var victim: TrapCardData = runes[randi() % runes.size()]
+## Korrath B2 T1 — grant one absorbed-aura stack of `rune_id` to a random friendly
+## Abyssal Knight. Stack is silently lost if no Knight is on board. Called from
+## _remove_rune_aura on every player-side rune destruction/consumption when T1
+## is unlocked. The aura tag (e.g. "void_rune") lives on the knight for X-counting
+## in path_of_demons / path_of_humans.
+func _korrath_grant_absorbed_aura(rune_id: String) -> void:
 	var knights: Array = player_board.filter(
 		func(m): return m != null and m.card_data != null and m.card_data.id == "abyssal_knight")
-	if not knights.is_empty():
-		var knight: MinionInstance = knights[randi() % knights.size()]
-		# Aura tag stored as the rune card id (e.g. "void_rune"). Stacks naturally —
-		# multiple absorptions of the same type all go in.
-		knight.aura_tags.append(victim.id)
-	_remove_rune_aura(victim, "player")
-	active_traps.erase(victim)
+	if knights.is_empty():
+		return
+	var knight: MinionInstance = knights[randi() % knights.size()]
+	knight.aura_tags.append(rune_id)
 
 ## Total absorbed-rune-aura stacks across all friendly Abyssal Knights on board.
 ## Used by path_of_demons / path_of_humans X-counting (X = active_rune_slots + this).

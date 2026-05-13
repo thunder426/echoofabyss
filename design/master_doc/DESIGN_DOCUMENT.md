@@ -488,7 +488,6 @@ Void Imp Clan minions deal Void Bolt damage when attacking the enemy hero:
 - `passives` — Array of HeroPassive (always-active in all combats)
 - `starter_deck` — Card IDs for initial deck
 - `talent_branch_ids` — Available talent trees
-- `hero_reward_pool` — Cards offered as boss drop rewards
 - `flavor` — Thematic quote
 
 ### Lord Vael, Void Caller (Current Only Hero)

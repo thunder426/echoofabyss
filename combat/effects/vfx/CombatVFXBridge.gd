@@ -881,18 +881,24 @@ func flash_hero(target: String, amount: int, on_done: Callable = Callable(),
 		if on_done.is_valid():
 			on_done.call()
 		return
-	var flash_color: Color
-	if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT):
-		flash_color = Color(1.2, 0.40, 1.8, 1.0)  # Purple flash for void bolt
-	else:
-		flash_color = Color(1.8, 0.30, 0.30, 1.0)  # Red flash for normal damage
+	# Panel flash uses the school's outline (sibling-identifier) color rather
+	# than the purple parent — sibling colors (white/red/green) read much more
+	# clearly against the dark portrait background than purple-on-purple.
+	# Boost magnitude > 1.0 to over-saturate the modulate-tint flash.
+	var sibling: Color = _dmg_colors(school)[1]
+	var flash_color := Color(
+			minf(sibling.r * 2.0, 2.0),
+			minf(sibling.g * 2.0, 2.0),
+			minf(sibling.b * 2.0, 2.0),
+			1.0)
 	var tw := create_tween()
 	tw.tween_property(panel, "modulate", flash_color, 0.06)
 	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
 	if on_done.is_valid():
 		tw.tween_callback(on_done)
 	var txt := "-%d!" % amount if is_crit else "-%d" % amount
-	_spawn_popup(panel.get_global_rect().get_center(), txt, _dmg_color(school), is_crit)
+	var colors: Array = _dmg_colors(school)
+	_spawn_popup(panel.get_global_rect().get_center(), txt, colors[0], is_crit, colors[1])
 
 func flash_hero_heal(target: String, amount: int) -> void:
 	if _scene == null:
@@ -905,20 +911,47 @@ func flash_hero_heal(target: String, amount: int) -> void:
 	tw.tween_property(panel, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.30)
 	_spawn_popup(panel.get_global_rect().get_center(), "+%d" % amount, Color(0.30, 0.90, 0.40, 1.0))
 
-func _dmg_color(school: int) -> Color:
+## Damage-popup color palette. Each school returns a (fill, outline) pair:
+## VOID-family schools share a purple fill (the parent color) and use the
+## outline to mark the sibling — white = Bolt, red = Flesh, green = Corruption.
+## Non-VOID schools fall through to the default red.
+## See design/DAMAGE_TYPE_SYSTEM.md for the school taxonomy.
+const _SCHOOL_PURPLE := Color(0.55, 0.30, 0.85, 1.0)         # VOID family fill
+const _SCHOOL_BOLT_OUTLINE := Color(0.95, 0.95, 1.0, 1.0)    # near-white, cool tint
+const _SCHOOL_FLESH_OUTLINE := Color(0.77, 0.16, 0.16, 1.0)  # arterial red
+const _SCHOOL_CORRUPTION_OUTLINE := Color(0.42, 0.56, 0.14, 1.0)  # sickly olive
+
+func _dmg_colors(school: int) -> Array:
+	# VOID sub-schools — purple fill, sibling-keyed outline.
 	if Enums.has_school(school, Enums.DamageSchool.VOID_BOLT):
-		return Color(0.75, 0.30, 1.0, 1.0)
-	return Color(1.0, 0.22, 0.22, 1.0)
+		return [_SCHOOL_PURPLE, _SCHOOL_BOLT_OUTLINE]
+	if Enums.has_school(school, Enums.DamageSchool.VOID_FLESH):
+		return [_SCHOOL_PURPLE, _SCHOOL_FLESH_OUTLINE]
+	if Enums.has_school(school, Enums.DamageSchool.VOID_CORRUPTION):
+		return [_SCHOOL_PURPLE, _SCHOOL_CORRUPTION_OUTLINE]
+	# Plain VOID (no sub-school) — pure purple, no outline contrast.
+	if Enums.has_school(school, Enums.DamageSchool.VOID):
+		return [_SCHOOL_PURPLE, _SCHOOL_PURPLE]
+	# Default red — physical attacks, NONE-school spells, etc.
+	return [Color(1.0, 0.22, 0.22, 1.0), Color(1.0, 0.22, 0.22, 1.0)]
+
+## Legacy single-color accessor — returns the fill color only. Kept for callers
+## that don't yet pass through the outline (e.g. panel flashes).
+func _dmg_color(school: int) -> Color:
+	return _dmg_colors(school)[0]
 
 ## Minion damage popups.
 func spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = false,
 		school: int = Enums.DamageSchool.NONE) -> void:
 	var txt := "-%d!" % damage if is_crit else "-%d" % damage
-	_spawn_popup(screen_center, txt, _dmg_color(school), is_crit)
+	var colors: Array = _dmg_colors(school)
+	_spawn_popup(screen_center, txt, colors[0], is_crit, colors[1])
 
 ## Spawn a popup immediately. If another popup is near the same position,
 ## offset this one downward so they don't overlap.
-func _spawn_popup(center: Vector2, text: String, color: Color, is_crit: bool = false) -> void:
+## `outline_color` defaults to the fill color (no contrast — legacy behavior).
+## Pass a distinct color to draw a school-identifier outline around the number.
+func _spawn_popup(center: Vector2, text: String, color: Color, is_crit: bool = false, outline_color: Color = Color(0, 0, 0, 0)) -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	_recent_popups = _recent_popups.filter(func(e: Dictionary) -> bool:
 		return now - (e.time as float) < 1.0)
@@ -928,17 +961,29 @@ func _spawn_popup(center: Vector2, text: String, color: Color, is_crit: bool = f
 			stack_count += 1
 	_recent_popups.append({"center": center, "time": now})
 	var offset_center := center + Vector2(0, stack_count * _POPUP_STACK_OFFSET)
-	_spawn_floating_popup(offset_center, text, color, is_crit)
+	_spawn_floating_popup(offset_center, text, color, is_crit, outline_color)
 
-func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color, is_crit: bool = false) -> void:
+func _spawn_floating_popup(screen_center: Vector2, text: String, color: Color, is_crit: bool = false, outline_color: Color = Color(0, 0, 0, 0)) -> void:
 	if _scene == null:
 		return
 	var lbl := Label.new()
 	lbl.text = text
 	var font_size: int = 44 if is_crit else 28
 	lbl.add_theme_font_size_override("font_size", font_size)
-	lbl.add_theme_color_override("font_color", color)
 	lbl.add_theme_font_override("font", _DAMAGE_FONT)
+	# Core color: family purple for VOID schools, default red otherwise.
+	# Kept at full opacity so the digit reads as the original popup color.
+	lbl.add_theme_color_override("font_color", color)
+	# School-identifier halo: a wide soft-stroke via the built-in font outline,
+	# using the sibling color (white = Bolt, red = Flesh, green = Corruption)
+	# at reduced alpha so it reads as a halo glow rather than a sharp stroke.
+	# Skip when no sibling outline was passed (alpha-0 sentinel) or both
+	# colors match — plain VOID and PHYSICAL get no halo, just solid color.
+	if outline_color.a > 0.0 and outline_color != color:
+		var halo := Color(outline_color.r, outline_color.g, outline_color.b, 0.55)
+		lbl.add_theme_color_override("font_outline_color", halo)
+		var outline_size: int = 16 if is_crit else 10
+		lbl.add_theme_constant_override("outline_size", outline_size)
 	if is_crit:
 		lbl.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
 		lbl.add_theme_constant_override("shadow_offset_x", 3)

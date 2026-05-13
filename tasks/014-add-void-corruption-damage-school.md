@@ -1,11 +1,11 @@
 ---
 id: "014"
 title: Add VOID_CORRUPTION damage school
-status: active
+status: done
 area: combat
 priority: normal
 started: 2026-05-09
-finished:
+finished: 2026-05-11
 ---
 
 ## Description
@@ -37,7 +37,10 @@ VOID (parent)
 ## Work log
 
 - 2026-05-09: opened.
+- 2026-05-11: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Added `Enums.DamageSchool.VOID_CORRUPTION` as a sibling of `VOID_BOLT` under the `VOID` parent in `SCHOOL_LINEAGE`. Retagged four corruption-themed spells (`abyssal_plague`, `flesh_rend`, `flesh_eruption`, `resonant_outburst`) from VOID/NONE → VOID_CORRUPTION. Gated Seris's `void_amplification` amp (`CombatState._spell_dmg` and `cast_player_hero_spell`) and Korrath's `path_of_corruption` amp (`EffectResolver._path_of_corruption_amplify`) on `has_school(school, VOID_CORRUPTION)` so generic VOID and sibling VOID_BOLT damage no longer benefit. Talent descriptions updated to call out "VOID CORRUPTION" explicitly. Added lineage tests and end-to-end school-gate tests for both talents (including a "Void Bolt is no longer amplified but still applies corruption" test reflecting the deliberate scope reduction). Full suite: 655 passed, 3 failed (all pre-existing KNOWN BUGs unrelated to this change).
+
+Follow-ups: tasks 018 (require school on every damaging spell + add ARCANE + lint) and 019 (gate armour math by school instead of source) are queued as backlog — both build on this taxonomy.

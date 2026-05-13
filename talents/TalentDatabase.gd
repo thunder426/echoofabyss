@@ -70,7 +70,7 @@ func get_branch_display_name(branch_id: String) -> String:
 		"fleshcraft":        "Fleshcraft",
 		"demon_forge":       "Demon Forge",
 		"corruption_engine": "Corruption Engine",
-		"infernal_bulwark":  "Infernal Bulwark",
+		"iron_vanguard":     "Iron Vanguard",
 		"runic_knight":      "Runic Knight",
 		"abyssal_breaker":   "Abyssal Breaker",
 	}
@@ -85,7 +85,7 @@ func get_branch_description(branch_id: String) -> String:
 		"fleshcraft":        "Empower Grafted Fiends; grow them through kills.",
 		"demon_forge":       "Sacrifice Demons to forge greater ones.",
 		"corruption_engine": "Turn Corruption into power, detonate it for damage and Flesh.",
-		"infernal_bulwark":  "Forge a Human formation; convert Armour into devastating ATK.",
+		"iron_vanguard":     "Forge a Human formation; convert Armour into devastating ATK.",
 		"runic_knight":      "Generate runes through combat; absorb their auras for chaos.",
 		"abyssal_breaker":   "Strip enemy Armour with Corruption; detonate at death.",
 	}
@@ -274,7 +274,7 @@ func _register_seris_talents() -> void:
 
 	_register(_make(
 		"void_amplification", "seris", "Void Amplification",
-		"Your spells deal +50 damage per Corruption stack across all friendly Demons.",
+		"Your VOID FLESH spells deal +50 damage per Corruption stack across all friendly Demons.",
 		"corruption_engine", 2, "corrupt_detonation", "res://assets/art/talents/seris/icon_void_amplification.png"))
 
 	_register(_make(
@@ -290,36 +290,36 @@ func _register_seris_talents() -> void:
 func _register_korrath_talents() -> void:
 
 	# -----------------------------------------------------------------------
-	# Branch 1 — Infernal Bulwark (Human formation, Armour stacking, Guard capstone)
+	# Branch 1 — Iron Vanguard (Human formation, Armour stacking, Guard capstone)
 	# -----------------------------------------------------------------------
 
 	_register(_make(
 		"iron_formation", "korrath", "Iron Formation",
 		"Abyssal Knight becomes a Human and gains FORMATION: the first time a Human is placed adjacent, the knight permanently gains 200 Armour and 200 HP.",
-		"infernal_bulwark", 0, "", ""))
+		"iron_vanguard", 0, "", "res://assets/art/talents/korrath/icon_iron_formation.png"))
 
 	_register(_make(
 		"commanders_reach", "korrath", "Commander's Reach",
-		"Aura: while Abyssal Knight is on board, friendly Humans adjacent to it apply 100 Armour Break to their attack target on each attack.",
-		"infernal_bulwark", 1, "iron_formation", ""))
+		"Whenever any friendly minion's Formation effect triggers, all friendly Human minions on the board permanently gain +50 Armour.",
+		"iron_vanguard", 1, "iron_formation", "res://assets/art/talents/korrath/icon_commanders_reach.png"))
 
 	_register(_make(
 		"iron_resolve", "korrath", "Iron Resolve",
 		"All friendly Humans gain ATK equal to their current Armour value.",
-		"infernal_bulwark", 2, "commanders_reach", ""))
+		"iron_vanguard", 2, "commanders_reach", "res://assets/art/talents/korrath/icon_iron_resolve.png"))
 
 	_register(_make(
 		"unbreakable", "korrath", "Unbreakable",
 		"CAPSTONE: Abyssal Knight gains GUARD. All Armour gains on Abyssal Knight are doubled.",
-		"infernal_bulwark", 3, "iron_resolve", ""))
+		"iron_vanguard", 3, "iron_resolve", "res://assets/art/talents/korrath/icon_unbreakable.png"))
 
 	# -----------------------------------------------------------------------
 	# Branch 3 — Abyssal Breaker (Demon knight, Corruption strips Armour, capstone explosion)
 	#
-	# T2 is a sibling-talent tier: path_of_ruination and path_of_destruction both
-	# require abyssal_strike, both belong to this branch. With four total talent
+	# T2 is a sibling-talent tier: path_of_corruption and path_of_shattering both
+	# require corrupting_strike, both belong to this branch. With four total talent
 	# picks per run the player can only unlock one of them in practice. T3
-	# armour_explosion's prereq is abyssal_strike (T1) rather than either T2
+	# shattering_doom's prereq is corrupting_strike (T1) rather than either T2
 	# sibling — TalentData.requires holds a single string, so this is the
 	# closest fit; in normal play the player picks T2 before T3 anyway.
 	# -----------------------------------------------------------------------
@@ -327,49 +327,59 @@ func _register_korrath_talents() -> void:
 	_register(_make(
 		"corrupting_presence", "korrath", "Corrupting Presence",
 		"Abyssal Knight becomes a Demon. Each stack of Corruption on an enemy also reduces that enemy's Armour by 100.",
-		"abyssal_breaker", 0, "", ""))
+		"abyssal_breaker", 0, "", "res://assets/art/talents/korrath/icon_corrupting_presence.png"))
 
 	_register(_make(
-		"abyssal_strike", "korrath", "Abyssal Strike",
+		"corrupting_strike", "korrath", "Corrupting Strike",
 		"Whenever Abyssal Knight attacks any target, apply 1 Corruption stack to that target.",
-		"abyssal_breaker", 1, "corrupting_presence", ""))
+		"abyssal_breaker", 1, "corrupting_presence", "res://assets/art/talents/korrath/icon_corrupting_strike.png"))
 
 	_register(_make(
-		"path_of_ruination", "korrath", "Path of Ruination",
-		"Your spells apply 1 Corruption stack to their target on cast. Each Corruption stack on a target increases spell damage it takes by 100.",
-		"abyssal_breaker", 2, "abyssal_strike", ""))
+		"path_of_corruption", "korrath", "Path of Corruption",
+		"Your spells apply 1 Corruption stack to their target on cast. Each Corruption stack on a target increases VOID CORRUPTION spell damage it takes by 100.",
+		"abyssal_breaker", 2, "corrupting_strike", "res://assets/art/talents/korrath/icon_path_of_corruption.png"))
 
 	_register(_make(
-		"path_of_destruction", "korrath", "Path of Destruction",
+		"path_of_shattering", "korrath", "Path of Shattering",
 		"Friendly Demon attacks apply 50 Armour Break to their attack target.",
-		"abyssal_breaker", 2, "abyssal_strike", ""))
+		"abyssal_breaker", 2, "corrupting_strike", "res://assets/art/talents/korrath/icon_path_of_shattering.png"))
 
 	_register(_make(
-		"armour_explosion", "korrath", "Armour Explosion",
+		"shattering_doom", "korrath", "Shattering Doom",
 		"CAPSTONE: When an enemy minion dies, deal spell damage to all enemy minions equal to that minion's accumulated Armour Break value.",
-		"abyssal_breaker", 3, "abyssal_strike", ""))
+		"abyssal_breaker", 3, "corrupting_strike", "res://assets/art/talents/korrath/icon_shattering_doom.png"))
 
 	# -----------------------------------------------------------------------
-	# Branch 2 — Runic Knight (T0/T1/T2; T3 grand_ritual_chaos deferred until
-	# the RitualVariance system lands. Same sibling-T2 pattern as Branch 3.)
+	# Branch 2 — Runic Knight. Sibling-T2 pattern (path_of_demons / path_of_humans),
+	# T3 grand_ritual_chaos fires when the rune board hits 3 and any T2 sibling is
+	# unlocked. Chaos consumes any 3 runes (custom flow — not a RitualData) and
+	# resolves three volatile effects with per-effect variance + one Enhanced pick.
 	# -----------------------------------------------------------------------
 
 	_register(_make(
-		"runic_transcendence", "korrath", "Runic Transcendence",
+		"runeforge_strike", "korrath", "Runeforge Strike",
 		"Abyssal Knight gains both Human and Demon race tags simultaneously. Whenever it attacks, place a random Rune on your board.",
-		"runic_knight", 0, "", ""))
+		"runic_knight", 0, "", "res://assets/art/talents/korrath/icon_runeforge_strike.png"))
 
 	_register(_make(
 		"runic_absorption", "korrath", "Runic Absorption",
-		"When your rune board is full and Abyssal Knight generates a new rune, randomly destroy one active rune and permanently grant its aura to a random Abyssal Knight on board. Stacks.",
-		"runic_knight", 1, "runic_transcendence", ""))
+		"Whenever a friendly Rune is destroyed or consumed by a ritual, permanently grant its aura to a random Abyssal Knight on the battlefield. Stacks.",
+		"runic_knight", 1, "runeforge_strike", "res://assets/art/talents/korrath/icon_runic_absorption.png"))
 
 	_register(_make(
 		"path_of_demons", "korrath", "Path of Demons",
 		"Whenever a Demon is summoned, deal 50 damage to a random enemy, repeated X times — where X = active rune slots + total absorbed aura stacks across friendly Abyssal Knights.",
-		"runic_knight", 2, "runic_absorption", ""))
+		"runic_knight", 2, "runic_absorption", "res://assets/art/talents/korrath/icon_path_of_demons.png"))
 
 	_register(_make(
 		"path_of_humans", "korrath", "Path of Humans",
 		"Whenever a Human is summoned, give 50 ATK to a random friendly minion, repeated X times — where X = active rune slots + total absorbed aura stacks across friendly Abyssal Knights.",
-		"runic_knight", 2, "runic_absorption", ""))
+		"runic_knight", 2, "runic_absorption", "res://assets/art/talents/korrath/icon_path_of_humans.png"))
+
+	# T3 capstone — same sibling-T2 bypass pattern as shattering_doom (B3 T3):
+	# prereq points to T1 (runic_absorption) so the player can take either T2
+	# without losing the capstone.
+	_register(_make(
+		"grand_ritual_chaos", "korrath", "Grand Ritual: Chaos",
+		"CAPSTONE: When 3 runes are active, consume them all and fire three volatile effects with damage variance: burst (200–400 spell dmg to a random enemy), sweep (100–250 spell dmg to all enemies), forge (+200–+400 permanent ATK to a random friendly minion). After resolution, one effect is randomly revealed as Enhanced (×3 output). Then grants 3 rune aura stacks to a random Abyssal Knight.",
+		"runic_knight", 3, "runic_absorption", "res://assets/art/talents/korrath/icon_grand_ritual_chaos.png"))

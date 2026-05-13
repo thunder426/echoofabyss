@@ -3,7 +3,7 @@
 ## default bot when the run is Korrath-hero. Branch-agnostic baseline — plays the
 ## knight as the centerpiece and lets the talent overrides + on-attack triggers
 ## drive branch-specific behaviour. Per-branch refinements (formation pairing for
-## Infernal Bulwark, rune-stack management for Runic Knight, AB stacking for
+## Iron Vanguard, rune-stack management for Runic Knight, AB stacking for
 ## Abyssal Breaker) can be split into subclasses later if balance sim flags them
 ## as needed; the same pattern Seris used (SerisPlayerProfile → FleshcraftPlayerProfile).
 ##
@@ -15,7 +15,7 @@
 ##   5. Spells
 ##   6. Late minion pass for catch-ups
 ##
-## Attack: aggro by default. Branch 1 (Infernal Bulwark) actually wants to keep
+## Attack: aggro by default. Branch 1 (Iron Vanguard) actually wants to keep
 ## the knight alive on board for armour-stacking + Iron Resolve ATK conversion,
 ## but a face-pressure baseline is closer to correct than a defensive one given
 ## min-100 floor + Armour Break already give the bot a hard time on the back foot.
@@ -34,7 +34,7 @@ func play_phase() -> void:
 	if not agent.is_alive(): return
 
 	# Traps / Runes before minions so auras buff on-play and on-attack rune
-	# generation (runic_transcendence T0) lands into a board with room.
+	# generation (runeforge_strike T0) lands into a board with room.
 	await _play_traps_pass()
 	if not agent.is_alive(): return
 
