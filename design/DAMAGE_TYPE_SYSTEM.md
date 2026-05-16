@@ -41,7 +41,6 @@ What kind of damage it is.
 | `VOID_BOLT`        | Sub-school of `VOID`. Bolt-themed direct burst — `void_bolt`, `void_detonation`. Triggers bolt passives |
 | `VOID_FLESH`       | Sub-school of `VOID`. Flesh/visceral damage — `flesh_rend`, `flesh_eruption`, `resonant_outburst`. Gates Seris's Void Amplification |
 | `VOID_CORRUPTION`  | Sub-school of `VOID`. Corruption-themed damage — `abyssal_plague`, future Korrath corruption spells. Gates Korrath's Path of Corruption |
-| `TRUE_DMG`         | Bypasses school resistances. `TRUE` is a GDScript reserved word |
 
 More schools (`FIRE`, `FROST`, `BLEEDING`, `POISON`, `HOLY`, `CHAOS`, …) added on demand. **Resist the urge to define schools speculatively** — only add what cards actually use.
 
@@ -65,7 +64,6 @@ const SCHOOL_LINEAGE := {
     DamageSchool.VOID_BOLT:       [DamageSchool.VOID_BOLT, DamageSchool.VOID],
     DamageSchool.VOID_FLESH:      [DamageSchool.VOID_FLESH, DamageSchool.VOID],
     DamageSchool.VOID_CORRUPTION: [DamageSchool.VOID_CORRUPTION, DamageSchool.VOID],
-    DamageSchool.TRUE_DMG:        [DamageSchool.TRUE_DMG],
     # Examples for future schools:
     # DamageSchool.BLEEDING: [DamageSchool.BLEEDING, DamageSchool.PHYSICAL],
     # DamageSchool.BURNING:  [DamageSchool.BURNING, DamageSchool.FIRE],
@@ -231,7 +229,7 @@ Where each piece lives in the codebase:
 - **`SPELL_IMMUNE`** — blocks `info.source == SPELL`. Source-keyed (not school-keyed), so a SPELL-immune minion absorbs any spell-school combination but still takes minion-attack damage.
 - **`ETHEREAL`** — amplifies SPELL-source damage by 50% in `apply_damage_to_minion`; reduces minion basic-attack damage by 50% in `resolve_minion_attack`. Source-keyed only — schools are not exempted.
 - **Void Bolt scaling** — per-Void-Mark scaling stays on `_deal_void_bolt_damage` (the EffectStep.VOID_BOLT path). The school is metadata; the scaling is mechanics. Don't conflate them.
-- **Korrath Armour / Armour Break** — **school-keyed, not source-keyed** (task 019). `CombatManager._school_bypasses_armour(school)` returns true for the VOID lineage and `TRUE_DMG`; everything else (PHYSICAL, ARCANE, NONE) runs through `_apply_armour_math`. So a PHYSICAL spell (`shatterstrike`) respects armour; a VOID minion-emitted effect bypasses it. Armour Break amplifies every non-bypassing hit, including PHYSICAL/ARCANE spells — this is a real power increase for Korrath B3 Path of Shattering + spell builds.
+- **Korrath Armour / Armour Break** — **school-keyed, not source-keyed** (task 019; tightened in task 035). `CombatManager._school_bypasses_armour(school)` returns true for **ARCANE and VOID lineage**; only **PHYSICAL and NONE** route through `_apply_armour_math`. So a PHYSICAL spell (`shatterstrike`) respects armour; ARCANE / VOID damage from any source bypasses entirely. Armour is a physical-mitigation stat — magic ignores it. Armour Break amplifies every non-bypassing (i.e. PHYSICAL or NONE) hit, including PHYSICAL spells.
 
 ### Source vs school for armour: why the gate moved
 
@@ -256,7 +254,7 @@ Before task 019, the armour gate was `info.source == MINION` — i.e. minion att
 
 `echoofabyss/debug/tests/DamageTypeTests.gd` — 21 probes / ~50 assertions covering:
 
-- Phase 1: lineage helper (self / parent / unrelated / NONE / TRUE_DMG isolation)
+- Phase 1: lineage helper (self / parent / unrelated / NONE isolation)
 - Phase 2: `make_damage_info()` field shape; `apply_hero_damage` signal emission and zero-amount silence; `apply_damage_to_minion` SPELL_IMMUNE / ETHEREAL semantics
 - Phase 3: EffectResolver source inference (spell → SPELL, minion → MINION); explicit `damage_school` passes through; default is NONE
 - Phase 4: minion basic attacks emit `(MINION, PHYSICAL, attacker)`; PIERCE carry-through inherits attacker

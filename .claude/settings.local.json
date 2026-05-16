@@ -22,7 +22,12 @@
       "Bash(git status *)",
       "Bash(git stash *)",
       "Bash(sort -t':' -k3 -rn)",
-      "Bash(python3)"
+      "Bash(python3)",
+      "Bash(git commit -m ' *)",
+      "Skill(task-start)",
+      "Skill(task-start:*)",
+      "Skill(task-done)",
+      "Skill(task-done:*)"
     ]
   }
 }

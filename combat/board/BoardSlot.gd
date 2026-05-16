@@ -616,6 +616,15 @@ func _show_occupied_state() -> void:
 		_status_bar.remove_child(child)
 		child.queue_free()
 
+	# Korrath FORMATION — show the chip only while the keyword is unconsumed.
+	# Status latches to fired on first trigger (task 036), at which point the
+	# chip disappears from the battlefield frame. Big-card review view still
+	# shows the keyword in the card tooltip — that's the static card text.
+	var mc_kw := minion.card_data as MinionCardData
+	if mc_kw != null and Enums.Keyword.FORMATION in mc_kw.keywords and not minion.formation_fired:
+		# TODO: replace placeholder icon_guard.png with a dedicated icon_formation.png in the art pass.
+		_status_bar_add_interactive_icon("icon_guard.png", "FORMATION",
+			"Triggers once when placed adjacent to a same-race minion. Consumed on first fire.")
 	if minion.has_guard():
 		_status_bar_add_interactive_icon("icon_guard.png", "GUARD",
 			"Must be attacked before other friendly minions.")
@@ -648,13 +657,12 @@ func _show_occupied_state() -> void:
 			"Can be consumed to pay %d Spark cost." % mc.spark_value)
 		_status_bar_add_count("x%d" % mc.spark_value, Color(0.75, 0.50, 1.00, 1))
 	# Korrath — single net Armour/AB icon. Positive net = green Armour (reduces
-	# physical damage), negative = red Armour Break (already strips through any
-	# armour and adds bonus damage). Zero hides.
-	var armour_break_total: int = BuffSystem.sum_type(minion, Enums.BuffType.ARMOUR_BREAK)
-	var armour_net: int = minion.armour - armour_break_total
+	# physical damage, capped so it can't reduce below the raw hit); negative =
+	# red Armour Break (adds |net| as flat bonus damage). Zero hides.
+	var armour_net: int = BuffSystem.net_armour(minion)
 	if armour_net > 0:
 		_status_bar_add_interactive_icon("icon_armour.png", "ARMOUR",
-			"%d — Reduces incoming physical attack damage. Spells bypass; minimum 100 damage always lands." % armour_net)
+			"%d — Reduces incoming PHYSICAL damage (Armour never reduces a hit below its raw value; 100 damage floor when it does reduce). ARCANE and VOID damage bypass." % armour_net)
 		_status_bar_add_count(str(armour_net), Color(0.70, 1.00, 0.55, 1))
 	elif armour_net < 0:
 		_status_bar_add_interactive_icon("icon_armour_break.png", "ARMOUR BREAK",

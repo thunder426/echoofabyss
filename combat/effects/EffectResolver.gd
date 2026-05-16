@@ -249,14 +249,15 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN:
 			# Void Rift Lord — drains the opponent's Mana to 0 at the start of their
-			# next turn. Currently asymmetric (only the player→enemy direction has the
-			# pipeline support; enemy→player path is a known bug, see
-			# tools/expected_fails.txt). Preserve that behavior here — only set the
-			# pending flag when player is casting against enemy.
+			# next turn. Symmetric: caster's opponent gets the pending flag (player-side
+			# field for the player, enemy-side field for the enemy), consumed at that
+			# side's next turn start.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var opponent: String = ctx.scene._opponent_of(ctx.owner)
 				if opponent == "player":
 					ctx.scene.set("_void_mana_drain_pending", true)
+				else:
+					ctx.scene.set("_enemy_void_mana_drain_pending", true)
 				if ctx.scene.get("_rift_lord_plays") != null:
 					ctx.scene._rift_lord_plays += 1
 			return

@@ -52,12 +52,8 @@ the count of failed assertions (0 = green).
 | L3 Scenarios | [ScenarioTests.gd](../echoofabyss/debug/tests/ScenarioTests.gd) | Full `CombatSim.run()` matches with structural invariants | 37 |
 
 Each test function fires multiple `assert_*` calls — total assertion count is
-~500 (last verified run: 492 passed, 7 failed, 0 skipped). The 7 current
-failures are all marked `(KNOWN BUG)` in their labels: they're intentional
-probes that surface unfixed sim-path gaps (e.g. enemy-side fields missing,
-hardcoded effects that don't yet symmetrize). They're useful as pinned
-regression markers — once the underlying bug is fixed, the test flips to
-green.
+~680 (last verified run: 681 passed, 0 failed, 0 skipped). The suite is
+fully green; any new failure represents a genuine regression.
 
 Shared infrastructure: [TestHarness.gd](../echoofabyss/debug/tests/TestHarness.gd)
 provides `build_state()`, `assert_eq/ne/true/false/approx/board()`,
@@ -82,16 +78,13 @@ $GODOT --headless --path $PROJECT res://debug/tests/RunAllTests.tscn -- --filter
 ```
 === EchoOfAbyss Test Suite ===
 === Layer 1: Card Effect Tests ===
-  FAIL: fiendish_pact / ... (KNOWN BUG) — expected true, got false
-  ... (other KNOWN BUG failures)
 === Layer 2: Trigger Handler Tests ===
 === Layer 3: Scenario Tests ===
-=== 492 passed, 7 failed, 0 skipped ===
+=== 681 passed, 0 failed, 0 skipped ===
 ```
 
-Exit code = number of failed assertions (currently 7, all KNOWN BUG markers).
-For refactor verification, the right check is "no NEW failures appeared,"
-not "exit 0." Diff the failure lines against the previous run.
+Exit code = number of failed assertions. The suite should be exit 0 on a
+clean run; any non-zero exit means a regression.
 
 ### When to run
 
@@ -381,8 +374,7 @@ Open in editor and play, or click Decks from `BalanceSim`.
 6. Manual smoke in editor for VFX/UI extractions
 
 If new test failures appear OR baseline diff is non-empty: investigate before
-committing. The 7 KNOWN BUG failures are baseline noise — only *new* failures
-matter.
+committing. The suite is fully green; any failure is a regression.
 
 ### New card or handler
 
@@ -406,11 +398,9 @@ matter.
 ### CI-style pre-push gate (suggested)
 
 ```bash
-# Fast: ~10s. Exits with N = current failure count (currently 7 KNOWN BUGs).
-# Compare the failure-line list against a checked-in expected_fails.txt
-# rather than asserting exit 0.
+# Fast: ~10s. Should exit 0 (no failures expected).
 $GODOT --headless --path $PROJECT res://debug/tests/RunAllTests.tscn 2>&1 | tee test.log
-grep "^  FAIL:" test.log | diff - tools/expected_fails.txt || exit 1
+grep -q "^=== [0-9]* passed, 0 failed" test.log || exit 1
 
 # Slow but thorough: 5–15 min
 python tools/baseline/capture.py prepush_$(date +%s) --runs 200

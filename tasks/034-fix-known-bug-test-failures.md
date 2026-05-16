@@ -1,11 +1,11 @@
 ---
 id: "034"
 title: Fix the 3 KNOWN BUG test failures
-status: backlog
+status: done
 area: combat
 priority: normal
-started:
-finished:
+started: 2026-05-13
+finished: 2026-05-13
 ---
 
 ## Description
@@ -25,7 +25,18 @@ Verification: after each fix, run `godot --headless --path . res://debug/tests/R
 ## Work log
 
 - 2026-05-12: opened.
+- 2026-05-13: closed all 3 KNOWN BUG gaps; suite now 681/681 green.
 
 ## Summary
 
-_(filled in at /task-done)_
+Closed the three symmetric-handling gaps that had lived as `KNOWN BUG` probes:
+
+1. **champion_void_champion summon flag** — added the missing `"champion_void_champion": _scene.set("_champion_vch_summoned", true)` case to `_summon_enemy_champion`'s match block in [combat/events/CombatHandlers.gd](combat/events/CombatHandlers.gd). One-line fix; re-summon guards now engage correctly.
+
+2. **fiendish_pact enemy-side parity** — added `_enemy_fiendish_pact_pending: int` to [CombatState.gd](combat/board/CombatState.gd), removed the player-only early-return in `HardcodedEffects._fiendish_pact`, and now branch by `ctx.owner` to set the right field. Mirrored the display-only `essence_delta` hint for enemy-hand Demons; player-only `_refresh_hand_spell_costs` stays gated. Cleared at enemy turn start in both [CombatScene.gd](combat/board/CombatScene.gd) and [SimState.gd](sim/SimState.gd). The Seris-Demon-discount consumption pipeline through enemy AI is not wired (enemy AI doesn't currently cast Fiendish Pact in production); the field is set and observable, matching the test contract.
+
+3. **void_rift_lord enemy-side mana drain** — added `_enemy_void_mana_drain_pending: bool` to [CombatState.gd](combat/board/CombatState.gd). `EffectResolver.QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN` now sets the correct side based on `_opponent_of(ctx.owner)`. Consumed in [EnemyAI.run_turn](combat/board/EnemyAI.gd) after the mana refill, and in `SimState.begin_enemy_turn` for sim parity.
+
+Test updates: dropped the `(KNOWN BUG)` markers and the `assert_true(false)` placeholders in [CardEffectTests.gd](debug/tests/CardEffectTests.gd) and [TriggerHandlerTests.gd](debug/tests/TriggerHandlerTests.gd), replacing them with real assertions on the new fields. Also updated [design/TESTING.md](design/TESTING.md) to drop the "7 KNOWN BUG failures are baseline" guidance and switch the CI gate to assert exit 0.
+
+Full RunAllTests: **681 passed, 0 failed**.

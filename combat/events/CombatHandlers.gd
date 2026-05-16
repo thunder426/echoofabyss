@@ -217,17 +217,22 @@ func on_summon_board_synergies(ctx: EventContext) -> void:
 			_scene._check_champion_triggers()
 
 ## Korrath FORMATION — fires whenever a minion enters the board (either side). Walks
-## both adjacent slots on the summoned minion's own side and, for each same-race
-## neighbor, runs that minion's formation_effect_steps once per (A, B) pair.
+## both adjacent slots on the summoned minion's own side and, for each adjacent
+## minion, attempts to fire Formation in both directions.
 ##
-## Bidirectional: a newly placed minion can trigger its OWN Formation against an
-## existing neighbor, AND an existing neighbor can trigger ITS Formation against the
-## newcomer. Each side's pair-tracking dict is independent so the asymmetric case
-## (only one of the two has FORMATION) works correctly.
+## Trigger rules (combined task 036 + task 037):
+## - **One-shot consumable per lifetime (task 036).** Once an actor's
+##   formation_fired flips to true, that actor's Formation can never re-trigger.
+## - **Both-sides requirement (task 037).** Actor needs same-race minions on BOTH
+##   the left (slot_index - 1) AND the right (slot_index + 1) adjacent slots.
+##   Each side is checked independently against the actor's race set via
+##   shares_race, so dual-tag actors can have either tag satisfy each side.
+##   Edge-slot actors (slot 0 or last slot) can never fire Formation through
+##   normal adjacency — Battle Drillmaster is the only rescue path.
 ##
-## Pair memory lives on MinionInstance.formation_partners — once a partner is recorded
-## it can never re-trigger Formation, even if adjacency is broken (e.g. a middle minion
-## dies) and re-formed.
+## Bidirectional walk: a newly placed minion can trigger its OWN Formation against
+## an existing neighbor, AND an existing neighbor can trigger ITS Formation against
+## the newcomer. Each actor's formation_fired flag is independent.
 func on_minion_summoned_formation(ctx: EventContext) -> void:
 	var summoned: MinionInstance = ctx.minion
 	if summoned == null or summoned.slot_index < 0:
@@ -449,23 +454,34 @@ func on_enemy_died_shattering_doom(ctx: EventContext) -> void:
 				Enums.DamageSchool.NONE, dead, "shattering_doom")
 		_scene.combat_manager.apply_damage_to_minion(m, info)
 
-## Fires `actor`'s Formation against `partner` if conditions are met:
-##   - actor has FORMATION
-##   - same minion_type as partner
-##   - this pair hasn't already triggered actor's Formation
-## On success, runs formation_effect_steps with ctx.source = actor and records the pair
-## on actor.formation_partners so it cannot re-fire.
+## Fires `actor`'s Formation if conditions are met. `partner` is the minion whose
+## summon event triggered the check (used to short-circuit when partner clearly
+## fails the race test); the actual gate requires same-race minions on BOTH the
+## left AND the right adjacent slots of actor (task 037).
+##   - actor has FORMATION keyword on its card data
+##   - actor.formation_fired is false (one-shot consumption — task 036)
+##   - actor and partner share at least one race (cheap early-out)
+##   - actor has BOTH left (slot_index - 1) and right (slot_index + 1) neighbors
+##     present on its own side, each sharing at least one race with actor
+##     (task 037 — formation requires a sandwich, not just one partner)
+## Edge-slot actors (slot 0 or last slot) can never fire Formation by normal
+## adjacency because one side is structurally absent. Battle Drillmaster is the
+## escape hatch — it bypasses the both-sides check.
+## On success, sets actor.formation_fired = true (Formation consumed for life),
+## runs formation_effect_steps with ctx.source = actor, fires ON_FORMATION_TRIGGERED.
 func _try_fire_formation(actor: MinionInstance, partner: MinionInstance) -> void:
 	if actor == null or partner == null:
 		return
 	var card: MinionCardData = actor.card_data as MinionCardData
 	if card == null or not (Enums.Keyword.FORMATION in card.keywords):
 		return
-	if actor.formation_partners.has(partner):
+	if actor.formation_fired:
 		return
 	if not card.shares_race(partner.card_data as MinionCardData):
 		return
-	actor.formation_partners[partner] = true
+	if not _formation_both_sides_satisfied(actor, card):
+		return
+	actor.formation_fired = true
 	if not card.formation_effect_steps.is_empty():
 		var ectx := EffectContext.make(_scene, actor.owner)
 		ectx.source = actor
@@ -479,6 +495,42 @@ func _try_fire_formation(actor: MinionInstance, partner: MinionInstance) -> void
 		tctx.minion = actor
 		tctx.target = partner
 		_scene.trigger_manager.fire(tctx)
+	# Refresh UI so the FORMATION chip disappears from the battlefield frame.
+	if _scene != null and _scene.has_method("_refresh_slot_for"):
+		_scene._refresh_slot_for(actor)
+
+## Task 037 — Formation now requires same-race partners on BOTH adjacent sides
+## (left slot_index - 1 AND right slot_index + 1). Each side is checked
+## independently against actor's race set via shares_race, so a dual-tag actor
+## like Runebound Initiate can have either tag satisfy each side independently
+## (e.g. Human on the left and Demon on the right both pass for Initiate).
+## Edge-slot actors (slot 0 or last slot) return false because one side is
+## structurally absent.
+func _formation_both_sides_satisfied(actor: MinionInstance, card: MinionCardData) -> bool:
+	if actor == null or card == null:
+		return false
+	if actor.slot_index < 0:
+		return false
+	var slots: Array = _scene.player_slots if actor.owner == "player" else _scene.enemy_slots
+	if slots == null:
+		return false
+	var left_idx: int = actor.slot_index - 1
+	var right_idx: int = actor.slot_index + 1
+	if left_idx < 0 or right_idx >= slots.size():
+		return false
+	var left_slot: BoardSlot = slots[left_idx]
+	var right_slot: BoardSlot = slots[right_idx]
+	if left_slot == null or right_slot == null:
+		return false
+	var left_minion: MinionInstance = left_slot.minion
+	var right_minion: MinionInstance = right_slot.minion
+	if left_minion == null or right_minion == null:
+		return false
+	if not card.shares_race(left_minion.card_data as MinionCardData):
+		return false
+	if not card.shares_race(right_minion.card_data as MinionCardData):
+		return false
+	return true
 
 func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionInstance, summoned: MinionInstance) -> void:
 	match passive_id:
@@ -2204,6 +2256,8 @@ func _summon_enemy_champion(card_id: String) -> void:
 			_scene.set("_champion_vc_summoned", true)
 		"champion_void_ritualist_prime":
 			_scene.set("_champion_vrp_summoned", true)
+		"champion_void_champion":
+			_scene.set("_champion_vch_summoned", true)
 		"champion_abyss_sovereign":
 			_scene.set("_champion_as_summoned", true)
 	var count: int = _scene.get("_champion_summon_count")

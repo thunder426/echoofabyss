@@ -112,11 +112,14 @@ static func run_all() -> void:
 	_abyssal_mandate_mana_branch()
 	_abyssal_mandate_end_clears_aura()
 
-	# Korrath — FORMATION keyword
-	_formation_fires_on_summon()
-	_formation_does_not_refire_on_same_pair()
+	# Korrath — FORMATION keyword (tasks 036 one-shot consumable + 037 both-sides)
+	_formation_fires_when_both_sides_same_race()
+	_formation_does_not_fire_with_only_one_neighbor()
+	_formation_edge_slot_cannot_fire()
+	_formation_consumed_once_per_lifetime()
 	_formation_ignores_race_mismatch()
-	_formation_ignores_non_adjacent_neighbors()
+	_formation_one_side_wrong_race_fails()
+	_formation_dual_tag_accepts_mixed_races_on_each_side()
 	_formation_fires_bidirectionally_when_both_have_keyword()
 
 	# Korrath Phase 2 — hero registration + Abyssal Knight card + cost discount
@@ -175,6 +178,10 @@ static func run_all() -> void:
 	_hero_armour_does_not_reduce_spell_damage()
 	_hero_ab_overflow_adds_bonus_physical_damage()
 	_hero_physical_damage_floors_at_100()
+	_hero_small_hit_vs_high_armour_keeps_raw()
+	_hero_below_floor_hit_vs_modest_armour_keeps_raw()
+	_hero_zero_net_passes_raw_through()
+	_hero_net_armour_helper_returns_signed()
 	_apply_hero_buff_emits_hero_buff_changed()
 	_add_hero_armour_emits_hero_armour_changed()
 	# Korrath — hero corruption (PR3 / task 016)
@@ -1674,15 +1681,8 @@ static func _vrp_death_resets_spell_cost_aura() -> void:
 # ---------------------------------------------------------------------------
 
 static func _vch_summon_at_3_crit_kills() -> void:
-	# KNOWN BUG: _summon_enemy_champion's match block in CombatHandlers.gd is
-	# missing a case for "champion_void_champion" (see lines 1634-1660). The
-	# champion minion is placed on the board, but _champion_vch_summoned never
-	# flips to true — so re-summon guards never engage and the alive-check
-	# aura path can still run (the aura uses an enemy_board scan, which
-	# accidentally works correctly). Fix: add `"champion_void_champion":
-	# _scene.set("_champion_vch_summoned", true)` to the match.
 	var state := TestHarness.build_state({"enemy_passives": ["champion_void_champion"]})
-	if not TestHarness.begin_test("champion_vch / 3 crit-kills summon champion (KNOWN BUG: flag not set)", state):
+	if not TestHarness.begin_test("champion_vch / 3 crit-kills summon champion", state):
 		return
 	var attacker := TestHarness.spawn_enemy(state, "rabid_imp")
 	for i in 3:
@@ -1690,7 +1690,7 @@ static func _vch_summon_at_3_crit_kills() -> void:
 		_fire_player_died_by_crit(state, victim, attacker)
 	TestHarness.assert_eq(state._champion_vch_crit_kills, 3, "crit kills = 3 (tracker works)")
 	TestHarness.assert_true(TestHarness.has_on_board(state, "enemy", "champion_void_champion"), "champion minion exists on board")
-	TestHarness.assert_true(state.get("_champion_vch_summoned") == true, "flag set (FAILS: match case missing)")
+	TestHarness.assert_true(state.get("_champion_vch_summoned") == true, "flag set")
 	state.teardown()
 
 static func _vch_aura_grows_resources() -> void:
@@ -2040,7 +2040,7 @@ static func _abyssal_mandate_end_clears_aura() -> void:
 # Synthetic CardData / MinionInstance is built inline so the tests don't depend
 # on a Korrath card existing in CardDatabase yet. The handler under test reads
 # only `keywords`, `minion_type`, and `formation_effect_steps` off MinionCardData,
-# plus `slot_index` / `formation_partners` off MinionInstance.
+# plus `slot_index` / `formation_fired` off MinionInstance.
 
 ## Build a fresh MinionCardData with FORMATION + a SELF BUFF_ATK +100 effect.
 ## A new instance per test so caches/Resource-sharing can't cross-contaminate.
@@ -2072,26 +2072,52 @@ static func _place_at(state: SimState, data: MinionCardData, slot_index: int) ->
 	inst.slot_index = slot_index
 	return inst
 
-static func _formation_fires_on_summon() -> void:
-	# A (HUMAN, FORMATION, +100 ATK SELF) at slot 0; B (HUMAN, no FORMATION) summoned
-	# at slot 1. Handler walks adjacency, fires A's Formation against B.
+static func _formation_fires_when_both_sides_same_race() -> void:
+	# Task 037 both-sides rule: A (Human, FORMATION) at slot 1 with Humans on
+	# both sides (slot 0 and slot 2) should fire Formation when the second flank
+	# arrives. Setup: pre-place A at slot 1 + B at slot 0, then summon C at slot 2.
+	# At C's summon, A finally satisfies both-sides condition and fires.
 	var state := TestHarness.build_state()
-	if not TestHarness.begin_test("formation / fires once when same-race minion summoned adjacent", state):
+	if not TestHarness.begin_test("formation / fires when both sides have same-race minions", state):
 		return
 	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
 	var b_data := _make_formation_card(Enums.MinionType.HUMAN, false)
-	var a := _place_at(state, a_data, 0)
-	var b := _place_at(state, b_data, 1)
+	var c_data := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var a := _place_at(state, a_data, 1)
+	var b := _place_at(state, b_data, 0)
 	var before := a.effective_atk()
+	# First summon — only one side filled, no fire.
 	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": b})
-	TestHarness.assert_eq(a.effective_atk(), before + 100, "A gained +100 ATK from its Formation")
-	TestHarness.assert_true(a.formation_partners.has(b), "A recorded B as a triggered partner")
+	TestHarness.assert_eq(a.effective_atk(), before, "single-side adjacency does NOT fire Formation (task 037)")
+	TestHarness.assert_false(a.formation_fired, "still unconsumed after single-side summon")
+	# Second flank — now both sides filled, A finally fires.
+	var c := _place_at(state, c_data, 2)
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": c})
+	TestHarness.assert_eq(a.effective_atk(), before + 100, "both-sides satisfied → Formation fires (+100 ATK)")
+	TestHarness.assert_true(a.formation_fired, "A's Formation consumed once both sides present")
 	state.teardown()
 
-static func _formation_does_not_refire_on_same_pair() -> void:
-	# Firing the same summon twice (same A,B pair) must only buff A once.
+static func _formation_does_not_fire_with_only_one_neighbor() -> void:
+	# A (Human, FORMATION) at slot 1 with a Human on the LEFT only (slot 0 filled,
+	# slot 2 empty). One-side adjacency must not fire under task 037.
 	var state := TestHarness.build_state()
-	if not TestHarness.begin_test("formation / does not refire for the same partner pair", state):
+	if not TestHarness.begin_test("formation / does NOT fire with only one same-race neighbor", state):
+		return
+	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
+	var b_data := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var a := _place_at(state, a_data, 1)
+	var b := _place_at(state, b_data, 0)
+	var before := a.effective_atk()
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": b})
+	TestHarness.assert_eq(a.effective_atk(), before, "no buff — only one side filled")
+	TestHarness.assert_false(a.formation_fired, "Formation still unconsumed")
+	state.teardown()
+
+static func _formation_edge_slot_cannot_fire() -> void:
+	# Edge-slot minion (slot 0) has no left neighbor, so Formation can never fire
+	# under task 037 even with a same-race minion adjacent to the right.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("formation / edge-slot (slot 0) can never fire — structurally missing left side", state):
 		return
 	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
 	var b_data := _make_formation_card(Enums.MinionType.HUMAN, false)
@@ -2099,56 +2125,121 @@ static func _formation_does_not_refire_on_same_pair() -> void:
 	var b := _place_at(state, b_data, 1)
 	var before := a.effective_atk()
 	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": b})
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": b})
-	TestHarness.assert_eq(a.effective_atk(), before + 100, "ATK gain stays at +100, not +200")
+	TestHarness.assert_eq(a.effective_atk(), before, "edge-slot Formation cannot fire — no left neighbor")
+	TestHarness.assert_false(a.formation_fired, "Formation never consumed at edge slot")
+	state.teardown()
+
+static func _formation_consumed_once_per_lifetime() -> void:
+	# Task 036 one-shot semantics with task 037 both-sides setup: A (FORMATION
+	# Human) at slot 1 sandwiched by Humans at slot 0 and slot 2 fires once.
+	# A later summon (e.g. another Human replacing slot 0 after death) cannot
+	# re-trigger A's Formation — consumed for life.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("formation / one-shot consumable — re-flanking does not retrigger", state):
+		return
+	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
+	var b_data := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var c_data := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var d_data := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var a := _place_at(state, a_data, 1)
+	var b := _place_at(state, b_data, 0)
+	var c := _place_at(state, c_data, 2)
+	var before := a.effective_atk()
+	# Fire summon of C (last to arrive) — A satisfies both-sides → fires once.
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": c})
+	TestHarness.assert_eq(a.effective_atk(), before + 100, "A fires once when both sides filled")
+	TestHarness.assert_true(a.formation_fired, "formation_fired latched")
+	# Simulate slot 0 swap: replace B with D (Human, fresh instance). A still
+	# has both-sides Human adjacency but its Formation must not retrigger.
+	state.player_slots[0].minion = null
+	var d := _place_at(state, d_data, 0)
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": d})
+	TestHarness.assert_eq(a.effective_atk(), before + 100, "still +100 — Formation consumed cannot retrigger")
 	state.teardown()
 
 static func _formation_ignores_race_mismatch() -> void:
-	# A HUMAN with FORMATION; B DEMON adjacent. No race match → no Formation fires.
+	# A HUMAN with FORMATION at slot 1, Demons on both sides. Race fails on both
+	# sides → no fire.
 	var state := TestHarness.build_state()
-	if not TestHarness.begin_test("formation / does not fire when races differ", state):
+	if not TestHarness.begin_test("formation / does not fire when both sides are wrong race", state):
 		return
 	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
 	var b_data := _make_formation_card(Enums.MinionType.DEMON, false)
-	var a := _place_at(state, a_data, 0)
-	var b := _place_at(state, b_data, 1)
+	var c_data := _make_formation_card(Enums.MinionType.DEMON, false)
+	var a := _place_at(state, a_data, 1)
+	var b := _place_at(state, b_data, 0)
+	var c := _place_at(state, c_data, 2)
 	var before := a.effective_atk()
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": b})
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": c})
 	TestHarness.assert_eq(a.effective_atk(), before, "no buff — race mismatch")
-	TestHarness.assert_false(a.formation_partners.has(b), "B not recorded as triggered partner")
+	TestHarness.assert_false(a.formation_fired, "Formation not consumed — race mismatch")
 	state.teardown()
 
-static func _formation_ignores_non_adjacent_neighbors() -> void:
-	# A at slot 0 with FORMATION; B at slot 2 (slot 1 empty). dx = 2 → no fire.
+static func _formation_one_side_wrong_race_fails() -> void:
+	# A (Human, FORMATION) at slot 1, Human on slot 0, Demon on slot 2. One side
+	# fails the race check → no fire under task 037 both-sides rule.
 	var state := TestHarness.build_state()
-	if not TestHarness.begin_test("formation / does not fire across an empty slot (dx != 1)", state):
+	if not TestHarness.begin_test("formation / one side wrong race blocks fire (both sides must match)", state):
 		return
 	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
 	var b_data := _make_formation_card(Enums.MinionType.HUMAN, false)
-	var a := _place_at(state, a_data, 0)
-	var b := _place_at(state, b_data, 2)
+	var c_data := _make_formation_card(Enums.MinionType.DEMON, false)
+	var a := _place_at(state, a_data, 1)
+	var b := _place_at(state, b_data, 0)
+	var c := _place_at(state, c_data, 2)
 	var before := a.effective_atk()
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": b})
-	TestHarness.assert_eq(a.effective_atk(), before, "no buff — not adjacent")
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": c})
+	TestHarness.assert_eq(a.effective_atk(), before, "no fire — right side is Demon, doesn't match Human Formation")
+	TestHarness.assert_false(a.formation_fired, "still unconsumed")
+	state.teardown()
+
+static func _formation_dual_tag_accepts_mixed_races_on_each_side() -> void:
+	# Dual-tag actor (Human/Demon, FORMATION) at slot 1 with Human on left and
+	# Demon on right. Each side independently matches one of the actor's race
+	# tags via shares_race → Formation fires.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("formation / dual-tag actor accepts Human + Demon flanking (per-side race match)", state):
+		return
+	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
+	a_data.extra_minion_types = [Enums.MinionType.DEMON]   # dual-tag
+	var b_data := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var c_data := _make_formation_card(Enums.MinionType.DEMON, false)
+	var a := _place_at(state, a_data, 1)
+	var b := _place_at(state, b_data, 0)
+	var c := _place_at(state, c_data, 2)
+	var before := a.effective_atk()
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": c})
+	TestHarness.assert_eq(a.effective_atk(), before + 100, "dual-tag fires when each side matches a different tag")
+	TestHarness.assert_true(a.formation_fired, "consumed")
 	state.teardown()
 
 static func _formation_fires_bidirectionally_when_both_have_keyword() -> void:
-	# Both A and B have FORMATION + same race. Summoning B should fire BOTH minions'
-	# Formation effects (each independent pair-tracking dict).
+	# Two FORMATION minions A (slot 1) and B (slot 2) both Human + FORMATION.
+	# Pre-place B (slot 2) and rf (slot 3) so B is half-flanked; then summon A
+	# at slot 1 between lf (slot 0) and B. At A's summon the handler walks dx=1
+	# neighbors (slot 0 and slot 2 of A) bidirectionally, so both A (sandwiched
+	# by lf+B) AND B (sandwiched by A+rf) satisfy the both-sides rule and fire.
 	var state := TestHarness.build_state()
-	if not TestHarness.begin_test("formation / both adjacent FORMATION minions fire on the same summon", state):
+	if not TestHarness.begin_test("formation / two adjacent FORMATION minions both fire once when sandwiches form", state):
 		return
-	var a_data := _make_formation_card(Enums.MinionType.HUMAN, true)
-	var b_data := _make_formation_card(Enums.MinionType.HUMAN, true)
-	var a := _place_at(state, a_data, 0)
-	var b := _place_at(state, b_data, 1)
+	var left_filler  := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var a_data       := _make_formation_card(Enums.MinionType.HUMAN, true)
+	var b_data       := _make_formation_card(Enums.MinionType.HUMAN, true)
+	var right_filler := _make_formation_card(Enums.MinionType.HUMAN, false)
+	var lf := _place_at(state, left_filler, 0)
+	var b  := _place_at(state, b_data,      2)
+	var rf := _place_at(state, right_filler, 3)
+	var a  := _place_at(state, a_data,      1)
 	var a_before := a.effective_atk()
 	var b_before := b.effective_atk()
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": b})
-	TestHarness.assert_eq(a.effective_atk(), a_before + 100, "A's Formation fired against B")
-	TestHarness.assert_eq(b.effective_atk(), b_before + 100, "B's Formation fired against A (bidirectional)")
-	TestHarness.assert_true(a.formation_partners.has(b), "A recorded B")
-	TestHarness.assert_true(b.formation_partners.has(a), "B recorded A")
+	# A's summon: handler walks A's neighbors lf (slot 0) and B (slot 2),
+	# bidirectionally calling _try_fire_formation for each pair. A satisfies
+	# both-sides (lf + B). B satisfies both-sides (A + rf). Both fire.
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": a})
+	TestHarness.assert_eq(a.effective_atk(), a_before + 100, "A's Formation fired (sandwiched by lf and B)")
+	TestHarness.assert_eq(b.effective_atk(), b_before + 100, "B's Formation fired (sandwiched by A and rf)")
+	TestHarness.assert_true(a.formation_fired, "A consumed")
+	TestHarness.assert_true(b.formation_fired, "B consumed")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
@@ -2244,51 +2335,57 @@ static func _iron_formation_retags_knight_human_with_formation() -> void:
 	state.teardown()
 
 static func _iron_formation_grants_armour_and_hp_on_first_human_pair() -> void:
-	# Knight at slot 0, Human at slot 1, then fire summon → knight gains 200 armour
-	# (no doubling without unbreakable) and 200 HP via formation_effect_steps.
+	# Task 037 both-sides setup: Human at slot 0, Knight at slot 1, Human at slot 2.
+	# Knight is sandwiched. Summon a third Human at slot 3 (irrelevant to Knight's
+	# adjacency) to fire the SUMMONED event that drives the handler scan.
 	var state := TestHarness.korrath_state(["iron_formation"])
-	if not TestHarness.begin_test("iron_formation / first Human pair grants knight +200 armour, +200 HP", state):
+	if not TestHarness.begin_test("iron_formation / Knight sandwiched by Humans gains +200 armour, +200 HP", state):
 		return
-	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")
-	var human  := _place_korrath_human(state, 1)
+	var left_human  := _place_korrath_human(state, 0)
+	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")  # lands slot 1
+	var right_human := _place_korrath_human(state, 2)
 	var pre_armour := knight.armour
 	var pre_hp     := knight.current_health
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": human})
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": right_human})
 	TestHarness.assert_eq(knight.armour, pre_armour + 200, "armour +200")
 	TestHarness.assert_eq(knight.current_health, pre_hp + 200, "current HP +200 (apply_hp_gain raises both cap and current)")
 	state.teardown()
 
 static func _commanders_reach_buffs_humans_on_formation_trigger() -> void:
-	# Knight slot 0, Human slot 1. Summoning the Human fires the knight's T0
-	# Formation; commanders_reach then grants +50 Armour to every friendly Human
-	# on board (the knight under T0 is a Human and receives the buff too).
+	# Task 037 sandwich setup: Human slot 0, Knight slot 1, Human slot 2.
+	# Summoning the right Human fires the knight's T0 Formation; commanders_reach
+	# then grants +50 Armour to every friendly Human on board (the knight under
+	# T0 is a Human and receives the buff too).
 	var state := TestHarness.korrath_state(["iron_formation", "commanders_reach"])
 	if not TestHarness.begin_test("commanders_reach / Formation trigger grants +50 Armour to friendly Humans", state):
 		return
-	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")
-	var human  := _place_korrath_human(state, 1)
+	var left_human  := _place_korrath_human(state, 0)
+	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")  # slot 1
+	var right_human := _place_korrath_human(state, 2)
 	var pre_knight := knight.armour
-	var pre_human  := human.armour
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": human})
+	var pre_left   := left_human.armour
+	var pre_right  := right_human.armour
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": right_human})
 	# Knight: +200 from T0 Formation step, plus +50 from commanders_reach = +250.
 	TestHarness.assert_eq(knight.armour, pre_knight + 250, "knight gains +200 (T0 Formation) + +50 (commanders_reach)")
-	# Human partner: +50 from commanders_reach (T0 step targets SELF on the knight only).
-	TestHarness.assert_eq(human.armour, pre_human + 50, "partner Human gains +50 from commanders_reach")
+	# Both Human partners gain +50 from commanders_reach.
+	TestHarness.assert_eq(left_human.armour,  pre_left  + 50, "left Human gains +50 from commanders_reach")
+	TestHarness.assert_eq(right_human.armour, pre_right + 50, "right Human gains +50 from commanders_reach")
 	state.teardown()
 
 static func _commanders_reach_ignores_non_humans() -> void:
-	# Knight slot 0, Human slot 1, friendly Demon slot 2. Formation trigger from
-	# the Human's summon should grant +50 to knight + Human, NOT to the Demon.
+	# Task 037 sandwich setup: Human slot 0, Knight slot 1, Human slot 2, plus a
+	# friendly Demon at slot 3 that should NOT receive the commanders_reach buff.
 	var state := TestHarness.korrath_state(["iron_formation", "commanders_reach"])
 	if not TestHarness.begin_test("commanders_reach / Formation trigger leaves friendly Demons unaffected", state):
 		return
-	var _knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")
-	var human   := _place_korrath_human(state, 1)
-	var demon   := TestHarness.spawn_friendly(state, "void_imp")  # DEMON, lands slot 2
+	var _left   := _place_korrath_human(state, 0)
+	var _knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")  # slot 1
+	var right_human := _place_korrath_human(state, 2)
+	var demon   := TestHarness.spawn_friendly(state, "void_imp")  # DEMON, lands slot 3
 	var pre_demon := demon.armour
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": human})
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": right_human})
 	TestHarness.assert_eq(demon.armour, pre_demon, "friendly Demon armour unchanged by commanders_reach")
-
 	state.teardown()
 
 static func _commanders_reach_stacks_across_multiple_triggers() -> void:
@@ -2314,19 +2411,20 @@ static func _commanders_reach_stacks_across_multiple_triggers() -> void:
 	state.teardown()
 
 static func _commanders_reach_with_unbreakable_doubles_knight_only() -> void:
-	# Full B1 stack. Formation trigger: knight gets +200 (T0) × 2 (T3) = +400
+	# Full B1 stack with task 037 sandwich. Knight gets +200 (T0) × 2 (T3) = +400
 	# plus +50 (commanders_reach) × 2 (T3 doubles all knight Armour gains) = +100.
-	# Net knight: +500. Partner Human: +50 (T3 only doubles the knight).
+	# Net knight: +500. Partner Humans: +50 each (T3 only doubles the knight).
 	var state := TestHarness.korrath_state(["iron_formation", "commanders_reach", "iron_resolve", "unbreakable"])
 	if not TestHarness.begin_test("commanders_reach + unbreakable / knight gain doubles, partner gain does not", state):
 		return
-	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")
-	var human  := _place_korrath_human(state, 1)
+	var left_human  := _place_korrath_human(state, 0)
+	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")  # slot 1
+	var right_human := _place_korrath_human(state, 2)
 	var pre_knight := knight.armour
-	var pre_human  := human.armour
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": human})
+	var pre_right  := right_human.armour
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": right_human})
 	TestHarness.assert_eq(knight.armour, pre_knight + 500, "knight: +400 (T0 doubled) + +100 (commanders_reach doubled)")
-	TestHarness.assert_eq(human.armour, pre_human + 50, "partner: +50 (commanders_reach, not doubled)")
+	TestHarness.assert_eq(right_human.armour, pre_right + 50, "partner: +50 (commanders_reach, not doubled)")
 	state.teardown()
 
 static func _iron_resolve_adds_armour_to_human_atk() -> void:
@@ -2353,16 +2451,17 @@ static func _iron_resolve_does_not_apply_to_enemies_or_demons() -> void:
 	state.teardown()
 
 static func _unbreakable_doubles_knight_armour_gains() -> void:
-	# All four Branch 1 talents active. Knight + Human pair triggers Formation:
-	# +200 armour from the step, doubled to +400 by unbreakable's scene flag.
-	# Skip commanders_reach to isolate the T0/T3 interaction.
+	# Task 037 sandwich. Knight + Human pair triggers Formation: +200 armour from
+	# the step, doubled to +400 by unbreakable's scene flag. Skip commanders_reach
+	# to isolate the T0/T3 interaction.
 	var state := TestHarness.korrath_state(["iron_formation", "iron_resolve", "unbreakable"])
 	if not TestHarness.begin_test("unbreakable / armour gains on knight doubled (200 → 400)", state):
 		return
-	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")
-	var human  := _place_korrath_human(state, 1)
+	var left_human  := _place_korrath_human(state, 0)
+	var knight := TestHarness.spawn_resolved_friendly(state, "abyssal_knight")  # slot 1
+	var right_human := _place_korrath_human(state, 2)
 	var pre_armour := knight.armour
-	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": human})
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": right_human})
 	TestHarness.assert_eq(knight.armour, pre_armour + 400,
 			"+400 armour (200 base × 2 from unbreakable doubling)")
 	state.teardown()
@@ -2936,6 +3035,57 @@ static func _hero_physical_damage_floors_at_100() -> void:
 	state.combat_manager.apply_hero_damage("enemy", info)
 	TestHarness.assert_eq(state.enemy_hp, 2000 - 100,
 			"floor: 200 ATK vs 500 armour → 100 damage minimum")
+	state.teardown()
+
+static func _hero_small_hit_vs_high_armour_keeps_raw() -> void:
+	# 50 ATK vs 200 armour: armour fully absorbs, but cannot inflate damage past
+	# the raw hit. Hero takes 50, not the 100 floor.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("hero armour / 50 ATK vs 200 armour deals 50 (raw, not floor)"):
+		return
+	state.enemy_hero.armour = 200
+	var info := CombatManager.make_damage_info(50, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(state.enemy_hp, 2000 - 50,
+			"50 ATK vs +200 net armour → 50 damage (raw passes; armour never inflates a small hit to the floor)")
+	state.teardown()
+
+static func _hero_below_floor_hit_vs_modest_armour_keeps_raw() -> void:
+	# 80 ATK vs 100 armour: 80 - 100 = -20 → would floor to 100, but raw is 80.
+	# Take min(80, max(100, -20)) = min(80, 100) = 80.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("hero armour / 80 ATK vs 100 armour deals 80 (raw, not floor)"):
+		return
+	state.enemy_hero.armour = 100
+	var info := CombatManager.make_damage_info(80, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(state.enemy_hp, 2000 - 80,
+			"80 ATK vs +100 net armour → 80 damage (floor only applies when math reduces above raw)")
+	state.teardown()
+
+static func _hero_zero_net_passes_raw_through() -> void:
+	# 50 ATK vs hero with 200 armour and 200 AB → net 0. Damage passes raw.
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("hero armour / zero net (armour cancelled by AB) passes raw damage"):
+		return
+	state.enemy_hero.armour = 200
+	BuffSystem.apply(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK, 200, "test_seed", false, false)
+	var info := CombatManager.make_damage_info(50, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL)
+	state.combat_manager.apply_hero_damage("enemy", info)
+	TestHarness.assert_eq(state.enemy_hp, 2000 - 50,
+			"net 0: raw 50 lands as 50, no floor")
+	state.teardown()
+
+static func _hero_net_armour_helper_returns_signed() -> void:
+	# BuffSystem.net_armour helper: signed value = armour stat - sum(AB).
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("BuffSystem.net_armour / returns signed armour - AB"):
+		return
+	state.enemy_hero.armour = 300
+	BuffSystem.apply(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK, 100, "t1", false, false)
+	TestHarness.assert_eq(BuffSystem.net_armour(state.enemy_hero), 200, "300 - 100 = 200 net")
+	BuffSystem.apply(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK, 500, "t2", false, false)
+	TestHarness.assert_eq(BuffSystem.net_armour(state.enemy_hero), -300, "300 - 600 = -300 net (debt)")
 	state.teardown()
 
 static func _apply_hero_buff_emits_hero_buff_changed() -> void:

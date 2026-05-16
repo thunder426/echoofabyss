@@ -191,8 +191,8 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 ## Apply hero damage carrying full DamageInfo. All hero damage routes through here.
 ##
 ## Korrath — armour math runs whenever the damage school does NOT bypass armour
-## (see `_school_bypasses_armour`). PHYSICAL/ARCANE/NONE go through; VOID lineage
-## and TRUE_DMG bypass. `info.amount` is rewritten to the post-armour value before
+## (see `_school_bypasses_armour`). Only PHYSICAL and NONE go through; ARCANE and
+## VOID lineage bypass. `info.amount` is rewritten to the post-armour value before
 ## the signal fires so listeners (CombatScene/SimState) and downstream telemetry
 ## see the value that actually lands.
 func apply_hero_damage(target: String, info: Dictionary) -> void:
@@ -208,35 +208,35 @@ func apply_hero_damage(target: String, info: Dictionary) -> void:
 				return
 	hero_damaged.emit(target, info)
 
-## Returns true if `school` bypasses armour entirely (VOID lineage + TRUE_DMG).
-## Gating armour on school (not source) lets PHYSICAL/ARCANE spells respect armour
-## while VOID-school minion-emitted effects bypass it — see task 019 / design/DAMAGE_TYPE_SYSTEM.md.
+## Returns true if `school` bypasses armour entirely. Only PHYSICAL and NONE go
+## through armour math; everything else (ARCANE, VOID lineage) bypasses.
+## Gating armour on school (not source) lets PHYSICAL spells respect armour while
+## magical schools bypass it — see design/DAMAGE_TYPE_SYSTEM.md.
 static func _school_bypasses_armour(school: int) -> bool:
-	return Enums.has_school(school, Enums.DamageSchool.VOID) \
-			or Enums.has_school(school, Enums.DamageSchool.TRUE_DMG)
+	return Enums.has_school(school, Enums.DamageSchool.ARCANE) \
+			or Enums.has_school(school, Enums.DamageSchool.VOID)
 
 ## Korrath armour resolution shared by minion and hero damage paths. Returns the
 ## post-armour damage to apply. `target` is duck-typed on `armour: int` and
 ## `buffs: Array[BuffEntry]` (MinionInstance or HeroState).
 ##
-## Two-bucket model: Armour reduces damage; ARMOUR_BREAK reduces effective armour
-## first, with excess (AB > armour) becoming flat bonus damage. Branch 3 T0
-## corrupting_presence emits a permanent AB stack at the moment a corruption
-## stack is applied to an enemy target — that AB lives in BuffSystem like any
-## other AB and naturally flows through this math; corruption stacks themselves
-## are NOT read here. See design/KORRATH_HERO_DESIGN section "Armour".
-##
-## Floor only applies when armour math actually ran (target has armour OR AB
-## stacks); a 50-ATK pawn vs an unarmoured untouched target still deals 50, not
-## 100.
+## Unified signed-net model: net = armour - sum(ARMOUR_BREAK).
+##   net > 0 → reduces damage by net, but never below min(raw, 100). Armour can
+##             fully absorb a small hit (50 ATK vs +200 net → 50), but cannot
+##             inflate a small hit up to the 100 floor.
+##   net < 0 → adds |net| as flat bonus damage (no cap).
+##   net == 0 → damage passes through raw.
+## Storage stays split (target.armour stat + ARMOUR_BREAK buff stacks) so card
+## triggers can still distinguish "apply Armour" from "apply AB" events; the net
+## is derived at damage time. Branch 3 T0 corrupting_presence emits AB stacks
+## that flow through this math naturally. See design/KORRATH_HERO_DESIGN §2.
 func _apply_armour_math(target: Object, damage: int) -> int:
-	var armour: int = target.armour
-	var armour_break: int = BuffSystem.sum_type(target, Enums.BuffType.ARMOUR_BREAK)
-	if armour == 0 and armour_break == 0:
+	var net: int = BuffSystem.net_armour(target)
+	if net == 0:
 		return damage
-	var effective_armour: int = maxi(0, armour - armour_break)
-	var bonus: int = maxi(0, armour_break - armour)
-	return maxi(100, damage - effective_armour + bonus)
+	if net > 0:
+		return mini(damage, maxi(100, damage - net))
+	return damage + (-net)
 
 ## Reduce a minion's HP using a DamageInfo. Shield absorbs first. Emit minion_vanished
 ## if HP reaches 0. Source/school are stashed for downstream resistances and triggers.
@@ -249,10 +249,10 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 		if scene != null and scene.get("_immune_dmg_prevented") != null:
 			scene._immune_dmg_prevented += damage
 		return
-	# Korrath — Armour math gates by school, not source. PHYSICAL/ARCANE/NONE
-	# (and any future non-bypass school) go through armour and Armour Break math;
-	# VOID lineage and TRUE_DMG bypass entirely. This lets PHYSICAL spells like
-	# shatterstrike respect armour while VOID minion-emitted effects still bypass.
+	# Korrath — Armour math gates by school, not source. Only PHYSICAL and NONE
+	# go through armour and Armour Break math; ARCANE and VOID lineage bypass
+	# entirely. This lets PHYSICAL spells like shatterstrike respect armour
+	# while magical schools (ARCANE, VOID) ignore it.
 	# corrupting_presence emits its AB stack at corruption-apply time (see
 	# CombatState._corrupt_minion); this path just runs the standard armour/AB math.
 	var school: int = info.get("school", Enums.DamageSchool.NONE)

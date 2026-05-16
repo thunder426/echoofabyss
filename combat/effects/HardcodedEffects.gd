@@ -113,13 +113,13 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 ## Seris Starter — Fiendish Pact: arm a pending 2-Essence discount for the NEXT Demon played this turn.
 ## The discount is consumed on the first Demon played (see CombatScene._consume_fiendish_pact_discount
 ## / SimState._consume_fiendish_pact_discount). Display-only essence_delta on hand Demons reflects
-## the pending discount until consumed or turn end. Player-only — enemy Seris is not supported.
+## the pending discount until consumed or turn end. Symmetric: enemy casts arm
+## `_enemy_fiendish_pact_pending` on the same scene.
 func _fiendish_pact(ctx: EffectContext) -> void:
 	var ls := _log_side(ctx.owner)
-	if ctx.owner != "player":
-		return
-	_scene.set("_fiendish_pact_pending", 2)
-	# Display hint: mark every Demon in hand with essence_delta = -2 (cleared on consume or turn start).
+	var field := "_fiendish_pact_pending" if ctx.owner == "player" else "_enemy_fiendish_pact_pending"
+	_scene.set(field, 2)
+	# Display hint: mark every Demon in the caster's hand with essence_delta = -2 (cleared on consume or turn start).
 	var hand: Array = _scene._friendly_hand(ctx.owner)
 	var count := 0
 	for inst in hand:
@@ -132,7 +132,7 @@ func _fiendish_pact(ctx: EffectContext) -> void:
 		inst.essence_delta = mini(inst.essence_delta, -2)
 		count += 1
 	_log("  Fiendish Pact: next Demon costs 2 less Essence this turn (%d in hand)." % count, ls)
-	if _scene.has_method("_refresh_hand_spell_costs"):
+	if ctx.owner == "player" and _scene.has_method("_refresh_hand_spell_costs"):
 		_scene._refresh_hand_spell_costs()
 
 # ---------------------------------------------------------------------------

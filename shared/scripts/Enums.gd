@@ -185,7 +185,6 @@ enum DamageSchool {
 	VOID_BOLT,        # Sub-school of VOID — bolt-themed direct burst (void_bolt, void_detonation). Triggers bolt passives.
 	VOID_FLESH,       # Sub-school of VOID — flesh/visceral damage (flesh_rend, flesh_eruption, resonant_outburst). Gates Seris's Void Amplification.
 	VOID_CORRUPTION,  # Sub-school of VOID — corruption-themed damage (abyssal_plague, future Korrath corruption spells). Gates Korrath's Path of Corruption.
-	TRUE_DMG,         # Bypasses school resistances. Named TRUE_DMG because TRUE is a GDScript reserved word.
 }
 
 ## Maps each school to the array of schools it satisfies (itself plus parents).
@@ -199,7 +198,6 @@ const SCHOOL_LINEAGE := {
 	DamageSchool.VOID_BOLT:       [DamageSchool.VOID_BOLT, DamageSchool.VOID],
 	DamageSchool.VOID_FLESH:      [DamageSchool.VOID_FLESH, DamageSchool.VOID],
 	DamageSchool.VOID_CORRUPTION: [DamageSchool.VOID_CORRUPTION, DamageSchool.VOID],
-	DamageSchool.TRUE_DMG:        [DamageSchool.TRUE_DMG],
 }
 
 ## Returns true if `school` satisfies `target` (i.e. target is school itself or one of its parents).

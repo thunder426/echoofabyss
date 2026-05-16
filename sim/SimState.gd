@@ -575,8 +575,12 @@ func begin_enemy_turn(turn_number: int) -> void:
 		_grow_enemy_resources(turn_number)
 	enemy_essence = enemy_essence_max
 	enemy_mana    = enemy_mana_max
+	if _enemy_void_mana_drain_pending:
+		_enemy_void_mana_drain_pending = false
+		enemy_mana = 0
 	enemy_spell_cost_penalty = _spell_tax_for_enemy_turn
 	_spell_tax_for_enemy_turn = 0
+	_enemy_fiendish_pact_pending = 0
 	if trigger_manager != null:
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START))
 	_draw_enemy(1)

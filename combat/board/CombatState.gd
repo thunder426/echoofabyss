@@ -1251,9 +1251,12 @@ var player_flesh: int:
 		flesh_changed.emit(v, player_flesh_max)
 var player_flesh_max: int = 5
 
-## Seris — Fiendish Pact pending Mana discount. Set by the Fiendish Pact spell,
-## consumed when the next Demon is played (capped at that card's mana_cost).
+## Seris — Fiendish Pact pending Essence discount. Set by the Fiendish Pact spell,
+## consumed when the next Demon is played (capped at that card's essence_cost).
 var _fiendish_pact_pending: int = 0
+## Enemy-side counterpart — armed when an enemy casts Fiendish Pact, consumed
+## when the enemy next plays a Demon. Cleared at enemy turn start.
+var _enemy_fiendish_pact_pending: int = 0
 
 ## Seris — Forge Counter (Demon Forge branch). Incremented when a Demon is
 ## sacrificed; at threshold the Soul Forge talent auto-summons a Forged Demon
@@ -1320,6 +1323,8 @@ var _enemy_spell_counter: int = 0
 var _spell_cancelled: bool = false
 ## When true, the player's current mana is set to 0 at the start of their next turn (Void Rift Lord).
 var _void_mana_drain_pending: bool = false
+## Symmetric — when true, the enemy's current mana is set to 0 at the start of their next turn.
+var _enemy_void_mana_drain_pending: bool = false
 
 ## Prevents Soul Rune from firing more than once per enemy turn.
 var _soul_rune_fires_this_turn: int = 0

@@ -250,6 +250,10 @@ func run_turn() -> void:
 		_choose_resource_growth()
 	essence = essence_max
 	mana    = mana_max
+	if scene != null and scene.state._enemy_void_mana_drain_pending:
+		scene.state._enemy_void_mana_drain_pending = false
+		mana = 0
+		scene._log("  Void Rift Lord: enemy Mana has been drained to 0!", scene._LogType.PLAYER)
 	_draw_cards(1)
 	await _active_profile.play_phase()
 	if not is_inside_tree(): return

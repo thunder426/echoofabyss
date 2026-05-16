@@ -189,23 +189,13 @@ static func _fiendish_pact_player() -> void:
 	TestHarness.assert_eq(state._fiendish_pact_pending, 2, "_fiendish_pact_pending == 2")
 
 static func _fiendish_pact_enemy_symmetric() -> void:
-	# KNOWN BUG: HardcodedEffects._fiendish_pact early-returns if ctx.owner != "player".
-	# This probe fails until symmetry is restored.
 	var state := TestHarness.build_state({})
-	if not TestHarness.begin_test("fiendish_pact / enemy cast arms discount on enemy side (KNOWN BUG)", state):
+	if not TestHarness.begin_test("fiendish_pact / enemy cast arms discount on enemy side", state):
 		return
 	var spell := CardDatabase.get_card("fiendish_pact") as SpellCardData
 	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "enemy"))
-	# Expect: some form of pending discount on the enemy side. Assert that SOMETHING
-	# observable changed — e.g., _fiendish_pact_pending changed (if the field is
-	# repurposed symmetrically) OR an enemy-specific pending field is non-zero.
-	# For now, assert the player-side field is still 0 (wasn't clobbered by enemy cast)
-	# AND some discount state exists. The latter requires an enemy-side counterpart that
-	# doesn't exist yet; this probe is expected to fail on the "arms discount" line.
 	TestHarness.assert_eq(state._fiendish_pact_pending, 0, "player-side flag untouched")
-	# The true assertion — an enemy discount is armed — can't be expressed without a
-	# new field. For now, fail explicitly so the gap is visible.
-	TestHarness.assert_true(false, "enemy cast did not arm any discount (no enemy-side field exists)")
+	TestHarness.assert_eq(state._enemy_fiendish_pact_pending, 2, "_enemy_fiendish_pact_pending == 2")
 
 # ---------------------------------------------------------------------------
 # trapbreaker_rogue — minion, 2 essence (2.5/2)
@@ -453,17 +443,14 @@ static func _void_rift_lord_enemy_cast() -> void:
 	TestHarness.assert_eq(state.get("_void_mana_drain_pending"), true, "player mana drain pending")
 
 static func _void_rift_lord_player_symmetric() -> void:
-	# KNOWN BUG: player cast should drain enemy mana; current code gates on
-	# `if opponent == "player"` so player plays do nothing.
 	var state := TestHarness.build_state({})
-	if not TestHarness.begin_test("void_rift_lord / player cast drains enemy mana next turn (KNOWN BUG)", state):
+	if not TestHarness.begin_test("void_rift_lord / player cast drains enemy mana next turn", state):
 		return
 	var lord := TestHarness.spawn_friendly(state, "void_rift_lord")
 	var lord_data := lord.card_data as MinionCardData
 	var ctx := TestHarness.make_ctx(state, "player", lord)
 	EffectResolver.run(lord_data.on_play_effect_steps, ctx)
-	# There's no _void_mana_drain_pending_for_enemy field. Expected to fail.
-	TestHarness.assert_true(false, "no enemy-side mana-drain flag exists (needs symmetric field)")
+	TestHarness.assert_eq(state.get("_enemy_void_mana_drain_pending"), true, "enemy mana drain pending")
 
 # ---------------------------------------------------------------------------
 # frenzied_imp — minion, 3 essence (3/3 Demon, Feral Imp tag)

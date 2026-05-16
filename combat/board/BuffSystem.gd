@@ -214,6 +214,16 @@ static func count_type(target: Object, type: int) -> int:
 			count += 1
 	return count
 
+## Signed net Armour for a target. Positive = effective Armour reducing incoming
+## damage; negative = Armour debt (AB exceeds Armour) acting as flat bonus damage
+## on physical hits. Derived: `armour stat - sum(ARMOUR_BREAK stacks)`. Target is
+## duck-typed on `armour: int` and `buffs: Array[BuffEntry]` (MinionInstance or
+## HeroState). See design/KORRATH_HERO_DESIGN §2.
+static func net_armour(target: Object) -> int:
+	if target == null:
+		return 0
+	return int(target.armour) - sum_type(target, Enums.BuffType.ARMOUR_BREAK)
+
 ## True if the target has at least one buff entry of the given type.
 static func has_type(target: Object, type: int) -> bool:
 	if target == null:

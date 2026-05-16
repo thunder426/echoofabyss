@@ -60,10 +60,12 @@ var current_shield: int = 0
 ## Mutated only via add_armour() so the branch-1 T3 doubling check lives in one place.
 var armour: int = 0
 
-## Korrath — set of MinionInstance partners that have already triggered this minion's
-## FORMATION effect. Keyed by partner instance (Dictionary used as a set). Each pair fires
-## at most once; once a partner is added here the same partner cannot retrigger Formation.
-var formation_partners: Dictionary = {}
+## Korrath — Formation is a one-shot consumable status. True after this minion's
+## FORMATION effect has fired once; once set, the FORMATION keyword is considered
+## consumed and cannot trigger again for the rest of this minion's lifetime
+## regardless of how many same-race partners come and go. UI hides the FORMATION
+## chip on the battlefield once this flips.
+var formation_fired: bool = false
 
 # ---------------------------------------------------------------------------
 # Buff list — managed exclusively by BuffSystem

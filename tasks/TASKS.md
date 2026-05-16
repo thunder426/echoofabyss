@@ -22,9 +22,12 @@ _(none)_
 - ["031"](031-art-pass-korrath-runic-knight.md) — Art pass — korrath_runic_knight (art)
 - ["032"](032-art-pass-korrath-abyssal-breaker.md) — Art pass — korrath_abyssal_breaker (art)
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
-- ["034"](034-fix-known-bug-test-failures.md) — Fix the 3 KNOWN BUG test failures (combat)
 
 ## Done
+- ["035"](035-refactor-armour-ab-to-signed-net.md) — Refactor Armour/AB damage math to a single signed net_armour value (combat, 2026-05-16 → 2026-05-16)
+- ["036"](036-formation-one-shot-consumable.md) — Convert Formation from per-pair to one-shot consumable status (combat, 2026-05-16 → 2026-05-16)
+- ["037"](037-formation-both-sides-required.md) — Tighten Formation to require same-race minions on BOTH sides (combat, 2026-05-16 → 2026-05-16)
+- ["034"](034-fix-known-bug-test-failures.md) — Fix the 3 KNOWN BUG test failures (combat, 2026-05-13 → 2026-05-13)
 - ["008"](008-korrath-card-pools-content.md) — Korrath card pools — content design and authoring (content, 2026-05-08 → 2026-05-12)
 - ["013"](013-remove-dead-hero-reward-pool-field.md) — Remove dead hero_reward_pool field from HeroData (meta, 2026-05-09 → 2026-05-12)
 - ["020"](020-redesign-commanders-reach-formation-armour.md) — Redesign Commander's Reach — +50 Armour to all friendly Humans on any Formation trigger (combat, 2026-05-11 → 2026-05-12)

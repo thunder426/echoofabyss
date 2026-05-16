@@ -984,6 +984,7 @@ func _on_turn_started(is_player_turn: bool) -> void:
 	else:
 		enemy_ai.spell_cost_penalty = _spell_tax_for_enemy_turn
 		_spell_tax_for_enemy_turn = 0
+		state._enemy_fiendish_pact_pending = 0
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START))
 		await get_tree().create_timer(0.4).timeout
 		if not is_inside_tree():

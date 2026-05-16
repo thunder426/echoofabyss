@@ -147,7 +147,7 @@ func shares_race(other: MinionCardData) -> bool:
 
 ## Korrath FORMATION — declarative effect steps fired the first time this minion ends up
 ## adjacent to another minion of the same race. Each unique partner is one Formation
-## trigger; the pair is tracked on MinionInstance.formation_partners so it cannot re-fire
+## trigger; consumption is tracked on MinionInstance.formation_fired so it cannot re-fire
 ## even if adjacency is broken and reformed. EffectResolver runs these with ctx.source =
 ## this minion. Empty = the FORMATION keyword fires no steps (still tracks pair tagging).
 @export var formation_effect_steps: Array = []
