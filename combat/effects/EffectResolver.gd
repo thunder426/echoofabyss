@@ -183,6 +183,49 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 						ctx.scene._refresh_hand_spell_costs()
 			return
 
+		EffectStep.EffectType.MOD_HAND_CARDS_COST:
+			# Adjust the cost delta on every CardInstance in the caster's hand matching
+			# ALL set filters (card_id, card_tag, card_race — AND across populated ones;
+			# empty fields = no filter on that axis). step.amount is signed (negative =
+			# discount). step.resource picks the axis: "mana" → mana_delta, "essence" →
+			# essence_delta. Cost floor (cards never below 0) is enforced at play time
+			# by the cost-resolution code, not here — essence_delta is allowed to go
+			# arbitrarily negative so multiple discounts stack cleanly.
+			if not ConditionResolver.check_all(step.conditions, ctx, null):
+				return
+			if step.resource != "mana" and step.resource != "essence":
+				push_warning("MOD_HAND_CARDS_COST: unknown or empty 'resource' '%s' (expected 'mana' or 'essence')" % step.resource)
+				return
+			if step.card_id == "" and step.card_tag == "" and step.card_race == "":
+				push_warning("MOD_HAND_CARDS_COST: no filter set (card_id / card_tag / card_race all empty) — refusing to mutate every card in hand")
+				return
+			var race_id: int = -1
+			if step.card_race != "":
+				if not (step.card_race in Enums.MinionType):
+					push_warning("MOD_HAND_CARDS_COST: unknown card_race '%s'" % step.card_race)
+					return
+				race_id = Enums.MinionType[step.card_race]
+			var hand: Array = ctx.scene._friendly_hand(ctx.owner)
+			for inst in hand:
+				if inst == null or inst.card_data == null:
+					continue
+				if step.card_id != "" and inst.card_data.id != step.card_id:
+					continue
+				var mc := inst.card_data as MinionCardData
+				if step.card_tag != "":
+					if mc == null or not (step.card_tag in mc.minion_tags):
+						continue
+				if race_id >= 0:
+					if mc == null or not mc.is_race(race_id):
+						continue
+				if step.resource == "mana":
+					inst.mana_delta += step.amount
+				else:
+					inst.essence_delta += step.amount
+			if ctx.scene.has_method("_refresh_hand_spell_costs"):
+				ctx.scene._refresh_hand_spell_costs()
+			return
+
 		EffectStep.EffectType.COUNTER_SPELL:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var opponent := "player" if ctx.owner == "enemy" else "enemy"

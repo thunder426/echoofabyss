@@ -3,7 +3,7 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-_(none)_
+- ["038"](038-rally-the-ranks-adjacent-summon-infra.md) — Implement rally_the_ranks + adjacent-summon infra + dual-tag race picker (combat, started 2026-05-16)
 
 ## Backlog
 - ["007"](007-hero-armour-and-armour-break.md) — Hero Armour and Armour Break — extend Korrath stats to player/enemy heroes (combat)
@@ -11,7 +11,6 @@ _(none)_
 - ["010"](010-korrath-art-pass.md) — Korrath art pass — portraits, passive/talent icons, card art (art)
 - ["011"](011-korrath-mechanic-gaps.md) — Korrath mechanic gaps — Branch 2 capstone, talent prereqs, polish VFX (combat)
 - ["012"](012-korrath-balance-and-ai.md) — Korrath balance pass and branch-aware AI profiles (balance)
-- ["023"](023-implement-korrath-core-cards.md) — Implement korrath_core cards in CardDatabase (content)
 - ["024"](024-implement-korrath-common-cards.md) — Implement korrath_common cards in CardDatabase (content)
 - ["025"](025-implement-korrath-iron-vanguard-cards.md) — Implement korrath_iron_vanguard cards in CardDatabase (content)
 - ["026"](026-implement-korrath-runic-knight-cards.md) — Implement korrath_runic_knight cards in CardDatabase (content)
@@ -24,6 +23,7 @@ _(none)_
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
 
 ## Done
+- ["023"](023-implement-korrath-core-cards.md) — Implement korrath_core cards in CardDatabase (content, 2026-05-16 → 2026-05-16)
 - ["035"](035-refactor-armour-ab-to-signed-net.md) — Refactor Armour/AB damage math to a single signed net_armour value (combat, 2026-05-16 → 2026-05-16)
 - ["036"](036-formation-one-shot-consumable.md) — Convert Formation from per-pair to one-shot consumable status (combat, 2026-05-16 → 2026-05-16)
 - ["037"](037-formation-both-sides-required.md) — Tighten Formation to require same-race minions on BOTH sides (combat, 2026-05-16 → 2026-05-16)

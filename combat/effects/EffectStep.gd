@@ -51,6 +51,7 @@ enum EffectType {
 	COPY_OWNER_RUNES_TO_HAND,  # Runic Echo — adds a copy of every rune currently in the owner's active_traps to the owner's hand. No fields used.
 	PLACE_RUNE_ON_OPPONENT,    # Voidshaped Acolyte — places a rune (card_id) on the opponent's traps with aura handlers registered on the opponent side.
 	MOD_LAST_ADDED_COST,       # Adjust the per-resource cost delta on ctx.last_added_instance (set by the previous TUTOR / ADD_CARD step). `amount` is the delta (negative = discount), `resource` selects "mana" / "essence". No-ops if no instance was added in this run.
+	MOD_HAND_CARDS_COST,       # Adjust the per-resource cost delta on every card in the caster's hand matching ALL set filters (card_id, card_tag, card_race — AND across whichever are populated). `amount` is the signed delta written to essence_delta or mana_delta (per `resource`). Filters left empty are no-ops in that axis; with all three empty the step would target every card in hand (loudly warn). Use for "FORMATION: reduce the cost of all Abyssal Knights in your hand by 2" and similar broadcast cost effects.
 }
 
 enum TargetScope {
@@ -175,9 +176,19 @@ enum MinionFilter {
 ## Card ID to exclude from graveyard-querying effects (e.g. Recursive Hex excludes itself).
 @export var exclude_card_id: String = ""
 
-## Resource axis for cost-modifying steps (MOD_LAST_ADDED_COST). "mana" writes mana_delta;
-## "essence" writes essence_delta. Default empty surfaces missing tags loudly via warning.
+## Resource axis for cost-modifying steps (MOD_LAST_ADDED_COST, MOD_HAND_CARDS_COST).
+## "mana" writes mana_delta; "essence" writes essence_delta. Default empty surfaces
+## missing tags loudly via warning.
 @export var resource: String = ""
+
+## MOD_HAND_CARDS_COST — optional minion_tags entry to match (e.g. "abyssal_knight").
+## Empty = no tag filter. Combined with card_id / card_race via AND.
+@export var card_tag: String = ""
+
+## MOD_HAND_CARDS_COST — optional Enums.MinionType name to match (e.g. "HUMAN", "DEMON").
+## Reads via MinionCardData.is_race so dual-tag minions match either tag. Empty = no
+## race filter. Combined with card_id / card_tag via AND.
+@export var card_race: String = ""
 
 ## Damage school for damage-dealing steps (DAMAGE_HERO, DAMAGE_MINION, VOID_BOLT).
 ## Default NONE — surfaces forgotten tags loudly. Cards/talents that need a specific
@@ -237,6 +248,8 @@ static func from_dict(d: Dictionary) -> EffectStep:
 		s.bonus_conditions = bc
 	if "exclude_card_id" in d: s.exclude_card_id = d["exclude_card_id"]
 	if "resource"       in d: s.resource        = d["resource"]
+	if "card_tag"       in d: s.card_tag        = d["card_tag"]
+	if "card_race"      in d: s.card_race       = d["card_race"]
 	if "damage_school" in d:
 		# Accept either an int (Enums.DamageSchool value) or string name ("VOID", "VOID_BOLT").
 		var ds = d["damage_school"]

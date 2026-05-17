@@ -542,6 +542,40 @@ func _apply_board_passive_on_summon(passive_id: String, passive_owner: MinionIns
 				_log("  Void Amplifier: %s enters with +100 ATK / +100 HP." % summoned.card_data.card_name, _LOG_PLAYER)
 
 # ---------------------------------------------------------------------------
+# Declarative on-friendly-summon aura dispatcher
+# ---------------------------------------------------------------------------
+
+## Fires on ON_PLAYER_MINION_SUMMONED and ON_ENEMY_MINION_SUMMONED. Walks the side
+## board of the summoned minion, finds every aura source whose MinionCardData has
+## non-empty on_friendly_summon_aura_steps, and runs the steps once per source. The
+## newly summoned minion is passed as ctx.trigger_minion so steps can target it via
+## scope=TRIGGER_MINION. Self is always skipped (no self-buff on own entry). Sources
+## stack — N aura sources on the side = N independent firings on each new summon.
+##
+## This is the generic equivalent of the bespoke on_summon_path_of_demons /
+## on_summon_path_of_humans handlers; new on-summon aura cards drop in by declaring
+## on_friendly_summon_aura_steps with no new handler required.
+func on_minion_summoned_friendly_aura(ctx: EventContext) -> void:
+	var summoned: MinionInstance = ctx.minion
+	if summoned == null:
+		return
+	var board: Array = _scene._friendly_board(summoned.owner)
+	if board == null:
+		return
+	for raw in board:
+		var src: MinionInstance = raw as MinionInstance
+		if src == null or src == summoned:
+			continue
+		var mc := src.card_data as MinionCardData
+		if mc == null or mc.on_friendly_summon_aura_steps.is_empty():
+			continue
+		var ectx := EffectContext.make(_scene, src.owner)
+		ectx.source         = src
+		ectx.source_card_id = mc.id
+		ectx.trigger_minion = summoned
+		EffectResolver.run(mc.on_friendly_summon_aura_steps, ectx)
+
+# ---------------------------------------------------------------------------
 # ON_RUNE_PLACED / ON_RITUAL_ENVIRONMENT_PLAYED
 # ---------------------------------------------------------------------------
 

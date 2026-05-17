@@ -71,6 +71,15 @@ static func run_all() -> void:
 	_gorged_fiend_scaling()
 	_flesh_stitched_horror_with_flesh()
 
+	# Korrath core pool (task 023)
+	_squire_of_the_order_discounts_knights_in_hand()
+	_squire_of_the_order_no_knights_in_hand_is_noop()
+	_order_conscript_adds_footman_to_hand()
+	_quartermaster_buffs_new_friendly_summon_armour()
+	_quartermaster_does_not_self_buff()
+	_quartermaster_stacks_with_two_sources()
+	_shatterstrike_deals_physical_to_minion()
+
 # ---------------------------------------------------------------------------
 # Voidbolt (kept from scaffold phase)
 # ---------------------------------------------------------------------------
@@ -920,3 +929,110 @@ static func _flesh_stitched_horror_with_flesh() -> void:
 	TestHarness.assert_eq(state.player_flesh, 0, "2 flesh spent")
 	TestHarness.assert_eq(horror.current_health - hp_before, 300, "HP +300")
 	TestHarness.assert_true(horror.has_guard(), "GUARD granted")
+
+# ---------------------------------------------------------------------------
+# Korrath Core Pool (task 023)
+# ---------------------------------------------------------------------------
+# Cards: squire_of_the_order (FORMATION → knight cost -2 in hand),
+# order_conscript (ADD_CARD order_footman), quartermaster (+100 Armour aura via
+# on_friendly_summon_aura_steps dispatcher), shatterstrike (400 PHYSICAL spell).
+# Rally the Ranks lives under task 038 along with its infra prerequisites.
+
+## Squire's Formation runs the HARDCODED step that decrements essence_delta on every
+## Abyssal Knight currently in the caster's hand. Seed two knights + one non-knight,
+## fire the steps, expect -2 on the knights and 0 on the non-knight.
+static func _squire_of_the_order_discounts_knights_in_hand() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("squire_of_the_order / formation discounts all Abyssal Knights in hand by 2", state):
+		return
+	var k1 := CardInstance.create(CardDatabase.get_card("abyssal_knight"))
+	var k2 := CardInstance.create(CardDatabase.get_card("abyssal_knight"))
+	var other := CardInstance.create(CardDatabase.get_card("void_imp"))
+	state.player_hand.append(k1)
+	state.player_hand.append(k2)
+	state.player_hand.append(other)
+	var squire_data := CardDatabase.get_card("squire_of_the_order") as MinionCardData
+	EffectResolver.run(squire_data.formation_effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(k1.essence_delta, -2, "first Knight discount = -2")
+	TestHarness.assert_eq(k2.essence_delta, -2, "second Knight discount = -2")
+	TestHarness.assert_eq(other.essence_delta, 0, "non-Knight unaffected")
+
+## No knights in hand → handler runs but mutates nothing.
+static func _squire_of_the_order_no_knights_in_hand_is_noop() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("squire_of_the_order / formation with no Knights in hand is a clean no-op", state):
+		return
+	var other := CardInstance.create(CardDatabase.get_card("void_imp"))
+	state.player_hand.append(other)
+	var hand_size_before: int = state.player_hand.size()
+	var squire_data := CardDatabase.get_card("squire_of_the_order") as MinionCardData
+	EffectResolver.run(squire_data.formation_effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(other.essence_delta, 0, "non-Knight still 0")
+	TestHarness.assert_eq(state.player_hand.size(), hand_size_before, "hand size unchanged")
+
+## Order Conscript ON_PLAY: ADD_CARD pushes an order_footman CardInstance into hand.
+static func _order_conscript_adds_footman_to_hand() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("order_conscript / ON PLAY adds an Order Footman to hand", state):
+		return
+	var conscript := TestHarness.spawn_friendly(state, "order_conscript")
+	var data := conscript.card_data as MinionCardData
+	var before := state.player_hand.size()
+	EffectResolver.run(data.on_play_effect_steps, TestHarness.make_ctx(state, "player", conscript))
+	TestHarness.assert_eq(state.player_hand.size(), before + 1, "hand grew by 1")
+	var added: CardInstance = state.player_hand[state.player_hand.size() - 1]
+	TestHarness.assert_eq(added.card_data.id, "order_footman", "added card is order_footman")
+	TestHarness.assert_eq((added.card_data as MinionCardData).essence_cost, 1, "footman costs 1 Essence")
+
+## Quartermaster aura dispatcher: fire ON_PLAYER_MINION_SUMMONED with a new minion,
+## expect that minion to gain +100 Armour. Pre-place the new minion and the
+## Quartermaster on the board, then fire the trigger event manually.
+static func _quartermaster_buffs_new_friendly_summon_armour() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("quartermaster / on-friendly-summon aura grants +100 Armour to new minion", state):
+		return
+	var qm := TestHarness.spawn_friendly(state, "quartermaster")
+	var newcomer := TestHarness.spawn_friendly(state, "void_imp")
+	var armour_before: int = newcomer.armour
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": newcomer})
+	TestHarness.assert_eq(newcomer.armour - armour_before, 100, "newcomer gained +100 Armour")
+	TestHarness.assert_eq(qm.armour, 0, "Quartermaster itself unaffected")
+
+## "Does not self-buff": Quartermaster's own summon event should NOT trigger its aura on itself.
+## Sim the moment of Quartermaster's own summon by firing the event with qm as ctx.minion;
+## the dispatcher must skip the source when src == summoned.
+static func _quartermaster_does_not_self_buff() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("quartermaster / does not self-buff at its own summon event", state):
+		return
+	var qm := TestHarness.spawn_friendly(state, "quartermaster")
+	var armour_before: int = qm.armour
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": qm})
+	TestHarness.assert_eq(qm.armour, armour_before, "self-summon adds no Armour to self")
+
+## Two Quartermasters on the same side should stack: +200 Armour per friendly summon.
+static func _quartermaster_stacks_with_two_sources() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("quartermaster / two on board stack to +200 Armour per summon", state):
+		return
+	var qm1 := TestHarness.spawn_friendly(state, "quartermaster")
+	var qm2 := TestHarness.spawn_friendly(state, "quartermaster")
+	var newcomer := TestHarness.spawn_friendly(state, "void_imp")
+	var armour_before: int = newcomer.armour
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player", {"minion": newcomer})
+	TestHarness.assert_eq(newcomer.armour - armour_before, 200, "stacks to +200 from two Quartermasters")
+	TestHarness.assert_eq(qm1.armour, 0, "qm1 unaffected")
+	TestHarness.assert_eq(qm2.armour, 0, "qm2 unaffected")
+
+## Shatterstrike: 400 PHYSICAL to a chosen enemy minion. Pick a target with 0 armour
+## and 1000 HP so the raw 400 lands cleanly; armour math is tested separately.
+static func _shatterstrike_deals_physical_to_minion() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shatterstrike / 400 PHYSICAL to a chosen enemy minion", state):
+		return
+	var target := TestHarness.spawn_enemy(state, "rabid_imp")
+	target.current_health = 1000
+	var spell := CardDatabase.get_card("shatterstrike") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target)
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(1000 - target.current_health, 400, "target took 400 PHYSICAL")

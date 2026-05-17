@@ -21,20 +21,27 @@ var _override_cache: Dictionary = {}
 # ---------------------------------------------------------------------------
 # Token definitions — compact table for tokens summoned by card effects.
 # Fields: id, name, atk, hp, type (Enums.MinionType key), faction, desc,
-#         shield (optional, default 0), tags (optional), art (optional)
+#         shield (optional, default 0), tags (optional), art (optional),
+#         essence_cost (optional, default 0 — set for hand-only tokens like
+#         order_footman that get added to hand and played at a real cost).
 # ---------------------------------------------------------------------------
 const _TOKEN_DEFS: Array[Dictionary] = [
 	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png"},
 	{"id": "void_demon", "name": "Void Demon", "atk": 200, "hp": 200, "type": "DEMON",  "faction": "abyss_order", "desc": "", "art": "res://assets/art/minions/abyss_order/void_demon.png"},
 	{"id": "lesser_demon", "name": "Lesser Demon", "atk": 400, "hp": 400, "type": "DEMON", "faction": "abyss_order", "desc": "Summoned by Seris's Fiend Offering.", "tags": ["lesser_demon", "demon"], "art": "res://assets/art/minions/abyss_order/lesser_demon.png"},
 	{"id": "forged_demon", "name": "Forged Demon", "atk": 500, "hp": 500, "type": "DEMON", "faction": "abyss_order", "desc": "Forged by Seris's Soul Forge.",    "tags": ["forged_demon", "demon"], "art": "res://assets/art/minions/abyss_order/forged_demon.png"},
+	# Korrath core — Order Footman: 1E Human 100/200, added to hand by Order Conscript.
+	{"id": "order_footman", "name": "Order Footman", "atk": 100, "hp": 200, "type": "HUMAN", "faction": "abyss_order", "desc": "", "essence_cost": 1, "tags": ["order_footman"]},
+	# Korrath core — Rank and File: 0E race-matched 200/100 glass cannons spawned by Rally the Ranks.
+	{"id": "rank_and_file_h", "name": "Rank and File", "atk": 200, "hp": 100, "type": "HUMAN", "faction": "abyss_order", "desc": "", "tags": ["rank_and_file"]},
+	{"id": "rank_and_file_d", "name": "Rank and File", "atk": 200, "hp": 100, "type": "DEMON", "faction": "abyss_order", "desc": "", "tags": ["rank_and_file"]},
 ]
 
 func _make_token(d: Dictionary) -> MinionCardData:
 	var c := MinionCardData.new()
 	c.id           = d["id"]
 	c.card_name    = d["name"]
-	c.essence_cost = 0
+	c.essence_cost = d.get("essence_cost", 0)
 	c.atk          = d["atk"]
 	c.health       = d["hp"]
 	c.shield_max   = d.get("shield", 0)
@@ -531,6 +538,86 @@ func _register_wanderer_cards() -> void:
 	all.append(flesh_rend)
 
 	# --- end Seris Core Pool --------------------------------------------------
+
+	# --- Korrath Core Pool ----------------------------------------------------
+	# Hero-gated starter pool visible only when Korrath is the active hero. Pool
+	# assignment lives in the _card_pools dict at the bottom of this file.
+	# Design: design/KORRATH_HERO_DESIGN §10. Tokens (order_footman, rank_and_file_h/d)
+	# are defined in _TOKEN_DEFS at the top of this file.
+
+	# Squire of the Order — 2E Human/Demon 100/300 FORMATION. On Formation: reduce the
+	# Essence cost of all Abyssal Knights currently in caster's hand by 2 (one-shot per
+	# Squire per task 036). Dual-tag so each adjacent side can independently satisfy
+	# Formation with a Human OR a Demon partner (per task 037 still needs partners on
+	# BOTH sides). Discount uses the generic MOD_HAND_CARDS_COST step (card_id filter).
+	var squire_of_the_order := MinionCardData.new()
+	squire_of_the_order.id                  = "squire_of_the_order"
+	squire_of_the_order.card_name           = "Squire of the Order"
+	squire_of_the_order.essence_cost        = 2
+	squire_of_the_order.atk                 = 100
+	squire_of_the_order.health              = 300
+	squire_of_the_order.minion_type         = Enums.MinionType.HUMAN
+	squire_of_the_order.extra_minion_types  = [Enums.MinionType.DEMON]
+	squire_of_the_order.keywords            = [Enums.Keyword.FORMATION]
+	squire_of_the_order.description         = "FORMATION: Abyssal Knights in your hand cost 2 less Essence."
+	squire_of_the_order.formation_effect_steps = [
+		{"type": "MOD_HAND_CARDS_COST", "card_id": "abyssal_knight", "resource": "essence", "amount": -2},
+	]
+	squire_of_the_order.faction             = "abyss_order"
+	all.append(squire_of_the_order)
+
+	# Order Conscript — 1E Human 100/100. ON PLAY: add an Order Footman to caster's hand.
+	# The 1E Human filler Korrath was missing — mirrors void_imp_recruiter for Humans.
+	var order_conscript := MinionCardData.new()
+	order_conscript.id                  = "order_conscript"
+	order_conscript.card_name           = "Order Conscript"
+	order_conscript.essence_cost        = 1
+	order_conscript.atk                 = 100
+	order_conscript.health              = 100
+	order_conscript.minion_type         = Enums.MinionType.HUMAN
+	order_conscript.description         = "ON PLAY: Add an Order Footman to your hand."
+	order_conscript.on_play_effect_steps = [
+		{"type": "ADD_CARD", "card_id": "order_footman"},
+	]
+	order_conscript.faction             = "abyss_order"
+	all.append(order_conscript)
+
+	# Quartermaster — 3E Human 200/400. AURA: every friendly minion summoned gains +100
+	# Armour. Does not self-buff at its own summon (the dispatcher in CombatHandlers
+	# .on_minion_summoned_friendly_aura skips the aura source when it is itself the
+	# minion being summoned). Multiple Quartermasters stack — 2 = +200 per new summon.
+	var quartermaster := MinionCardData.new()
+	quartermaster.id                  = "quartermaster"
+	quartermaster.card_name           = "Quartermaster"
+	quartermaster.essence_cost        = 3
+	quartermaster.atk                 = 200
+	quartermaster.health              = 400
+	quartermaster.minion_type         = Enums.MinionType.HUMAN
+	quartermaster.description         = "AURA: Whenever you summon a minion, it gains +100 Armour."
+	quartermaster.on_friendly_summon_aura_steps = [
+		{"type": "BUFF_ARMOUR", "scope": "TRIGGER_MINION", "amount": 100, "source_tag": "quartermaster_aura"},
+	]
+	quartermaster.faction             = "abyss_order"
+	all.append(quartermaster)
+
+	# Shatterstrike — 2M Spell. Deal 400 PHYSICAL damage to a chosen enemy minion.
+	# Designed to teach the Armour ↔ Armour Break ↔ physical-damage interaction. The
+	# signed-net armour math in CombatManager._apply_armour_math handles the reduction
+	# (raw-cap floor) and the Armour Break excess-as-bonus conversion.
+	var shatterstrike := SpellCardData.new()
+	shatterstrike.id              = "shatterstrike"
+	shatterstrike.card_name       = "Shatterstrike"
+	shatterstrike.cost            = 2
+	shatterstrike.description     = "Deal 400 PHYSICAL damage to an enemy minion."
+	shatterstrike.requires_target = true
+	shatterstrike.target_type     = "enemy_minion"
+	shatterstrike.effect_steps    = [
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 400, "damage_school": "PHYSICAL"},
+	]
+	shatterstrike.faction         = "abyss_order"
+	all.append(shatterstrike)
+
+	# --- end Korrath Core Pool ------------------------------------------------
 
 	# --- Seris Common Support Pool --------------------------------------------
 	# Branch-neutral cards offered as combat rewards and shop picks for Seris.
@@ -3053,6 +3140,11 @@ func _register_wanderer_cards() -> void:
 		"fiendish_pact": ["seris_core"],
 		"grafted_butcher": ["seris_core"],
 		"flesh_rend": ["seris_core"],
+		# Korrath Core Pool — visible only when Korrath is the active hero (gated in DeckBuilderScene)
+		"squire_of_the_order": ["korrath_core"],
+		"order_conscript":     ["korrath_core"],
+		"quartermaster":       ["korrath_core"],
+		"shatterstrike":       ["korrath_core"],
 		# Seris Common Support Pool — combat reward / shop pool for Seris (see RewardScene._get_active_support_pool_ids)
 		"flesh_harvester": ["seris_common"],
 		"ravenous_fiend": ["seris_common"],

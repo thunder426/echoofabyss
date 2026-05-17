@@ -152,6 +152,24 @@ func shares_race(other: MinionCardData) -> bool:
 ## this minion. Empty = the FORMATION keyword fires no steps (still tracks pair tagging).
 @export var formation_effect_steps: Array = []
 
+## Declarative aura that fires once per friendly summon while this minion is on the
+## board. For each minion summoned on this card's side, the dispatcher (CombatHandlers
+## .on_minion_summoned_friendly_aura, registered in CombatSetup) walks the side board,
+## finds every aura-source with non-empty on_friendly_summon_aura_steps, and runs the
+## steps with ctx.source = the aura source and ctx.trigger_minion = the just-summoned
+## minion. The source is automatically skipped when it is itself the minion being
+## summoned (no self-buff on own entry). Multiple aura sources stack — each fires
+## once per summon event independently.
+##
+## Use scope=TRIGGER_MINION to target the newly summoned minion. Unlike presence
+## auras, these are one-shot per summon event — no strip-and-reapply — so they suit
+## permanent stat changes routed through paths outside BuffSystem (e.g. BUFF_ARMOUR).
+##
+## Example — Quartermaster grants +100 Armour to every friendly minion summoned:
+##   {"type": "BUFF_ARMOUR", "scope": "TRIGGER_MINION", "amount": 100,
+##    "source_tag": "quartermaster_aura"}
+@export var on_friendly_summon_aura_steps: Array = []
+
 ## Family / synergy tags used for data-driven queries instead of hardcoded card ID checks.
 ## Examples: "void_imp", "base_void_imp", "senior_void_imp", "void_champion", "imp_overseer".
 ## Add all applicable tags; CombatScene queries with _minion_has_tag() / _card_has_tag().

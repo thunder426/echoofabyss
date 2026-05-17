@@ -531,6 +531,12 @@ func setup(
 	# auras (7) so a Formation that grants a tag/race is reflected when auras recompute.
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_minion_summoned_formation,        8)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  h.on_minion_summoned_formation,        8)
+	# Generic on-friendly-summon aura dispatcher — runs MinionCardData
+	# .on_friendly_summon_aura_steps once per aura source on the summoned minion's
+	# side. Priority 6 fires AFTER presence auras (7) so the new minion's base buff
+	# state is already settled when the aura applies a one-shot stat like Armour.
+	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_minion_summoned_friendly_aura,    6)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  h.on_minion_summoned_friendly_aura,    6)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED,   h.on_enemy_minion_played_effect,         5)
 	# Generic minion presence-aura recompute — fires on every summon/death/sacrifice on
 	# either side. Walks MinionCardData.presence_aura_steps on every minion and recomputes

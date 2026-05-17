@@ -59,7 +59,8 @@ const DECK_BUILDER_POOLS_BASE: Array[String] = ["abyss_core", "neutral_core"]
 ## Hero-specific pools layered on top of the base pools. Cards with one of these
 ## pool ids are visible in the deck builder only when the matching hero is active.
 const DECK_BUILDER_POOLS_BY_HERO: Dictionary = {
-	"seris": ["seris_core"],
+	"seris":   ["seris_core"],
+	"korrath": ["korrath_core"],
 }
 
 ## Pools visible in the deck builder for the current hero (base + hero-specific).
