@@ -143,6 +143,15 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		"player_turn":
 			return scene.turn_manager.is_player_turn
 
+		# --- Cast-time runtime parameters (ctx.extra_cast_data) ---
+		# Rally the Ranks — race pick made at cast time (modal in live, heuristic in
+		# sim). The two race-conditional pairs of SUMMON steps gate on these so the
+		# spawned rank_and_file token matches the chosen race.
+		"rally_race_human":
+			return ctx.extra_cast_data.get("rally_race", "") == "human"
+		"rally_race_demon":
+			return ctx.extra_cast_data.get("rally_race", "") == "demon"
+
 		_:
 			push_warning("ConditionResolver: unknown condition '%s'" % cond)
 			return true

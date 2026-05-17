@@ -3,7 +3,7 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-- ["038"](038-rally-the-ranks-adjacent-summon-infra.md) — Implement rally_the_ranks + adjacent-summon infra + dual-tag race picker (combat, started 2026-05-16)
+_(none)_
 
 ## Backlog
 - ["007"](007-hero-armour-and-armour-break.md) — Hero Armour and Armour Break — extend Korrath stats to player/enemy heroes (combat)
@@ -27,6 +27,7 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["035"](035-refactor-armour-ab-to-signed-net.md) — Refactor Armour/AB damage math to a single signed net_armour value (combat, 2026-05-16 → 2026-05-16)
 - ["036"](036-formation-one-shot-consumable.md) — Convert Formation from per-pair to one-shot consumable status (combat, 2026-05-16 → 2026-05-16)
 - ["037"](037-formation-both-sides-required.md) — Tighten Formation to require same-race minions on BOTH sides (combat, 2026-05-16 → 2026-05-16)
+- ["038"](038-rally-the-ranks-adjacent-summon-infra.md) — Implement rally_the_ranks + adjacent-summon infra + dual-tag race picker (combat, 2026-05-16 → 2026-05-16)
 - ["034"](034-fix-known-bug-test-failures.md) — Fix the 3 KNOWN BUG test failures (combat, 2026-05-13 → 2026-05-13)
 - ["008"](008-korrath-card-pools-content.md) — Korrath card pools — content design and authoring (content, 2026-05-08 → 2026-05-12)
 - ["013"](013-remove-dead-hero-reward-pool-field.md) — Remove dead hero_reward_pool field from HeroData (meta, 2026-05-09 → 2026-05-12)

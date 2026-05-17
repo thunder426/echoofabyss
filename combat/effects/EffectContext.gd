@@ -54,6 +54,14 @@ var flesh_spent_this_cast: int = 0
 ## Null when no add-card step has run yet (or the add was burned by hand-cap).
 var last_added_instance: CardInstance = null
 
+## Free-form Dictionary carrying runtime parameters chosen at cast time but not
+## expressible as a single chosen_target — e.g. Rally the Ranks's race pick when
+## the target is dual-tag (HUMAN+DEMON). Caller (cast_player_targeted_spell, sim
+## commit_play_spell) merges its `extra_cast_data` arg into this field. Conditions
+## and steps read via ctx.extra_cast_data.get("key", default). Reserved keys so
+## far: "rally_race" ("human" | "demon"). Future runtime-decided params land here.
+var extra_cast_data: Dictionary = {}
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------

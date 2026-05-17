@@ -171,6 +171,18 @@ func _count_type_on_board(type: int, owner: String) -> int:
 			count += 1
 	return count
 
+## Sim-side / AI helper for Rally the Ranks's dual-tag race choice. Returns
+## "human" or "demon" based on which race the caster has more of on their own
+## board (ties → "demon" since Abyss Order leans Demon). Used by sim AI when
+## constructing extra_cast_data for commit_play_spell; live combat asks the
+## player via ChoiceModal instead and does not call this.
+func _rally_pick_race_for(owner: String) -> String:
+	var humans: int = _count_type_on_board(Enums.MinionType.HUMAN, owner)
+	var demons: int = _count_type_on_board(Enums.MinionType.DEMON, owner)
+	if humans > demons:
+		return "human"
+	return "demon"
+
 ## True if the minion's card_data has the given tag.
 func _minion_has_tag(m: MinionInstance, tag: String) -> bool:
 	if m == null:
@@ -433,12 +445,13 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 ## The trigger fire (ON_PLAYER_SPELL_CAST) is left to the caller since live
 ## combat fires it at different points per callsite (inside resolve_damage for
 ## AoE; after VFX completes for targeted) — preserving existing timing.
-func cast_player_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void:
+func cast_player_targeted_spell(spell: SpellCardData, target: MinionInstance, extra_cast_data: Dictionary = {}) -> void:
 	_pre_player_spell_cast(spell)
 	if not spell.effect_steps.is_empty():
 		var ctx := EffectContext.make(_get_scene_facade(), "player")
 		ctx.chosen_target = target
 		ctx.source_card_id = spell.id
+		ctx.extra_cast_data = extra_cast_data
 		EffectResolver.run(spell.effect_steps, ctx)
 	else:
 		_resolve_spell_effect(spell.effect_id, target)
@@ -496,18 +509,10 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 		return
 	_summon_token_pure(card_id, owner, token_atk, token_hp, token_shield)
 
-## Pure-logic summon: find an empty slot, instantiate the token (with optional
-## stat overrides), append + place, emit `minion_summoned`, fire the
-## ON_*_MINION_SUMMONED trigger. No VFX, no async. Sim calls this directly
-## via inheritance; live combat reaches it only when scene's VFX-rich
-## `_summon_token` is unavailable (shouldn't normally happen).
+## Pure-logic summon: find an empty slot, then delegate to _spawn_token_into_slot
+## for the actual placement + trigger fire. Sim calls this directly via inheritance;
+## live combat reaches it only when scene's VFX-rich `_summon_token` is unavailable.
 func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	# Combat-time lookup so clan rules / overrides apply to tokens summoned
-	# mid-fight in sim. Mirrors CombatScene._summon_token's _card_for migration.
-	var base := _card_for(owner, card_id)
-	if base == null or not (base is MinionCardData):
-		return
-	var board := player_board if owner == "player" else enemy_board
 	var slots := player_slots if owner == "player" else enemy_slots
 	var slot: BoardSlot = null
 	for s in slots:
@@ -516,6 +521,30 @@ func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, toke
 			break
 	if slot == null:
 		return  # board full
+	_spawn_token_into_slot(card_id, owner, slot, token_atk, token_hp, token_shield)
+
+## Slot-pinned variant: summon into a specific slot (e.g. Rally the Ranks's
+## adjacent-to-target placement). Silently fizzles if the slot is null, off-board,
+## or already occupied — that's the "up to 2" semantics the caller relies on.
+## Mirrors _summon_token_pure's pure-logic path; live combat overrides this via
+## CombatScene._summon_token_at_slot for VFX.
+func _summon_token_at_slot(card_id: String, owner: String, slot: BoardSlot, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+	if slot == null or not slot.is_empty():
+		return
+	_spawn_token_into_slot(card_id, owner, slot, token_atk, token_hp, token_shield)
+
+## Shared core: card lookup + stat overrides + place + emit + trigger fire.
+## Pure logic — no VFX or async. Called by both _summon_token_pure (first-empty
+## slot) and _summon_token_at_slot (specific slot). CombatScene's VFX-rich
+## variants do their own placement to drive sigil animations but follow the
+## same trigger contract.
+func _spawn_token_into_slot(card_id: String, owner: String, slot: BoardSlot, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+	# Combat-time lookup so clan rules / overrides apply to tokens summoned
+	# mid-fight in sim. Mirrors CombatScene._summon_token's _card_for migration.
+	var base := _card_for(owner, card_id)
+	if base == null or not (base is MinionCardData):
+		return
+	var board := player_board if owner == "player" else enemy_board
 	var mc := (base as MinionCardData).duplicate() as MinionCardData
 	if token_atk > 0:    mc.atk        = token_atk
 	if token_hp > 0:     mc.health     = token_hp

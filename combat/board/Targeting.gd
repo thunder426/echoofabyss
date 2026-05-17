@@ -102,7 +102,7 @@ func highlight_spell_targets(spell: SpellCardData) -> void:
 	if spell.target_type == "trap_or_env":
 		_scene._setup_trap_env_targeting()
 		return
-	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_void_imp", "friendly_feral_imp", "any_minion", "any_minion_or_enemy_hero"]
+	var hits_friendly := spell.target_type in ["friendly_minion", "friendly_human", "friendly_demon", "friendly_human_or_demon", "friendly_void_imp", "friendly_feral_imp", "any_minion", "any_minion_or_enemy_hero"]
 	var hits_enemy    := spell.target_type in ["enemy_minion", "any_minion", "enemy_minion_or_hero", "any_minion_or_enemy_hero"]
 	var hits_hero     := spell.target_type in ["enemy_minion_or_hero", "any_minion_or_enemy_hero"]
 	var color_picker: Callable = spell_highlight_color_picker(spell)
@@ -177,6 +177,12 @@ func is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	match target_type:
 		"friendly_human":    return (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN)
 		"friendly_demon":    return (minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON)
+		"friendly_human_or_demon":
+			# Rally the Ranks — Human OR Demon (either via primary minion_type or via
+			# extra_minion_types, since is_race covers both). Dual-tag minions like
+			# Squire of the Order or Abyssal Knight under runeforge_strike match.
+			var mc := minion.card_data as MinionCardData
+			return mc != null and (mc.is_race(Enums.MinionType.HUMAN) or mc.is_race(Enums.MinionType.DEMON))
 		"friendly_minion":   return true
 		"friendly_void_imp": return _scene._minion_has_tag(minion, "void_imp")
 		"friendly_feral_imp": return _scene._minion_has_tag(minion, "feral_imp")

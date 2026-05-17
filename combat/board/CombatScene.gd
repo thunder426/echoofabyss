@@ -2267,47 +2267,61 @@ func _on_friendly_minion_died(_dead_minion: MinionInstance) -> void:
 ## Generic token summon used by EffectResolver. Summons card_id into the first empty slot for owner.
 ## token_atk / token_hp / token_shield override the template defaults when non-zero.
 func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	# Combat-time lookup so clan rules / overrides apply to tokens summoned
-	# mid-fight (e.g. Imp Vessel on-death imps, Ritual Surge imps, Soul Forge
-	# Forged Demons). Without this, those tokens would land with base stats
-	# and miss talent baselines.
+	var slots  := player_slots if owner == "player" else enemy_slots
+	for slot in slots:
+		if slot.is_empty():
+			_spawn_token_into_slot_vfx(card_id, owner, slot, token_atk, token_hp, token_shield)
+			return
+
+## Slot-pinned variant for adjacent-to-target summon steps (e.g. Rally the Ranks).
+## Silently fizzles if the slot is null, off-board, or already occupied — that's
+## the "up to 2" semantics. Mirrors CombatState._summon_token_at_slot but routes
+## through the VFX-rich spawn path so champion/sigil token animations still play.
+func _summon_token_at_slot(card_id: String, owner: String, slot: BoardSlot, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+	if slot == null or not slot.is_empty():
+		return
+	_spawn_token_into_slot_vfx(card_id, owner, slot, token_atk, token_hp, token_shield)
+
+## Shared VFX-rich core: card lookup + stat overrides + place + emit + trigger fire,
+## with sigil/champion animations dispatched via CardVfxRegistry. Called by both
+## _summon_token (first-empty slot) and _summon_token_at_slot (caller-chosen slot).
+## Combat-time `_card_for` lookup so clan rules / overrides apply (Imp Vessel
+## on-death imps, Ritual Surge imps, Soul Forge Forged Demons land with talent
+## baselines instead of base stats).
+func _spawn_token_into_slot_vfx(card_id: String, owner: String, slot: BoardSlot, token_atk: int, token_hp: int, token_shield: int) -> void:
 	var data := _card_for(owner, card_id) as MinionCardData
 	if data == null:
 		return
-	var slots  := player_slots if owner == "player" else enemy_slots
 	var board  := player_board if owner == "player" else enemy_board
-	for slot in slots:
-		if slot.is_empty():
-			var instance := MinionInstance.create(data, owner)
-			if token_atk    > 0:
-				instance.current_atk  = token_atk
-				instance.spawn_atk    = token_atk
-			if token_hp     > 0:
-				instance.current_health = token_hp
-				instance.spawn_health   = token_hp
-			if token_shield > 0:
-				instance.current_shield = token_shield
-				BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token", false, false)
-			board.append(instance)
-			state.minion_summoned.emit(owner, instance, slot.index)
-			# Champion tokens get a dramatic entrance (fire-and-forget — places minion on slot after animation)
-			if data.is_champion and vfx_bridge != null:
-				vfx_bridge.champion_summon_sequence(data, instance, slot)
-			else:
-				# Token-VFX dispatch lives in CardVfxRegistry. When a registered
-				# handler runs (sigil summons for spark/demon/brood_imp), the
-				# bridge places the minion AND fires ON_*_MINION_SUMMONED via
-				# _reveal_after_sigil — so we short-circuit the default path.
-				if CardVfxRegistry.try_play_token_summon(vfx_bridge, card_id, instance, data, slot, owner):
-					return
-				slot.place_minion(instance)
-				_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
-				var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-				var ctx   := EventContext.make(event, owner)
-				ctx.minion = instance
-				ctx.card   = data
-				trigger_manager.fire(ctx)
-			return
+	var instance := MinionInstance.create(data, owner)
+	if token_atk    > 0:
+		instance.current_atk  = token_atk
+		instance.spawn_atk    = token_atk
+	if token_hp     > 0:
+		instance.current_health = token_hp
+		instance.spawn_health   = token_hp
+	if token_shield > 0:
+		instance.current_shield = token_shield
+		BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token", false, false)
+	board.append(instance)
+	state.minion_summoned.emit(owner, instance, slot.index)
+	# Champion tokens get a dramatic entrance (fire-and-forget — places minion on slot after animation)
+	if data.is_champion and vfx_bridge != null:
+		vfx_bridge.champion_summon_sequence(data, instance, slot)
+		return
+	# Token-VFX dispatch lives in CardVfxRegistry. When a registered handler runs
+	# (sigil summons for spark/demon/brood_imp), the bridge places the minion AND
+	# fires ON_*_MINION_SUMMONED via _reveal_after_sigil — so we short-circuit
+	# the default path.
+	if CardVfxRegistry.try_play_token_summon(vfx_bridge, card_id, instance, data, slot, owner):
+		return
+	slot.place_minion(instance)
+	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
+	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
+	var ctx   := EventContext.make(event, owner)
+	ctx.minion = instance
+	ctx.card   = data
+	trigger_manager.fire(ctx)
 
 ## Aura-source minions play a one-shot breathing halo on their own summon to
 ## advertise "I project an aura" without the noise of a persistent effect.
@@ -3344,6 +3358,12 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 	pending_play_card = null
 	_clear_all_highlights()
 	var captured_target: MinionInstance = target
+	# Cast-time runtime parameters (e.g. Rally the Ranks's dual-tag race pick) are
+	# resolved BEFORE the cast animation, so the player picks first and the VFX
+	# then plays for the committed choice. _resolve_spell_extra_cast_data returns
+	# {} for spells with no runtime params or no decision needed (single-tag
+	# target). The dict is forwarded into state.cast_player_targeted_spell.
+	var extra_cast_data: Dictionary = await _resolve_spell_extra_cast_data(spell, captured_target)
 	_show_card_cast_anim(spell, false, func() -> void:
 		# P4B: invert the resolve-at-impact pattern. Freeze the target slot BEFORE
 		# mutating state so _on_minion_vanished sees freeze_visuals=true and defers
@@ -3354,7 +3374,7 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 		if target_slot != null:
 			target_slot.freeze_visuals = true
 		_capturing_spell_popups = true
-		state.cast_player_targeted_spell(spell, captured_target)
+		state.cast_player_targeted_spell(spell, captured_target, extra_cast_data)
 		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
 		spell_ctx.card = spell
 		trigger_manager.fire(spell_ctx)
@@ -3375,6 +3395,40 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 			target_slot._refresh_visuals()
 			_flush_deferred_deaths()
 	)
+
+## Resolve cast-time runtime parameters for spells that need a choice the
+## EffectResolver can't make on its own (e.g. Rally the Ranks's race pick when
+## the chosen target is dual-tag Human+Demon). Returns a Dictionary forwarded
+## into cast_player_targeted_spell as ctx.extra_cast_data. Empty {} when the
+## spell needs no runtime params, or when the choice is determined by the
+## target's only race (single-tag target → no modal needed).
+##
+## Currently only Rally the Ranks uses this. Future cards that need similar
+## "pick a parameter at cast time" UX wire here via a per-spell branch.
+func _resolve_spell_extra_cast_data(spell: SpellCardData, target: MinionInstance) -> Dictionary:
+	if spell == null or target == null or target.card_data == null:
+		return {}
+	match spell.id:
+		"rally_the_ranks":
+			var mc := target.card_data as MinionCardData
+			var is_human: bool = mc.is_race(Enums.MinionType.HUMAN)
+			var is_demon: bool = mc.is_race(Enums.MinionType.DEMON)
+			if is_human and is_demon:
+				# Dual-tag target — ask the player.
+				var modal := ChoiceModal.new()
+				add_child(modal)
+				modal.show_modal("%s is both Human and Demon — which race for the Rank and File tokens?" % target.card_data.card_name,
+					[{"label": "Human", "value": "human"},
+					 {"label": "Demon", "value": "demon"}])
+				var picked = await modal.choice_made
+				modal.queue_free()
+				return {"rally_race": picked}
+			if is_human:
+				return {"rally_race": "human"}
+			if is_demon:
+				return {"rally_race": "demon"}
+			return {}  # shouldn't happen — target_type gates this
+	return {}
 
 ## Fired when player clicks the enemy hero panel while targeting a spell with "enemy_minion_or_hero".
 func _on_enemy_hero_spell_input(event: InputEvent) -> void:

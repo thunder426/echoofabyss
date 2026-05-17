@@ -136,7 +136,7 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 		_resolve_on_play(mc, instance, chosen_target)
 	return sim.winner.is_empty()
 
-func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
+func commit_play_spell(inst: CardInstance, chosen_target = null, extra_cast_data: Dictionary = {}) -> bool:
 	var spell := inst.card_data as SpellCardData
 	sim.enemy_hand.erase(inst)
 	inst.resolved_on_turn = sim._current_turn
@@ -150,7 +150,7 @@ func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
 		ctx.card = spell
 		sim.trigger_manager.fire(ctx)
-	_resolve_spell(spell, chosen_target)
+	_resolve_spell(spell, chosen_target, extra_cast_data)
 	return sim.winner.is_empty()
 
 func commit_play_trap(inst: CardInstance) -> bool:
@@ -282,12 +282,12 @@ func _resolve_on_play(mc: MinionCardData, instance: MinionInstance, chosen_targe
 	var ctx := _make_ctx("enemy", instance, chosen_target)
 	EffectResolver.run(mc.on_play_effect_steps, ctx)
 
-func _resolve_spell(spell: SpellCardData, chosen_target) -> void:
-	var ctx := _make_ctx("enemy", null, chosen_target)
+func _resolve_spell(spell: SpellCardData, chosen_target, extra_cast_data: Dictionary = {}) -> void:
+	var ctx := _make_ctx("enemy", null, chosen_target, extra_cast_data)
 	ctx.source_card_id = spell.id
 	EffectResolver.run(spell.effect_steps, ctx)
 
-func _make_ctx(owner: String, source: MinionInstance, chosen_target) -> EffectContext:
+func _make_ctx(owner: String, source: MinionInstance, chosen_target, extra_cast_data: Dictionary = {}) -> EffectContext:
 	var ctx        := EffectContext.new()
 	ctx.scene       = sim
 	ctx.owner       = owner
@@ -296,4 +296,5 @@ func _make_ctx(owner: String, source: MinionInstance, chosen_target) -> EffectCo
 		ctx.chosen_target = chosen_target
 	else:
 		ctx.chosen_object = chosen_target
+	ctx.extra_cast_data = extra_cast_data
 	return ctx

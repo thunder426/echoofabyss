@@ -141,14 +141,44 @@ static func _spawn(state: SimState, id: String, side: String) -> MinionInstance:
 			break
 	return inst
 
+## Spawn a card at a specific slot index (no first-empty search). Useful for
+## adjacency tests where target slot index matters (Rally the Ranks, Formation
+## sandwich setups). Returns null if the slot is already occupied.
+static func spawn_friendly_at(state: SimState, id: String, slot_index: int) -> MinionInstance:
+	return _spawn_at(state, id, "player", slot_index)
+
+static func spawn_enemy_at(state: SimState, id: String, slot_index: int) -> MinionInstance:
+	return _spawn_at(state, id, "enemy", slot_index)
+
+static func _spawn_at(state: SimState, id: String, side: String, slot_index: int) -> MinionInstance:
+	var data: MinionCardData = CardDatabase.get_card(id) as MinionCardData
+	if data == null:
+		push_error("TestHarness: unknown minion id '%s'" % id)
+		return null
+	var slots := state.player_slots if side == "player" else state.enemy_slots
+	if slot_index < 0 or slot_index >= slots.size():
+		push_error("TestHarness: slot_index %d out of range" % slot_index)
+		return null
+	var slot: BoardSlot = slots[slot_index]
+	if not slot.is_empty():
+		push_error("TestHarness: slot %d already occupied" % slot_index)
+		return null
+	var inst := MinionInstance.create(data, side)
+	var board := state.player_board if side == "player" else state.enemy_board
+	board.append(inst)
+	slot.minion = inst
+	inst.slot_index = slot.index
+	return inst
+
 ## EffectContext for a raw EffectResolver.run() call, bypassing card lifecycle.
 static func make_ctx(state: SimState, owner: String, source: MinionInstance = null,
-		chosen_target: MinionInstance = null) -> EffectContext:
+		chosen_target: MinionInstance = null, extra_cast_data: Dictionary = {}) -> EffectContext:
 	var ctx := EffectContext.new()
 	ctx.scene = state
 	ctx.owner = owner
 	ctx.source = source
 	ctx.chosen_target = chosen_target
+	ctx.extra_cast_data = extra_cast_data
 	return ctx
 
 # ---------------------------------------------------------------------------

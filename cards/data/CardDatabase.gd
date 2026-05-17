@@ -600,6 +600,30 @@ func _register_wanderer_cards() -> void:
 	quartermaster.faction             = "abyss_order"
 	all.append(quartermaster)
 
+	# Rally the Ranks — 2M Spell. Target a friendly Human OR Demon minion; summon up
+	# to 2 race-matched Rank and File tokens (200/100) in the slots adjacent to the
+	# target. Dual-tag targets (e.g. Squire of the Order, or Abyssal Knight under
+	# runeforge_strike) trigger a runtime race-picker (modal in live combat, sim
+	# heuristic in headless). The race choice arrives on ctx.extra_cast_data
+	# ("rally_race" = "human" | "demon"); the four conditional SUMMON steps gate on
+	# rally_race_human / rally_race_demon so two of the four fire. Adjacent slots
+	# that are occupied or off-board silently fizzle — that's the "up to 2" promise.
+	var rally_the_ranks := SpellCardData.new()
+	rally_the_ranks.id              = "rally_the_ranks"
+	rally_the_ranks.card_name       = "Rally the Ranks"
+	rally_the_ranks.cost            = 2
+	rally_the_ranks.description     = "Target a friendly Human or Demon. Summon up to 2 Rank and File tokens (matching the target's race) in adjacent slots."
+	rally_the_ranks.requires_target = true
+	rally_the_ranks.target_type     = "friendly_human_or_demon"
+	rally_the_ranks.effect_steps    = [
+		{"type": "SUMMON", "card_id": "rank_and_file_h", "adjacent_to_target": true, "adjacent_side": "left",  "conditions": ["rally_race_human"]},
+		{"type": "SUMMON", "card_id": "rank_and_file_h", "adjacent_to_target": true, "adjacent_side": "right", "conditions": ["rally_race_human"]},
+		{"type": "SUMMON", "card_id": "rank_and_file_d", "adjacent_to_target": true, "adjacent_side": "left",  "conditions": ["rally_race_demon"]},
+		{"type": "SUMMON", "card_id": "rank_and_file_d", "adjacent_to_target": true, "adjacent_side": "right", "conditions": ["rally_race_demon"]},
+	]
+	rally_the_ranks.faction         = "abyss_order"
+	all.append(rally_the_ranks)
+
 	# Shatterstrike — 2M Spell. Deal 400 PHYSICAL damage to a chosen enemy minion.
 	# Designed to teach the Armour ↔ Armour Break ↔ physical-damage interaction. The
 	# signed-net armour math in CombatManager._apply_armour_math handles the reduction
@@ -3143,6 +3167,7 @@ func _register_wanderer_cards() -> void:
 		# Korrath Core Pool — visible only when Korrath is the active hero (gated in DeckBuilderScene)
 		"squire_of_the_order": ["korrath_core"],
 		"order_conscript":     ["korrath_core"],
+		"rally_the_ranks":     ["korrath_core"],
 		"quartermaster":       ["korrath_core"],
 		"shatterstrike":       ["korrath_core"],
 		# Seris Common Support Pool — combat reward / shop pool for Seris (see RewardScene._get_active_support_pool_ids)

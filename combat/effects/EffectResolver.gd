@@ -79,7 +79,30 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			return
 
 		EffectStep.EffectType.SUMMON:
-			if ConditionResolver.check_all(step.conditions, ctx, null):
+			if not ConditionResolver.check_all(step.conditions, ctx, null):
+				return
+			if step.adjacent_to_target:
+				# Slot-pinned summon — pick the slot adjacent to ctx.chosen_target on
+				# the caster's own board side, then route through _summon_token_at_slot.
+				# Silently fizzles if no target, mismatched side, off-board, or
+				# occupied — matches Rally the Ranks's "up to 2" semantics.
+				var target: MinionInstance = ctx.chosen_target
+				if target == null or target.slot_index < 0:
+					return
+				# Sanity: only summon on the caster's own side. If the chosen target
+				# is on the opponent's board, skip — Rally targets friendlies but a
+				# misconfigured caller shouldn't spawn into the opponent's board.
+				if target.owner != ctx.owner:
+					return
+				var slots: Array = ctx.scene._friendly_slots(ctx.owner) if ctx.scene.has_method("_friendly_slots") \
+					else (ctx.scene.player_slots if ctx.owner == "player" else ctx.scene.enemy_slots)
+				var offset: int = -1 if step.adjacent_side == "left" else 1
+				var target_index: int = target.slot_index + offset
+				if target_index < 0 or target_index >= slots.size():
+					return
+				var slot: BoardSlot = slots[target_index]
+				ctx.scene._summon_token_at_slot(step.card_id, ctx.owner, slot, step.token_atk, step.token_hp, step.token_shield)
+			else:
 				ctx.scene._summon_token(step.card_id, ctx.owner, step.token_atk, step.token_hp, step.token_shield)
 			return
 

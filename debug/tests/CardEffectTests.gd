@@ -80,6 +80,17 @@ static func run_all() -> void:
 	_quartermaster_stacks_with_two_sources()
 	_shatterstrike_deals_physical_to_minion()
 
+	# Rally the Ranks (task 038)
+	_rally_human_target_spawns_two_human_tokens()
+	_rally_demon_target_spawns_two_demon_tokens()
+	_rally_dual_tag_target_with_human_choice()
+	_rally_dual_tag_target_with_demon_choice()
+	_rally_edge_slot_target_only_right_spawns()
+	_rally_both_adjacent_occupied_zero_tokens()
+	_rally_one_adjacent_occupied_one_token()
+	_rally_no_race_in_extra_data_zero_tokens()
+	_rally_sim_race_heuristic()
+
 # ---------------------------------------------------------------------------
 # Voidbolt (kept from scaffold phase)
 # ---------------------------------------------------------------------------
@@ -1036,3 +1047,139 @@ static func _shatterstrike_deals_physical_to_minion() -> void:
 	var ctx := TestHarness.make_ctx(state, "player", null, target)
 	EffectResolver.run(spell.effect_steps, ctx)
 	TestHarness.assert_eq(1000 - target.current_health, 400, "target took 400 PHYSICAL")
+
+# ---------------------------------------------------------------------------
+# Rally the Ranks (task 038)
+# ---------------------------------------------------------------------------
+# 2M spell. Target a friendly Human OR Demon; summon up to 2 race-matched
+# rank_and_file tokens (200/100) into the slots adjacent to the target. Dual-tag
+# targets need a race pick at cast time (modal in live, heuristic in sim) which
+# arrives via ctx.extra_cast_data["rally_race"]. Adjacent slots that are
+# occupied or off-board silently fizzle ("up to 2" semantics).
+
+## Single-tag Human target in the middle slot → 2 Human tokens flanking.
+static func _rally_human_target_spawns_two_human_tokens() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / Human target → 2 rank_and_file_h flanking", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "order_conscript", 2)  # Human
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {"rally_race": "human"})
+	EffectResolver.run(spell.effect_steps, ctx)
+	var left: MinionInstance = state.player_slots[1].minion
+	var right: MinionInstance = state.player_slots[3].minion
+	TestHarness.assert_true(left != null and left.card_data.id == "rank_and_file_h", "left slot has rank_and_file_h")
+	TestHarness.assert_true(right != null and right.card_data.id == "rank_and_file_h", "right slot has rank_and_file_h")
+
+## Single-tag Demon target → 2 Demon tokens flanking.
+static func _rally_demon_target_spawns_two_demon_tokens() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / Demon target → 2 rank_and_file_d flanking", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "void_imp", 2)  # Demon
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {"rally_race": "demon"})
+	EffectResolver.run(spell.effect_steps, ctx)
+	var left: MinionInstance = state.player_slots[1].minion
+	var right: MinionInstance = state.player_slots[3].minion
+	TestHarness.assert_true(left != null and left.card_data.id == "rank_and_file_d", "left slot has rank_and_file_d")
+	TestHarness.assert_true(right != null and right.card_data.id == "rank_and_file_d", "right slot has rank_and_file_d")
+
+## Dual-tag target (Squire of the Order — Human+Demon) with race=human → Human tokens.
+static func _rally_dual_tag_target_with_human_choice() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / dual-tag target + rally_race=human → 2 rank_and_file_h", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "squire_of_the_order", 2)  # Human+Demon
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {"rally_race": "human"})
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(state.player_slots[1].minion.card_data.id, "rank_and_file_h", "left = rank_and_file_h")
+	TestHarness.assert_eq(state.player_slots[3].minion.card_data.id, "rank_and_file_h", "right = rank_and_file_h")
+
+## Dual-tag target with race=demon → Demon tokens.
+static func _rally_dual_tag_target_with_demon_choice() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / dual-tag target + rally_race=demon → 2 rank_and_file_d", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "squire_of_the_order", 2)
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {"rally_race": "demon"})
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(state.player_slots[1].minion.card_data.id, "rank_and_file_d", "left = rank_and_file_d")
+	TestHarness.assert_eq(state.player_slots[3].minion.card_data.id, "rank_and_file_d", "right = rank_and_file_d")
+
+## Edge-slot target (slot 0) → only right token spawns; left is off-board.
+static func _rally_edge_slot_target_only_right_spawns() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / edge slot (0) → only right token spawns", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "order_conscript", 0)
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {"rally_race": "human"})
+	EffectResolver.run(spell.effect_steps, ctx)
+	var right: MinionInstance = state.player_slots[1].minion
+	TestHarness.assert_true(right != null and right.card_data.id == "rank_and_file_h", "right (slot 1) has rank_and_file_h")
+	# Confirm no token leaked into any other slot
+	var token_count := 0
+	for s in state.player_slots:
+		if s.minion != null and s.minion.card_data.id == "rank_and_file_h":
+			token_count += 1
+	TestHarness.assert_eq(token_count, 1, "exactly 1 token spawned at edge")
+
+## Both adjacent slots occupied → 0 tokens spawn, no crash.
+static func _rally_both_adjacent_occupied_zero_tokens() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / both adjacent slots occupied → 0 tokens spawn", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "order_conscript", 2)
+	var blocker_left := TestHarness.spawn_friendly_at(state, "void_imp", 1)
+	var blocker_right := TestHarness.spawn_friendly_at(state, "void_imp", 3)
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {"rally_race": "human"})
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(state.player_slots[1].minion, blocker_left, "left blocker untouched")
+	TestHarness.assert_eq(state.player_slots[3].minion, blocker_right, "right blocker untouched")
+	var token_count := 0
+	for s in state.player_slots:
+		if s.minion != null and s.minion.card_data.id == "rank_and_file_h":
+			token_count += 1
+	TestHarness.assert_eq(token_count, 0, "no rank_and_file_h spawned")
+
+## One adjacent slot occupied → 1 token spawns in the free slot.
+static func _rally_one_adjacent_occupied_one_token() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / one adjacent slot occupied → 1 token in free slot", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "order_conscript", 2)
+	var blocker_left := TestHarness.spawn_friendly_at(state, "void_imp", 1)
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {"rally_race": "human"})
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(state.player_slots[1].minion, blocker_left, "left blocker untouched")
+	TestHarness.assert_eq(state.player_slots[3].minion.card_data.id, "rank_and_file_h", "right has rank_and_file_h")
+
+## No race in extra_cast_data → all 4 conditional SUMMON steps fail their gate → 0 tokens.
+static func _rally_no_race_in_extra_data_zero_tokens() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / no rally_race in extra_cast_data → 0 tokens spawn", state):
+		return
+	var target := TestHarness.spawn_friendly_at(state, "order_conscript", 2)
+	var spell := CardDatabase.get_card("rally_the_ranks") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target, {})  # empty extra_cast_data
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_true(state.player_slots[1].is_empty(), "left slot still empty")
+	TestHarness.assert_true(state.player_slots[3].is_empty(), "right slot still empty")
+
+## Sim race-pick heuristic: more Humans → "human"; more Demons (or tie) → "demon".
+static func _rally_sim_race_heuristic() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rally_the_ranks / sim heuristic picks dominant race (tie → demon)", state):
+		return
+	# Empty board → tie 0/0 → "demon"
+	TestHarness.assert_eq(state._rally_pick_race_for("player"), "demon", "empty board → demon (tie)")
+	# Seed 2 Humans, 1 Demon → "human"
+	TestHarness.spawn_friendly(state, "order_conscript")  # Human
+	TestHarness.spawn_friendly(state, "order_conscript")  # Human
+	TestHarness.spawn_friendly(state, "void_imp")         # Demon
+	TestHarness.assert_eq(state._rally_pick_race_for("player"), "human", "2H/1D → human")

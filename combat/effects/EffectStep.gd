@@ -153,6 +153,15 @@ enum MinionFilter {
 @export var token_hp:     int = 0
 @export var token_shield: int = 0
 
+## SUMMON adjacency — when true, the token spawns into a slot adjacent to ctx
+## .chosen_target instead of the first empty slot. `adjacent_side` picks which
+## side ("left" = slot_index - 1, "right" = slot_index + 1). If the requested
+## slot is occupied or off-board, the spawn silently fizzles (the "up to 2"
+## semantics in Rally the Ranks). Requires ctx.chosen_target to be a friendly
+## minion on the owner's board; otherwise the spawn is skipped.
+@export var adjacent_to_target: bool = false
+@export var adjacent_side: String = ""  # "left" | "right"
+
 ## CONVERT_RESOURCE: source resource ("mana" or "essence").
 @export var convert_from: String = ""
 ## CONVERT_RESOURCE: destination resource ("mana" or "essence"). Conversion is capped at the destination's current max.
@@ -236,6 +245,8 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "token_atk"      in d: s.token_atk      = d["token_atk"]
 	if "token_hp"       in d: s.token_hp       = d["token_hp"]
 	if "token_shield"   in d: s.token_shield   = d["token_shield"]
+	if "adjacent_to_target" in d: s.adjacent_to_target = d["adjacent_to_target"]
+	if "adjacent_side"  in d: s.adjacent_side  = d["adjacent_side"]
 	if "convert_from"   in d: s.convert_from   = d["convert_from"]
 	if "convert_to"     in d: s.convert_to     = d["convert_to"]
 	if "purge_filter"   in d: s.purge_filter   = d["purge_filter"]
