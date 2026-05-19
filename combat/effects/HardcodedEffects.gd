@@ -64,6 +64,9 @@ func resolve(id: String, ctx: EffectContext) -> void:
 			_brood_call(ctx)
 		"pack_frenzy":
 			_pack_frenzy(ctx)
+		# --- Korrath — Battle Drillmaster cascade ---
+		"battle_drillmaster_cascade":
+			_battle_drillmaster_cascade(ctx)
 		# --- Seris Corruption Engine ---
 
 # ---------------------------------------------------------------------------
@@ -327,6 +330,21 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 # ---------------------------------------------------------------------------
 # Logging helper
 # ---------------------------------------------------------------------------
+
+## Korrath common — Battle Drillmaster ON PLAY. Fires every FORMATION minion on
+## the caster's side whose Formation has not yet been consumed, bypassing the
+## both-sides adjacency requirement. Drillmaster itself doesn't have FORMATION
+## so it's a no-op for it. Routes through CombatHandlers.fire_unconsumed_formations_cascade
+## so the cascade + ON_FORMATION_TRIGGERED dispatch lives in one place (next to
+## the normal Formation handler).
+func _battle_drillmaster_cascade(ctx: EffectContext) -> void:
+	if _scene == null:
+		return
+	var handlers: CombatHandlers = _scene.get("_handlers") as CombatHandlers
+	if handlers == null:
+		push_warning("battle_drillmaster_cascade: no _handlers on scene")
+		return
+	handlers.fire_unconsumed_formations_cascade(ctx.owner)
 
 func _log(msg: String, type: int = _LOG_PLAYER) -> void:
 	_scene._log(msg, type)

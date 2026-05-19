@@ -52,6 +52,9 @@ enum EffectType {
 	PLACE_RUNE_ON_OPPONENT,    # Voidshaped Acolyte — places a rune (card_id) on the opponent's traps with aura handlers registered on the opponent side.
 	MOD_LAST_ADDED_COST,       # Adjust the per-resource cost delta on ctx.last_added_instance (set by the previous TUTOR / ADD_CARD step). `amount` is the delta (negative = discount), `resource` selects "mana" / "essence". No-ops if no instance was added in this run.
 	MOD_HAND_CARDS_COST,       # Adjust the per-resource cost delta on every card in the caster's hand matching ALL set filters (card_id, card_tag, card_race — AND across whichever are populated). `amount` is the signed delta written to essence_delta or mana_delta (per `resource`). Filters left empty are no-ops in that axis; with all three empty the step would target every card in hand (loudly warn). Use for "FORMATION: reduce the cost of all Abyssal Knights in your hand by 2" and similar broadcast cost effects.
+	APPLY_ARMOUR_BREAK,        # Korrath — apply `amount` Armour Break to resolved minion target(s) via BuffSystem ARMOUR_BREAK. Signed-net: stack drives effective armour negative which converts to flat bonus physical damage per §2. When `include_hero` is true AND scope is an enemy-board scope (ALL_ENEMY), the opposing hero also receives the same AB via apply_hero_buff (Shattering Volley convention — "all enemies" includes hero). `source_tag` stamps the buff source label.
+	GRANT_ATTACK_RIDER,        # Korrath — stamp a per-minion attack rider onto resolved minion target(s). Each rider stores {source_tag, effect_steps, scope} and fires on ON_PLAYER_ATTACK_POST / ON_ENEMY_ATTACK via the rider dispatcher in CombatHandlers (post-damage, before counter-attack). `source_tag` is the rider's idempotency key — a target already carrying a rider with the same source_tag is not re-stamped (per Banner of the Order spec). `attack_rider_steps` field carries the steps the rider runs; `attack_rider_scope` picks the scope ("attack_target" = the defender of the attack). The rider lasts until the carrier dies.
+	ADD_HERO_ARMOUR,           # Korrath — grant `amount` Armour to the owner's hero (Lord Commander's ON PLAY). Routes through CombatState.add_hero_armour so HeroState mutation + hero_armour_changed signal stay centralized.
 }
 
 enum TargetScope {
@@ -66,6 +69,7 @@ enum TargetScope {
 	FILTERED_RANDOM_FRIENDLY, # One random minion from the friendly board, after filter
 	ALL_ENEMY,             # All opposing board minions
 	ALL_FRIENDLY,          # All friendly board minions
+	ADJACENT_FRIENDLIES,   # Korrath — the minions occupying slot_index ± 1 of ctx.source on the same board side (0, 1, or 2 results). Used by outward-grant Formation effects like Shield Bearer where the source itself is NOT the target. Edge slots return only the one valid neighbor; empty adjacent slots are skipped silently.
 	ALL_BOARD,             # Every minion on both boards
 	TRIGGER_MINION,        # The minion that caused the trap/aura to fire
 	DEAD_MINION,           # The minion that just died (on-death passives)
@@ -130,6 +134,10 @@ enum MinionFilter {
 ## "board_count" = × count of minions matching multiplier_board/multiplier_filter/multiplier_tag;
 ##                 respects exclude_self for self-exclusion from the count.
 ## "flesh_spent" = × ctx.flesh_spent_this_cast (set by earlier SPEND_FLESH / SPEND_FLESH_UP_TO step)
+## "armour_sum"  = sum of `armour` across minions on the chosen board (multiplier_board =
+##                 "friendly" / "enemy"); when include_hero=true the owner's hero Armour
+##                 is added on top. `amount` acts as a per-armour multiplier (typically 1).
+##                 Shield Bash's "damage = total friendly Armour + hero Armour" uses this.
 @export var multiplier_key: String = ""
 
 ## Used with "board_count": which board to count — "friendly" or "enemy".
@@ -161,6 +169,16 @@ enum MinionFilter {
 ## minion on the owner's board; otherwise the spawn is skipped.
 @export var adjacent_to_target: bool = false
 @export var adjacent_side: String = ""  # "left" | "right"
+
+## SUMMON variant — when true, the step iterates EVERY empty slot on the
+## caster's board in slot order (left → right) and summons one token per
+## empty slot. Each spawn is an independent summon (fires ON_*_MINION_SUMMONED,
+## ON_FORMATION_TRIGGERED on neighbors, etc.) so chained effects like Quartermaster's
+## aura or unconsumed Formations cascade naturally. Slots already occupied
+## are skipped silently. Mutually exclusive with adjacent_to_target — if both
+## are set, fill_empty_slots wins. Oath of Iron's "fill every empty slot"
+## is the first consumer.
+@export var fill_empty_slots: bool = false
 
 ## CONVERT_RESOURCE: source resource ("mana" or "essence").
 @export var convert_from: String = ""
@@ -198,6 +216,25 @@ enum MinionFilter {
 ## Reads via MinionCardData.is_race so dual-tag minions match either tag. Empty = no
 ## race filter. Combined with card_id / card_tag via AND.
 @export var card_race: String = ""
+
+## APPLY_ARMOUR_BREAK — when true AND scope is an enemy-board scope (ALL_ENEMY),
+## the opposing hero also receives the same AB amount via apply_hero_buff. Default
+## false keeps minion-only AoEs unaffected. Single-target AB to enemy hero should
+## be modeled via a different step (or a hero-targeting future variant).
+@export var include_hero: bool = false
+
+## GRANT_ATTACK_RIDER — steps the stamped rider runs when its carrier attacks.
+## Array of EffectStep dicts (same shape as effect_steps elsewhere). Empty = noop
+## rider (loud warning at stamp time). The rider's effect resolves with ctx.owner
+## = the carrier's owner, ctx.source = the carrier, and chosen_target / trigger_minion
+## bound to the attack defender (per attack_rider_scope below).
+@export var attack_rider_steps: Array = []
+
+## GRANT_ATTACK_RIDER — how the rider's steps see the attack defender. Currently
+## supports "attack_target" (the defender — MinionInstance or "enemy_hero" sentinel).
+## Bound to ctx.chosen_target for minion defenders; the rider handler routes hero
+## defenders through apply_hero_buff equivalents inside its own steps.
+@export var attack_rider_scope: String = "attack_target"
 
 ## Damage school for damage-dealing steps (DAMAGE_HERO, DAMAGE_MINION, VOID_BOLT).
 ## Default NONE — surfaces forgotten tags loudly. Cards/talents that need a specific
@@ -247,6 +284,7 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "token_shield"   in d: s.token_shield   = d["token_shield"]
 	if "adjacent_to_target" in d: s.adjacent_to_target = d["adjacent_to_target"]
 	if "adjacent_side"  in d: s.adjacent_side  = d["adjacent_side"]
+	if "fill_empty_slots" in d: s.fill_empty_slots = d["fill_empty_slots"]
 	if "convert_from"   in d: s.convert_from   = d["convert_from"]
 	if "convert_to"     in d: s.convert_to     = d["convert_to"]
 	if "purge_filter"   in d: s.purge_filter   = d["purge_filter"]
@@ -261,6 +299,12 @@ static func from_dict(d: Dictionary) -> EffectStep:
 	if "resource"       in d: s.resource        = d["resource"]
 	if "card_tag"       in d: s.card_tag        = d["card_tag"]
 	if "card_race"      in d: s.card_race       = d["card_race"]
+	if "include_hero"   in d: s.include_hero    = d["include_hero"]
+	if "attack_rider_steps" in d:
+		var rs: Array = []
+		rs.assign(d["attack_rider_steps"])
+		s.attack_rider_steps = rs
+	if "attack_rider_scope" in d: s.attack_rider_scope = d["attack_rider_scope"]
 	if "damage_school" in d:
 		# Accept either an int (Enums.DamageSchool value) or string name ("VOID", "VOID_BOLT").
 		var ds = d["damage_school"]

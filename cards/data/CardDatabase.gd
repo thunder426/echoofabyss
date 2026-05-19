@@ -35,6 +35,9 @@ const _TOKEN_DEFS: Array[Dictionary] = [
 	# Korrath core — Rank and File: 0E race-matched 200/100 glass cannons spawned by Rally the Ranks.
 	{"id": "rank_and_file_h", "name": "Rank and File", "atk": 200, "hp": 100, "type": "HUMAN", "faction": "abyss_order", "desc": "", "tags": ["rank_and_file"]},
 	{"id": "rank_and_file_d", "name": "Rank and File", "atk": 200, "hp": 100, "type": "DEMON", "faction": "abyss_order", "desc": "", "tags": ["rank_and_file"]},
+	# Korrath B1 — Iron Footman: vanilla 200/200 Human spawned by Oath of Iron. Stat-distinct from
+	# Order Footman (100/200) so the player can tell the two apart on the board.
+	{"id": "iron_footman", "name": "Iron Footman", "atk": 200, "hp": 200, "type": "HUMAN", "faction": "abyss_order", "desc": "", "tags": ["iron_footman"]},
 ]
 
 func _make_token(d: Dictionary) -> MinionCardData:
@@ -642,6 +645,315 @@ func _register_wanderer_cards() -> void:
 	all.append(shatterstrike)
 
 	# --- end Korrath Core Pool ------------------------------------------------
+
+	# --- Korrath Common Support Pool ------------------------------------------
+	# Hero common support pool (branch-agnostic), gated to Korrath only via the
+	# rewards-side filter. Subject to act × rarity gating; no talent prereq.
+	# Design: design/KORRATH_HERO_DESIGN §11. Three infra pieces ship alongside:
+	#   • APPLY_ARMOUR_BREAK EffectStep (declarative AB to minion targets +
+	#     optional include_hero for ALL_ENEMY AoEs)
+	#   • ADJACENT_FRIENDLIES TargetScope (Shield Bearer's outward Formation)
+	#   • MinionInstance.attack_riders + ON_PLAYER_ATTACK_POST rider dispatcher
+	#     + GRANT_ATTACK_RIDER EffectStep (Banner of the Order's per-Demon stamp)
+	# Battle Drillmaster's Formation cascade is routed via HARDCODED → CombatHandlers
+	# .fire_unconsumed_formations_cascade so the cascade lives next to the normal
+	# Formation handler.
+
+	# Armoured Recruit — 2E Human 200/300. ON PLAY: give a friendly minion 100 Armour.
+	# Target is the buff recipient (free choice — point it at the Knight for B1, a
+	# fragile Demon for B3, or itself if no better target exists). SINGLE_CHOSEN_FRIENDLY
+	# routes through Targeting.is_valid_minion_on_play_target via "friendly_minion".
+	var armoured_recruit := MinionCardData.new()
+	armoured_recruit.id           = "armoured_recruit"
+	armoured_recruit.card_name    = "Armoured Recruit"
+	armoured_recruit.essence_cost = 2
+	armoured_recruit.atk          = 200
+	armoured_recruit.health       = 300
+	armoured_recruit.minion_type  = Enums.MinionType.HUMAN
+	armoured_recruit.description  = "ON PLAY: Give a friendly minion 100 Armour."
+	armoured_recruit.on_play_requires_target = true
+	armoured_recruit.on_play_target_type     = "friendly_minion"
+	armoured_recruit.on_play_effect_steps    = [
+		{"type": "BUFF_ARMOUR", "scope": "SINGLE_CHOSEN_FRIENDLY", "amount": 100, "source_tag": "armoured_recruit"},
+	]
+	armoured_recruit.faction      = "abyss_order"
+	all.append(armoured_recruit)
+
+	# Shield Bearer — 3E Human 200/200 FORMATION. FORMATION (both sides Human):
+	# give adjacent friendlies GUARD + 200 Armour. The buff goes OUTWARD — Shield
+	# Bearer itself doesn't gain GUARD/Armour. ADJACENT_FRIENDLIES TargetScope
+	# returns the slot ± 1 occupants (0, 1, or 2 results; empty slots skipped).
+	# Edge slots structurally can't fire Formation (one side absent) — Drillmaster
+	# is the rescue path.
+	var shield_bearer := MinionCardData.new()
+	shield_bearer.id           = "shield_bearer"
+	shield_bearer.card_name    = "Shield Bearer"
+	shield_bearer.essence_cost = 3
+	shield_bearer.atk          = 200
+	shield_bearer.health       = 200
+	shield_bearer.minion_type  = Enums.MinionType.HUMAN
+	shield_bearer.keywords     = [Enums.Keyword.FORMATION]
+	shield_bearer.description  = "FORMATION: Adjacent friendly minions gain GUARD and 200 Armour."
+	shield_bearer.formation_effect_steps = [
+		{"type": "GRANT_KEYWORD", "scope": "ADJACENT_FRIENDLIES", "keyword": "GUARD", "source_tag": "shield_bearer"},
+		{"type": "BUFF_ARMOUR",   "scope": "ADJACENT_FRIENDLIES", "amount": 200, "source_tag": "shield_bearer"},
+	]
+	shield_bearer.faction      = "abyss_order"
+	all.append(shield_bearer)
+
+	# Bonebreaker — 3E Demon 200/300. ON PLAY: deal 200 PHYSICAL damage to a chosen
+	# enemy minion, THEN apply 200 Armour Break. Order matters per §11: damage
+	# resolves against current Armour first (full Armour mitigation), AB lingers
+	# as a residual debuff that softens follow-up attacks. Distinct from Shattering
+	# Volley which is AB-first (so its own damage benefits from the strip).
+	var bonebreaker := MinionCardData.new()
+	bonebreaker.id           = "bonebreaker"
+	bonebreaker.card_name    = "Bonebreaker"
+	bonebreaker.essence_cost = 3
+	bonebreaker.atk          = 200
+	bonebreaker.health       = 300
+	bonebreaker.minion_type  = Enums.MinionType.DEMON
+	bonebreaker.description  = "ON PLAY: Deal 200 PHYSICAL damage to an enemy minion, then apply 200 Armour Break to it."
+	bonebreaker.on_play_requires_target = true
+	bonebreaker.on_play_target_type     = "enemy_minion"
+	bonebreaker.on_play_effect_steps    = [
+		{"type": "DAMAGE_MINION",      "scope": "SINGLE_CHOSEN", "amount": 200, "damage_school": "PHYSICAL"},
+		{"type": "APPLY_ARMOUR_BREAK", "scope": "SINGLE_CHOSEN", "amount": 200, "source_tag": "bonebreaker"},
+	]
+	bonebreaker.faction      = "abyss_order"
+	all.append(bonebreaker)
+
+	# Shattering Volley — 2M Spell. Apply 100 AB to all enemies (minions + hero),
+	# then deal 100 PHYSICAL to each. AB BEFORE damage is the spec — the damage
+	# leg benefits from the just-applied negative-Armour state (signed-net §2).
+	# include_hero on the AB step covers the hero per "all enemies" convention.
+	# PHYSICAL damage to enemy hero goes through Armour math like a minion does.
+	var shattering_volley := SpellCardData.new()
+	shattering_volley.id          = "shattering_volley"
+	shattering_volley.card_name   = "Shattering Volley"
+	shattering_volley.cost        = 2
+	shattering_volley.description = "Apply 100 Armour Break to all enemies, then deal 100 PHYSICAL damage to each."
+	shattering_volley.effect_steps = [
+		{"type": "APPLY_ARMOUR_BREAK", "scope": "ALL_ENEMY", "amount": 100, "include_hero": true, "source_tag": "shattering_volley"},
+		{"type": "DAMAGE_MINION",      "scope": "ALL_ENEMY", "amount": 100, "damage_school": "PHYSICAL"},
+		{"type": "DAMAGE_HERO",        "amount": 100, "damage_school": "PHYSICAL"},
+	]
+	shattering_volley.faction     = "abyss_order"
+	all.append(shattering_volley)
+
+	# Battle Drillmaster — 4E Human/Demon 200/500. ON PLAY: fire every unconsumed
+	# FORMATION on caster's board, BYPASSING the both-sides adjacency requirement.
+	# Routes through HARDCODED → CombatHandlers.fire_unconsumed_formations_cascade
+	# so cascade + ON_FORMATION_TRIGGERED dispatch lives in one place. Drillmaster
+	# itself doesn't have FORMATION so it is not in the iteration. Already-consumed
+	# Formations (formation_fired == true) are skipped per task 036 one-shot rule.
+	var battle_drillmaster := MinionCardData.new()
+	battle_drillmaster.id                  = "battle_drillmaster"
+	battle_drillmaster.card_name           = "Battle Drillmaster"
+	battle_drillmaster.essence_cost        = 4
+	battle_drillmaster.atk                 = 200
+	battle_drillmaster.health              = 500
+	battle_drillmaster.minion_type         = Enums.MinionType.HUMAN
+	battle_drillmaster.extra_minion_types  = [Enums.MinionType.DEMON]
+	battle_drillmaster.description         = "ON PLAY: Every friendly FORMATION minion that has not yet triggered fires its Formation now, ignoring the adjacency requirement."
+	battle_drillmaster.on_play_effect_steps = [
+		{"type": "HARDCODED", "hardcoded_id": "battle_drillmaster_cascade"},
+	]
+	battle_drillmaster.faction             = "abyss_order"
+	all.append(battle_drillmaster)
+
+	# Rank Breaker — 2E Demon 300/200 FORMATION. FORMATION (both sides Demon):
+	# apply 100 AB to all enemy MINIONS (not hero — design ruling note). Pushed
+	# stat line (300 ATK at 2E with 200 HP glass body) is balanced against the
+	# both-sides sandwich requirement + Demon-only race gate.
+	var rank_breaker := MinionCardData.new()
+	rank_breaker.id           = "rank_breaker"
+	rank_breaker.card_name    = "Rank Breaker"
+	rank_breaker.essence_cost = 2
+	rank_breaker.atk          = 300
+	rank_breaker.health       = 200
+	rank_breaker.minion_type  = Enums.MinionType.DEMON
+	rank_breaker.keywords     = [Enums.Keyword.FORMATION]
+	rank_breaker.description  = "FORMATION: Apply 100 Armour Break to all enemy minions."
+	rank_breaker.formation_effect_steps = [
+		{"type": "APPLY_ARMOUR_BREAK", "scope": "ALL_ENEMY", "amount": 100, "source_tag": "rank_breaker"},
+	]
+	rank_breaker.faction      = "abyss_order"
+	all.append(rank_breaker)
+
+	# Bastion Rune — 2M Rune. At the start of your turn, give 100 Armour to a
+	# random friendly minion. No upkeep cost; no self-destruct. BUFF_ARMOUR with
+	# FILTERED_RANDOM_FRIENDLY picks one minion per turn; if board is empty the
+	# step naturally fizzles (no targets to pick from).
+	var bastion_rune := TrapCardData.new()
+	bastion_rune.id             = "bastion_rune"
+	bastion_rune.card_name      = "Bastion Rune"
+	bastion_rune.cost           = 2
+	bastion_rune.description    = "RUNE: At the start of your turn, give 100 Armour to a random friendly minion."
+	bastion_rune.is_rune        = true
+	# Reuse VOID_RUNE rune slot/type; Korrath-themed visual tinting via rune_glow_color below.
+	bastion_rune.rune_type      = Enums.RuneType.VOID_RUNE
+	bastion_rune.aura_trigger   = Enums.TriggerEvent.ON_PLAYER_TURN_START
+	bastion_rune.aura_effect_steps = [
+		{"type": "BUFF_ARMOUR", "scope": "FILTERED_RANDOM_FRIENDLY", "amount": 100, "source_tag": "bastion_rune"},
+	]
+	bastion_rune.faction        = "abyss_order"
+	bastion_rune.rune_glow_color = Color(0.45, 0.45, 0.55, 1)  # Steel-blue Korrath palette
+	all.append(bastion_rune)
+
+	# Creeping Blight — 2M Spell. Deal 300 VOID_CORRUPTION to a minion OR enemy
+	# hero; apply 1 Corruption stack. VOID lineage bypasses Armour (§2). Single
+	# target uses "any_minion_or_enemy_hero" target_type — both branches of the
+	# resolver (minion target / "enemy_hero" sentinel) are hit by the same step
+	# definition (DAMAGE_MINION's enemy_hero branch handles the hero path).
+	# Path of Corruption (B3 T2) amplifies +100/stack on the same target on
+	# damage; Corrupting Presence (B3 T0) strips 100 Armour per applied stack —
+	# both fire automatically here via existing EffectResolver / CombatState hooks.
+	var creeping_blight := SpellCardData.new()
+	creeping_blight.id              = "creeping_blight"
+	creeping_blight.card_name       = "Creeping Blight"
+	creeping_blight.cost            = 2
+	creeping_blight.description     = "Deal 300 VOID_CORRUPTION damage to a minion or enemy hero. Apply 1 Corruption to the target."
+	creeping_blight.requires_target = true
+	creeping_blight.target_type     = "any_minion_or_enemy_hero"
+	creeping_blight.effect_steps    = [
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 300, "damage_school": "VOID_CORRUPTION"},
+		{"type": "CORRUPTION",    "scope": "SINGLE_CHOSEN", "amount": 1},
+	]
+	creeping_blight.faction         = "abyss_order"
+	all.append(creeping_blight)
+
+	# Banner of the Order — 1M Spell. Two halves resolved on cast:
+	#  (a) every friendly HUMAN currently on board: +100 Armour (one-shot grant);
+	#  (b) every friendly DEMON currently on board: stamp a per-minion attack rider
+	#      that applies +100 AB to the defender AFTER each of its attacks (per-minion
+	#      data on MinionInstance.attack_riders; fires on ON_PLAYER_ATTACK_POST via
+	#      the on_attack_fire_riders dispatcher). Demons summoned AFTER the cast
+	#      are unaffected — design rule. Re-casting Banner is the way to re-arm a
+	#      refilled board. Rider is idempotent per minion via source_tag.
+	# Dual-tag minions eat BOTH halves (e.g. B2 Knight: +100 Armour AND the +100 AB rider).
+	var banner_of_the_order := SpellCardData.new()
+	banner_of_the_order.id          = "banner_of_the_order"
+	banner_of_the_order.card_name   = "Banner of the Order"
+	banner_of_the_order.cost        = 1
+	banner_of_the_order.description = "Give all friendly Humans 100 Armour. Each friendly Demon now applies 100 Armour Break to its attack target after damage, for the rest of its life."
+	banner_of_the_order.effect_steps = [
+		{"type": "BUFF_ARMOUR",        "scope": "ALL_FRIENDLY", "filter": "HUMAN", "amount": 100, "source_tag": "banner_of_the_order"},
+		{
+			"type": "GRANT_ATTACK_RIDER",
+			"scope": "ALL_FRIENDLY",
+			"filter": "DEMON",
+			"source_tag": "banner_of_the_order",
+			"attack_rider_scope": "attack_target",
+			"attack_rider_steps": [
+				{"type": "APPLY_ARMOUR_BREAK", "scope": "SINGLE_CHOSEN", "amount": 100, "source_tag": "banner_of_the_order"},
+			],
+		},
+	]
+	banner_of_the_order.faction     = "abyss_order"
+	all.append(banner_of_the_order)
+
+	# --- end Korrath Common Support Pool --------------------------------------
+
+	# --- Korrath Iron Vanguard Pool (§12) -------------------------------------
+	# Talent-gated rewards-only pool. Eligible only when iron_formation (B1 T0) is
+	# in the active talent set; see RewardScene._get_active_support_pool_ids.
+	# Never appears in the deck builder — pool is not registered in
+	# DeckBuilderScene.DECK_BUILDER_POOLS_BY_HERO.
+
+	# Shield Squire — 1E Human 100/200 FORMATION. FORMATION grants self +100 Armour.
+	# The cheap Formation seed for the branch; lower stats than Order Conscript (1E
+	# 100/100 + adds Footman to hand) but built-in self-Armour trigger.
+	var shield_squire := MinionCardData.new()
+	shield_squire.id           = "shield_squire"
+	shield_squire.card_name    = "Shield Squire"
+	shield_squire.essence_cost = 1
+	shield_squire.atk          = 100
+	shield_squire.health       = 200
+	shield_squire.minion_type  = Enums.MinionType.HUMAN
+	shield_squire.keywords     = [Enums.Keyword.FORMATION]
+	shield_squire.description  = "FORMATION: Gain 100 Armour."
+	shield_squire.formation_effect_steps = [
+		{"type": "BUFF_ARMOUR", "scope": "SELF", "amount": 100, "source_tag": "shield_squire"},
+	]
+	shield_squire.faction      = "abyss_order"
+	all.append(shield_squire)
+
+	# Vanguard Marshal — 3E Human 200/400. PASSIVE: each friendly FORMATION trigger
+	# draws a card. Per task 036 Formation is one-shot per minion lifetime, so the
+	# Marshal's lifetime draw is naturally capped by Formation density. Multiple
+	# Marshals stack (N Marshals + 1 Formation = N draws). Drives the dispatcher
+	# on_formation_triggered_card_auras.
+	var vanguard_marshal := MinionCardData.new()
+	vanguard_marshal.id           = "vanguard_marshal"
+	vanguard_marshal.card_name    = "Vanguard Marshal"
+	vanguard_marshal.essence_cost = 3
+	vanguard_marshal.atk          = 200
+	vanguard_marshal.health       = 400
+	vanguard_marshal.minion_type  = Enums.MinionType.HUMAN
+	vanguard_marshal.description  = "PASSIVE: Whenever a friendly minion's FORMATION triggers, draw a card."
+	vanguard_marshal.on_formation_triggered_aura_steps = [
+		{"type": "DRAW", "amount": 1},
+	]
+	vanguard_marshal.faction      = "abyss_order"
+	all.append(vanguard_marshal)
+
+	# Shield Bash — 1M PHYSICAL spell. Damage = sum of friendly minion Armour
+	# values + player hero Armour. Reads Armour as a counter; does NOT consume.
+	# Scales hard with branch payoff (Knight's Formation +200, Quartermaster aura,
+	# Commander's Reach drips, Bastion Rune, Lord Commander's hero Armour).
+	var shield_bash := SpellCardData.new()
+	shield_bash.id              = "shield_bash"
+	shield_bash.card_name       = "Shield Bash"
+	shield_bash.cost            = 1
+	shield_bash.description     = "Deal PHYSICAL damage to one enemy minion equal to the total Armour of your friendly minions and your hero."
+	shield_bash.requires_target = true
+	shield_bash.target_type     = "enemy_minion"
+	shield_bash.effect_steps    = [
+		{
+			"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 1,
+			"multiplier_key": "armour_sum", "multiplier_board": "friendly",
+			"include_hero": true, "damage_school": "PHYSICAL",
+		},
+	]
+	shield_bash.faction         = "abyss_order"
+	all.append(shield_bash)
+
+	# Lord Commander — 5E Human 300/500. ON PLAY: your hero gains 200 Armour.
+	# Hero-Armour swing card. Feeds Shield Bash damage on the same turn it lands.
+	# Iron Resolve (T2) does NOT convert hero Armour to ATK (minion-only).
+	var lord_commander := MinionCardData.new()
+	lord_commander.id           = "lord_commander"
+	lord_commander.card_name    = "Lord Commander"
+	lord_commander.essence_cost = 5
+	lord_commander.atk          = 300
+	lord_commander.health       = 500
+	lord_commander.minion_type  = Enums.MinionType.HUMAN
+	lord_commander.description  = "ON PLAY: Your hero gains 200 Armour."
+	lord_commander.on_play_effect_steps = [
+		{"type": "ADD_HERO_ARMOUR", "amount": 200, "source_tag": "lord_commander"},
+	]
+	lord_commander.faction      = "abyss_order"
+	all.append(lord_commander)
+
+	# Oath of Iron — 3M Epic spell. Fills every empty slot on the player's board
+	# with a 200/200 Iron Footman (Human token). Each placement is a fresh summon —
+	# fires ON_*_MINION_SUMMONED, ON_FORMATION_TRIGGERED on neighbors, and aura
+	# dispatchers (Quartermaster, on_formation_triggered_aura_steps) per spawn.
+	# Slot order is left → right (deterministic). The fill_empty_slots: true
+	# SUMMON-step variant drives the iteration.
+	var oath_of_iron := SpellCardData.new()
+	oath_of_iron.id          = "oath_of_iron"
+	oath_of_iron.card_name   = "Oath of Iron"
+	oath_of_iron.cost        = 3
+	oath_of_iron.description = "Fill every empty slot on your board with a 200/200 Iron Footman."
+	oath_of_iron.effect_steps = [
+		{"type": "SUMMON", "card_id": "iron_footman", "fill_empty_slots": true},
+	]
+	oath_of_iron.faction     = "abyss_order"
+	all.append(oath_of_iron)
+
+	# --- end Korrath Iron Vanguard Pool ---------------------------------------
 
 	# --- Seris Common Support Pool --------------------------------------------
 	# Branch-neutral cards offered as combat rewards and shop picks for Seris.
@@ -3170,6 +3482,22 @@ func _register_wanderer_cards() -> void:
 		"rally_the_ranks":     ["korrath_core"],
 		"quartermaster":       ["korrath_core"],
 		"shatterstrike":       ["korrath_core"],
+		# Korrath common support pool — branch-agnostic, no talent prereq.
+		"armoured_recruit":    ["korrath_common"],
+		"shield_bearer":       ["korrath_common"],
+		"bonebreaker":         ["korrath_common"],
+		"shattering_volley":   ["korrath_common"],
+		"battle_drillmaster":  ["korrath_common"],
+		"rank_breaker":        ["korrath_common"],
+		"bastion_rune":        ["korrath_common"],
+		"creeping_blight":     ["korrath_common"],
+		"banner_of_the_order": ["korrath_common"],
+		# Korrath Iron Vanguard pool (§12) — talent-gated behind iron_formation (B1 T0). Never in deck builder.
+		"shield_squire":     ["korrath_iron_vanguard"],
+		"vanguard_marshal":  ["korrath_iron_vanguard"],
+		"shield_bash":       ["korrath_iron_vanguard"],
+		"lord_commander":    ["korrath_iron_vanguard"],
+		"oath_of_iron":      ["korrath_iron_vanguard"],
 		# Seris Common Support Pool — combat reward / shop pool for Seris (see RewardScene._get_active_support_pool_ids)
 		"flesh_harvester": ["seris_common"],
 		"ravenous_fiend": ["seris_common"],
@@ -3306,6 +3634,17 @@ func _register_wanderer_cards() -> void:
 		"festering_fiend": 1,             "self_mutilation": 1,
 		"resonant_outburst": 2,           "voidshaped_acolyte": 2,
 		"recursive_hex": 3,
+		# Korrath common pool (rarity → act gate by convention — see §11 table)
+		"armoured_recruit":  1,           "shield_bearer":     1,
+		"shattering_volley": 1,           "rank_breaker":      1,
+		"creeping_blight":   1,           "banner_of_the_order": 1,
+		"bonebreaker":       2,           "battle_drillmaster": 2,
+		"bastion_rune":      3,
+		# Korrath Iron Vanguard pool (rarity → act gate per §12; talent gate on top)
+		"shield_squire":     1,           "vanguard_marshal":  1,
+		"shield_bash":       1,
+		"lord_commander":    2,
+		"oath_of_iron":      3,
 	}
 	# Append all token cards (pool = "", rarity = "")
 	for td in _TOKEN_DEFS:

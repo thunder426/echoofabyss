@@ -52,6 +52,27 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 			return pool_any
 		EffectStep.TargetScope.ALL_FRIENDLY:
 			return scene._friendly_board(ctx.owner).duplicate()
+		EffectStep.TargetScope.ADJACENT_FRIENDLIES:
+			# Korrath outward-grant Formation (Shield Bearer). Walks slot_index ± 1 of
+			# ctx.source on the source's own side and returns the occupant minions.
+			# Edge slots return only the one valid neighbor (or none). Empty adjacent
+			# slots are skipped silently. Source itself is never included.
+			var src: MinionInstance = ctx.source as MinionInstance
+			if src == null or src.slot_index < 0:
+				return []
+			var slots: Array = scene.player_slots if src.owner == "player" else scene.enemy_slots
+			if slots == null:
+				return []
+			var out: Array = []
+			for offset in [-1, 1]:
+				var idx: int = src.slot_index + offset
+				if idx < 0 or idx >= slots.size():
+					continue
+				var slot: BoardSlot = slots[idx]
+				if slot == null or slot.minion == null:
+					continue
+				out.append(slot.minion)
+			return out
 		EffectStep.TargetScope.SINGLE_CHOSEN:
 			# Both boards — spells like Arcane Strike ("any_minion") can target friendlies.
 			# The chosen_target check in resolve() ensures only the picked minion is hit.

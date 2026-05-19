@@ -11,8 +11,6 @@ _(none)_
 - ["010"](010-korrath-art-pass.md) — Korrath art pass — portraits, passive/talent icons, card art (art)
 - ["011"](011-korrath-mechanic-gaps.md) — Korrath mechanic gaps — Branch 2 capstone, talent prereqs, polish VFX (combat)
 - ["012"](012-korrath-balance-and-ai.md) — Korrath balance pass and branch-aware AI profiles (balance)
-- ["024"](024-implement-korrath-common-cards.md) — Implement korrath_common cards in CardDatabase (content)
-- ["025"](025-implement-korrath-iron-vanguard-cards.md) — Implement korrath_iron_vanguard cards in CardDatabase (content)
 - ["026"](026-implement-korrath-runic-knight-cards.md) — Implement korrath_runic_knight cards in CardDatabase (content)
 - ["027"](027-implement-korrath-abyssal-breaker-cards.md) — Implement korrath_abyssal_breaker cards in CardDatabase (content)
 - ["028"](028-art-pass-korrath-core.md) — Art pass — korrath_core (art)
@@ -23,6 +21,8 @@ _(none)_
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
 
 ## Done
+- ["024"](024-implement-korrath-common-cards.md) — Implement korrath_common cards in CardDatabase (content, 2026-05-18 → 2026-05-18)
+- ["025"](025-implement-korrath-iron-vanguard-cards.md) — Implement korrath_iron_vanguard cards in CardDatabase (content, 2026-05-18 → 2026-05-18)
 - ["023"](023-implement-korrath-core-cards.md) — Implement korrath_core cards in CardDatabase (content, 2026-05-16 → 2026-05-16)
 - ["035"](035-refactor-armour-ab-to-signed-net.md) — Refactor Armour/AB damage math to a single signed net_armour value (combat, 2026-05-16 → 2026-05-16)
 - ["036"](036-formation-one-shot-consumable.md) — Convert Formation from per-pair to one-shot consumable status (combat, 2026-05-16 → 2026-05-16)

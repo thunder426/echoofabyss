@@ -77,6 +77,18 @@ var buffs: Array = []
 ## Each entry: {"description": String, "source": String}
 var granted_on_death_effects: Array[Dictionary] = []
 
+## Korrath — runtime-stamped per-minion attack riders. Fired by
+## CombatHandlers.on_attack_fire_riders on ON_PLAYER_ATTACK_POST / ON_ENEMY_ATTACK
+## after the strike's damage resolves on the defender, before counter-attack.
+## Each entry: {"source_tag": String, "effect_steps": Array, "scope": String}.
+## "source_tag" is the idempotency key (Banner re-cast doesn't double-stamp).
+## "scope" currently always "attack_target" — the defender (MinionInstance or
+## "enemy_hero"/"player_hero" sentinel) is bound to ctx.chosen_target for the rider.
+## Stamped by EffectStep.GRANT_ATTACK_RIDER; lasts until this minion dies (the
+## list is never cleared by anything else — death drops the MinionInstance and the
+## riders go with it).
+var attack_riders: Array[Dictionary] = []
+
 # ---------------------------------------------------------------------------
 # Board state
 # ---------------------------------------------------------------------------

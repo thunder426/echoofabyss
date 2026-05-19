@@ -54,6 +54,14 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				ctx.scene._on_hero_healed(ctx.owner, _amount(step, ctx))
 			return
 
+		EffectStep.EffectType.ADD_HERO_ARMOUR:
+			# Korrath — Lord Commander's ON PLAY (and any future "gain N hero Armour")
+			# routes through CombatState.add_hero_armour so HeroState.add_armour
+			# runs and hero_armour_changed fires for the UI badge.
+			if ConditionResolver.check_all(step.conditions, ctx, null):
+				ctx.scene.state.add_hero_armour(ctx.owner, _amount(step, ctx))
+			return
+
 		EffectStep.EffectType.DRAW:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var count := maxi(1, step.amount)
@@ -80,6 +88,19 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.SUMMON:
 			if not ConditionResolver.check_all(step.conditions, ctx, null):
+				return
+			if step.fill_empty_slots:
+				# Iterate the caster's slots left → right, summon one token per empty.
+				# Each spawn is independent — ON_*_MINION_SUMMONED and ON_FORMATION_TRIGGERED
+				# fire per token via _summon_token_at_slot's standard summon path. Oath of
+				# Iron's "fill every empty slot with an Iron Footman" is the consumer.
+				var fslots: Array = ctx.scene._friendly_slots(ctx.owner) if ctx.scene.has_method("_friendly_slots") \
+					else (ctx.scene.player_slots if ctx.owner == "player" else ctx.scene.enemy_slots)
+				for s in fslots:
+					var sl: BoardSlot = s as BoardSlot
+					if sl == null or not sl.is_empty():
+						continue
+					ctx.scene._summon_token_at_slot(step.card_id, ctx.owner, sl, step.token_atk, step.token_hp, step.token_shield)
 				return
 			if step.adjacent_to_target:
 				# Slot-pinned summon — pick the slot adjacent to ctx.chosen_target on
@@ -437,6 +458,16 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			continue
 		_apply(step, t, _amount(step, ctx), ctx)
 
+	# APPLY_ARMOUR_BREAK with include_hero — apply once to the opposing hero
+	# AFTER the per-minion loop. Gated on the enemy-board scope so single-target
+	# AB doesn't accidentally hero-AB on the side. No-op hero AB still fires (the
+	# AoE convention says "all enemies including hero" regardless of board size).
+	if step.effect_type == EffectStep.EffectType.APPLY_ARMOUR_BREAK and step.include_hero \
+			and step.scope == EffectStep.TargetScope.ALL_ENEMY:
+		var opp := "enemy" if ctx.owner == "player" else "player"
+		var ab_tag: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
+		ctx.scene.state.apply_hero_buff(opp, Enums.BuffType.ARMOUR_BREAK, _amount(step, ctx), ab_tag)
+
 # ---------------------------------------------------------------------------
 # Per-target application
 # ---------------------------------------------------------------------------
@@ -496,6 +527,42 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			if target is MinionInstance:
 				(target as MinionInstance).add_armour(amount, scene)
 				scene._refresh_slot_for(target)
+
+		EffectStep.EffectType.APPLY_ARMOUR_BREAK:
+			# Korrath — apply AB to the minion via BuffSystem. Signed-net per §2 so
+			# the stack can drive effective armour negative (excess becomes flat
+			# bonus physical damage). source_tag falls back to ctx.source_card_id.
+			# When include_hero is set AND this resolved-target loop reaches the
+			# first minion of an enemy-board scope, also apply to the opposing hero.
+			# We gate include_hero on the FIRST iteration so it only fires once per
+			# step run, not once per target — see the loop-state check below.
+			if target is MinionInstance:
+				var ab_tag: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
+				BuffSystem.apply(target, Enums.BuffType.ARMOUR_BREAK, amount, ab_tag, false, false)
+				scene._refresh_slot_for(target)
+
+		EffectStep.EffectType.GRANT_ATTACK_RIDER:
+			# Korrath — stamp a per-minion attack rider onto the target. source_tag
+			# is the idempotency key — a target already carrying a rider with the
+			# same tag is not re-stamped (Banner of the Order spec: "rider is
+			# idempotent per minion — re-cast doesn't double-stamp the same Demon").
+			# Loud warning if attack_rider_steps is empty since the rider would be
+			# a no-op forever.
+			if target is MinionInstance:
+				var carrier: MinionInstance = target
+				var tag: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
+				if step.attack_rider_steps.is_empty():
+					push_warning("GRANT_ATTACK_RIDER on %s has empty attack_rider_steps (tag=%s)" % [carrier.card_data.id, tag])
+					return
+				for existing in carrier.attack_riders:
+					if (existing as Dictionary).get("source_tag", "") == tag:
+						return  # idempotent — already stamped
+				carrier.attack_riders.append({
+					"source_tag":   tag,
+					"effect_steps": step.attack_rider_steps.duplicate(),
+					"scope":        step.attack_rider_scope,
+				})
+				scene._refresh_slot_for(carrier)
 
 		EffectStep.EffectType.HEAL_MINION:
 			if target is MinionInstance:
@@ -604,6 +671,22 @@ static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 							continue
 				count += 1
 			base = step.amount * count
+		"armour_sum":
+			# Sum `armour` across minions on the chosen board; when include_hero=true
+			# the owner's hero Armour is added on top. `amount` acts as a multiplier
+			# (typically 1). Shield Bash uses this for "damage = sum of friendly Armour".
+			var asboard: Array = ctx.scene._friendly_board(ctx.owner) \
+				if step.multiplier_board == "friendly" \
+				else ctx.scene._opponent_board(ctx.owner)
+			var armour_total := 0
+			for m in asboard:
+				if step.exclude_self and m == ctx.source:
+					continue
+				armour_total += (m as MinionInstance).armour
+			if step.include_hero:
+				var hero: HeroState = ctx.scene.state.player_hero if ctx.owner == "player" else ctx.scene.state.enemy_hero
+				armour_total += hero.armour
+			base = step.amount * armour_total
 		_: base = step.amount
 	# Add conditional bonus if all bonus_conditions pass (board-state check, not per-target)
 	if step.bonus_amount != 0 and not step.bonus_conditions.is_empty():

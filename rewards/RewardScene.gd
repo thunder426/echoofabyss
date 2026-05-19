@@ -103,6 +103,12 @@ func _get_active_support_pool_ids() -> Array[String]:
 		if GameManager.has_talent("corrupt_flesh"):
 			# font_of_the_depths is in this pool via its dual-pool entry in CardDatabase._card_pools.
 			ids.append_array(CardDatabase.get_card_ids_in_pools(["seris_corruption"]))
+	elif GameManager.current_hero == "korrath":
+		# Common pool is branch-agnostic (no talent prereq); branch-specific pools
+		# unlock at their B1/B2/B3 T0 talent — see KORRATH_HERO_DESIGN §11–14.
+		ids.append_array(CardDatabase.get_card_ids_in_pools(["korrath_common"]))
+		if GameManager.has_talent("iron_formation"):
+			ids.append_array(CardDatabase.get_card_ids_in_pools(["korrath_iron_vanguard"]))
 	return ids
 
 func _build_card_phase_ui() -> void:

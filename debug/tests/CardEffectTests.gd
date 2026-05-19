@@ -91,6 +91,34 @@ static func run_all() -> void:
 	_rally_no_race_in_extra_data_zero_tokens()
 	_rally_sim_race_heuristic()
 
+	# Korrath common pool (task 024)
+	_armoured_recruit_grants_armour_to_chosen()
+	_shield_bearer_grants_guard_and_armour_to_adjacent()
+	_shield_bearer_edge_slot_does_not_fire()
+	_bonebreaker_damage_then_ab_order()
+	_shattering_volley_ab_before_damage_all_enemies()
+	_shattering_volley_hits_enemy_hero()
+	_battle_drillmaster_fires_unconsumed_formations()
+	_battle_drillmaster_skips_already_fired_formation()
+	_rank_breaker_formation_ab_all_enemy_minions()
+	_bastion_rune_grants_armour_at_turn_start()
+	_creeping_blight_damage_and_corruption_minion()
+	_creeping_blight_targets_enemy_hero()
+	_banner_of_the_order_humans_armour_demons_rider()
+	_banner_of_the_order_idempotent_per_minion()
+	_banner_rider_fires_on_attack_post()
+
+	# Korrath Iron Vanguard pool (task 025)
+	_shield_squire_formation_grants_self_armour()
+	_vanguard_marshal_draws_card_on_formation_trigger()
+	_vanguard_marshal_stacks_with_two_marshals()
+	_shield_bash_damage_scales_with_friendly_and_hero_armour()
+	_shield_bash_includes_hero_armour()
+	_lord_commander_grants_hero_armour_on_play()
+	_oath_of_iron_fills_every_empty_slot()
+	_oath_of_iron_skips_occupied_slots()
+	_oath_of_iron_summons_trigger_formation_on_neighbors()
+
 # ---------------------------------------------------------------------------
 # Voidbolt (kept from scaffold phase)
 # ---------------------------------------------------------------------------
@@ -1183,3 +1211,409 @@ static func _rally_sim_race_heuristic() -> void:
 	TestHarness.spawn_friendly(state, "order_conscript")  # Human
 	TestHarness.spawn_friendly(state, "void_imp")         # Demon
 	TestHarness.assert_eq(state._rally_pick_race_for("player"), "human", "2H/1D → human")
+
+# ---------------------------------------------------------------------------
+# Korrath Common Pool (task 024)
+# ---------------------------------------------------------------------------
+# 9 cards + 3 infra additions (APPLY_ARMOUR_BREAK step, ADJACENT_FRIENDLIES
+# target scope, GRANT_ATTACK_RIDER step + dispatcher). Test focus is the new
+# infra behavior + each card's signature ruling note from §11.
+
+## Armoured Recruit ON PLAY: +100 Armour to a chosen friendly minion. SINGLE_CHOSEN_FRIENDLY
+## scope routes ctx.chosen_target through the BUFF_ARMOUR step.
+static func _armoured_recruit_grants_armour_to_chosen() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("armoured_recruit / ON PLAY grants +100 Armour to chosen friendly", state):
+		return
+	var recruit := TestHarness.spawn_friendly(state, "armoured_recruit")
+	var target  := TestHarness.spawn_friendly(state, "void_imp")
+	var armour_before: int = target.armour
+	var ctx := TestHarness.make_ctx(state, "player", recruit, target)
+	EffectResolver.run((recruit.card_data as MinionCardData).on_play_effect_steps, ctx)
+	TestHarness.assert_eq(target.armour - armour_before, 100, "chosen target gained +100 Armour")
+	TestHarness.assert_eq(recruit.armour, 0, "Recruit itself unaffected")
+
+## Shield Bearer FORMATION: outward grant of GUARD + 200 Armour to ADJACENT_FRIENDLIES.
+## Place a Shield Bearer in the middle slot with one neighbor on each side; fire its
+## formation steps directly and verify both neighbors gained the buffs but the
+## Shield Bearer itself did NOT.
+static func _shield_bearer_grants_guard_and_armour_to_adjacent() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shield_bearer / FORMATION grants GUARD + 200 Armour to adjacent (outward)", state):
+		return
+	var left   := TestHarness.spawn_friendly_at(state, "void_imp", 1)
+	var bearer := TestHarness.spawn_friendly_at(state, "shield_bearer", 2)
+	var right  := TestHarness.spawn_friendly_at(state, "void_imp", 3)
+	var bearer_armour_before: int = bearer.armour
+	var ctx := TestHarness.make_ctx(state, "player", bearer)
+	EffectResolver.run((bearer.card_data as MinionCardData).formation_effect_steps, ctx)
+	TestHarness.assert_eq(left.armour, 200, "left neighbor +200 Armour")
+	TestHarness.assert_eq(right.armour, 200, "right neighbor +200 Armour")
+	TestHarness.assert_true(BuffSystem.has_type(left, Enums.BuffType.GRANT_GUARD), "left neighbor has GUARD")
+	TestHarness.assert_true(BuffSystem.has_type(right, Enums.BuffType.GRANT_GUARD), "right neighbor has GUARD")
+	TestHarness.assert_eq(bearer.armour, bearer_armour_before, "Shield Bearer itself unbuffed")
+	TestHarness.assert_false(BuffSystem.has_type(bearer, Enums.BuffType.GRANT_GUARD), "Shield Bearer no GUARD")
+
+## Edge-slot Shield Bearer (slot 0): ADJACENT_FRIENDLIES returns only the right
+## neighbor. Left side is off-board; the empty side is skipped silently.
+static func _shield_bearer_edge_slot_does_not_fire() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shield_bearer / edge slot 0 → only right neighbor receives buff", state):
+		return
+	var bearer := TestHarness.spawn_friendly_at(state, "shield_bearer", 0)
+	var right  := TestHarness.spawn_friendly_at(state, "void_imp", 1)
+	var ctx := TestHarness.make_ctx(state, "player", bearer)
+	EffectResolver.run((bearer.card_data as MinionCardData).formation_effect_steps, ctx)
+	TestHarness.assert_eq(right.armour, 200, "right neighbor still +200 Armour (off-board left skipped)")
+
+## Bonebreaker ON PLAY: damage-first-then-AB. A 0-Armour target takes the full 200
+## PHYSICAL first, then receives 200 AB as a residual debuff (effective armour
+## goes to -200). The on-play damage does NOT benefit from the AB it leaves
+## behind — that's the soft-nerf compared to AB-first ordering.
+static func _bonebreaker_damage_then_ab_order() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("bonebreaker / damage-first then AB-residual on 0-Armour target", state):
+		return
+	var bb := TestHarness.spawn_friendly(state, "bonebreaker")
+	var target := TestHarness.spawn_enemy(state, "rabid_imp")
+	target.current_health = 1000
+	target.armour = 0
+	var ctx := TestHarness.make_ctx(state, "player", bb, target)
+	EffectResolver.run((bb.card_data as MinionCardData).on_play_effect_steps, ctx)
+	TestHarness.assert_eq(1000 - target.current_health, 200, "200 PHYSICAL landed (target had 0 Armour)")
+	TestHarness.assert_eq(BuffSystem.sum_type(target, Enums.BuffType.ARMOUR_BREAK), 200, "200 AB residual on target")
+
+## Shattering Volley: AB FIRST, then damage. Per-target effect: each enemy
+## minion gets 100 AB applied, then takes 100 PHYSICAL. With 0-Armour starting
+## state the AB drives effective Armour to -100; the same-cast 100 damage then
+## benefits from the flat-bonus-damage conversion. We verify the AB stack lands
+## and the minion takes >= 100 damage (signed-net excess-AB-as-bonus interaction
+## is exercised by DamageTypeTests; here we just verify the cascade order).
+static func _shattering_volley_ab_before_damage_all_enemies() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shattering_volley / AB before damage on all enemy minions", state):
+		return
+	var e1 := TestHarness.spawn_enemy(state, "rabid_imp")
+	var e2 := TestHarness.spawn_enemy(state, "rabid_imp")
+	e1.current_health = 1000
+	e1.armour = 0
+	e2.current_health = 1000
+	e2.armour = 0
+	var spell := CardDatabase.get_card("shattering_volley") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(BuffSystem.sum_type(e1, Enums.BuffType.ARMOUR_BREAK), 100, "e1 took 100 AB")
+	TestHarness.assert_eq(BuffSystem.sum_type(e2, Enums.BuffType.ARMOUR_BREAK), 100, "e2 took 100 AB")
+	TestHarness.assert_true(1000 - e1.current_health >= 100, "e1 took >= 100 damage")
+	TestHarness.assert_true(1000 - e2.current_health >= 100, "e2 took >= 100 damage")
+
+## Shattering Volley includes enemy hero per "all enemies" convention. Enemy
+## hero gets 100 AB applied + 100 PHYSICAL damage.
+static func _shattering_volley_hits_enemy_hero() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shattering_volley / hits enemy hero with AB + PHYSICAL", state):
+		return
+	var hp_before: int = state.enemy_hp
+	var spell := CardDatabase.get_card("shattering_volley") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 100, "enemy hero took 100 AB")
+	TestHarness.assert_true(hp_before - state.enemy_hp >= 100, "enemy hero took >= 100 damage")
+
+## Battle Drillmaster ON PLAY: fires every unconsumed FORMATION on the caster's
+## board, bypassing adjacency. Seed two FORMATION minions at edge slots (which
+## normally CANNOT fire) and verify both fire via the cascade.
+static func _battle_drillmaster_fires_unconsumed_formations() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("battle_drillmaster / cascade fires edge-slot FORMATION minions", state):
+		return
+	# Rank Breaker at slot 0 (edge — normally cannot fire). It's a FORMATION
+	# minion with APPLY_ARMOUR_BREAK on all enemies as its trigger.
+	var rb := TestHarness.spawn_friendly_at(state, "rank_breaker", 0)
+	var enemy := TestHarness.spawn_enemy(state, "rabid_imp")
+	enemy.armour = 0
+	TestHarness.assert_false(rb.formation_fired, "rank_breaker starts unconsumed")
+	var dm := TestHarness.spawn_friendly_at(state, "battle_drillmaster", 4)
+	var ctx := TestHarness.make_ctx(state, "player", dm)
+	EffectResolver.run((dm.card_data as MinionCardData).on_play_effect_steps, ctx)
+	TestHarness.assert_true(rb.formation_fired, "rank_breaker formation consumed by cascade")
+	TestHarness.assert_eq(BuffSystem.sum_type(enemy, Enums.BuffType.ARMOUR_BREAK), 100, "enemy took 100 AB from rank_breaker formation")
+
+## Drillmaster cascade respects the one-shot consumed rule (task 036). A
+## FORMATION minion whose formation_fired is already true is skipped.
+static func _battle_drillmaster_skips_already_fired_formation() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("battle_drillmaster / cascade skips already-consumed FORMATION", state):
+		return
+	var rb := TestHarness.spawn_friendly_at(state, "rank_breaker", 0)
+	rb.formation_fired = true  # already consumed earlier
+	var enemy := TestHarness.spawn_enemy(state, "rabid_imp")
+	enemy.armour = 0
+	var dm := TestHarness.spawn_friendly_at(state, "battle_drillmaster", 4)
+	var ctx := TestHarness.make_ctx(state, "player", dm)
+	EffectResolver.run((dm.card_data as MinionCardData).on_play_effect_steps, ctx)
+	TestHarness.assert_eq(BuffSystem.sum_type(enemy, Enums.BuffType.ARMOUR_BREAK), 0, "no AB applied — formation was already consumed")
+
+## Rank Breaker FORMATION: APPLY_ARMOUR_BREAK to all enemy MINIONS (not hero —
+## design ruling). Verify each minion got 100 AB and hero did not.
+static func _rank_breaker_formation_ab_all_enemy_minions() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("rank_breaker / FORMATION applies 100 AB to all enemy minions (not hero)", state):
+		return
+	var rb := TestHarness.spawn_friendly(state, "rank_breaker")
+	var e1 := TestHarness.spawn_enemy(state, "rabid_imp")
+	var e2 := TestHarness.spawn_enemy(state, "rabid_imp")
+	var ctx := TestHarness.make_ctx(state, "player", rb)
+	EffectResolver.run((rb.card_data as MinionCardData).formation_effect_steps, ctx)
+	TestHarness.assert_eq(BuffSystem.sum_type(e1, Enums.BuffType.ARMOUR_BREAK), 100, "e1 took 100 AB")
+	TestHarness.assert_eq(BuffSystem.sum_type(e2, Enums.BuffType.ARMOUR_BREAK), 100, "e2 took 100 AB")
+	TestHarness.assert_eq(BuffSystem.sum_type(state.enemy_hero, Enums.BuffType.ARMOUR_BREAK), 0, "hero NOT hit (no include_hero on rank_breaker)")
+
+## Bastion Rune: at turn start, BUFF_ARMOUR with FILTERED_RANDOM_FRIENDLY picks
+## one friendly minion and grants 100 Armour. With a single friendly on board,
+## the pick is deterministic — that one minion gets +100 Armour.
+static func _bastion_rune_grants_armour_at_turn_start() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("bastion_rune / turn-start aura grants +100 Armour to a friendly", state):
+		return
+	var target := TestHarness.spawn_friendly(state, "void_imp")
+	var armour_before: int = target.armour
+	var rune := CardDatabase.get_card("bastion_rune") as TrapCardData
+	EffectResolver.run(rune.aura_effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(target.armour - armour_before, 100, "the only friendly got +100 Armour")
+
+## Creeping Blight on a minion: 300 VOID_CORRUPTION damage + 1 Corruption stack.
+## VOID_CORRUPTION bypasses Armour (§2) so a 100-Armour target still takes 300.
+static func _creeping_blight_damage_and_corruption_minion() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("creeping_blight / 300 VOID_CORRUPTION + 1 Corruption to minion", state):
+		return
+	var target := TestHarness.spawn_enemy(state, "rabid_imp")
+	target.current_health = 1000
+	target.armour = 100
+	var spell := CardDatabase.get_card("creeping_blight") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target)
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(1000 - target.current_health, 300, "300 dmg landed (Armour bypassed)")
+	TestHarness.assert_true(BuffSystem.has_type(target, Enums.BuffType.CORRUPTION), "1 Corruption applied")
+
+## Creeping Blight can target enemy hero per "any_minion_or_enemy_hero" target_type.
+## Hero-targeted spell casts route through state.cast_player_hero_spell which
+## sums DAMAGE_MINION step amounts and applies them as hero damage directly
+## (the EffectResolver minion-path doesn't apply because ctx.chosen_target is
+## strictly MinionInstance). Verify VOID_CORRUPTION bypasses hero armour.
+static func _creeping_blight_targets_enemy_hero() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("creeping_blight / 300 dmg to enemy hero (VOID bypasses hero armour)", state):
+		return
+	state.enemy_hero.armour = 100  # would reduce PHYSICAL — VOID bypasses
+	var hp_before: int = state.enemy_hp
+	var spell := CardDatabase.get_card("creeping_blight") as SpellCardData
+	state.cast_player_hero_spell(spell)
+	TestHarness.assert_eq(hp_before - state.enemy_hp, 300, "hero took full 300 (VOID bypasses Armour)")
+
+## Banner of the Order: on cast, give +100 Armour to all friendly Humans AND
+## stamp the per-minion attack rider on all friendly Demons present. Verify
+## (a) Humans gained Armour, (b) Demons gained the rider entry, (c) Humans did
+## NOT get the rider and Demons did NOT get the Armour.
+static func _banner_of_the_order_humans_armour_demons_rider() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("banner_of_the_order / Humans +100 Armour, Demons get attack rider", state):
+		return
+	var human := TestHarness.spawn_friendly(state, "order_conscript")  # Human
+	var demon := TestHarness.spawn_friendly(state, "void_imp")          # Demon
+	var spell := CardDatabase.get_card("banner_of_the_order") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(human.armour, 100, "Human +100 Armour")
+	TestHarness.assert_eq(demon.armour, 0, "Demon got NO Armour")
+	TestHarness.assert_eq(demon.attack_riders.size(), 1, "Demon has 1 attack rider stamped")
+	TestHarness.assert_eq(human.attack_riders.size(), 0, "Human has NO attack rider")
+
+## Banner rider is idempotent per minion via source_tag. Casting Banner twice
+## on the same Demon should leave it with exactly 1 rider entry.
+static func _banner_of_the_order_idempotent_per_minion() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("banner_of_the_order / re-cast does not double-stamp same Demon", state):
+		return
+	var demon := TestHarness.spawn_friendly(state, "void_imp")
+	var spell := CardDatabase.get_card("banner_of_the_order") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(demon.attack_riders.size(), 1, "still exactly 1 rider after re-cast (idempotent)")
+
+## Banner rider fires on ON_PLAYER_ATTACK_POST via on_attack_fire_riders. Stamp
+## a Demon, fire the POST event with the Demon as attacker and an enemy minion
+## as defender, then verify the defender received 100 AB.
+static func _banner_rider_fires_on_attack_post() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("banner_of_the_order / rider fires 100 AB on ON_PLAYER_ATTACK_POST", state):
+		return
+	var demon := TestHarness.spawn_friendly(state, "void_imp")
+	var spell := CardDatabase.get_card("banner_of_the_order") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	var defender := TestHarness.spawn_enemy(state, "rabid_imp")
+	defender.armour = 0
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_ATTACK_POST, "player",
+			{"minion": demon, "attacker": demon, "defender": defender})
+	TestHarness.assert_eq(BuffSystem.sum_type(defender, Enums.BuffType.ARMOUR_BREAK), 100, "defender took 100 AB from rider")
+
+# ---------------------------------------------------------------------------
+# Korrath Iron Vanguard pool — task 025
+# ---------------------------------------------------------------------------
+
+## Shield Squire FORMATION: BUFF_ARMOUR on SELF for 100. Drive formation_effect_steps
+## directly with the squire as ctx.source.
+static func _shield_squire_formation_grants_self_armour() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shield_squire / FORMATION grants self +100 Armour", state):
+		return
+	var squire := TestHarness.spawn_friendly(state, "shield_squire")
+	var armour_before: int = squire.armour
+	var ctx := TestHarness.make_ctx(state, "player", squire)
+	EffectResolver.run((squire.card_data as MinionCardData).formation_effect_steps, ctx)
+	TestHarness.assert_eq(squire.armour - armour_before, 100, "squire gained +100 Armour")
+
+## Vanguard Marshal's passive listens on ON_FORMATION_TRIGGERED. With a non-empty
+## deck, firing the event should drive the on_formation_triggered_card_auras
+## dispatcher → DRAW step → hand grows by 1. build_state pre-draws 3 cards for the
+## opening hand, so the deck needs surplus cards on top to feed Marshal's draw.
+static func _vanguard_marshal_draws_card_on_formation_trigger() -> void:
+	var state := TestHarness.build_state({
+		"hero_id": "korrath",
+		"hero_passives": ["abyssal_commander", "iron_legion"],
+		"player_deck": ["void_imp", "void_imp", "void_imp", "void_imp", "void_imp"],
+	})
+	if not TestHarness.begin_test("vanguard_marshal / draws a card per friendly FORMATION trigger", state):
+		return
+	var marshal := TestHarness.spawn_friendly(state, "vanguard_marshal")
+	var actor := TestHarness.spawn_friendly(state, "shield_bearer")
+	var hand_before: int = state.player_hand.size()
+	TestHarness.fire(state, Enums.TriggerEvent.ON_FORMATION_TRIGGERED, "player",
+			{"minion": actor})
+	TestHarness.assert_eq(state.player_hand.size() - hand_before, 1, "hand grew by 1 from Marshal")
+	# Self-targeting sanity: Marshal itself should not be in the way of the dispatcher.
+	TestHarness.assert_true(marshal in state.player_board, "marshal still on board")
+
+## Two Marshals on the same side: each fires its own DRAW per Formation event,
+## so a single ON_FORMATION_TRIGGERED grows the hand by 2.
+static func _vanguard_marshal_stacks_with_two_marshals() -> void:
+	var state := TestHarness.build_state({
+		"hero_id": "korrath",
+		"hero_passives": ["abyssal_commander", "iron_legion"],
+		"player_deck": ["void_imp", "void_imp", "void_imp", "void_imp", "void_imp", "void_imp"],
+	})
+	if not TestHarness.begin_test("vanguard_marshal / two on board stack to 2 draws per Formation", state):
+		return
+	TestHarness.spawn_friendly(state, "vanguard_marshal")
+	TestHarness.spawn_friendly(state, "vanguard_marshal")
+	var actor := TestHarness.spawn_friendly(state, "shield_bearer")
+	var hand_before: int = state.player_hand.size()
+	TestHarness.fire(state, Enums.TriggerEvent.ON_FORMATION_TRIGGERED, "player",
+			{"minion": actor})
+	TestHarness.assert_eq(state.player_hand.size() - hand_before, 2, "hand grew by 2 (one per Marshal)")
+
+## Shield Bash damage = sum of friendly minion Armour + player hero Armour. Seed
+## two friendlies with 100 + 250 Armour and the hero with 200 → expected total 550.
+## Target is an enemy with 0 armour so the raw PHYSICAL value lands cleanly.
+static func _shield_bash_damage_scales_with_friendly_and_hero_armour() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shield_bash / damage = sum of friendly minion + hero Armour", state):
+		return
+	var f1 := TestHarness.spawn_friendly(state, "void_imp")
+	var f2 := TestHarness.spawn_friendly(state, "void_imp")
+	f1.armour = 100
+	f2.armour = 250
+	state.player_hero.armour = 200
+	var target := TestHarness.spawn_enemy(state, "rabid_imp")
+	target.armour = 0
+	target.current_health = 2000
+	var spell := CardDatabase.get_card("shield_bash") as SpellCardData
+	var ctx := TestHarness.make_ctx(state, "player", null, target)
+	EffectResolver.run(spell.effect_steps, ctx)
+	TestHarness.assert_eq(2000 - target.current_health, 550, "target took 100+250+200 = 550 PHYSICAL")
+	# Reads as counter — Armour is NOT consumed by Shield Bash.
+	TestHarness.assert_eq(f1.armour, 100, "f1 armour unchanged after cast")
+	TestHarness.assert_eq(f2.armour, 250, "f2 armour unchanged after cast")
+	TestHarness.assert_eq(state.player_hero.armour, 200, "hero armour unchanged after cast")
+
+## With no friendly minions on board but hero has 300 Armour, damage = 300.
+static func _shield_bash_includes_hero_armour() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("shield_bash / hero Armour alone feeds damage (no minions on board)", state):
+		return
+	state.player_hero.armour = 300
+	var target := TestHarness.spawn_enemy(state, "rabid_imp")
+	target.armour = 0
+	target.current_health = 1000
+	var spell := CardDatabase.get_card("shield_bash") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player", null, target))
+	TestHarness.assert_eq(1000 - target.current_health, 300, "damage = 300 (hero Armour only)")
+
+## Lord Commander ON_PLAY routes ADD_HERO_ARMOUR through state.add_hero_armour;
+## the player hero should gain exactly 200 Armour.
+static func _lord_commander_grants_hero_armour_on_play() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("lord_commander / ON PLAY grants 200 hero Armour", state):
+		return
+	var commander := TestHarness.spawn_friendly(state, "lord_commander")
+	var hero_armour_before: int = state.player_hero.armour
+	var ctx := TestHarness.make_ctx(state, "player", commander)
+	EffectResolver.run((commander.card_data as MinionCardData).on_play_effect_steps, ctx)
+	TestHarness.assert_eq(state.player_hero.armour - hero_armour_before, 200, "player hero gained +200 Armour")
+	# Commander itself is a minion — its own armour field is untouched.
+	TestHarness.assert_eq(commander.armour, 0, "commander minion armour unchanged")
+
+## Oath of Iron fills every empty slot on the player board with an iron_footman
+## (200/200 Human). With an empty board, all 5 slots fill.
+static func _oath_of_iron_fills_every_empty_slot() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("oath_of_iron / fills every empty slot with Iron Footman", state):
+		return
+	var slots_count: int = state.player_slots.size()
+	var spell := CardDatabase.get_card("oath_of_iron") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(TestHarness.count_on_board(state, "player", "iron_footman"), slots_count,
+			"every empty slot got an Iron Footman")
+	var footman := TestHarness.find_on_board(state, "player", "iron_footman")
+	TestHarness.assert_eq(footman.card_data.atk, 200, "iron_footman is 200 ATK")
+	TestHarness.assert_eq(footman.card_data.health, 200, "iron_footman is 200 HP")
+	TestHarness.assert_eq((footman.card_data as MinionCardData).minion_type, Enums.MinionType.HUMAN,
+			"iron_footman is Human")
+
+## Pre-occupied slots are skipped — fill_empty_slots only spawns into empties.
+static func _oath_of_iron_skips_occupied_slots() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("oath_of_iron / skips occupied slots", state):
+		return
+	# Occupy slots 0 and 2. Oath should fill the other 3 (assuming 5-slot board).
+	TestHarness.spawn_friendly_at(state, "void_imp", 0)
+	TestHarness.spawn_friendly_at(state, "void_imp", 2)
+	var expected: int = state.player_slots.size() - 2
+	var spell := CardDatabase.get_card("oath_of_iron") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_eq(TestHarness.count_on_board(state, "player", "iron_footman"), expected,
+			"only empty slots filled")
+	# Slot 0 and slot 2 still hold their void_imps — Oath didn't displace.
+	TestHarness.assert_eq(state.player_slots[0].minion.card_data.id, "void_imp", "slot 0 unchanged")
+	TestHarness.assert_eq(state.player_slots[2].minion.card_data.id, "void_imp", "slot 2 unchanged")
+
+## Each Iron Footman placement is a fresh summon. Seed a FORMATION minion at an
+## edge slot adjacent to one of Oath's spawns — the spawn should sandwich it and
+## trigger its Formation. Use Shield Bearer (FORMATION: outward +200 Armour) at
+## slot 1, with slot 0 filled by an existing Human (so the right-side spawn
+## sandwiches it). After Oath, the friendly at slot 0 should have gained the
+## outward Armour grant from Shield Bearer's Formation.
+static func _oath_of_iron_summons_trigger_formation_on_neighbors() -> void:
+	var state := TestHarness.korrath_state()
+	if not TestHarness.begin_test("oath_of_iron / spawned Iron Footmen trigger neighbor FORMATION (sandwich)", state):
+		return
+	# Slot 0: existing Human (Order Footman, 100/200) — will receive the outward Armour grant.
+	var anchor := TestHarness.spawn_friendly_at(state, "order_footman", 0)
+	# Slot 1: Shield Bearer FORMATION (Human, outward GRANT_KEYWORD GUARD + BUFF_ARMOUR 200).
+	var bearer := TestHarness.spawn_friendly_at(state, "shield_bearer", 1)
+	var anchor_armour_before: int = anchor.armour
+	TestHarness.assert_false(bearer.formation_fired, "shield_bearer starts unconsumed")
+	# Cast Oath — fills slots 2,3,4 with Iron Footmen. Slot 2's spawn becomes
+	# Shield Bearer's right neighbor (Human) → sandwich is satisfied (slot 0 left = Human, slot 2 right = Human).
+	var spell := CardDatabase.get_card("oath_of_iron") as SpellCardData
+	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
+	TestHarness.assert_true(bearer.formation_fired, "shield_bearer formation consumed by Oath spawn")
+	TestHarness.assert_eq(anchor.armour - anchor_armour_before, 200, "anchor gained +200 Armour from bearer's outward FORMATION")

@@ -454,6 +454,105 @@ func on_enemy_died_shattering_doom(ctx: EventContext) -> void:
 				Enums.DamageSchool.NONE, dead, "shattering_doom")
 		_scene.combat_manager.apply_damage_to_minion(m, info)
 
+## Korrath — per-minion attack-rider dispatcher. Fires on ON_PLAYER_ATTACK_POST
+## (after the strike's damage resolves on the defender, before counter-attack —
+## same beat as path_of_shattering). Iterates attacker.attack_riders and runs
+## each rider's effect_steps with ctx.source = attacker, ctx.chosen_target bound
+## to the defender (per rider scope == "attack_target"). Hero defenders are
+## passed through as the sentinel string "enemy_hero" / "player_hero" so steps
+## that handle a String defender (APPLY_ARMOUR_BREAK against a hero) work via
+## the same code path as Banner of the Order's rider.
+##
+## A symmetric handler fires on ON_ENEMY_ATTACK so enemy-side carriers also fire
+## their riders. (No riders are stamped on enemy minions in shipped content, but
+## the symmetry matches every other attack-driven effect.)
+##
+## Registered in CombatSetup with no card_id filter — riders are dynamic data,
+## not a card-static keyword, so every attack must check the rider list.
+func on_attack_fire_riders(ctx: EventContext) -> void:
+	var attacker: MinionInstance = ctx.minion
+	if attacker == null or attacker.attack_riders.is_empty():
+		return
+	var defender = ctx.defender
+	# Build a copy in case a rider somehow mutates the list (defensive — currently
+	# no rider step removes riders, but copy keeps iteration stable).
+	for rider_any in attacker.attack_riders.duplicate():
+		var rider: Dictionary = rider_any
+		var steps: Array = rider.get("effect_steps", [])
+		if steps.is_empty():
+			continue
+		var ectx := EffectContext.make(_scene, attacker.owner)
+		ectx.source         = attacker
+		ectx.source_card_id = rider.get("source_tag", "")
+		# Bind chosen_target for minion defenders; hero defenders go through
+		# include_hero on APPLY_ARMOUR_BREAK steps instead (rider's scope today
+		# is "attack_target" and steps are expected to be SINGLE_CHOSEN-like).
+		if defender is MinionInstance:
+			ectx.chosen_target = defender
+			EffectResolver.run(steps, ectx)
+		elif defender is String:
+			# Hero defender — synthesize a single-step path that hits the hero
+			# directly. Banner's rider is APPLY_ARMOUR_BREAK against the attack
+			# target; for hero defenders we apply directly via apply_hero_buff.
+			# Iterate steps and route APPLY_ARMOUR_BREAK manually; other step
+			# types are unsupported as rider steps today (loud warn).
+			for raw in steps:
+				var d: Dictionary = raw if raw is Dictionary else {}
+				var t: String = d.get("type", "")
+				if t == "APPLY_ARMOUR_BREAK":
+					var amt: int = d.get("amount", 0)
+					var tag: String = d.get("source_tag", rider.get("source_tag", ""))
+					var hero_side: String = "enemy" if attacker.owner == "player" else "player"
+					_scene.state.apply_hero_buff(hero_side, Enums.BuffType.ARMOUR_BREAK, amt, tag)
+				else:
+					push_warning("Attack rider hero-defender path: unsupported step type '%s' (rider tag=%s)" % [t, rider.get("source_tag", "")])
+
+## Korrath — Battle Drillmaster cascade. Fires every FORMATION minion on the
+## given side whose formation_fired flag is false, IGNORING the adjacency /
+## sandwich requirement that normally gates Formation. Each cascade-fired
+## minion still consumes its one-shot — Drillmaster cannot re-fire an already
+## consumed Formation. The order is left-to-right by slot_index for
+## determinism. Drillmaster itself doesn't have FORMATION so it is not in the
+## iteration; if it did, it would be skipped (formation_fired check still
+## applies).
+func fire_unconsumed_formations_cascade(side: String) -> void:
+	var board: Array = _scene.player_board if side == "player" else _scene.enemy_board
+	if board == null:
+		return
+	# Snapshot the cascade targets first so effects that re-arrange the board
+	# (kills, summons) don't perturb iteration.
+	var to_fire: Array = []
+	for raw in board:
+		var m: MinionInstance = raw as MinionInstance
+		if m == null or m.card_data == null:
+			continue
+		var card := m.card_data as MinionCardData
+		if card == null or not (Enums.Keyword.FORMATION in card.keywords):
+			continue
+		if m.formation_fired:
+			continue
+		to_fire.append(m)
+	# Slot-order: deterministic left-to-right pass.
+	to_fire.sort_custom(func(a, b): return (a as MinionInstance).slot_index < (b as MinionInstance).slot_index)
+	for raw in to_fire:
+		var actor: MinionInstance = raw
+		if actor.formation_fired:
+			continue  # defensive — earlier cascade step might have already fired it
+		var card := actor.card_data as MinionCardData
+		actor.formation_fired = true
+		if not card.formation_effect_steps.is_empty():
+			var ectx := EffectContext.make(_scene, actor.owner)
+			ectx.source = actor
+			ectx.source_card_id = card.id
+			EffectResolver.run(card.formation_effect_steps, ectx)
+		if _scene.trigger_manager != null:
+			var tctx := EventContext.make(Enums.TriggerEvent.ON_FORMATION_TRIGGERED, actor.owner)
+			tctx.minion = actor
+			# No partner in the cascade path — leave tctx.target null.
+			_scene.trigger_manager.fire(tctx)
+		if _scene.has_method("_refresh_slot_for"):
+			_scene._refresh_slot_for(actor)
+
 ## Fires `actor`'s Formation if conditions are met. `partner` is the minion whose
 ## summon event triggered the check (used to short-circuit when partner clearly
 ## fails the race test); the actual gate requires same-race minions on BOTH the
@@ -574,6 +673,31 @@ func on_minion_summoned_friendly_aura(ctx: EventContext) -> void:
 		ectx.source_card_id = mc.id
 		ectx.trigger_minion = summoned
 		EffectResolver.run(mc.on_friendly_summon_aura_steps, ectx)
+
+## Fires on ON_FORMATION_TRIGGERED. Walks the actor's side board, finds every minion
+## with non-empty on_formation_triggered_aura_steps, and runs the steps once per source
+## with ctx.trigger_minion = the actor (the minion whose Formation just fired). N
+## listeners on the same side = N independent firings. Vanguard Marshal is the first
+## consumer (draws a card per friendly Formation trigger).
+func on_formation_triggered_card_auras(ctx: EventContext) -> void:
+	var actor: MinionInstance = ctx.minion
+	if actor == null:
+		return
+	var board: Array = _scene._friendly_board(actor.owner)
+	if board == null:
+		return
+	for raw in board:
+		var src: MinionInstance = raw as MinionInstance
+		if src == null:
+			continue
+		var mc := src.card_data as MinionCardData
+		if mc == null or mc.on_formation_triggered_aura_steps.is_empty():
+			continue
+		var ectx := EffectContext.make(_scene, src.owner)
+		ectx.source         = src
+		ectx.source_card_id = mc.id
+		ectx.trigger_minion = actor
+		EffectResolver.run(mc.on_formation_triggered_aura_steps, ectx)
 
 # ---------------------------------------------------------------------------
 # ON_RUNE_PLACED / ON_RITUAL_ENVIRONMENT_PLAYED

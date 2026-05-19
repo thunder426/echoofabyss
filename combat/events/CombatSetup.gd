@@ -537,6 +537,12 @@ func setup(
 	# state is already settled when the aura applies a one-shot stat like Armour.
 	tm.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, h.on_minion_summoned_friendly_aura,    6)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  h.on_minion_summoned_friendly_aura,    6)
+	# Generic on-friendly-Formation-trigger aura dispatcher — runs MinionCardData
+	# .on_formation_triggered_aura_steps once per source on the actor's side. Mirrors
+	# the on-friendly-summon aura dispatcher. Priority 20 fires after commanders_reach
+	# (T1 talent, 30) so any board-state mutation from the talent is settled before
+	# card-data listeners read the board. First consumer: Vanguard Marshal.
+	tm.register(Enums.TriggerEvent.ON_FORMATION_TRIGGERED,    h.on_formation_triggered_card_auras,   20)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED,   h.on_enemy_minion_played_effect,         5)
 	# Generic minion presence-aura recompute — fires on every summon/death/sacrifice on
 	# either side. Walks MinionCardData.presence_aura_steps on every minion and recomputes
@@ -568,6 +574,14 @@ func setup(
 	# (not next turn start) so the buff doesn't bleed into the opponent's turn.
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_END,      h.on_turn_end_pack_frenzy_revert,       10)
 	tm.register(Enums.TriggerEvent.ON_ENEMY_TURN_END,       h.on_turn_end_pack_frenzy_revert,       10)
+	# Korrath — per-minion attack riders (stamped by GRANT_ATTACK_RIDER, used by
+	# Banner of the Order and any future "on-attack" buff card). Always registered
+	# because riders are dynamic per-minion data, not a card-static keyword — every
+	# attack must consult the attacker's rider list. Priority 30 keeps it AFTER
+	# path_of_shattering (28) so per-minion riders layer on top of the talent's
+	# global Demon-AB residual rather than the other way around.
+	tm.register(Enums.TriggerEvent.ON_PLAYER_ATTACK_POST,   h.on_attack_fire_riders,                30)
+	tm.register(Enums.TriggerEvent.ON_ENEMY_ATTACK,         h.on_attack_fire_riders,                30)
 
 	# ── Global flags from talents ────────────────────────────────────────────
 	# Reset per-combat globals, then set from active talents. Resetting here is important

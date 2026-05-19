@@ -170,6 +170,18 @@ func shares_race(other: MinionCardData) -> bool:
 ##    "source_tag": "quartermaster_aura"}
 @export var on_friendly_summon_aura_steps: Array = []
 
+## Declarative aura that fires once per friendly FORMATION trigger while this minion is on
+## the board. Symmetric to on_friendly_summon_aura_steps but keyed to ON_FORMATION_TRIGGERED.
+## The dispatcher (CombatHandlers.on_formation_triggered_card_auras, registered in CombatSetup)
+## walks this card's side board, finds every aura source with non-empty
+## on_formation_triggered_aura_steps, and runs the steps with ctx.source = the aura source
+## and ctx.trigger_minion = the minion whose Formation just fired. Self is NOT skipped —
+## a Formation minion whose own Formation triggers AND that also lists this field would
+## react to its own trigger (today's cards don't combine the two; document if a future
+## card needs it). Vanguard Marshal's "draw a card per friendly Formation trigger" is the
+## first consumer.
+@export var on_formation_triggered_aura_steps: Array = []
+
 ## Family / synergy tags used for data-driven queries instead of hardcoded card ID checks.
 ## Examples: "void_imp", "base_void_imp", "senior_void_imp", "void_champion", "imp_overseer".
 ## Add all applicable tags; CombatScene queries with _minion_has_tag() / _card_has_tag().

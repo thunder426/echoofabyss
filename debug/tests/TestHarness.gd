@@ -221,6 +221,8 @@ static func fire(state: SimState, event: int, side: String, fields: Dictionary =
 		ctx.damage = fields["damage"]
 	if fields.has("attacker"):
 		ctx.attacker = fields["attacker"]
+	if fields.has("defender"):
+		ctx.defender = fields["defender"]
 	state.trigger_manager.fire(ctx)
 
 # ---------------------------------------------------------------------------
