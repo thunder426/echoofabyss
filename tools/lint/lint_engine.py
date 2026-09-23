@@ -25,7 +25,7 @@ rule set and the phase that introduces each rule.
       on CombatScene.
 
   L4  No duck typing in rules files: `has_method(` anywhere, and
-      `.get("x")` / `.set("x", …)` on an object handle (shell, presenter,
+      `.get("x")` / `.set("x", …)` / `"x" in <handle>` on an object handle (shell, presenter,
       state, enemy_ai / turn_manager aliases, event contexts). Dictionary
       `.get("key")` is fine.
 
@@ -70,8 +70,8 @@ SCENE_FILES = [
 SETUP = "combat/events/CombatSetup.gd"
 RULES_FILES = UNDERSCORE_SCENE_FILES + SCENE_FILES
 
-# Rules counted toward the exit code. L3/L4 are enforced from plan step 1.2.
-ENFORCED = {"L1", "L2"}
+# Rules counted toward the exit code (L3/L4 since plan step 1.2; L5 via --report-pairs).
+ENFORCED = {"L1", "L2", "L3", "L4"}
 
 # L3: handles that resolve to the combat shell / facade, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
@@ -278,6 +278,7 @@ class Linter:
         shell_re = re.compile(rf"(?<![\w.])(?:{shell})\.(\w+)")
         pres_re = re.compile(rf"(?<![\w.])(?:{pres})\.(\w+)")
         duck_re = re.compile(rf"(?<![\w.])(?:{objs})\.(?:get|set)\(\s*\"(\w+)\"")
+        in_re = re.compile(rf"\"(\w+)\"\s+in\s+(?:{objs})\b")
         for i, raw in enumerate(read(rel), start=1):
             line = strip_comment(raw)
             for m in shell_re.finditer(line):
@@ -293,6 +294,8 @@ class Linter:
                 self.err("L4", rel, i, "has_method( — duck typing; call a typed member")
             for m in duck_re.finditer(line):
                 self.err("L4", rel, i, f'.get/.set("{m.group(1)}") on an object — use the typed member')
+            for m in in_re.finditer(line):
+                self.err("L4", rel, i, f'"{m.group(1)}" in <object> — use the typed member')
 
     def scan_presenter_calls(self, rel: str) -> None:
         """CombatState itself may call only [presenter] names on `presenter`."""

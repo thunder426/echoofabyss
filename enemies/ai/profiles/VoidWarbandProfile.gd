@@ -326,18 +326,18 @@ func _simulate_plan(cost: int, exclude: Dictionary) -> Array[MinionInstance]:
 	for m: MinionInstance in agent.friendly_board:
 		if exclude.has(m.get_instance_id()):
 			continue
-		var sv: int = m.effective_spark_value(agent.scene)
+		var sv: int = m.effective_spark_value(agent.scene.state)
 		if sv > 0 and sv <= cost and not m.has_critical_strike():
 			pool.append(m)
 	pool.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene) > b.effective_spark_value(agent.scene))
+		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
 	var plan: Array[MinionInstance] = []
 	var remaining := cost
 	for m: MinionInstance in pool:
 		if remaining <= 0:
 			break
 		plan.append(m)
-		remaining -= m.effective_spark_value(agent.scene)
+		remaining -= m.effective_spark_value(agent.scene.state)
 	if remaining > 0:
 		return []  # unaffordable, don't reserve
 	return plan
@@ -539,18 +539,18 @@ func _plan_spark_payment_warband(cost: int, _is_lance: bool = false) -> Array[Mi
 	for m: MinionInstance in agent.friendly_board:
 		if _is_spark_consumer(m):
 			continue
-		var sv: int = m.effective_spark_value(agent.scene)
+		var sv: int = m.effective_spark_value(agent.scene.state)
 		if sv > 0 and sv <= cost and not m.has_critical_strike():
 			no_crit.append(m)
 	no_crit.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene) > b.effective_spark_value(agent.scene))
+		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
 	var plan: Array[MinionInstance] = []
 	var remaining := cost
 	for m: MinionInstance in no_crit:
 		if remaining <= 0:
 			break
 		plan.append(m)
-		remaining -= m.effective_spark_value(agent.scene)
+		remaining -= m.effective_spark_value(agent.scene.state)
 	if remaining <= 0:
 		return plan
 	# Fall back to any fuel, but still exclude spark consumers
@@ -558,18 +558,18 @@ func _plan_spark_payment_warband(cost: int, _is_lance: bool = false) -> Array[Mi
 	for m: MinionInstance in agent.friendly_board:
 		if _is_spark_consumer(m):
 			continue
-		var sv: int = m.effective_spark_value(agent.scene)
+		var sv: int = m.effective_spark_value(agent.scene.state)
 		if sv > 0 and sv <= cost:
 			fallback.append(m)
 	fallback.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene) > b.effective_spark_value(agent.scene))
+		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
 	var plan2: Array[MinionInstance] = []
 	var remaining2 := cost
 	for m: MinionInstance in fallback:
 		if remaining2 <= 0:
 			break
 		plan2.append(m)
-		remaining2 -= m.effective_spark_value(agent.scene)
+		remaining2 -= m.effective_spark_value(agent.scene.state)
 	if remaining2 <= 0:
 		return plan2
 	return []  # Can't afford without consuming spark consumers — don't cast

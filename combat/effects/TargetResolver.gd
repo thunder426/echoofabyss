@@ -25,8 +25,8 @@ static func resolve(step: EffectStep, ctx: EffectContext) -> Array:
 			return []
 		EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM_FRIENDLY, EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_OPPONENT_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_ANY, EffectStep.TargetScope.SINGLE_RANDOM_BOTH_BOARDS:
 			if step.random_picks > 1:
-				return _random_n_distinct(pool, step.random_picks, ctx.scene.state)
-			return _random_one(pool, ctx.scene.state)
+				return _random_n_distinct(pool, step.random_picks, ctx.state)
+			return _random_one(pool, ctx.state)
 		_:
 			return pool
 
@@ -35,23 +35,22 @@ static func resolve(step: EffectStep, ctx: EffectContext) -> Array:
 # ---------------------------------------------------------------------------
 
 static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Array:
-	var scene = ctx.scene
 	match scope:
 		EffectStep.TargetScope.SELF:
 			return [ctx.source] if ctx.source != null else []
 		EffectStep.TargetScope.ALL_ENEMY, EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM:
-			return scene._opponent_board(ctx.owner).duplicate()
+			return ctx.state._opponent_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.FILTERED_RANDOM_FRIENDLY:
-			return scene._friendly_board(ctx.owner).duplicate()
+			return ctx.state._friendly_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.SINGLE_RANDOM_ANY:
 			# Enemy minions + enemy hero (sentinel string). Untyped Array so we can mix types.
 			var pool_any: Array = []
-			for m in scene._opponent_board(ctx.owner):
+			for m in ctx.state._opponent_board(ctx.owner):
 				pool_any.append(m)
 			pool_any.append("enemy_hero")
 			return pool_any
 		EffectStep.TargetScope.ALL_FRIENDLY:
-			return scene._friendly_board(ctx.owner).duplicate()
+			return ctx.state._friendly_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.ADJACENT_FRIENDLIES:
 			# Korrath outward-grant Formation (Shield Bearer). Walks slot_index ± 1 of
 			# ctx.source on the source's own side and returns the occupant minions.
@@ -60,7 +59,7 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 			var src: MinionInstance = ctx.source as MinionInstance
 			if src == null or src.slot_index < 0:
 				return []
-			var slots: Array = scene.player_slots if src.owner == "player" else scene.enemy_slots
+			var slots: Array = ctx.state.player_slots if src.owner == "player" else ctx.state.enemy_slots
 			if slots == null:
 				return []
 			var out: Array = []
@@ -76,13 +75,13 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 		EffectStep.TargetScope.SINGLE_CHOSEN:
 			# Both boards — spells like Arcane Strike ("any_minion") can target friendlies.
 			# The chosen_target check in resolve() ensures only the picked minion is hit.
-			return (scene._friendly_board(ctx.owner) + scene._opponent_board(ctx.owner)).duplicate()
+			return (ctx.state._friendly_board(ctx.owner) + ctx.state._opponent_board(ctx.owner)).duplicate()
 		EffectStep.TargetScope.SINGLE_CHOSEN_FRIENDLY:
-			return scene._friendly_board(ctx.owner).duplicate()
+			return ctx.state._friendly_board(ctx.owner).duplicate()
 		EffectStep.TargetScope.ALL_BOARD:
-			return (scene.player_board + scene.enemy_board).duplicate()
+			return (ctx.state.player_board + ctx.state.enemy_board).duplicate()
 		EffectStep.TargetScope.SINGLE_RANDOM_BOTH_BOARDS:
-			return (scene.player_board + scene.enemy_board).duplicate()
+			return (ctx.state.player_board + ctx.state.enemy_board).duplicate()
 		EffectStep.TargetScope.TRIGGER_MINION:
 			return [ctx.trigger_minion] if ctx.trigger_minion != null else []
 		EffectStep.TargetScope.DEAD_MINION:
@@ -92,9 +91,9 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 		EffectStep.TargetScope.ALL_TRAPS:
 			# "Including your own" — Hurricane sweeps both sides. The DESTROY
 			# applier locates each trap on whichever side actually owns it.
-			return ctx.state.traps_of(ctx.owner) + ctx.state.traps_of(scene._opponent_of(ctx.owner))
+			return ctx.state.traps_of(ctx.owner) + ctx.state.traps_of(ctx.state._opponent_of(ctx.owner))
 		EffectStep.TargetScope.SINGLE_RANDOM_OPPONENT_TRAP:
-			return ctx.state.traps_of(scene._opponent_of(ctx.owner)).duplicate()
+			return ctx.state.traps_of(ctx.state._opponent_of(ctx.owner)).duplicate()
 		EffectStep.TargetScope.SINGLE_CHOSEN_TRAP_OR_ENV:
 			# Must be set by the AI before casting — no fallback.
 			if ctx.chosen_object == null:
@@ -116,8 +115,8 @@ static func _passes_filter(filter: EffectStep.MinionFilter, target, ctx: EffectC
 		EffectStep.MinionFilter.HUMAN:     return (target.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN)
 		EffectStep.MinionFilter.SPIRIT:    return (target.card_data as MinionCardData).is_race(Enums.MinionType.SPIRIT)
 		EffectStep.MinionFilter.BEAST:     return (target.card_data as MinionCardData).is_race(Enums.MinionType.BEAST)
-		EffectStep.MinionFilter.VOID_IMP:   return ctx.scene._minion_has_tag(target, "void_imp")
-		EffectStep.MinionFilter.FERAL_IMP:  return ctx.scene._minion_has_tag(target, "feral_imp")
+		EffectStep.MinionFilter.VOID_IMP:   return ctx.state._minion_has_tag(target, "void_imp")
+		EffectStep.MinionFilter.FERAL_IMP:  return ctx.state._minion_has_tag(target, "feral_imp")
 		EffectStep.MinionFilter.CORRUPTED: return BuffSystem.has_type(target, Enums.BuffType.CORRUPTION)
 		_: return true
 

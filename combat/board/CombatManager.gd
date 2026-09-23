@@ -49,8 +49,16 @@ static func make_damage_info(
 # Main attack resolution
 # ---------------------------------------------------------------------------
 
-## Scene reference — set by CombatScene/SimState so we can read crit_multiplier.
+## The combat shell (CombatScene live, SimState in sim) — set by the shell at
+## setup. Gameplay reads and writes go through `state`; the shell is used only
+## as a facade (tools/lint/presentation_allowlist.txt).
 var scene: Object = null
+## The combat state, or null before the shell is attached (bare unit tests).
+var state: CombatState:
+	get: return scene.state if scene != null else null
+## Presentation: the CombatScene in live, null in sim/tests.
+var presenter: Object:
+	get: return state.presenter if state != null else null
 
 ## Resolve a full attack between two minions (simultaneous damage).
 ## Effective damage dealt to the defender (post-Ethereal, 0 if Immune). NOT clamped
@@ -72,7 +80,7 @@ var last_post_armour_damage: int = 0
 
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	if scene != null:
-		scene._last_attacker = attacker
+		state._last_attacker = attacker
 	# Korrath — two-phase attack trigger. PRE fires before damage resolves so
 	# handlers that need to mutate the strike (corrupting_strike adds Corruption
 	# pre-hit, runeforge_strike places a rune) run in time. POST fires after the
@@ -80,11 +88,11 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	# handlers (path_of_shattering, banner_of_the_order rider) leave AB on the
 	# target without softening the same strike. Player-side only; ON_ENEMY_ATTACK
 	# stays single-phase pre-damage (fired from CombatScene's enemy attack path).
-	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+	if attacker.owner == "player" and scene != null and state.trigger_manager != null:
 		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_PRE, "player")
 		atk_ctx.minion = attacker
 		atk_ctx.defender = defender
-		scene.trigger_manager.fire(atk_ctx)
+		state.trigger_manager.fire(atk_ctx)
 	var atk_damage := _apply_crit(attacker)
 
 	# ETHEREAL: defender takes 50% reduced physical damage from minion attacks
@@ -105,11 +113,11 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	# pierce/counter. AB-residual handlers run here; if defender died, AB lands on
 	# a dead minion harmlessly (ON_ENEMY_MINION_DIED already fired from _deal_damage,
 	# so Shattering Doom snapshotted the pre-POST AB total, by design).
-	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+	if attacker.owner == "player" and scene != null and state.trigger_manager != null:
 		var post_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_POST, "player")
 		post_ctx.minion = attacker
 		post_ctx.defender = defender
-		scene.trigger_manager.fire(post_ctx)
+		state.trigger_manager.fire(post_ctx)
 
 	# PIERCE: excess kill damage carries through to the enemy hero. Uses post-armour
 	# damage (the value that actually reached the defender's pool) so Korrath Armour
@@ -148,21 +156,20 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	_check_post_crit(attacker)
 	attack_resolved.emit(attacker, defender)
 	if scene != null:
-		scene._last_attacker = null
-		scene.set("_last_attack_was_crit", false)
-
+		state._last_attacker = null
+		state._last_attack_was_crit = false
 ## Resolve a minion attacking the enemy hero directly.
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
 	if scene != null:
-		scene._last_attacker = attacker
+		state._last_attacker = attacker
 	# Korrath — same two-phase attack trigger as minion-vs-minion. Defender is a
 	# string sentinel ("enemy_hero" / "player_hero") so handlers branch on type.
 	var defender_sentinel := "%s_hero" % target_owner
-	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+	if attacker.owner == "player" and scene != null and state.trigger_manager != null:
 		var atk_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_PRE, "player")
 		atk_ctx.minion = attacker
 		atk_ctx.defender = defender_sentinel
-		scene.trigger_manager.fire(atk_ctx)
+		state.trigger_manager.fire(atk_ctx)
 	var damage := _apply_crit(attacker)
 	if damage > 0:
 		apply_hero_damage(target_owner, _attack_damage_info(damage, attacker))
@@ -172,18 +179,17 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 			_siphon_self_heal(attacker, damage)
 	# POST fires after hero damage resolves; AB residual on the enemy hero is
 	# meaningful because heroes carry an Armour stat (task 007).
-	if attacker.owner == "player" and scene != null and scene.get("trigger_manager") != null:
+	if attacker.owner == "player" and scene != null and state.trigger_manager != null:
 		var post_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_POST, "player")
 		post_ctx.minion = attacker
 		post_ctx.defender = defender_sentinel
-		scene.trigger_manager.fire(post_ctx)
+		state.trigger_manager.fire(post_ctx)
 	attacker.attack_count += 1
 	_check_post_crit(attacker)
 	attacker.state = Enums.MinionState.EXHAUSTED
 	if scene != null:
-		scene._last_attacker = null
-		scene.set("_last_attack_was_crit", false)
-
+		state._last_attacker = null
+		state._last_attack_was_crit = false
 # ---------------------------------------------------------------------------
 # Damage application
 # ---------------------------------------------------------------------------
@@ -200,7 +206,7 @@ func apply_hero_damage(target: String, info: Dictionary) -> void:
 	if amount <= 0:
 		return
 	if scene != null and not _school_bypasses_armour(info.get("school", Enums.DamageSchool.NONE)):
-		var hero: HeroState = scene.player_hero if target == "player" else scene.enemy_hero
+		var hero: HeroState = state.player_hero if target == "player" else state.enemy_hero
 		if hero != null:
 			amount = _apply_armour_math(hero, amount)
 			info["amount"] = amount
@@ -247,7 +253,7 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 		return
 	if minion.has_immune():
 		if scene != null:
-			scene.state._immune_dmg_prevented += damage
+			state._immune_dmg_prevented += damage
 		return
 	# Korrath — Armour math gates by school, not source. Only PHYSICAL and NONE
 	# go through armour and Armour Break math; ARCANE and VOID lineage bypass
@@ -275,7 +281,7 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 			# resource to prevent death. Scene returns true if the minion was saved
 			# (and must restore HP to a non-zero value). has_method guard keeps sim
 			# state safe when the hook isn't wired.
-			if scene != null and scene.has_method("_try_save_from_death") and scene._try_save_from_death(minion):
+			if state != null and state._try_save_from_death(minion):
 				return
 			minion.current_health = 0
 			# F11 debug: track Behemoth/Bastion death cause
@@ -324,7 +330,7 @@ func _attack_damage_info(amount: int, attacker: MinionInstance) -> Dictionary:
 ## Instantly kill a minion, bypassing shield and health checks.
 ## Fires minion_vanished so On Death effects and board cleanup happen normally.
 func kill_minion(minion: MinionInstance) -> void:
-	if scene != null and scene.has_method("_try_save_from_death") and scene._try_save_from_death(minion):
+	if state != null and state._try_save_from_death(minion):
 		return
 	minion.current_health = 0
 	minion_vanished.emit(minion)
@@ -348,10 +354,10 @@ func _apply_crit(attacker: MinionInstance) -> int:
 		if cur != null:
 			scene.set(key, (cur as int) + 1)
 		# Store attacker for post-crit processing
-		scene.set("_last_crit_attacker", attacker)
+		state._last_crit_attacker = attacker
 		# Flag this attack as a crit so death handlers can detect crit-kills.
 		# Cleared by the death handler (or next attack if no kill occurred).
-		scene.set("_last_attack_was_crit", true)
+		state._last_attack_was_crit = true
 	var multiplier: float = 2.0
 	if scene != null:
 		# Check per-side multiplier first, fall back to global
@@ -359,8 +365,8 @@ func _apply_crit(attacker: MinionInstance) -> int:
 		var side_mult = scene.get(side_key)
 		if side_mult != null and side_mult > 0.0:
 			multiplier = side_mult
-		elif scene.get("crit_multiplier") != null:
-			multiplier = scene.get("crit_multiplier")
+		elif state.crit_multiplier != null:
+			multiplier = state.crit_multiplier
 	return int(base_dmg * multiplier)
 
 # ---------------------------------------------------------------------------
@@ -374,9 +380,9 @@ func _rift_warden_siphon(defender: MinionInstance, prevented: int) -> void:
 		return
 	var board: Array[MinionInstance]
 	if defender.owner == "player":
-		board = scene.get("player_board") as Array[MinionInstance]
+		board = state.player_board as Array[MinionInstance]
 	else:
-		board = scene.get("enemy_board") as Array[MinionInstance]
+		board = state.enemy_board as Array[MinionInstance]
 	if board == null:
 		return
 	for m: MinionInstance in board:
@@ -398,16 +404,16 @@ func _siphon_self_heal(attacker: MinionInstance, damage_dealt: int) -> void:
 	var before := attacker.current_health
 	attacker.current_health = mini(attacker.current_health + heal, hp_cap)
 	var healed := attacker.current_health - before
-	if healed > 0 and scene != null and scene.has_method("_on_minion_siphon_healed"):
-		scene._on_minion_siphon_healed(attacker, healed)
+	if healed > 0 and presenter != null:
+		presenter._on_minion_siphon_healed(attacker, healed)
 
 ## Check if the last attack consumed a crit and run post-crit processing.
 func _check_post_crit(attacker: MinionInstance) -> void:
 	if scene == null:
 		return
-	if scene.get("_last_crit_attacker") != attacker:
+	if state._last_crit_attacker != attacker:
 		return
-	scene.set("_last_crit_attacker", null)
+	state._last_crit_attacker = null
 	if attacker.current_health > 0:
 		_post_crit(attacker)
 
@@ -415,7 +421,7 @@ func _check_post_crit(attacker: MinionInstance) -> void:
 ## and champion crit tracking.  Called after attack resolves when a crit was consumed.
 func _post_crit(attacker: MinionInstance) -> void:
 	# void_precision: grant +200 ATK permanently after crit
-	var passives = scene.get("_active_enemy_passives")
+	var passives = state._active_enemy_passives
 	if passives != null and "void_precision" in passives and attacker.owner == "enemy":
 		BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 200, "void_precision", false, false)
 	# Champion void_captain aura: on enemy crit consumed, deal 100 damage to
@@ -423,13 +429,13 @@ func _post_crit(attacker: MinionInstance) -> void:
 	if attacker.owner == "enemy" and _champion_vc_is_alive():
 		for i in 2:
 			var targets: Array = []
-			var player_board: Array[MinionInstance] = scene.get("player_board") as Array[MinionInstance]
+			var player_board: Array[MinionInstance] = state.player_board as Array[MinionInstance]
 			if player_board != null:
 				for m: MinionInstance in player_board:
 					if m.current_health > 0:
 						targets.append(m)
 			targets.append("hero")  # hero is always a valid target
-			var pick: Variant = scene.state.rng_pick(targets)
+			var pick: Variant = state.rng_pick(targets)
 			if pick is MinionInstance:
 				var m_info := make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, attacker, "champion_void_captain")
 				apply_damage_to_minion(pick as MinionInstance, m_info)
@@ -442,7 +448,7 @@ func _post_crit(attacker: MinionInstance) -> void:
 func _champion_vc_is_alive() -> bool:
 	if scene == null:
 		return false
-	var board: Array[MinionInstance] = scene.get("enemy_board") as Array[MinionInstance]
+	var board: Array[MinionInstance] = state.enemy_board as Array[MinionInstance]
 	if board == null:
 		return false
 	for m: MinionInstance in board:

@@ -205,12 +205,9 @@ func has_immune() -> bool:
 
 ## Effective spark value, accounting for passives like spirit_resonance.
 ## spirit_resonance: Spirit minions with Critical Strike have +1 spark_value (min 1).
-func effective_spark_value(scene: Object = null) -> int:
+func effective_spark_value(st: CombatState = null) -> int:
 	var base: int = (card_data as MinionCardData).spark_value
-	if scene == null:
-		return base
-	var passives = scene.get("_active_enemy_passives")
-	if passives == null or not ("spirit_resonance" in passives):
+	if st == null or not ("spirit_resonance" in st._active_enemy_passives):
 		return base
 	# Passive applies to enemy Spirit minions with crit
 	if owner != "enemy":

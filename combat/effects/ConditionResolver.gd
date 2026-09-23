@@ -16,7 +16,6 @@ static func check_all(conditions: Array[String], ctx: EffectContext, target) -> 
 	return true
 
 static func check(cond: String, ctx: EffectContext, target) -> bool:
-	var scene = ctx.scene
 	# Generic "once_per_turn:<flag_id>" gate. Returns true the first time this turn the
 	# flag is seen and consumes the flag atomically; subsequent checks return false.
 	# Per the design contract: the gate is consumed even if the gated step's body fails
@@ -27,7 +26,7 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		if flag_id == "":
 			push_warning("ConditionResolver: 'once_per_turn' missing flag id (expected 'once_per_turn:<flag_id>')")
 			return false
-		var used: Dictionary = scene._once_per_turn_used
+		var used: Dictionary = ctx.state._once_per_turn_used
 		if used.get(flag_id, false):
 			return false
 		used[flag_id] = true
@@ -43,7 +42,7 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		"is_beast":
 			return target is MinionInstance and (target.card_data as MinionCardData).is_race(Enums.MinionType.BEAST)
 		"is_void_imp":
-			return target is MinionInstance and scene._minion_has_tag(target, "void_imp")
+			return target is MinionInstance and ctx.state._minion_has_tag(target, "void_imp")
 		"is_corrupted":
 			return target is MinionInstance and BuffSystem.has_type(target, Enums.BuffType.CORRUPTION)
 		"not_self":
@@ -53,11 +52,11 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		"board_not_full":
 			return ctx.state.has_empty_slot("player")
 		"board_empty":
-			return scene.player_board.is_empty()
+			return ctx.state.player_board.is_empty()
 		"no_active_traps":
-			return scene.active_traps.is_empty()
+			return ctx.state.active_traps.is_empty()
 		"has_active_environment":
-			return scene.active_environment != null
+			return ctx.state.active_environment != null
 		"has_friendly_demon":
 			return ctx.state._count_type_on_board(Enums.MinionType.DEMON, ctx.owner) > 0
 		"has_friendly_human":
@@ -86,8 +85,8 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 			# Used by Void Screech: bonus damage when the caster has at least 3 Feral
 			# Imps on their friendly board.
 			var feral_count := 0
-			for m in scene._friendly_board(ctx.owner):
-				if m is MinionInstance and scene._minion_has_tag(m, "feral_imp"):
+			for m in ctx.state._friendly_board(ctx.owner):
+				if m is MinionInstance and ctx.state._minion_has_tag(m, "feral_imp"):
 					feral_count += 1
 					if feral_count >= 3:
 						return true
@@ -95,24 +94,24 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 
 		# --- Resource conditions ---
 		"void_marks_5plus":
-			return scene.enemy_void_marks >= 5
+			return ctx.state.enemy_void_marks >= 5
 		"has_void_marks":
-			return scene.enemy_void_marks > 0
+			return ctx.state.enemy_void_marks > 0
 		# Seris — Flesh thresholds (player-only; enemy Seris is not currently supported)
 		"flesh_gte_1":
-			var f1 = scene.get("player_flesh") if ctx.owner == "player" else 0
+			var f1 = ctx.state.player_flesh if ctx.owner == "player" else 0
 			return (f1 if f1 != null else 0) >= 1
 		"flesh_gte_2":
-			var f2 = scene.get("player_flesh") if ctx.owner == "player" else 0
+			var f2 = ctx.state.player_flesh if ctx.owner == "player" else 0
 			return (f2 if f2 != null else 0) >= 2
 		"flesh_gte_3":
-			var f3 = scene.get("player_flesh") if ctx.owner == "player" else 0
+			var f3 = ctx.state.player_flesh if ctx.owner == "player" else 0
 			return (f3 if f3 != null else 0) >= 3
 		"flesh_lt_2":
-			var fl2 = scene.get("player_flesh") if ctx.owner == "player" else 0
+			var fl2 = ctx.state.player_flesh if ctx.owner == "player" else 0
 			return (fl2 if fl2 != null else 0) < 2
 		"flesh_lt_3":
-			var f4 = scene.get("player_flesh") if ctx.owner == "player" else 0
+			var f4 = ctx.state.player_flesh if ctx.owner == "player" else 0
 			return (f4 if f4 != null else 0) < 3
 		# True after a SPEND_FLESH/SPEND_FLESH_UP_TO step successfully spent ≥1 Flesh this run.
 		# Used to gate enhanced effects on "Spend N: <bonus>" cards.
@@ -122,8 +121,8 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		# Used by Flesh Scout (seris_fleshcraft) to gate its draw condition.
 		"friendly_grafted_fiend_kill_stacks_gte_3":
 			var total_ks := 0
-			for m in scene._friendly_board(ctx.owner):
-				if m is MinionInstance and scene._minion_has_tag(m, "grafted_fiend"):
+			for m in ctx.state._friendly_board(ctx.owner):
+				if m is MinionInstance and ctx.state._minion_has_tag(m, "grafted_fiend"):
 					total_ks += m.kill_stacks
 					if total_ks >= 3:
 						return true
@@ -135,7 +134,7 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		"dead_is_human":
 			return ctx.dead_minion != null and (ctx.dead_minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN)
 		"dead_is_void_imp":
-			return ctx.dead_minion != null and scene._minion_has_tag(ctx.dead_minion, "void_imp")
+			return ctx.dead_minion != null and ctx.state._minion_has_tag(ctx.dead_minion, "void_imp")
 
 		# --- Turn timing conditions ---
 		"enemy_turn":

@@ -296,7 +296,7 @@ func _draw_cards(count: int) -> void:
 ## Remove an enemy minion from the board silently (no death triggers, no animation).
 ## Used for Void Spirit consumption to pay spark costs.
 func consume_minion(minion: MinionInstance) -> void:
-	var spark_val: int = minion.effective_spark_value(scene)
+	var spark_val: int = minion.effective_spark_value(state)
 	enemy_board.erase(minion)
 	for slot in enemy_slots:
 		if slot.minion == minion:

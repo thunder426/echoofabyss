@@ -1027,7 +1027,7 @@ func _mana_for_spark_shortfall(spark_cost: int) -> int:
 func _available_sparks() -> int:
 	var total := 0
 	for m: MinionInstance in agent.friendly_board:
-		total += m.effective_spark_value(agent.scene)
+		total += m.effective_spark_value(agent.scene.state)
 	return total
 
 ## True if the board has enough spark fuel to pay the given cost.
@@ -1048,13 +1048,13 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 	# Gather all eligible fuel (effective spark_value > 0 and not bigger than cost)
 	var eligible: Array[MinionInstance] = []
 	for m: MinionInstance in agent.friendly_board:
-		var sv: int = m.effective_spark_value(agent.scene)
+		var sv: int = m.effective_spark_value(agent.scene.state)
 		if sv > 0 and sv <= cost:
 			eligible.append(m)
 
 	# Sort by spark_value descending (pick biggest first = fewest bodies consumed)
 	eligible.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene) > b.effective_spark_value(agent.scene))
+		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
 
 	var plan: Array[MinionInstance] = []
 	var remaining := cost
@@ -1063,7 +1063,7 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 		if remaining <= 0:
 			break
 		plan.append(m)
-		remaining -= m.effective_spark_value(agent.scene)
+		remaining -= m.effective_spark_value(agent.scene.state)
 
 	if remaining > 0:
 		# mana_for_spark passive: shortfall is paid in extra Mana, not fuel.

@@ -5,34 +5,40 @@ class_name RelicEffects
 extends RefCounted
 
 var _scene: Object
+## The combat state — gameplay reads and writes (LIVE_SIM_UNIFICATION_PLAN.md 1.2).
+var state: CombatState
+## Presentation: the CombatScene in live, null in sim/tests. Null-check every call.
+var presenter: Object:
+	get: return state.presenter
 
 func setup(scene: Object) -> void:
 	_scene = scene
+	state = scene.state
 
 ## Execute a relic effect by its effect_id. Returns true if the effect fired.
 func resolve(effect_id: String) -> bool:
 	match effect_id:
 		# ── Act 1 ────────────────────────────────────────────────────────────
 		"relic_draw_2":
-			_scene.state.draw_cards("player", 2)
+			state.draw_cards("player", 2)
 			_log("  Relic: Scout's Lantern — drew 2 cards.")
 			return true
 
 		"relic_add_void_imp":
 			var imp_data: CardData = CardDatabase.get_card("void_imp")
 			if imp_data:
-				_scene.state.add_to_hand("player", imp_data)
+				state.add_to_hand("player", imp_data)
 				_log("  Relic: Imp Talisman — added a Void Imp to hand.")
 			return true
 
 		"relic_refill_mana":
-			var st: CombatState = _scene.state
+			var st: CombatState = state
 			st.gain_mana("player", 2)
 			_log("  Relic: Mana Shard — gained +2 Mana (now %d/%d)." % [st.player_mana, st.player_mana_max])
 			return true
 
 		"relic_hero_immune":
-			_scene.set("_relic_hero_immune", true)
+			state._relic_hero_immune = true
 			_log("  Relic: Bone Shield — hero immune to damage this turn.")
 			return true
 
@@ -40,27 +46,27 @@ func resolve(effect_id: String) -> bool:
 		"relic_cast_plague":
 			# Apply 1 Corruption to all enemies + 100 AoE damage. Mirror the
 			# abyssal_plague spell's school (VOID) since this relic literally casts it.
-			for m in (_scene._opponent_board("player") as Array).duplicate():
+			for m in (state._opponent_board("player") as Array).duplicate():
 				_scene._corrupt_minion(m)
 			var plague_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "relic_void_lens_plague")
-			for m in (_scene._opponent_board("player") as Array).duplicate():
-				_scene._spell_dmg(m, 100, plague_info)
+			for m in (state._opponent_board("player") as Array).duplicate():
+				state._spell_dmg(m, 100, plague_info)
 			_log("  Relic: Void Lens — Abyssal Plague cast!")
 			return true
 
 		"relic_summon_guardian":
 			_scene._summon_token("void_spark", "player", 200, 300)
 			# Grant Guard to the summoned token
-			var board: Array = _scene.player_board
+			var board: Array = state.player_board
 			if not board.is_empty():
 				var spark: MinionInstance = board[board.size() - 1]
 				BuffSystem.apply(spark, Enums.BuffType.GRANT_GUARD, 1, "relic_guardian", false, false)
-				_scene._refresh_slot_for(spark)
+				state._refresh_slot_for(spark)
 			_log("  Relic: Soul Anchor — summoned a 300/300 Void Spark with Guard!")
 			return true
 
 		"relic_cost_reduction":
-			_scene.set("_relic_cost_reduction", 2)
+			state._relic_cost_reduction = 2
 			_log("  Relic: Dark Mirror — next card costs 2 Essence and 2 Mana less.")
 			return true
 
@@ -68,11 +74,11 @@ func resolve(effect_id: String) -> bool:
 			# Deal 500 damage to the highest-ATK enemy minion, or enemy hero if no minions
 			var target: MinionInstance = _pick_highest_atk_enemy()
 			if target:
-				_scene.combat_manager.apply_damage_to_minion(target,
+				state.combat_manager.apply_damage_to_minion(target,
 						CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
 				_log("  Relic: Blood Chalice — dealt 500 damage to %s." % target.card_data.card_name)
 			else:
-				_scene.combat_manager.apply_hero_damage("enemy",
+				state.combat_manager.apply_hero_damage("enemy",
 						CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
 				_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.")
 			return true
@@ -81,8 +87,8 @@ func resolve(effect_id: String) -> bool:
 		# Rebalanced to roughly Act-2 power — these were previously game-swinging.
 		"relic_extra_turn":
 			# Void Hourglass — +1 max Essence and +1 max Mana, respecting the combined cap.
-			_scene.state.grow_essence_max("player", 1)
-			_scene.state.grow_mana_max("player", 1)
+			state.grow_essence_max("player", 1)
+			state.grow_mana_max("player", 1)
 			_log("  Relic: Void Hourglass — +1 max Essence and +1 max Mana.")
 			return true
 
@@ -95,24 +101,24 @@ func resolve(effect_id: String) -> bool:
 
 		"relic_mass_buff":
 			# Nether Crown — permanent +100 ATK to all friendlies (was temporary +200).
-			for m in (_scene.player_board as Array):
+			for m in (state.player_board as Array):
 				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "relic_crown", false, false)
-				_scene._refresh_slot_for(m)
+				state._refresh_slot_for(m)
 			_log("  Relic: Nether Crown — all friendly minions +100 ATK permanently.")
 			return true
 
 		"relic_copy_cards":
 			# Phantom Deck — copy 2 random cards from hand back into hand.
-			var hand: Array[CardInstance] = _scene.state.player_hand.duplicate()
+			var hand: Array[CardInstance] = state.player_hand.duplicate()
 			if hand.is_empty():
 				_log("  Relic: Phantom Deck — hand empty, no copies.")
 				return true
-			_scene.state.rng_shuffle(hand)
+			state.rng_shuffle(hand)
 			var added := 0
 			for inst in hand:
 				if added >= 2:
 					break
-				_scene.state.add_to_hand("player", (inst as CardInstance).card_data)
+				state.add_to_hand("player", (inst as CardInstance).card_data)
 				added += 1
 			_log("  Relic: Phantom Deck — copied %d random cards from hand." % added)
 			return true
@@ -128,55 +134,45 @@ func resolve(effect_id: String) -> bool:
 ## active_traps + _apply_rune_aura; sim uses the same field + sim-specific rune-aura path.
 const _RELIC_RUNE_POOL: Array[String] = ["void_rune", "blood_rune", "dominion_rune", "shadow_rune"]
 func _relic_place_random_rune() -> void:
-	var rune_id: String = _scene.state.rng_pick(_RELIC_RUNE_POOL)
+	var rune_id: String = state.rng_pick(_RELIC_RUNE_POOL)
 	var rune_card: CardData = CardDatabase.get_card(rune_id)
 	if rune_card == null or not (rune_card is TrapCardData):
 		return
 	var rune := rune_card as TrapCardData
-	var active: Array = _scene.active_traps
-	# Live scene enforces trap-slot cap via trap_slot_panels; sim uses a fixed cap too.
-	# Use scene.get to avoid a hard dependency on either shape.
-	var cap: int = 3
-	if _scene.get("trap_slot_panels") != null:
-		cap = (_scene.trap_slot_panels as Array).size()
-	if active.size() >= cap:
+	var active: Array = state.active_traps
+	if active.size() >= CombatState.TRAP_SLOTS_MAX:
 		return
 	active.append(rune)
 	# Wire the rune's aura so it actually fires on its trigger event.
-	if _scene.has_method("_apply_rune_aura"):
-		_scene._apply_rune_aura(rune)
+	state._apply_rune_aura(rune)
 	# Live scene has a UI refresh; sim no-ops.
-	if _scene.has_method("_update_trap_display"):
-		_scene._update_trap_display()
+	state._update_trap_display()
 	# Fire ON_RUNE_PLACED so ritual checks see the new rune.
-	if _scene.trigger_manager != null:
+	if state.trigger_manager != null:
 		var rune_ctx := EventContext.make(Enums.TriggerEvent.ON_RUNE_PLACED, "player")
 		rune_ctx.card = rune
-		_scene.trigger_manager.fire(rune_ctx)
+		state.trigger_manager.fire(rune_ctx)
 
 ## Damage a random enemy target (minion or hero, mixed pool).
 func _relic_damage_random_enemy(amount: int) -> void:
 	var pool: Array = []
-	for m in (_scene.enemy_board as Array):
+	for m in (state.enemy_board as Array):
 		if (m as MinionInstance).current_health > 0:
 			pool.append(m)
 	pool.append("enemy_hero")
-	var pick: Variant = _scene.state.rng_pick(pool)
+	var pick: Variant = state.rng_pick(pool)
 	var info := CombatManager.make_damage_info(amount, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_random_zap")
 	if pick is MinionInstance:
-		if _scene.has_method("_spell_dmg"):
-			_scene._spell_dmg(pick, amount, info)
-		else:
-			_scene.combat_manager.apply_damage_to_minion(pick, info)
+		state._spell_dmg(pick, amount, info)
 	else:
-		_scene.combat_manager.apply_hero_damage("enemy", info)
+		state.combat_manager.apply_hero_damage("enemy", info)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 func _pick_highest_atk_enemy() -> MinionInstance:
-	var board: Array = _scene._opponent_board("player")
+	var board: Array = state._opponent_board("player")
 	if board.is_empty():
 		return null
 	var best: MinionInstance = board[0]
@@ -186,5 +182,4 @@ func _pick_highest_atk_enemy() -> MinionInstance:
 	return best
 
 func _log(msg: String) -> void:
-	if _scene.has_method("_log"):
-		_scene._log(msg, 1)  # _LOG_PLAYER = 1
+	state._log(msg, 1)  # _LOG_PLAYER = 1

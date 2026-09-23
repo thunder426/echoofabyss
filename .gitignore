@@ -12,3 +12,6 @@ mono_crash.*.json
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Python bytecode (tools/lint)
+__pycache__/

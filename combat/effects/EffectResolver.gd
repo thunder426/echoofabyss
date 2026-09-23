@@ -24,8 +24,8 @@ static func run(steps: Array, ctx: EffectContext) -> void:
 		if step:
 			_execute(step, ctx)
 	# Consume dark_channeling flag after all steps of a spell resolve
-	if ctx.scene.get("_dark_channeling_active") == true:
-		ctx.scene.set("_dark_channeling_active", false)
+	if ctx.state._dark_channeling_active:
+		ctx.state._dark_channeling_active = false
 
 # ---------------------------------------------------------------------------
 # Step dispatcher
@@ -45,7 +45,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				var hero_target: String = "%s_hero" % opponent
 				dmg = _path_of_corruption_amplify(dmg, hero_target, ctx, step.damage_school)
 				var info := _build_damage_info(step, ctx, dmg)
-				ctx.scene.combat_manager.apply_hero_damage(opponent, info)
+				ctx.state.combat_manager.apply_hero_damage(opponent, info)
 				_path_of_corruption_apply_corruption(hero_target, ctx)
 			return
 
@@ -59,7 +59,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# routes through CombatState.add_hero_armour so HeroState.add_armour
 			# runs and hero_armour_changed fires for the UI badge.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				ctx.scene.state.add_hero_armour(ctx.owner, _amount(step, ctx))
+				ctx.state.add_hero_armour(ctx.owner, _amount(step, ctx))
 			return
 
 		EffectStep.EffectType.DRAW:
@@ -70,7 +70,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 		EffectStep.EffectType.ADD_CARD:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				# _card_for so clan rules / overrides apply to the added copy.
-				var card: CardData = ctx.scene._card_for(ctx.owner, step.card_id)
+				var card: CardData = ctx.state._card_for(ctx.owner, step.card_id)
 				if card:
 					# Build the CardInstance up-front so we can stash it on ctx.
 					# add_to_hand silently burns when the hand is full; in that
@@ -89,8 +89,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				# Each spawn is independent — ON_*_MINION_SUMMONED and ON_FORMATION_TRIGGERED
 				# fire per token via _summon_token_at_slot's standard summon path. Oath of
 				# Iron's "fill every empty slot with an Iron Footman" is the consumer.
-				var fslots: Array = ctx.scene._friendly_slots(ctx.owner) if ctx.scene.has_method("_friendly_slots") \
-					else (ctx.scene.player_slots if ctx.owner == "player" else ctx.scene.enemy_slots)
+				var fslots: Array = ctx.state._friendly_slots(ctx.owner)
 				for s in fslots:
 					var sl: BoardSlot = s as BoardSlot
 					if sl == null or not sl.is_empty():
@@ -110,8 +109,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				# misconfigured caller shouldn't spawn into the opponent's board.
 				if target.owner != ctx.owner:
 					return
-				var slots: Array = ctx.scene._friendly_slots(ctx.owner) if ctx.scene.has_method("_friendly_slots") \
-					else (ctx.scene.player_slots if ctx.owner == "player" else ctx.scene.enemy_slots)
+				var slots: Array = ctx.state._friendly_slots(ctx.owner)
 				var offset: int = -1 if step.adjacent_side == "left" else 1
 				var target_index: int = target.slot_index + offset
 				if target_index < 0 or target_index >= slots.size():
@@ -204,8 +202,8 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 							inst_to_mod.essence_delta += step.amount
 						_:
 							push_warning("MOD_LAST_ADDED_COST: unknown or empty 'resource' '%s' (expected 'mana' or 'essence')" % step.resource)
-					if ctx.scene.has_method("_refresh_hand_spell_costs"):
-						ctx.scene._refresh_hand_spell_costs()
+					if ctx.presenter != null:
+						ctx.presenter._refresh_hand_spell_costs()
 			return
 
 		EffectStep.EffectType.MOD_HAND_CARDS_COST:
@@ -247,8 +245,8 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					inst.mana_delta += step.amount
 				else:
 					inst.essence_delta += step.amount
-			if ctx.scene.has_method("_refresh_hand_spell_costs"):
-				ctx.scene._refresh_hand_spell_costs()
+			if ctx.presenter != null:
+				ctx.presenter._refresh_hand_spell_costs()
 			return
 
 		EffectStep.EffectType.COUNTER_SPELL:
@@ -263,25 +261,25 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# Silence Trap — sets the flag the spell-cast pipeline checks to short-circuit
 			# the in-flight opponent spell. There's a single global _spell_cancelled flag.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				ctx.scene.set("_spell_cancelled", true)
+				ctx.state._spell_cancelled = true
 			return
 
 		EffectStep.EffectType.BLOCK_OPPONENT_TRAPS_THIS_TURN:
 			# Saboteur Adept — gates the opponent's traps from firing for the rest of
 			# this turn. Per-side flags exist on the scene; pick by who's the opponent.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var opponent: String = ctx.scene._opponent_of(ctx.owner)
+				var opponent: String = ctx.state._opponent_of(ctx.owner)
 				if opponent == "enemy":
-					ctx.scene.set("_enemy_traps_blocked", true)
+					ctx.state._enemy_traps_blocked = true
 				else:
-					ctx.scene.set("_player_traps_blocked", true)
+					ctx.state._player_traps_blocked = true
 			return
 
 		EffectStep.EffectType.TAX_OPPONENT_SPELLS_NEXT_TURN:
 			# Spell Taxer — increments the opponent-side spell-tax counter. Each stack
 			# adds +1 Mana to the opponent's spells on their next turn.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var opponent: String = ctx.scene._opponent_of(ctx.owner)
+				var opponent: String = ctx.state._opponent_of(ctx.owner)
 				var tax_key: String = "_spell_tax_for_%s_turn" % opponent
 				var cur = ctx.scene.get(tax_key)
 				ctx.scene.set(tax_key, (cur if cur != null else 0) + 1)
@@ -305,14 +303,13 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# board, etc.). traps_of returns the live array (mutates state).
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				# Rune lands on the opponent's side — fetch via that side's overrides.
-				var opponent: String = ctx.scene._opponent_of(ctx.owner)
-				var rune_data: TrapCardData = ctx.scene._card_for(opponent, step.card_id) as TrapCardData
+				var opponent: String = ctx.state._opponent_of(ctx.owner)
+				var rune_data: TrapCardData = ctx.state._card_for(opponent, step.card_id) as TrapCardData
 				if rune_data != null:
 					var traps: Array[TrapCardData] = ctx.state.traps_of(opponent)
 					traps.append(rune_data)
-					ctx.scene._apply_rune_aura(rune_data, opponent)
-					if ctx.scene.has_method("_update_trap_display_for"):
-						ctx.scene._update_trap_display_for(opponent)
+					ctx.state._apply_rune_aura(rune_data, opponent)
+					ctx.state._update_trap_display_for(opponent)
 			return
 
 		EffectStep.EffectType.QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN:
@@ -321,16 +318,16 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# field for the player, enemy-side field for the enemy), consumed at that
 			# side's next turn start.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var opponent: String = ctx.scene._opponent_of(ctx.owner)
+				var opponent: String = ctx.state._opponent_of(ctx.owner)
 				if opponent == "player":
-					ctx.scene.state._void_mana_drain_pending = true
+					ctx.state._void_mana_drain_pending = true
 				else:
-					ctx.scene.state._enemy_void_mana_drain_pending = true
-				ctx.scene.state._rift_lord_plays += 1
+					ctx.state._enemy_void_mana_drain_pending = true
+				ctx.state._rift_lord_plays += 1
 			return
 
 		EffectStep.EffectType.HARDCODED:
-			ctx.scene._resolve_hardcoded(step.hardcoded_id, ctx)
+			ctx.state._resolve_hardcoded(step.hardcoded_id, ctx)
 			return
 
 		EffectStep.EffectType.CONVERT_RESOURCE:
@@ -345,21 +342,21 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 		EffectStep.EffectType.GAIN_FLESH:
 			# Seris — player-only. Enemy Seris is not supported.
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
-				ctx.scene._gain_flesh(maxi(1, step.amount))
+				ctx.state._gain_flesh(maxi(1, step.amount))
 			return
 
 		EffectStep.EffectType.SPEND_FLESH:
 			# All-or-nothing. _spend_flesh returns false without deducting if short.
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
 				var amt := maxi(1, step.amount)
-				if ctx.scene._spend_flesh(amt):
+				if ctx.state._spend_flesh(amt):
 					ctx.flesh_spent_this_cast += amt
 			return
 
 		EffectStep.EffectType.GAIN_FORGE_COUNTER:
 			# Seris — player-only. Soul Forge gate is enforced inside _gain_forge_counter.
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
-				ctx.scene._gain_forge_counter(maxi(1, step.amount))
+				ctx.state._gain_forge_counter(maxi(1, step.amount))
 			return
 
 		EffectStep.EffectType.COPY_LAST_TURN_SPELLS_FROM_GRAVEYARD:
@@ -394,16 +391,16 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					var dmg := step.amount * copied.size()
 					var opponent := "enemy" if ctx.owner == "player" else "player"
 					var info := _build_damage_info(step, ctx, dmg)
-					ctx.scene.combat_manager.apply_hero_damage(opponent, info)
+					ctx.state.combat_manager.apply_hero_damage(opponent, info)
 			return
 
 		EffectStep.EffectType.SPEND_FLESH_UP_TO:
 			# Partial allowed — spend min(current, amount). Never fails; may spend 0.
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
 				var cap := maxi(1, step.amount)
-				var cur: int = ctx.scene.player_flesh if ctx.scene.get("player_flesh") != null else 0
+				var cur: int = ctx.state.player_flesh if ctx.state.player_flesh != null else 0
 				var to_spend := mini(cap, cur)
-				if to_spend > 0 and ctx.scene._spend_flesh(to_spend):
+				if to_spend > 0 and ctx.state._spend_flesh(to_spend):
 					ctx.flesh_spent_this_cast += to_spend
 			return
 
@@ -411,20 +408,20 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# Environment destruction — no minion pool needed
 			if step.scope == EffectStep.TargetScope.ACTIVE_ENVIRONMENT:
 				if ConditionResolver.check_all(step.conditions, ctx, null):
-					if ctx.scene.active_environment != null:
-						ctx.scene._unregister_env_rituals()
-						ctx.scene.active_environment = null
-						ctx.scene._update_environment_display()
+					if ctx.state.active_environment != null:
+						ctx.state._unregister_env_rituals()
+						ctx.state.active_environment = null
+						ctx.state._update_environment_display()
 				return
 			# Self-destruct the rune that owns this aura (Flesh Rune upkeep failure).
 			if step.scope == EffectStep.TargetScope.SOURCE_RUNE:
 				if ConditionResolver.check_all(step.conditions, ctx, null):
 					var r: TrapCardData = ctx.source_rune
-					if r != null and r in ctx.scene.active_traps:
+					if r != null and r in ctx.state.active_traps:
 						if r.is_rune:
-							ctx.scene._remove_rune_aura(r, ctx.owner)
-						ctx.scene.active_traps.erase(r)
-						ctx.scene._update_trap_display()
+							ctx.state._remove_rune_aura(r, ctx.owner)
+						ctx.state.active_traps.erase(r)
+						ctx.state._update_trap_display()
 				return
 
 	# Minion / trap targeting effects — resolve pool then apply per target
@@ -442,14 +439,13 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			and step.scope == EffectStep.TargetScope.ALL_ENEMY:
 		var opp := "enemy" if ctx.owner == "player" else "player"
 		var ab_tag: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-		ctx.scene.state.apply_hero_buff(opp, Enums.BuffType.ARMOUR_BREAK, _amount(step, ctx), ab_tag)
+		ctx.state.apply_hero_buff(opp, Enums.BuffType.ARMOUR_BREAK, _amount(step, ctx), ab_tag)
 
 # ---------------------------------------------------------------------------
 # Per-target application
 # ---------------------------------------------------------------------------
 
 static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) -> void:
-	var scene = ctx.scene
 	match step.effect_type:
 		EffectStep.EffectType.DAMAGE_MINION:
 			var dmg: int = _dark_channeling_dmg(amount, ctx)
@@ -459,7 +455,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				# also fire here so the talent reads symmetric with the minion path.
 				dmg = _path_of_corruption_amplify(dmg, target, ctx, step.damage_school)
 				var info := _build_damage_info(step, ctx, dmg)
-				scene.combat_manager.apply_hero_damage(scene._opponent_of(ctx.owner), info)
+				ctx.state.combat_manager.apply_hero_damage(ctx.state._opponent_of(ctx.owner), info)
 				_path_of_corruption_apply_corruption(target, ctx)
 			else:
 				# Korrath B3 T2 Path of Corruption — pre-damage amplification (read
@@ -467,7 +463,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				# application. Per-target, per-step, so AOE spells naturally hit each
 				# target once and single-target spells get +100 / stack on this hit.
 				dmg = _path_of_corruption_amplify(dmg, target, ctx, step.damage_school)
-				scene._spell_dmg(target, dmg, _build_damage_info(step, ctx, dmg))
+				ctx.state._spell_dmg(target, dmg, _build_damage_info(step, ctx, dmg))
 				_path_of_corruption_apply_corruption(target, ctx)
 
 		EffectStep.EffectType.BUFF_ATK:
@@ -478,31 +474,29 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			# Sim has no VFX → mutate immediately as before.
 			# Presence-aura recompute sets _silent_buff_apply to skip the VFX queue
 			# entirely; the caller spawns its own cosmetic VFX only on real deltas.
-			var _sv = scene.get("_silent_buff_apply")
-			var silent: bool = _sv if _sv is bool else false
-			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null and not silent:
-				scene._request_buff_apply(target, buff_type, amount, tag_atk, false)
+			var silent: bool = ctx.presenter != null and ctx.presenter._silent_buff_apply
+			if ctx.presenter != null and ctx.presenter.vfx_controller != null and not silent:
+				ctx.presenter._request_buff_apply(target, buff_type, amount, tag_atk, false)
 			else:
 				BuffSystem.apply(target, buff_type, amount, tag_atk, false, not silent)
-				scene._refresh_slot_for(target)
+				ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.BUFF_HP:
 			var tag_hp: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-			var _sv_hp = scene.get("_silent_buff_apply")
-			var silent_hp: bool = _sv_hp if _sv_hp is bool else false
-			if scene.has_method("_request_buff_apply") and scene.vfx_controller != null and not silent_hp:
-				scene._request_buff_apply(target, Enums.BuffType.HP_BONUS, amount, tag_hp, true)
+			var silent_hp: bool = ctx.presenter != null and ctx.presenter._silent_buff_apply
+			if ctx.presenter != null and ctx.presenter.vfx_controller != null and not silent_hp:
+				ctx.presenter._request_buff_apply(target, Enums.BuffType.HP_BONUS, amount, tag_hp, true)
 			else:
 				BuffSystem.apply_hp_gain(target, amount, tag_hp, not silent_hp)
-				scene._refresh_slot_for(target)
+				ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.BUFF_ARMOUR:
 			# Korrath — armour is a stat on MinionInstance, not a BuffSystem entry.
 			# Route through add_armour() so Branch 1 T3 Unbreakable's "all armour
 			# gains on the knight are doubled" check stays in one place.
 			if target is MinionInstance:
-				(target as MinionInstance).add_armour(amount, scene.state)
-				scene._refresh_slot_for(target)
+				(target as MinionInstance).add_armour(amount, ctx.state)
+				ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.APPLY_ARMOUR_BREAK:
 			# Korrath — apply AB to the minion via BuffSystem. Signed-net per §2 so
@@ -515,7 +509,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			if target is MinionInstance:
 				var ab_tag: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
 				BuffSystem.apply(target, Enums.BuffType.ARMOUR_BREAK, amount, ab_tag, false, false)
-				scene._refresh_slot_for(target)
+				ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.GRANT_ATTACK_RIDER:
 			# Korrath — stamp a per-minion attack rider onto the target. source_tag
@@ -538,51 +532,51 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 					"effect_steps": step.attack_rider_steps.duplicate(),
 					"scope":        step.attack_rider_scope,
 				})
-				scene._refresh_slot_for(carrier)
+				ctx.state._refresh_slot_for(carrier)
 
 		EffectStep.EffectType.HEAL_MINION:
 			if target is MinionInstance:
-				scene._heal_minion(target, amount)
+				ctx.state._heal_minion(target, amount)
 
 		EffectStep.EffectType.HEAL_MINION_FULL:
 			if target is MinionInstance:
-				scene._heal_minion_full(target)
+				ctx.state._heal_minion_full(target)
 
 		EffectStep.EffectType.GRANT_KILL_STACKS:
 			if target is MinionInstance:
-				scene._add_kill_stacks(target, maxi(1, amount))
+				ctx.state._add_kill_stacks(target, maxi(1, amount))
 
 		EffectStep.EffectType.CORRUPTION:
 			var stacks := maxi(1, amount)
 			for _i in stacks:
-				scene._corrupt_minion(target)
+				ctx.scene._corrupt_minion(target)
 
 		EffectStep.EffectType.SACRIFICE:
 			# SacrificeSystem.sacrifice handles the full flow — ON LEAVE steps,
 			# ON_*_MINION_SACRIFICED trigger, corruption removal, silent board cleanup.
 			# Strict rule: sacrifice is NOT death — does not fire ON_*_MINION_DIED.
-			SacrificeSystem.sacrifice(scene, target, ctx.source_card_id)
+			SacrificeSystem.sacrifice(ctx.scene, target, ctx.source_card_id)
 
 		EffectStep.EffectType.KILL_MINION:
-			scene.combat_manager.kill_minion(target)
+			ctx.state.combat_manager.kill_minion(target)
 
 		EffectStep.EffectType.GRANT_KEYWORD:
 			match step.keyword:
 				Enums.Keyword.GUARD:
 					BuffSystem.apply(target, Enums.BuffType.GRANT_GUARD, 1, step.source_tag)
-					scene._refresh_slot_for(target)
+					ctx.state._refresh_slot_for(target)
 				Enums.Keyword.LIFEDRAIN:
 					BuffSystem.apply(target, Enums.BuffType.GRANT_LIFEDRAIN, 1, step.source_tag)
-					scene._refresh_slot_for(target)
+					ctx.state._refresh_slot_for(target)
 				Enums.Keyword.DEATHLESS:
 					BuffSystem.apply(target, Enums.BuffType.GRANT_DEATHLESS, 1, step.source_tag)
-					scene._refresh_slot_for(target)
+					ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.GRANT_CRITICAL_STRIKE:
 			var stacks := maxi(1, amount)
 			for _i in stacks:
 				BuffSystem.apply(target, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike")
-			scene._refresh_slot_for(target)
+			ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.GRANT_ON_DEATH_SUMMON:
 			if target is MinionInstance:
@@ -591,14 +585,14 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 					"source": "sovereigns_edict",
 					"summon_id": step.card_id,
 				})
-				scene._refresh_slot_for(target)
+				ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.PURGE:
 			if step.purge_filter.is_empty():
 				BuffSystem.purge_all(target)
 			else:
 				BuffSystem.remove_type(target, Enums.BuffType[step.purge_filter])
-			scene._refresh_slot_for(target)
+			ctx.state._refresh_slot_for(target)
 
 		EffectStep.EffectType.DESTROY:
 			if target is TrapCardData:
@@ -607,18 +601,15 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				# SINGLE_RANDOM_OPPONENT_TRAP and any future cross-side destroys.
 				var owner_side: String = ctx.owner
 				if not target in ctx.state.traps_of(owner_side):
-					owner_side = scene._opponent_of(ctx.owner)
+					owner_side = ctx.state._opponent_of(ctx.owner)
 				if target.is_rune:
-					scene._remove_rune_aura(target, owner_side)
+					ctx.state._remove_rune_aura(target, owner_side)
 				ctx.state.traps_of(owner_side).erase(target)
-				if scene.has_method("_update_trap_display_for"):
-					scene._update_trap_display_for(owner_side)
-				else:
-					scene._update_trap_display()
+				ctx.state._update_trap_display_for(owner_side)
 			elif target is EnvironmentCardData:
-				scene._unregister_env_rituals()
-				scene.active_environment = null
-				scene._update_environment_display()
+				ctx.state._unregister_env_rituals()
+				ctx.state.active_environment = null
+				ctx.state._update_environment_display()
 
 # ---------------------------------------------------------------------------
 # Amount resolution
@@ -628,19 +619,19 @@ static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 	var base: int
 	match step.multiplier_key:
 		"rune_aura":  base = step.amount * ctx.state._rune_aura_multiplier()
-		"void_marks": base = step.amount * ctx.scene.enemy_void_marks
+		"void_marks": base = step.amount * ctx.state.enemy_void_marks
 		"flesh_spent": base = step.amount * ctx.flesh_spent_this_cast
 		"board_count":
-			var board: Array = ctx.scene._friendly_board(ctx.owner) \
+			var board: Array = ctx.state._friendly_board(ctx.owner) \
 				if step.multiplier_board == "friendly" \
-				else ctx.scene._opponent_board(ctx.owner)
+				else ctx.state._opponent_board(ctx.owner)
 			var count := 0
 			for m in board:
 				if step.exclude_self and m == ctx.source:
 					continue
 				match step.multiplier_filter:
 					"tag":
-						if not ctx.scene._minion_has_tag(m, step.multiplier_tag):
+						if not ctx.state._minion_has_tag(m, step.multiplier_tag):
 							continue
 					"race":
 						if _race_from_string(step.multiplier_tag) != m.card_data.minion_type:
@@ -651,16 +642,16 @@ static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 			# Sum `armour` across minions on the chosen board; when include_hero=true
 			# the owner's hero Armour is added on top. `amount` acts as a multiplier
 			# (typically 1). Shield Bash uses this for "damage = sum of friendly Armour".
-			var asboard: Array = ctx.scene._friendly_board(ctx.owner) \
+			var asboard: Array = ctx.state._friendly_board(ctx.owner) \
 				if step.multiplier_board == "friendly" \
-				else ctx.scene._opponent_board(ctx.owner)
+				else ctx.state._opponent_board(ctx.owner)
 			var armour_total := 0
 			for m in asboard:
 				if step.exclude_self and m == ctx.source:
 					continue
 				armour_total += (m as MinionInstance).armour
 			if step.include_hero:
-				var hero: HeroState = ctx.scene.state.player_hero if ctx.owner == "player" else ctx.scene.state.enemy_hero
+				var hero: HeroState = ctx.state.player_hero if ctx.owner == "player" else ctx.state.enemy_hero
 				armour_total += hero.armour
 			base = step.amount * armour_total
 		_: base = step.amount
@@ -701,7 +692,7 @@ static func _build_damage_info(step: EffectStep, ctx: EffectContext, amount: int
 static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, school: int = Enums.DamageSchool.VOID_CORRUPTION) -> int:
 	if ctx.owner != "player":
 		return base
-	if ctx.scene == null or not ctx.scene.state._path_of_corruption_active:
+	if ctx.scene == null or not ctx.state._path_of_corruption_active:
 		return base
 	if not Enums.has_school(school, Enums.DamageSchool.VOID_CORRUPTION):
 		return base
@@ -709,7 +700,7 @@ static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, s
 	if target is MinionInstance:
 		buff_holder = target
 	elif target is String:
-		var state: CombatState = ctx.scene.state if ctx.scene.get("state") != null else ctx.scene
+		var state: CombatState = ctx.state if ctx.state.state != null else ctx.scene
 		if target == "enemy_hero":
 			buff_holder = state.enemy_hero
 		elif target == "player_hero":
@@ -728,7 +719,7 @@ static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, s
 static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> void:
 	if ctx.owner != "player":
 		return
-	if ctx.scene == null or not ctx.scene.state._path_of_corruption_active:
+	if ctx.scene == null or not ctx.state._path_of_corruption_active:
 		return
 	if target is MinionInstance:
 		var m: MinionInstance = target
@@ -736,7 +727,7 @@ static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> 
 			return
 		ctx.scene._corrupt_minion(m)
 	elif target is String:
-		var state: CombatState = ctx.scene.state if ctx.scene.get("state") != null else ctx.scene
+		var state: CombatState = ctx.state if ctx.state.state != null else ctx.scene
 		if target == "enemy_hero":
 			state._corrupt_hero("enemy")
 		elif target == "player_hero":
@@ -746,16 +737,16 @@ static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> 
 static func _dark_channeling_dmg(base: int, ctx: EffectContext) -> int:
 	if ctx.owner != "enemy":
 		return base
-	if ctx.scene.get("_dark_channeling_active") != true:
+	if not ctx.state._dark_channeling_active:
 		return base
-	var mult: float = ctx.scene.get("_dark_channeling_multiplier")
+	var mult: float = ctx.state._dark_channeling_multiplier
 	if mult == null:
 		mult = 1.5
 	var amplified: int = int(base * mult)
 	# Telemetry: track extra damage dealt by dark_channeling per spell id.
 	var extra: int = amplified - base
 	if extra > 0 and ctx.source_card_id != "":
-		var dmg_map: Dictionary = ctx.scene.get("_dark_channeling_dmg_by_spell")
+		var dmg_map: Dictionary = ctx.state._dark_channeling_dmg_by_spell
 		if dmg_map != null:
 			dmg_map[ctx.source_card_id] = int(dmg_map.get(ctx.source_card_id, 0)) + extra
 	return amplified

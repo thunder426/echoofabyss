@@ -1812,10 +1812,10 @@ const KORRATH_RUNE_IDS: Array[String] = [
 	"void_rune", "blood_rune", "dominion_rune", "shadow_rune", "soul_rune",
 ]
 
-## Maximum runes the player can have on board at once (matches the visible UI
-## trap_slot_panels count). Hardcoded here because state needs it for Korrath B2
-## absorption logic without reaching into the scene's UI panels.
-const KORRATH_RUNE_BOARD_CAP: int = 3
+## Trap / rune slots per side (the UI shows this many trap_slot_panels).
+const TRAP_SLOTS_MAX: int = 3
+## Maximum runes the player can have on board at once — Korrath B2 absorption.
+const KORRATH_RUNE_BOARD_CAP: int = TRAP_SLOTS_MAX
 
 ## Korrath B2 T0 — place a random rune on the player's board. If the rune board
 ## is full and B2 T1 `runic_absorption` is unlocked, destroy a random existing rune
