@@ -599,9 +599,7 @@ func setup(
 		# already, so no runtime spell_cost_discounts entry needed.
 		# corrupted_death: void_touched_imp costs 1 less essence
 		if id == "corrupted_death":
-			var ai = scene.get("enemy_ai")
-			if ai != null:
-				(ai.essence_cost_discounts as Dictionary)["void_touched_imp"] = 1
+			(scene.state as CombatState).enemy_essence_cost_discounts["void_touched_imp"] = 1
 
 	# ── Grand rituals from talents (data-driven via TalentDatabase) ───────────
 	for talent_id in talents:

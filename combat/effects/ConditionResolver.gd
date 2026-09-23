@@ -51,7 +51,7 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 
 		# --- Board state conditions ---
 		"board_not_full":
-			return scene._has_empty_player_slot()
+			return ctx.state.has_empty_slot("player")
 		"board_empty":
 			return scene.player_board.is_empty()
 		"no_active_traps":
@@ -68,16 +68,16 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 			# True when the owner has at least 2 runes in their active_traps. Used by
 			# Runic Blast to branch between "AoE all" and "2 random picks" damage modes.
 			var rune_count := 0
-			for t in scene._friendly_traps(ctx.owner):
-				if (t as TrapCardData).is_rune:
+			for t: TrapCardData in ctx.state.traps_of(ctx.owner):
+				if t.is_rune:
 					rune_count += 1
 					if rune_count >= 2:
 						return true
 			return false
 		"not_owner_runes_gte_2":
 			var rune_count2 := 0
-			for t in scene._friendly_traps(ctx.owner):
-				if (t as TrapCardData).is_rune:
+			for t: TrapCardData in ctx.state.traps_of(ctx.owner):
+				if t.is_rune:
 					rune_count2 += 1
 					if rune_count2 >= 2:
 						return false
@@ -139,9 +139,9 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 
 		# --- Turn timing conditions ---
 		"enemy_turn":
-			return not scene.turn_manager.is_player_turn
+			return not ctx.state.is_player_turn
 		"player_turn":
-			return scene.turn_manager.is_player_turn
+			return ctx.state.is_player_turn
 
 		# --- Cast-time runtime parameters (ctx.extra_cast_data) ---
 		# Rally the Ranks — race pick made at cast time (modal in live, heuristic in

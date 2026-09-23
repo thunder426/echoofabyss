@@ -79,7 +79,7 @@ func _empty_slot_count() -> int:
 
 ## Cast Void Wind only when opponent has a Void Rune — destroys trap + heals 500 HP.
 func _try_void_wind() -> void:
-	var opponent_traps: Array = agent.scene._opponent_traps("enemy")
+	var opponent_traps: Array = agent.scene.state.traps_of("player")
 	if opponent_traps.is_empty():
 		return
 	# Only cast against Void Runes specifically

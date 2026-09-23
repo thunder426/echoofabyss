@@ -64,12 +64,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.DRAW:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var count := maxi(1, step.amount)
-				for _i in count:
-					if ctx.owner == "player":
-						ctx.scene.turn_manager.draw_card()
-					else:
-						ctx.scene.enemy_ai._draw_cards(1)
+				ctx.state.draw_cards(ctx.owner, maxi(1, step.amount))
 			return
 
 		EffectStep.EffectType.ADD_CARD:
@@ -78,11 +73,11 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				var card: CardData = ctx.scene._card_for(ctx.owner, step.card_id)
 				if card:
 					# Build the CardInstance up-front so we can stash it on ctx.
-					# _add_to_owner_hand silently burns when the hand is full; in that
+					# add_to_hand silently burns when the hand is full; in that
 					# case the instance still exists but isn't in any hand — downstream
 					# MOD_LAST_ADDED_COST etc. will operate on a detached object harmlessly.
 					var inst: CardInstance = CardInstance.create(card)
-					ctx.scene._add_to_owner_hand(ctx.owner, inst)
+					ctx.state.add_to_hand(ctx.owner, inst)
 					ctx.last_added_instance = inst
 			return
 
@@ -129,39 +124,25 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.GRANT_MANA:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				if ctx.owner == "player":
-					ctx.scene.turn_manager.gain_mana(step.amount)
-				else:
-					ctx.scene.enemy_ai.mana = mini(ctx.scene.enemy_ai.mana + step.amount, ctx.scene.enemy_ai.mana_max)
+				ctx.state.gain_mana(ctx.owner, step.amount)
 			return
 
 		EffectStep.EffectType.GRANT_ESSENCE:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
+				# Player bonus Essence ignores essence_max (refill resets it); the
+				# enemy's is capped at essence_max.
 				if ctx.owner == "player":
-					ctx.scene.turn_manager.gain_essence(step.amount)
+					ctx.state.gain_essence("player", step.amount)
 				else:
-					ctx.scene.enemy_ai.essence = mini(ctx.scene.enemy_ai.essence + step.amount, ctx.scene.enemy_ai.essence_max)
+					var st: CombatState = ctx.state
+					st.enemy_essence = mini(st.enemy_essence + step.amount, st.enemy_essence_max)
 			return
 
 		EffectStep.EffectType.GROW_MANA_MAX:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var amt := maxi(1, step.amount)
+				ctx.state.grow_mana_max(ctx.owner, maxi(1, step.amount))
 				if ctx.owner == "player":
-					ctx.scene.turn_manager.grow_mana_max(amt)
-					ctx.scene.last_player_growth = "mana"
-				else:
-					# Real combat: enemy_ai owns the caps. Sim: scene (SimState) owns them.
-					var ai = ctx.scene.enemy_ai
-					if ai != null and ai.get("mana_max") != null and ai.get("COMBINED_RESOURCE_CAP") != null:
-						for _i in amt:
-							if ai.essence_max + ai.mana_max >= ai.COMBINED_RESOURCE_CAP:
-								break
-							ai.mana_max += 1
-					else:
-						for _i in amt:
-							if ctx.scene.enemy_essence_max + ctx.scene.enemy_mana_max >= 11:
-								break
-							ctx.scene.enemy_mana_max += 1
+					ctx.state.last_player_growth = "mana"
 			return
 
 		EffectStep.EffectType.VOID_MARK:
@@ -185,7 +166,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var count := maxi(1, step.amount)
 				var found := 0
-				var deck: Array = ctx.scene._friendly_deck(ctx.owner)
+				var deck: Array[CardInstance] = ctx.state.deck_of(ctx.owner)
 				var i := 0
 				while i < deck.size() and found < count:
 					var inst: CardInstance = deck[i]
@@ -197,7 +178,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 							match_found = inst.card_data is TrapCardData and (inst.card_data as TrapCardData).is_rune
 					if match_found:
 						deck.remove_at(i)
-						ctx.scene._add_to_owner_hand(ctx.owner, inst)
+						ctx.state.add_to_hand(ctx.owner, inst)
 						# Stash for chained steps (e.g. MOD_LAST_ADDED_COST). When TUTOR
 						# pulls multiple cards (count > 1), the LAST one tutored wins.
 						ctx.last_added_instance = inst
@@ -249,7 +230,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					push_warning("MOD_HAND_CARDS_COST: unknown card_race '%s'" % step.card_race)
 					return
 				race_id = Enums.MinionType[step.card_race]
-			var hand: Array = ctx.scene._friendly_hand(ctx.owner)
+			var hand: Array[CardInstance] = ctx.state.hand_of(ctx.owner)
 			for inst in hand:
 				if inst == null or inst.card_data == null:
 					continue
@@ -311,9 +292,9 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# the owner's hand. Each copy is a fresh CardInstance pointing at the same
 			# TrapCardData; placing it later goes through the normal play pipeline.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				for trap in (ctx.scene._friendly_traps(ctx.owner) as Array):
-					if (trap as TrapCardData).is_rune:
-						ctx.scene._add_to_owner_hand(ctx.owner, CardInstance.create(trap))
+				for trap: TrapCardData in ctx.state.traps_of(ctx.owner):
+					if trap.is_rune:
+						ctx.state.add_to_hand(ctx.owner, CardInstance.create(trap))
 			return
 
 		EffectStep.EffectType.PLACE_RUNE_ON_OPPONENT:
@@ -321,13 +302,13 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# active_traps and register its aura handlers on the opponent side. The
 			# opponent owns the rune, so its aura triggers fire from the opponent's
 			# perspective (corruption-on-summon hits minions entering the opponent's
-			# board, etc.). _opponent_traps returns the live array (mutates state).
+			# board, etc.). traps_of returns the live array (mutates state).
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				# Rune lands on the opponent's side — fetch via that side's overrides.
 				var opponent: String = ctx.scene._opponent_of(ctx.owner)
 				var rune_data: TrapCardData = ctx.scene._card_for(opponent, step.card_id) as TrapCardData
 				if rune_data != null:
-					var traps: Array = ctx.scene._opponent_traps(ctx.owner)
+					var traps: Array[TrapCardData] = ctx.state.traps_of(opponent)
 					traps.append(rune_data)
 					ctx.scene._apply_rune_aura(rune_data, opponent)
 					if ctx.scene.has_method("_update_trap_display_for"):
@@ -355,11 +336,10 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 		EffectStep.EffectType.CONVERT_RESOURCE:
 			# Player-only by design — enemy AI has no resource conversion mechanic.
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
-				var tm = ctx.scene.turn_manager
 				if step.convert_from == "mana" and step.convert_to == "essence":
-					tm.convert_mana_to_essence(step.amount if step.amount > 0 else -1)
+					ctx.state.convert_mana_to_essence("player", step.amount if step.amount > 0 else -1)
 				elif step.convert_from == "essence" and step.convert_to == "mana":
-					tm.convert_essence_to_mana()
+					ctx.state.convert_essence_to_mana("player")
 			return
 
 		EffectStep.EffectType.GAIN_FLESH:
@@ -390,7 +370,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				# The casting card is the most recent graveyard entry — its resolved_on_turn
 				# is the current turn. "Last turn" = current_turn - 1.
-				var graveyard: Array = ctx.scene._friendly_graveyard(ctx.owner)
+				var graveyard: Array[CardInstance] = ctx.state.graveyard_of(ctx.owner)
 				if graveyard.is_empty():
 					return
 				var current_turn: int = (graveyard[graveyard.size() - 1] as CardInstance).resolved_on_turn
@@ -407,10 +387,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					if step.exclude_card_id != "" and inst.card_data.id == step.exclude_card_id:
 						continue
 					# Add a fresh copy (new instance_id) — base cost, not modified.
-					if ctx.owner == "player":
-						ctx.scene.turn_manager.add_to_hand(inst.card_data)
-					else:
-						ctx.scene.enemy_ai.add_to_hand(inst.card_data)
+					ctx.state.add_to_hand(ctx.owner, inst.card_data)
 					copied.append(inst.card_data.card_name)
 				# Per-copy hero damage — count uses graveyard query result, not hand-add success.
 				if not copied.is_empty():
@@ -629,11 +606,11 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 				# (player traps) is the common case; opponent-side covers
 				# SINGLE_RANDOM_OPPONENT_TRAP and any future cross-side destroys.
 				var owner_side: String = ctx.owner
-				if not target in scene._friendly_traps(owner_side):
+				if not target in ctx.state.traps_of(owner_side):
 					owner_side = scene._opponent_of(ctx.owner)
 				if target.is_rune:
 					scene._remove_rune_aura(target, owner_side)
-				scene._friendly_traps(owner_side).erase(target)
+				ctx.state.traps_of(owner_side).erase(target)
 				if scene.has_method("_update_trap_display_for"):
 					scene._update_trap_display_for(owner_side)
 				else:

@@ -1,23 +1,15 @@
 ## SimEnemyAgent.gd
 ## CombatAgent for the enemy side in a headless simulation.
-## No timers — all commits resolve instantly.
-##
-## Also duck-types as EnemyAI for EffectResolver calls like
-##   ctx.scene.enemy_ai._draw_cards(count)
-##   ctx.scene.enemy_ai.add_to_hand(card)
-##   ctx.scene.enemy_ai.mana / mana_max / essence / essence_max
+## No timers — all commits resolve instantly. Reads and writes the enemy side of
+## the CombatState directly (plan 1.3); rules code no longer reaches through it.
 class_name SimEnemyAgent
 extends CombatAgent
 
 var sim: SimState
 
-## Duck-types EnemyAI.minion_play_chosen_target so on_enemy_minion_played_effect
-## can read the target after the trigger fires.
-var minion_play_chosen_target = null
-
 func setup(s: SimState) -> void:
 	sim = s
-	sim.enemy_ai = self  # register as the scene's enemy_ai duck-type
+	sim.enemy_ai = self
 
 # ---------------------------------------------------------------------------
 # Boards / hand / resources
@@ -34,45 +26,6 @@ func _get_scene()          -> Object: return sim
 
 func _get_friendly_hp() -> int: return sim.enemy_hp
 func _get_opponent_hp() -> int: return sim.player_hp
-
-# ---------------------------------------------------------------------------
-# EnemyAI duck-type properties (read by EffectResolver)
-# ---------------------------------------------------------------------------
-
-var mana_max: int:
-	get: return sim.enemy_mana_max
-var essence_max: int:
-	get: return sim.enemy_essence_max
-
-## Duck-type active_traps so HardcodedEffects._destroy_random_enemy_trap() can read/erase.
-var active_traps: Array:
-	get: return sim.enemy_active_traps
-
-## Duck-type active_environment for parity with EnemyAI.
-var active_environment:
-	get: return sim.enemy_active_environment
-	set(v): sim.enemy_active_environment = v
-
-## Duck-type spell_cost_discounts so CombatSetup can write pack_frenzy discount.
-var spell_cost_discounts: Dictionary:
-	get: return sim.enemy_spell_cost_discounts
-
-## Duck-type spell_cost_aura so champion-aura handlers can toggle it.
-var spell_cost_aura: int:
-	get: return sim.enemy_spell_cost_aura
-	set(v): sim.enemy_spell_cost_aura = v
-
-## Duck-type essence_cost_discounts so CombatSetup can write minion essence discounts.
-var essence_cost_discounts: Dictionary:
-	get: return sim.enemy_essence_cost_discounts
-
-## Duck-type minion_essence_cost_aura so the F15 Abyssal Mandate handler can toggle it.
-var minion_essence_cost_aura: int:
-	get: return sim.enemy_minion_essence_cost_aura
-	set(v): sim.enemy_minion_essence_cost_aura = v
-
-## Duck-type attack_cancelled so Smoke Veil can cancel attacks.
-var attack_cancelled: bool = false
 
 # ---------------------------------------------------------------------------
 # Lifecycle
@@ -109,16 +62,14 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	sim.enemy_board.append(instance)
 	slot.place_minion(instance)
 	sim.minion_summoned.emit("enemy", instance, slot.index)
-	sim.enemy_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.enemy_graveyard.append(inst)
+	sim.remove_from_hand("enemy", inst)
 	# Track per-fight big-body plays
 	if mc.id == "bastion_colossus":
 		sim._vw_bastion_plays += 1
 	elif mc.id == "void_behemoth":
 		sim._vw_behemoth_plays += 1
 	# Set target so on_enemy_minion_played_effect (always-on handler) can read it.
-	minion_play_chosen_target = chosen_target
+	sim.enemy_play_target = chosen_target
 	if sim.trigger_manager != null:
 		# ON_ENEMY_MINION_PLAYED — gates on-play battlecries to hand plays only
 		# (mirrors player side; token summons via _summon_token must not retrigger).
@@ -138,9 +89,7 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 
 func commit_play_spell(inst: CardInstance, chosen_target = null, extra_cast_data: Dictionary = {}) -> bool:
 	var spell := inst.card_data as SpellCardData
-	sim.enemy_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.enemy_graveyard.append(inst)
+	sim.remove_from_hand("enemy", inst)
 	# Phase Disruptor counter: player counters enemy spell
 	if sim._enemy_spell_counter > 0:
 		sim._enemy_spell_counter -= 1
@@ -155,9 +104,7 @@ func commit_play_spell(inst: CardInstance, chosen_target = null, extra_cast_data
 
 func commit_play_trap(inst: CardInstance) -> bool:
 	var trap := inst.card_data as TrapCardData
-	sim.enemy_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.enemy_graveyard.append(inst)
+	sim.remove_from_hand("enemy", inst)
 	sim.enemy_active_traps.append(trap)
 	# Fire ON_ENEMY_TRAP_PLACED
 	if sim.trigger_manager != null:
@@ -171,9 +118,7 @@ func commit_play_trap(inst: CardInstance) -> bool:
 
 func commit_play_environment(inst: CardInstance) -> bool:
 	var env := inst.card_data as EnvironmentCardData
-	sim.enemy_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.enemy_graveyard.append(inst)
+	sim.remove_from_hand("enemy", inst)
 	# Tear down outgoing env's persistent aura with owner="enemy" (mirror of
 	# SimPlayerAgent.commit_play_environment for the player side).
 	var prev_env: EnvironmentCardData = sim.enemy_active_environment
@@ -195,8 +140,8 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 		ctx.minion = attacker
 		sim.trigger_manager.fire(ctx)
 	# Check if a trap (e.g. Smoke Veil) cancelled this attack
-	if attack_cancelled:
-		attack_cancelled = false
+	if sim.attack_cancelled:
+		sim.attack_cancelled = false
 		return sim.winner.is_empty()
 	sim.combat_manager.resolve_minion_attack(attacker, target)
 	return sim.winner.is_empty()
@@ -210,8 +155,8 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 		ctx.minion = attacker
 		sim.trigger_manager.fire(ctx)
 	# Check if a trap (e.g. Smoke Veil) cancelled this attack
-	if attack_cancelled:
-		attack_cancelled = false
+	if sim.attack_cancelled:
+		sim.attack_cancelled = false
 		return sim.winner.is_empty()
 	sim.combat_manager.resolve_minion_attack_hero(attacker, "player")
 	return sim.winner.is_empty()
@@ -242,6 +187,12 @@ func consume_minion(minion: MinionInstance) -> void:
 # Utilities
 # ---------------------------------------------------------------------------
 
+func _essence_cost_discounts() -> Dictionary:
+	return sim.enemy_essence_cost_discounts
+
+func _minion_essence_cost_aura() -> int:
+	return sim.enemy_minion_essence_cost_aura
+
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return max(0, spell.cost + sim.enemy_spell_cost_penalty + sim.enemy_spell_cost_aura \
 		- (sim.enemy_spell_cost_discounts.get(spell.id, 0) as int))
@@ -254,23 +205,8 @@ func opponent_has_rune_or_environment() -> bool:
 			return true
 	return false
 
-# ---------------------------------------------------------------------------
-# EnemyAI duck-type methods (called by EffectResolver)
-# ---------------------------------------------------------------------------
-
 func draw_cards(count: int) -> void:
-	_draw_cards(count)
-
-func _draw_cards(count: int) -> void:
-	sim._draw_enemy(count)
-
-func add_to_hand(card: CardData) -> void:
-	if sim.enemy_hand.size() < SimState.ENEMY_HAND_MAX:
-		sim.enemy_hand.append(CardInstance.create(card))
-
-func add_instance_to_hand(inst: CardInstance) -> void:
-	if sim.enemy_hand.size() < SimState.ENEMY_HAND_MAX:
-		sim.enemy_hand.append(inst)
+	sim.draw_cards("enemy", count)
 
 # ---------------------------------------------------------------------------
 # Effect resolution helpers

@@ -85,40 +85,64 @@ var ai_profile: String = "default":
 var scene: Node = null
 
 # ---------------------------------------------------------------------------
-# Resources — mirrors the player's dual system with the same combined cap
+# Enemy-side state — façade over CombatState (LIVE_SIM_UNIFICATION_PLAN.md 1.3).
+# Resources, deck, hand, graveyard, traps, environment and cost modifiers live
+# on `scene.state` (the enemy_* fields); these forward so profiles and the UI
+# keep reading `enemy_ai.essence` etc.
 # ---------------------------------------------------------------------------
 
-var essence: int = 1
-var essence_max: int = 1
-var mana: int = 1
-var mana_max: int = 1
+var state: CombatState:
+	get: return scene.state
+
+var essence: int:
+	get: return state.enemy_essence
+	set(v): state.enemy_essence = v
+var essence_max: int:
+	get: return state.enemy_essence_max
+	set(v): state.enemy_essence_max = v
+var mana: int:
+	get: return state.enemy_mana
+	set(v): state.enemy_mana = v
+var mana_max: int:
+	get: return state.enemy_mana_max
+	set(v): state.enemy_mana_max = v
 
 ## Skips resource growth on the very first turn so the enemy starts at 1E/1M.
 var _first_turn: bool = true
 
 ## Shared combined cap with the player (essence_max + mana_max ≤ this).
-const COMBINED_RESOURCE_CAP := 11
+const COMBINED_RESOURCE_CAP := CombatState.COMBINED_RESOURCE_CAP
 
 ## Extra mana cost added to enemy spells this turn (from Spell Taxer).
-var spell_cost_penalty: int = 0
+var spell_cost_penalty: int:
+	get: return state.enemy_spell_cost_penalty
+	set(v): state.enemy_spell_cost_penalty = v
 
 ## Persistent flat mana-cost adjustment from an active aura (e.g. Void Ritualist
 ## Prime champion reduces by 1). Negative = discount. Not reset per turn.
-var spell_cost_aura: int = 0
+var spell_cost_aura: int:
+	get: return state.enemy_spell_cost_aura
+	set(v): state.enemy_spell_cost_aura = v
 
 ## Per-card mana cost discounts keyed by card ID (e.g. {"pack_frenzy": 1}).
-var spell_cost_discounts: Dictionary = {}
+var spell_cost_discounts: Dictionary:
+	get: return state.enemy_spell_cost_discounts
 
 ## Per-card essence cost discounts keyed by card ID (e.g. {"void_touched_imp": 1}).
-var essence_cost_discounts: Dictionary = {}
+var essence_cost_discounts: Dictionary:
+	get: return state.enemy_essence_cost_discounts
 
 ## Flat essence-cost discount applied to every enemy minion this turn (e.g. F15
 ## Abyssal Mandate grants -2 after the player grows Essence). Negative = cheaper.
 ## Reset by whichever system sets it (mandate clears at end of enemy turn).
-var minion_essence_cost_aura: int = 0
+var minion_essence_cost_aura: int:
+	get: return state.enemy_minion_essence_cost_aura
+	set(v): state.enemy_minion_essence_cost_aura = v
 
-## Set to true by Smoke Veil trap to cancel the current attack.
-var attack_cancelled: bool = false
+## Set by Smoke Veil (via state) to cancel the attack being declared.
+var attack_cancelled: bool:
+	get: return state.attack_cancelled
+	set(v): state.attack_cancelled = v
 
 ## When non-null, Imp Barricade redirects the current attack to this minion.
 var redirect_attack_target: MinionInstance = null
@@ -129,62 +153,38 @@ var spell_chosen_target = null
 
 ## Chosen target for the on-play effect of the minion being summoned.
 ## MinionInstance for minion targets, TrapCardData/EnvironmentCardData for trap/env targets.
-## Set by commit_minion_play before emitting; read by CombatScene to populate EffectContext.
-var minion_play_chosen_target = null
+## Set by commit_minion_play before emitting; read (and cleared) by the
+## ON_ENEMY_MINION_PLAYED handler via state.enemy_play_target.
+var minion_play_chosen_target:
+	get: return state.enemy_play_target
+	set(v): state.enemy_play_target = v
 
-## Active traps and runes placed by the enemy. Backed by CombatState.enemy_active_traps
-## so live combat and sim share one source of truth (sim's SimEnemyAgent forwards the
-## same way). Reads/writes route through `scene.state.enemy_active_traps`; setup_deck
-## clears the underlying array, so callers that did `active_traps = []` continue to work.
+## Active traps and runes placed by the enemy.
 var active_traps: Array[TrapCardData]:
-	get:
-		if scene != null and scene.state != null:
-			return scene.state.enemy_active_traps
-		return _active_traps_fallback
-	set(v):
-		if scene != null and scene.state != null:
-			scene.state.enemy_active_traps = v
-		else:
-			_active_traps_fallback = v
-## Pre-`scene` assignment fallback (only used between EnemyAI._ready and `scene = ...`
-## in CombatScene._connect_ui — exists so the typed property has a backing store).
-var _active_traps_fallback: Array[TrapCardData] = []
+	get: return state.enemy_active_traps
+	set(v): state.enemy_active_traps = v
 
 ## Slots claimed by a pending summon (reveal in progress) — excluded from find_empty_slot.
 var _pending_slots: Array[BoardSlot] = []
 
 ## Active environment card played by the enemy (mirrors the player's active_environment).
-var active_environment: EnvironmentCardData = null
+var active_environment: EnvironmentCardData:
+	get: return state.enemy_active_environment
+	set(v): state.enemy_active_environment = v
 
-# ---------------------------------------------------------------------------
-# Deck — real shuffled deck drawn without replacement; on draw a fresh replacement is
-# added back and the deck is reshuffled to simulate an infinite card pool.
-# ---------------------------------------------------------------------------
-
-var _deck: Array[CardInstance] = []
-## Card IDs flagged as limited — drawn once per copy, not re-added to deck.
-var _limited_cards: Array[String] = []
-## Public read access to the enemy deck (for symmetric card effects like rune_seeker).
+## Enemy deck — never runs out (see CombatState.draw_cards).
 var deck: Array[CardInstance]:
-	get: return _deck
-## Unified enemy graveyard — every card the enemy plays this combat is appended here
-## (minions, spells, traps, environments) at the moment it leaves the hand.
-## Each entry has its `resolved_on_turn` stamped at append time.
-## Full-combat record — never cleared mid-combat. Cleared in `setup_deck`.
-var _graveyard: Array[CardInstance] = []
-## Public read access (mirror of `deck`) — used by symmetric graveyard-querying effects.
+	get: return state.enemy_deck
+## Card IDs flagged as limited — drawn once per copy, not re-added to deck.
+var _limited_cards: Array[String]:
+	get: return state.enemy_limited_cards
+	set(v): state.enemy_limited_cards = v
+## Unified enemy graveyard (see CombatState.send_to_graveyard).
 var graveyard: Array[CardInstance]:
-	get: return _graveyard
-var hand: Array[CardInstance] = []
-const HAND_MAX := 10
-
-## Fallback deck used when no encounter deck is configured.
-const FALLBACK_DECK: Array[String] = [
-	"void_imp", "void_imp", "void_imp",
-	"shadow_hound", "shadow_hound",
-	"abyssal_brute",
-	"void_bolt", "void_bolt",
-]
+	get: return state.enemy_graveyard
+var hand: Array[CardInstance]:
+	get: return state.enemy_hand
+const HAND_MAX := CombatState.HAND_MAX
 
 # ---------------------------------------------------------------------------
 # Timing
@@ -196,42 +196,31 @@ const ACTION_DELAY := 0.55
 # Setup — called by CombatScene before the first turn
 # ---------------------------------------------------------------------------
 
-## Load and shuffle the enemy deck from a list of card IDs.
-## Each ID becomes a CardInstance; on draw, a fresh replacement is inserted and reshuffled.
+## Played when an encounter has no deck configured.
+const FALLBACK_DECK: Array[String] = [
+	"void_imp", "void_imp", "void_imp",
+	"shadow_hound", "shadow_hound",
+	"abyssal_brute",
+	"void_bolt", "void_bolt",
+]
+
+## Load, shuffle and draw the opening 5 from a list of card IDs (combat-time
+## lookup, so enemy-side overrides like ancient_frenzy apply). Empty → fallback deck.
 func setup_deck(card_ids: Array[String]) -> void:
-	_deck.clear()
-	_graveyard.clear()
-	hand.clear()
-	active_traps.clear()
-	active_environment = null
-	var ids := card_ids if not card_ids.is_empty() else FALLBACK_DECK
-	for id in ids:
-		# _card_for so any future enemy-side overrides apply (e.g. ancient_frenzy
-		# on pack_frenzy). Falls back to base when no overrides match.
-		var card: CardData = scene._card_for("enemy", id) if scene != null else CardDatabase.get_card(id)
-		if card:
-			_deck.append(CardInstance.create(card))
-	scene.state.rng_shuffle(_deck)
-	_draw_cards(5)
+	state.setup_deck("enemy", card_ids if not card_ids.is_empty() else FALLBACK_DECK)
 
 ## Add a CardData directly to the enemy's hand (used by ON_PLAY effects).
 func add_to_hand(card: CardData) -> void:
-	if hand.size() < HAND_MAX:
-		hand.append(CardInstance.create(card))
+	state.add_to_hand("enemy", card)
 
 ## Add an existing CardInstance directly to the enemy hand (used by symmetric effects).
 func add_instance_to_hand(inst: CardInstance) -> void:
-	if hand.size() < HAND_MAX:
-		hand.append(inst)
+	state.add_to_hand("enemy", inst)
 
 ## Stamp `resolved_on_turn` and append to the unified graveyard.
 ## Called from every commit_play_* path the moment a card leaves hand.
 func _send_to_graveyard(inst: CardInstance) -> void:
-	var turn_no: int = 0
-	if scene != null and scene.turn_manager != null:
-		turn_no = scene.turn_manager.turn_number
-	inst.resolved_on_turn = turn_no
-	_graveyard.append(inst)
+	state.send_to_graveyard("enemy", inst)
 
 ## Public wrapper — draw count cards from the enemy deck (used by passives).
 func draw_cards(count: int) -> void:
@@ -250,8 +239,8 @@ func run_turn() -> void:
 		_choose_resource_growth()
 	essence = essence_max
 	mana    = mana_max
-	if scene != null and scene.state._enemy_void_mana_drain_pending:
-		scene.state._enemy_void_mana_drain_pending = false
+	if state._enemy_void_mana_drain_pending:
+		state._enemy_void_mana_drain_pending = false
 		mana = 0
 		scene._log("  Void Rift Lord: enemy Mana has been drained to 0!", scene._LogType.PLAYER)
 	_draw_cards(1)
@@ -296,22 +285,9 @@ func _choose_resource_growth() -> void:
 # Private — card draw
 # ---------------------------------------------------------------------------
 
-## Draw count cards from the deck.
-## On each draw: move the instance to hand AND insert a fresh replacement into the deck,
-## then reshuffle — simulating an infinite card pool without recycling discards.
+## Draw count cards (see CombatState.draw_cards — the enemy deck never runs out).
 func _draw_cards(count: int) -> void:
-	for _i in count:
-		if hand.size() >= HAND_MAX:
-			break
-		if _deck.is_empty():
-			break
-		var inst: CardInstance = _deck.pop_front()
-		hand.append(inst)
-		# Add a fresh replacement so the deck never truly empties
-		# Limited cards are NOT re-added (one-time draw per copy)
-		if inst.card_data.id not in _limited_cards:
-			_deck.append(CardInstance.create(inst.card_data))
-			scene.state.rng_shuffle(_deck)
+	state.draw_cards("enemy", count)
 
 # ---------------------------------------------------------------------------
 # Public helpers — utilities for profiles
@@ -352,8 +328,8 @@ func pick_player_target() -> MinionInstance:
 		return null
 	var guards := CombatManager.get_taunt_minions(player_board)
 	if not guards.is_empty():
-		return scene.state.rng_pick(guards)
-	return scene.state.rng_pick(player_board)
+		return state.rng_pick(guards)
+	return state.rng_pick(player_board)
 
 ## Returns the best target for a SWIFT minion (no guards present).
 ## Prefers killable targets (our ATK >= their HP), then highest ATK among those.
@@ -401,8 +377,7 @@ func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	_send_to_graveyard(inst)
 	minion_play_chosen_target = chosen_target
 	minion_summoned.emit(instance, slot)
-	if scene != null and scene.state != null:
-		scene.state.minion_summoned.emit("enemy", instance, slot.index)
+	state.minion_summoned.emit("enemy", instance, slot.index)
 	if not is_inside_tree(): return false
 	await get_tree().create_timer(ACTION_DELAY).timeout
 	if not is_inside_tree(): return false
@@ -498,7 +473,7 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	# be directed at one of them, regardless of how the profile chose the target.
 	var guards := CombatManager.get_taunt_minions(player_board)
 	if not guards.is_empty() and not target.has_guard():
-		target = scene.state.rng_pick(guards)
+		target = state.rng_pick(guards)
 	enemy_about_to_attack.emit(attacker, target)
 	if attack_cancelled:
 		attack_cancelled = false

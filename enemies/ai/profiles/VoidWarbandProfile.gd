@@ -90,12 +90,7 @@ func _current_turn() -> int:
 	var scene := agent.scene
 	if scene == null:
 		return 1
-	# Sim exposes _current_turn; live scene exposes turn_manager.turn_number
-	if scene.get("_current_turn") != null:
-		return scene._current_turn
-	if scene.get("turn_manager") != null:
-		return scene.turn_manager.turn_number
-	return 1
+	return (scene.state as CombatState).turn_number
 
 ## Override spark payment execution. Crit-Spirit pre-attack rule:
 ##   - If VW board has at least 1 empty slot, crit-Spirit attacks first (crit fires

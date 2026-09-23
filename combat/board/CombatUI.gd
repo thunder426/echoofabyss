@@ -46,7 +46,7 @@ func on_state_hp_changed(side: String, new_hp: int, mx: int, _delta: int) -> voi
 			_scene._player_hero_panel.update(new_hp, mx)
 	else:
 		if _scene._enemy_hero_panel:
-			_scene._enemy_hero_panel.update(new_hp, mx, _scene.enemy_ai, _scene.enemy_void_marks)
+			_scene._enemy_hero_panel.update(new_hp, mx, _scene.state, _scene.enemy_void_marks)
 
 ## Subscriber to CombatState.void_marks_changed — refreshes the enemy hero
 ## panel so the stack count visual stays current without scattered manual
@@ -55,7 +55,7 @@ func on_state_void_marks_changed(side: String, _value: int) -> void:
 	if _scene == null:
 		return
 	if side == "enemy" and _scene._enemy_hero_panel:
-		_scene._enemy_hero_panel.update(_scene.enemy_hp, _scene.enemy_hp_max, _scene.enemy_ai, _scene.enemy_void_marks)
+		_scene._enemy_hero_panel.update(_scene.enemy_hp, _scene.enemy_hp_max, _scene.state, _scene.enemy_void_marks)
 
 ## Korrath — refresh the appropriate hero panel's debuff badges. State signals
 ## (hero_armour_changed, hero_buff_changed) route through here so the panel sees

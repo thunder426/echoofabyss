@@ -4,10 +4,19 @@
 class_name EffectContext
 extends RefCounted
 
-## The CombatScene node (or SimState in headless sim). Typed as Object so that
-## both Node subclasses and RefCounted subclasses can be assigned.
-## Duck-type: EffectResolver and ConditionResolver call methods on it directly.
+## The combat facade: the CombatScene in live, the state itself in sim/tests
+## (CombatState._get_scene_facade). Rules code uses it only for the [facade]
+## calls in tools/lint/presentation_allowlist.txt — gameplay goes through
+## `state`, presentation through `presenter`.
 var scene: Object = null
+
+## The combat state — every gameplay read and write.
+var state: CombatState:
+	get: return scene.state
+
+## Presentation: the CombatScene in live, null in sim/tests. Null-check before use.
+var presenter: Object:
+	get: return scene.state.presenter
 
 ## Who owns this effect — "player" or "enemy".
 var owner: String = "player"

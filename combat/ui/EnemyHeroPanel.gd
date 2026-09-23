@@ -418,7 +418,7 @@ func _build_enemy_stats_cols(vbox: VBoxContainer) -> void:
 # ---------------------------------------------------------------------------
 
 ## Refresh all displayed stats from the provided combat state.
-func update(enemy_hp: int, enemy_hp_max: int, enemy_ai: Node, enemy_void_marks: int) -> void:
+func update(enemy_hp: int, enemy_hp_max: int, st: CombatState, enemy_void_marks: int) -> void:
 	if _enemy_status_hp_label:
 		_enemy_status_hp_label.text = "❤ HP: %d / %d" % [enemy_hp, enemy_hp_max]
 	if _enemy_hp_bar_fill and enemy_hp_max > 0:
@@ -431,15 +431,15 @@ func update(enemy_hp: int, enemy_hp_max: int, enemy_ai: Node, enemy_void_marks: 
 		elif new_ratio > old_ratio + 0.001:
 			_animate_hp_heal(_enemy_hp_bar_bg, old_ratio, new_ratio)
 	if _enemy_status_essence_label:
-		var ess_max: int = enemy_ai.essence_max if enemy_ai else 0
-		var ess_cur: int = enemy_ai.essence if enemy_ai else 0
+		var ess_max: int = st.enemy_essence_max if st else 0
+		var ess_cur: int = st.enemy_essence if st else 0
 		_enemy_status_essence_label.text = "◆ Essence: %d / %d" % [ess_cur, ess_max]
 	if _enemy_status_mana_label:
-		var mana_max: int = enemy_ai.mana_max if enemy_ai else 0
-		var mana_cur: int = enemy_ai.mana if enemy_ai else 0
+		var mana_max: int = st.enemy_mana_max if st else 0
+		var mana_cur: int = st.enemy_mana if st else 0
 		_enemy_status_mana_label.text = "◈ Mana: %d / %d" % [mana_cur, mana_max]
 	if _enemy_status_hand_label:
-		var hand_size: int = enemy_ai.hand.size() if enemy_ai else 0
+		var hand_size: int = st.enemy_hand.size() if st else 0
 		_enemy_status_hand_label.text = "🂠 Hand: %d" % hand_size
 	if _enemy_status_marks_row:
 		if enemy_void_marks > 0:

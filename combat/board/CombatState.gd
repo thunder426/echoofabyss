@@ -96,6 +96,11 @@ signal minion_died(side: String, minion: MinionInstance, slot_index: int)
 ## tools/lint/presentation_allowlist.txt ([presenter]) and checked by lint L3.
 var presenter: Object = null
 
+## Self-alias so `<shell>.state` works on every shell — CombatScene composes a
+## CombatState, SimState and bare test states are one.
+var state: CombatState:
+	get: return self
+
 ## Facade for `EffectContext.scene` and for the [facade] names in
 ## tools/lint/presentation_allowlist.txt: gameplay whose live version is still
 ## VFX-bound (Void Bolt projectile before damage, corruption popup capture,
@@ -159,6 +164,13 @@ func _opponent_of(owner: String) -> String:
 ## Return the board slots belonging to the given owner.
 func _friendly_slots(owner: String) -> Array:
 	return player_slots if owner == "player" else enemy_slots
+
+## True if `side` has at least one empty board slot.
+func has_empty_slot(side: String) -> bool:
+	for slot: BoardSlot in (player_slots if side == "player" else enemy_slots):
+		if slot.is_empty():
+			return true
+	return false
 
 ## Count minions of a specific type on the friendly board.
 func _count_type_on_board(type: int, owner: String) -> int:
@@ -392,8 +404,7 @@ func _spend_flesh(amount: int) -> bool:
 	return true
 
 ## Seris — post-spend hook. Flesh Bond aura (Abyssal Forge talent) draws a card
-## per spend (one draw per spend event regardless of amount). Runs on both
-## scene and sim — both have access to a `turn_manager` that supports draw_card.
+## per spend (one draw per spend event regardless of amount).
 func _on_flesh_spent(_amount: int) -> void:
 	var has_flesh_bond := false
 	for m in player_board:
@@ -402,9 +413,8 @@ func _on_flesh_spent(_amount: int) -> void:
 			break
 	if not has_flesh_bond:
 		return
-	if turn_manager != null:
-		turn_manager.draw_card()
-		_log("  Flesh Bond: drew a card.", 1)
+	draw_cards("player", 1)
+	_log("  Flesh Bond: drew a card.", 1)
 
 ## Seris Starter — Fiendish Pact discount peek for a single Demon play.
 ## Returns the Essence discount to subtract from this play's cost (0 if N/A).
@@ -943,9 +953,9 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 	_pending_dmg_source = base_source
 	# Split log: base damage + mark bonus separately (sim diagnostic; live combat ignores).
 	if dmg_log_enabled:
-		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
+		dmg_log.append({turn = turn_number, amount = base_damage, source = base_source})
 		if bonus > 0:
-			dmg_log.append({turn = _current_turn, amount = bonus, source = "void_mark"})
+			dmg_log.append({turn = turn_number, amount = bonus, source = "void_mark"})
 		_pending_dmg_source = "__logged__"  # signal _on_hero_damaged to skip logging
 	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
 	combat_manager.apply_hero_damage("enemy",
@@ -964,7 +974,7 @@ func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstanc
 		base_source = "enemy_void_bolt"
 	_pending_dmg_source = base_source
 	if dmg_log_enabled:
-		dmg_log.append({turn = _current_turn, amount = base_damage, source = base_source})
+		dmg_log.append({turn = turn_number, amount = base_damage, source = base_source})
 		_pending_dmg_source = "__logged__"
 	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
 	combat_manager.apply_hero_damage("player",
@@ -1242,6 +1252,264 @@ var player_slots: Array[BoardSlot] = []
 var enemy_slots:  Array[BoardSlot] = []
 
 # ---------------------------------------------------------------------------
+# Turn, resources, decks, hands, graveyards — both sides (plan 1.3). Live's
+# TurnManager (player) and EnemyAI (enemy) forward their fields here; sim reads
+# them directly. Mutators that live's UI shows (spend / gain / convert) emit
+# `resources_changed`; TurnManager relays the player side to its own signal.
+# ---------------------------------------------------------------------------
+
+## (side, essence, essence_max, mana, mana_max) after a spend / gain / convert,
+## or when a caller asks with emit_resources(). Live relays the player side.
+signal resources_changed(side: String, essence: int, essence_max: int, mana: int, mana_max: int)
+## A card moved deck → hand. Live relays the player side to the hand display.
+signal card_drawn(side: String, inst: CardInstance)
+## A card was created straight into a hand (not drawn). Live relays the player side.
+signal card_generated(side: String, inst: CardInstance)
+
+const HAND_MAX := 10
+## essence_max + mana_max can never exceed this (both sides).
+const COMBINED_RESOURCE_CAP := 11
+## Absolute ceiling on current Essence — conversion can exceed essence_max up to this.
+const ESSENCE_HARD_CAP := 10
+
+## Round number, incremented at each player turn start (the opening round is 1).
+## Stamps graveyard entries (resolved_on_turn) and the sim damage log.
+var turn_number: int = 0
+## True during the player's turn.
+var is_player_turn: bool = true
+
+var player_essence: int = 0
+var _player_essence_max: int = 0
+## Any increase records the choice for F15 abyssal_mandate (`last_player_growth`).
+var player_essence_max: int:
+	get: return _player_essence_max
+	set(v):
+		if v > _player_essence_max:
+			last_player_growth = "essence"
+		_player_essence_max = v
+var player_mana: int = 0
+var _player_mana_max: int = 0
+var player_mana_max: int:
+	get: return _player_mana_max
+	set(v):
+		if v > _player_mana_max:
+			last_player_growth = "mana"
+		_player_mana_max = v
+
+var enemy_essence: int = 0
+var enemy_essence_max: int = 0
+var enemy_mana: int = 0
+var enemy_mana_max: int = 0
+
+var player_deck: Array[CardInstance] = []
+var player_hand: Array[CardInstance] = []
+## Every card the player played this combat, in play order (minions, spells,
+## traps, runes, environments), each stamped with `resolved_on_turn`.
+var player_graveyard: Array[CardInstance] = []
+## The enemy deck never runs out: each draw puts a fresh copy back and reshuffles
+## (except ids in enemy_limited_cards, which are drawn once per copy).
+var enemy_deck: Array[CardInstance] = []
+var enemy_hand: Array[CardInstance] = []
+var enemy_graveyard: Array[CardInstance] = []
+var enemy_limited_cards: Array[String] = []
+
+## Set by Smoke Veil while an enemy attack is being declared; the attack
+## executor checks it after firing ON_ENEMY_ATTACK and skips the attack.
+var attack_cancelled: bool = false
+## On-play target the enemy executor chose for the minion it is playing; read
+## (and cleared) by the ON_ENEMY_MINION_PLAYED handler.
+var enemy_play_target = null
+
+func hand_of(side: String) -> Array[CardInstance]:
+	return player_hand if side == "player" else enemy_hand
+
+func deck_of(side: String) -> Array[CardInstance]:
+	return player_deck if side == "player" else enemy_deck
+
+func graveyard_of(side: String) -> Array[CardInstance]:
+	return player_graveyard if side == "player" else enemy_graveyard
+
+func traps_of(side: String) -> Array[TrapCardData]:
+	return active_traps if side == "player" else enemy_active_traps
+
+func environment_of(side: String) -> EnvironmentCardData:
+	return active_environment if side == "player" else enemy_active_environment
+
+func set_environment(side: String, env: EnvironmentCardData) -> void:
+	if side == "player":
+		active_environment = env
+	else:
+		enemy_active_environment = env
+
+func essence_of(side: String) -> int:
+	return player_essence if side == "player" else enemy_essence
+
+func mana_of(side: String) -> int:
+	return player_mana if side == "player" else enemy_mana
+
+func essence_max_of(side: String) -> int:
+	return player_essence_max if side == "player" else enemy_essence_max
+
+func mana_max_of(side: String) -> int:
+	return player_mana_max if side == "player" else enemy_mana_max
+
+func set_essence(side: String, v: int) -> void:
+	if side == "player":
+		player_essence = v
+	else:
+		enemy_essence = v
+
+func set_mana(side: String, v: int) -> void:
+	if side == "player":
+		player_mana = v
+	else:
+		enemy_mana = v
+
+func emit_resources(side: String) -> void:
+	resources_changed.emit(side, essence_of(side), essence_max_of(side), mana_of(side), mana_max_of(side))
+
+## Start-of-turn refill to the maxima. Does not emit (the turn flow emits once
+## after drawing).
+func refill_resources(side: String) -> void:
+	set_essence(side, essence_max_of(side))
+	set_mana(side, mana_max_of(side))
+
+func can_afford(side: String, essence_cost: int, mana_cost: int) -> bool:
+	return essence_of(side) >= essence_cost and mana_of(side) >= mana_cost
+
+func spend_essence(side: String, amount: int) -> bool:
+	if essence_of(side) < amount:
+		return false
+	set_essence(side, essence_of(side) - amount)
+	emit_resources(side)
+	return true
+
+func spend_mana(side: String, amount: int) -> bool:
+	if mana_of(side) < amount:
+		return false
+	set_mana(side, mana_of(side) - amount)
+	emit_resources(side)
+	return true
+
+## Bonus Essence this turn — not capped by essence_max (the next refill resets it).
+func gain_essence(side: String, amount: int) -> void:
+	set_essence(side, essence_of(side) + amount)
+	emit_resources(side)
+
+## Bonus Mana this turn, capped at mana_max.
+func gain_mana(side: String, amount: int) -> void:
+	set_mana(side, mini(mana_of(side) + amount, mana_max_of(side)))
+	emit_resources(side)
+
+## +amount Essence max, one at a time, stopping at the combined cap. No emit.
+func grow_essence_max(side: String, amount: int = 1) -> void:
+	for _i in amount:
+		if essence_max_of(side) + mana_max_of(side) >= COMBINED_RESOURCE_CAP:
+			break
+		if side == "player":
+			player_essence_max += 1
+		else:
+			enemy_essence_max += 1
+
+## +amount Mana max, one at a time, stopping at the combined cap. No emit.
+func grow_mana_max(side: String, amount: int = 1) -> void:
+	for _i in amount:
+		if essence_max_of(side) + mana_max_of(side) >= COMBINED_RESOURCE_CAP:
+			break
+		if side == "player":
+			player_mana_max += 1
+		else:
+			enemy_mana_max += 1
+
+## All current Essence into Mana, capped at mana_max (Energy Conversion).
+func convert_essence_to_mana(side: String) -> void:
+	var amount: int = essence_of(side)
+	set_essence(side, 0)
+	set_mana(side, mini(mana_of(side) + amount, mana_max_of(side)))
+	emit_resources(side)
+
+## Up to `max_convert` Mana (all if < 0) into Essence — ignores essence_max and
+## the combined cap; only ESSENCE_HARD_CAP applies.
+func convert_mana_to_essence(side: String, max_convert: int = -1) -> void:
+	var amount: int = mana_of(side) if max_convert < 0 else mini(mana_of(side), max_convert)
+	set_mana(side, mana_of(side) - amount)
+	set_essence(side, mini(essence_of(side) + amount, ESSENCE_HARD_CAP))
+	emit_resources(side)
+
+## Stamp `resolved_on_turn` and append to the side's graveyard.
+func send_to_graveyard(side: String, inst: CardInstance) -> void:
+	inst.resolved_on_turn = turn_number
+	graveyard_of(side).append(inst)
+
+## A card leaves the hand to be played: erase it and send it to the graveyard.
+func remove_from_hand(side: String, inst: CardInstance) -> void:
+	hand_of(side).erase(inst)
+	send_to_graveyard(side, inst)
+
+## Build `side`'s deck from card ids (combat-time lookup, so overrides apply) and
+## shuffle it on the engine RNG. Clears that side's hand and graveyard. The
+## enemy draws its opening 5 here; the player's opening hand is drawn by the
+## turn flow.
+func setup_deck(side: String, card_ids: Array[String]) -> void:
+	var deck: Array[CardInstance] = deck_of(side)
+	deck.clear()
+	hand_of(side).clear()
+	graveyard_of(side).clear()
+	for id in card_ids:
+		var card: CardData = _card_for(side, id)
+		if card != null:
+			deck.append(CardInstance.create(card))
+	rng_shuffle(deck)
+	if side == "enemy":
+		draw_cards("enemy", 5)
+
+## Draw `count` cards. Player: finite deck; a draw into a full hand burns the
+## card; each draw emits card_drawn and fires ON_PLAYER_CARD_DRAWN. Enemy: a full
+## hand stops drawing; the drawn card is replaced in the deck by a fresh copy
+## (unless limited) and the deck reshuffled.
+func draw_cards(side: String, count: int = 1) -> void:
+	for _i in count:
+		if side == "player":
+			if player_deck.is_empty():
+				return
+			var drawn: CardInstance = player_deck.pop_front()
+			if player_hand.size() >= HAND_MAX:
+				continue  # burned
+			player_hand.append(drawn)
+			card_drawn.emit("player", drawn)
+			_fire_card_drawn(drawn)
+		else:
+			if enemy_hand.size() >= HAND_MAX or enemy_deck.is_empty():
+				return
+			var inst: CardInstance = enemy_deck.pop_front()
+			enemy_hand.append(inst)
+			if inst.card_data.id not in enemy_limited_cards:
+				enemy_deck.append(CardInstance.create(inst.card_data))
+				rng_shuffle(enemy_deck)
+			card_drawn.emit("enemy", inst)
+
+## Put a card straight into `side`'s hand (a CardData gets a fresh instance).
+## Silently burned when the hand is full. Player side emits card_generated and
+## fires ON_PLAYER_CARD_DRAWN, like a draw. Returns the instance, or null if burned.
+func add_to_hand(side: String, card: Variant) -> CardInstance:
+	var inst: CardInstance = card if card is CardInstance else CardInstance.create(card as CardData)
+	var hand: Array[CardInstance] = hand_of(side)
+	if hand.size() >= HAND_MAX:
+		return null
+	hand.append(inst)
+	card_generated.emit(side, inst)
+	if side == "player":
+		_fire_card_drawn(inst)
+	return inst
+
+func _fire_card_drawn(inst: CardInstance) -> void:
+	if trigger_manager == null:
+		return
+	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
+	ctx.card = inst.card_data
+	trigger_manager.fire(ctx)
+
+# ---------------------------------------------------------------------------
 # Traps / environments / runes / void marks
 # ---------------------------------------------------------------------------
 
@@ -1250,11 +1518,8 @@ var active_traps: Array[TrapCardData] = []
 ## Player-side active global environment.
 var active_environment: EnvironmentCardData = null
 
-## Enemy-side mirror. Single source of truth for both live combat and sim:
-## live's EnemyAI.active_traps is now a property forwarder onto this field, so
-## state mutations (sim's direct writes; live's `enemy_ai.active_traps.append`)
-## both land here. enemy_active_environment still lives on EnemyAI on the live
-## side — unify in a follow-up if needed.
+## Enemy-side mirror. Single source of truth for both live combat and sim —
+## live's EnemyAI.active_traps / active_environment forward here.
 var enemy_active_traps: Array[TrapCardData] = []
 var enemy_active_environment: EnvironmentCardData = null
 
@@ -1615,8 +1880,67 @@ var turn_snapshot_callback: Callable = Callable()
 ## Each entry: { turn: int, amount: int, source: String }
 var dmg_log_enabled: bool = false
 var dmg_log: Array = []
-var _current_turn: int = 0
 var _pending_dmg_source: String = ""
+
+# ---------------------------------------------------------------------------
+# State digest — canonical text snapshot for determinism / parity checks
+# (LIVE_SIM_UNIFICATION_PLAN.md 0.5).
+# ---------------------------------------------------------------------------
+
+## Stable, newline-separated snapshot of everything gameplay-relevant. Two
+## states with equal digests are the same game position.
+func digest_text() -> String:
+	var lines: PackedStringArray = []
+	lines.append("turn %d winner %s" % [turn_number, winner])
+	lines.append("hp %d/%d vs %d/%d" % [player_hp, player_hp_max, enemy_hp, enemy_hp_max])
+	lines.append("res P %d/%d %d/%d  E %d/%d %d/%d" % [
+		player_essence, player_essence_max, player_mana, player_mana_max,
+		enemy_essence, enemy_essence_max, enemy_mana, enemy_mana_max])
+	lines.append("marks %d flesh %d/%d forge %d/%d armour %d/%d" % [
+		enemy_void_marks, player_flesh, player_flesh_max, forge_counter, forge_counter_threshold,
+		player_hero.armour, enemy_hero.armour])
+	lines.append("hero_buffs P %s E %s" % [_digest_buffs(player_hero.buffs), _digest_buffs(enemy_hero.buffs)])
+	for side in ["player", "enemy"]:
+		var slots: Array[BoardSlot] = player_slots if side == "player" else enemy_slots
+		for slot: BoardSlot in slots:
+			var m: MinionInstance = slot.minion
+			if m == null:
+				continue
+			lines.append("%s[%d] %s atk %d hp %d arm %d st %d %s" % [
+				side, slot.index, m.card_data.id, m.effective_atk(), m.current_health,
+				m.armour, m.state, _digest_buffs(m.buffs)])
+	lines.append("hand P %s" % ",".join(_digest_ids(player_hand)))
+	lines.append("hand E %s" % ",".join(_digest_ids(enemy_hand)))
+	lines.append("deck %d/%d grave %d/%d" % [player_deck.size(), enemy_deck.size(),
+		player_graveyard.size(), enemy_graveyard.size()])
+	var p_traps: PackedStringArray = []
+	for t: TrapCardData in active_traps:
+		p_traps.append(t.id)
+	var e_traps: PackedStringArray = []
+	for t: TrapCardData in enemy_active_traps:
+		e_traps.append(t.id)
+	lines.append("traps P %s E %s" % [",".join(p_traps), ",".join(e_traps)])
+	lines.append("env P %s E %s" % [
+		active_environment.id if active_environment != null else "-",
+		enemy_active_environment.id if enemy_active_environment != null else "-"])
+	return "\n".join(lines)
+
+func digest() -> int:
+	return digest_text().hash()
+
+static func _digest_ids(cards: Array[CardInstance]) -> PackedStringArray:
+	var out: PackedStringArray = []
+	for inst: CardInstance in cards:
+		out.append(inst.card_data.id)
+	return out
+
+## Buff list as sorted "type:amount:source" tokens (order-insensitive).
+static func _digest_buffs(buffs: Array) -> String:
+	var out: PackedStringArray = []
+	for e: BuffEntry in buffs:
+		out.append("%d:%d:%s" % [e.type, e.amount, e.source])
+	out.sort()
+	return "[" + ",".join(out) + "]"
 
 # ---------------------------------------------------------------------------
 # Sub-systems shared by scene and sim.
@@ -1627,12 +1951,9 @@ var _pending_dmg_source: String = ""
 ## once setup completes.
 var trigger_manager: TriggerManager = null
 
-## Turn-manager facade: live combat assigns the scene-tree TurnManager (Node),
-## sim assigns SimTurnManager (RefCounted). Untyped here so either fits — both
-## expose the same surface (`draw_card()`, `add_instance_to_hand(inst)`, etc.).
-## Used by CombatState methods that need to draw cards (e.g. Flesh Bond on
-## _on_flesh_spent). Decks/hands themselves still live on TurnManager/SimState
-## per the Phase 4 plan.
+## Turn-manager: live combat assigns the scene-tree TurnManager (Node), sim a
+## SimTurnManager. Both are façades over the turn/resource/deck fields above;
+## rules code uses those directly (lint L3). Untyped so either fits.
 var turn_manager = null
 
 ## Hardcoded-effect resolver. Live combat creates one in CombatScene._ready

@@ -90,6 +90,12 @@ static func run_all() -> void:
 	_vrp_death_resets_spell_cost_aura()
 	_vrp_summons_exactly_once()
 	_player_turn_end_fires_minion_turn_end_steps()
+	# Engine state API (plan 1.3 — resources / decks / hands on CombatState)
+	_state_draw_into_full_hand_burns()
+	_state_add_to_hand_fires_card_drawn_for_player()
+	_state_turn_flag_drives_turn_conditions()
+	_state_graveyard_stamps_turn_number()
+	_sim_enemy_agent_sees_essence_discounts()
 	_setup_stats_land_on_state()
 	_vch_summon_at_3_crit_kills()
 	_vch_aura_grows_resources()
@@ -944,14 +950,14 @@ static func _pack_instinct_scaling() -> void:
 
 # ---------------------------------------------------------------------------
 # corrupted_death — cost discount only. Void-Touched Imp essence cost -1.
-# Applied via enemy_ai.essence_cost_discounts in CombatSetup.setup().
+# Applied via state.enemy_essence_cost_discounts in CombatSetup.setup().
 # ---------------------------------------------------------------------------
 
 static func _corrupted_death_cost_discount() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["corrupted_death"]})
 	if not TestHarness.begin_test("corrupted_death / void_touched_imp essence cost -1 discount registered", state):
 		return
-	var discounts: Dictionary = state.enemy_ai.essence_cost_discounts
+	var discounts: Dictionary = state.enemy_essence_cost_discounts
 	TestHarness.assert_eq(discounts.get("void_touched_imp", 0), 1, "discount == 1")
 	state.teardown()
 
@@ -1030,14 +1036,14 @@ static func _ritual_sacrifice_full_combo() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["ritual_sacrifice"]})
 	if not TestHarness.begin_test("ritual_sacrifice / Blood+Dominion runes + feral imp = full combo", state):
 		return
-	# Seed both required runes in enemy_ai.active_traps (that's what the handler reads).
+	# Seed both required runes in state.enemy_active_traps (that's what the handler reads).
 	var blood := CardDatabase.get_card("blood_rune") as TrapCardData
 	var dominion := CardDatabase.get_card("dominion_rune") as TrapCardData
 	if blood == null or dominion == null:
 		TestHarness.assert_true(false, "blood_rune or dominion_rune card missing from DB")
 		return
-	state.enemy_ai.active_traps.append(blood)
-	state.enemy_ai.active_traps.append(dominion)
+	state.enemy_active_traps.append(blood)
+	state.enemy_active_traps.append(dominion)
 	# Demon Ascendant spec: 200 damage to 2 random enemy (player-side, from
 	# enemy POV) minions. Seed two beefy player minions so neither dies from
 	# the 200 dmg and we can assert the exact distribution.
@@ -1048,7 +1054,7 @@ static func _ritual_sacrifice_full_combo() -> void:
 	var imp := TestHarness.spawn_enemy(state, "rabid_imp")
 	var hp_before := state.player_hp
 	_fire_enemy_summon(state, imp)
-	TestHarness.assert_eq(state.enemy_ai.active_traps.size(), 0, "both runes consumed")
+	TestHarness.assert_eq(state.enemy_active_traps.size(), 0, "both runes consumed")
 	TestHarness.assert_false(state.enemy_board.has(imp), "imp sacrificed")
 	# Both player minions take 200 each — 2 distinct picks, no double-hit.
 	TestHarness.assert_eq(hp_a_before - victim_a.current_health, 200, "player minion A takes 200")
@@ -1641,7 +1647,7 @@ static func _vc_ignores_non_tc_spells() -> void:
 
 # ---------------------------------------------------------------------------
 # Champion: Void Ritualist Prime (F13) — 5 enemy spell casts.
-# Aura: enemy_ai.spell_cost_aura = -1. On death: reset to 0.
+# Aura: state.enemy_spell_cost_aura = -1. On death: reset to 0.
 # ---------------------------------------------------------------------------
 
 static func _vrp_summon_at_5_enemy_spells() -> void:
@@ -1695,12 +1701,12 @@ static func _player_turn_end_fires_minion_turn_end_steps() -> void:
 
 static func _vrp_aura_sets_spell_cost_aura() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["champion_void_ritualist_prime"]})
-	if not TestHarness.begin_test("champion_vrp / summon sets enemy_ai.spell_cost_aura = -1", state):
+	if not TestHarness.begin_test("champion_vrp / summon sets enemy_spell_cost_aura = -1", state):
 		return
 	var vb := CardDatabase.get_card("void_bolt")
 	for i in 5:
 		_fire_enemy_spell_cast(state, vb)
-	TestHarness.assert_eq(state.enemy_ai.spell_cost_aura, -1, "spell_cost_aura = -1")
+	TestHarness.assert_eq(state.enemy_spell_cost_aura, -1, "spell_cost_aura = -1")
 	state.teardown()
 
 static func _vrp_death_resets_spell_cost_aura() -> void:
@@ -1713,7 +1719,7 @@ static func _vrp_death_resets_spell_cost_aura() -> void:
 	var champion := TestHarness.find_on_board(state, "enemy", "champion_void_ritualist_prime")
 	if champion != null:
 		state.combat_manager.kill_minion(champion)
-	TestHarness.assert_eq(state.enemy_ai.spell_cost_aura, 0, "spell_cost_aura reset")
+	TestHarness.assert_eq(state.enemy_spell_cost_aura, 0, "spell_cost_aura reset")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
@@ -2049,8 +2055,8 @@ static func _abyssal_mandate_essence_branch() -> void:
 		return
 	state.last_player_growth = "essence"
 	_fire_enemy_turn_start(state)
-	TestHarness.assert_eq(state.enemy_ai.minion_essence_cost_aura, -2, "aura = -2")
-	TestHarness.assert_eq(state.enemy_ai.spell_cost_aura, 0, "spell_cost_aura unchanged")
+	TestHarness.assert_eq(state.enemy_minion_essence_cost_aura, -2, "aura = -2")
+	TestHarness.assert_eq(state.enemy_spell_cost_aura, 0, "spell_cost_aura unchanged")
 	state.teardown()
 
 static func _abyssal_mandate_mana_branch() -> void:
@@ -2059,8 +2065,8 @@ static func _abyssal_mandate_mana_branch() -> void:
 		return
 	state.last_player_growth = "mana"
 	_fire_enemy_turn_start(state)
-	TestHarness.assert_eq(state.enemy_ai.spell_cost_aura, -2, "spell aura = -2")
-	TestHarness.assert_eq(state.enemy_ai.minion_essence_cost_aura, 0, "essence aura unchanged")
+	TestHarness.assert_eq(state.enemy_spell_cost_aura, -2, "spell aura = -2")
+	TestHarness.assert_eq(state.enemy_minion_essence_cost_aura, 0, "essence aura unchanged")
 	state.teardown()
 
 static func _abyssal_mandate_end_clears_aura() -> void:
@@ -2069,9 +2075,9 @@ static func _abyssal_mandate_end_clears_aura() -> void:
 		return
 	state.last_player_growth = "essence"
 	_fire_enemy_turn_start(state)
-	TestHarness.assert_eq(state.enemy_ai.minion_essence_cost_aura, -2, "aura = -2 post-start")
+	TestHarness.assert_eq(state.enemy_minion_essence_cost_aura, -2, "aura = -2 post-start")
 	_fire_enemy_turn_end(state)
-	TestHarness.assert_eq(state.enemy_ai.minion_essence_cost_aura, 0, "aura cleared to 0")
+	TestHarness.assert_eq(state.enemy_minion_essence_cost_aura, 0, "aura cleared to 0")
 	state.teardown()
 
 # ---------------------------------------------------------------------------
@@ -3267,4 +3273,84 @@ static func _path_of_corruption_does_not_amplify_void_bolt_but_applies_stack() -
 			"500 raw Void Bolt damage (no amp — VOID_BOLT outside VOID_CORRUPTION lineage)")
 	TestHarness.assert_eq(BuffSystem.count_type(state.enemy_hero, Enums.BuffType.CORRUPTION), 2,
 			"second stack still lands post-Void Bolt (corruption application is school-agnostic)")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Engine state API — plan 1.3 hoisted resources / decks / hands onto CombatState
+# (live and sim share one implementation; these pin the behaviour live had).
+# ---------------------------------------------------------------------------
+
+## Live burned a draw into a full hand; sim's old _draw_player stopped instead.
+static func _state_draw_into_full_hand_burns() -> void:
+	var state := TestHarness.build_state({"player_deck": ["void_imp", "void_imp", "void_imp", "void_imp", "void_imp"]})
+	if not TestHarness.begin_test("state / a draw into a full hand burns the card", state):
+		return
+	var imp: CardData = CardDatabase.get_card("void_imp")
+	while state.player_hand.size() < CombatState.HAND_MAX:
+		state.player_hand.append(CardInstance.create(imp))
+	var deck_before: int = state.player_deck.size()
+	state.draw_cards("player", 1)
+	TestHarness.assert_eq(state.player_hand.size(), CombatState.HAND_MAX, "hand stays at the cap")
+	TestHarness.assert_eq(state.player_deck.size(), deck_before - 1, "the drawn card left the deck (burned)")
+	state.teardown()
+
+## Live fired ON_PLAYER_CARD_DRAWN for generated cards (from the hand-display
+## callback); now the state fires it, for the player side only.
+static func _state_add_to_hand_fires_card_drawn_for_player() -> void:
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("state / add_to_hand fires ON_PLAYER_CARD_DRAWN for the player only", state):
+		return
+	var fired: Array[String] = []
+	state.trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN,
+			func(ctx: EventContext) -> void: fired.append(ctx.card.id), 0)
+	var bolt: CardData = CardDatabase.get_card("void_bolt")
+	state.add_to_hand("player", bolt)
+	state.add_to_hand("enemy", bolt)
+	TestHarness.assert_eq(fired, ["void_bolt"] as Array[String], "one fire, for the player's card")
+	state.teardown()
+
+## Sim had no turn flag (SimTurnManager lacked is_player_turn), so the
+## "enemy_turn" / "player_turn" conditions and Soul Rune's turn gate misread.
+static func _state_turn_flag_drives_turn_conditions() -> void:
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("state / is_player_turn follows the sim turn flow", state):
+		return
+	var ctx := EffectContext.make(state, "player")
+	state.begin_player_turn(1)
+	TestHarness.assert_true(state.is_player_turn, "player turn → is_player_turn")
+	TestHarness.assert_true(ConditionResolver.check("player_turn", ctx, null), "player_turn condition true")
+	state.end_player_turn()
+	state.begin_enemy_turn(1)
+	TestHarness.assert_true(not state.is_player_turn, "enemy turn → not is_player_turn")
+	TestHarness.assert_true(ConditionResolver.check("enemy_turn", ctx, null), "enemy_turn condition true")
+	state.teardown()
+
+## Live never set _current_turn, so graveyard stamps were 0 there; the stamp now
+## comes from the shared turn_number.
+static func _state_graveyard_stamps_turn_number() -> void:
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("state / remove_from_hand stamps resolved_on_turn from turn_number", state):
+		return
+	state.turn_number = 3
+	var inst: CardInstance = state.add_to_hand("enemy", CardDatabase.get_card("void_bolt"))
+	state.remove_from_hand("enemy", inst)
+	TestHarness.assert_true(not state.enemy_hand.has(inst), "left the hand")
+	TestHarness.assert_eq(state.enemy_graveyard.back(), inst, "in the graveyard")
+	TestHarness.assert_eq(inst.resolved_on_turn, 3, "stamped with turn_number")
+	state.teardown()
+
+## The sim enemy agent must price minions with the state's enemy cost modifiers
+## (corrupted_death discount, Abyssal Mandate aura). A 1.3 draft dropped the
+## agent's duck-typed properties and silently lost both — F2 balance swung ~20pts.
+static func _sim_enemy_agent_sees_essence_discounts() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["corrupted_death"]})
+	if not TestHarness.begin_test("sim enemy agent / minion cost applies essence discounts + aura", state):
+		return
+	var agent: SimEnemyAgent = state.enemy_ai
+	var vti: MinionCardData = CardDatabase.get_card("void_touched_imp") as MinionCardData
+	TestHarness.assert_eq(agent.effective_minion_essence_cost(vti), maxi(0, vti.essence_cost - 1),
+			"corrupted_death: Void-Touched Imp costs 1 less")
+	state.enemy_minion_essence_cost_aura = -2
+	TestHarness.assert_eq(agent.effective_minion_essence_cost(vti), maxi(0, vti.essence_cost - 3),
+			"Abyssal Mandate aura stacks on top")
 	state.teardown()

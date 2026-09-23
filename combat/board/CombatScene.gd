@@ -731,8 +731,6 @@ func _ready() -> void:
 	# swarm_discipline +100 HP) apply to deck/hand cards from turn 1.
 	var deck_ids: Array[String] = GameManager.player_deck
 	var deck: Array[CardData] = CardDatabase.get_cards_for_combat(deck_ids, state._card_ctx("player"))
-	turn_manager.player_board = player_board
-	turn_manager.enemy_board = enemy_board
 	_setup_enemy_ai()
 	if GameManager.current_enemy != null:
 		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
@@ -754,7 +752,7 @@ func _ready() -> void:
 	# so push the values manually now. Future HP changes route through the
 	# signal subscriber.
 	_player_hero_panel.update(player_hp, GameManager.player_hp_max)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 	_setup_second_wind_indicator(ui_root)
 	_pip_bar = PipBar.new()
 	_pip_bar.setup(self, ui_root, essence_label, mana_label)
@@ -794,6 +792,7 @@ func _load_combat_background() -> void:
 func _find_nodes() -> void:
 	turn_manager            = $TurnManager
 	enemy_ai               = $EnemyAI
+	enemy_ai.scene         = self  # its enemy-side fields forward to state (UI reads them from here on)
 	vfx_controller          = $VfxController
 	_vfx_layer              = $VfxLayer
 	_vfx_shake_root         = $VfxLayer/VfxShakeRoot
@@ -869,6 +868,10 @@ func _setup_enemy_ai() -> void:
 		enemy_deck = GameManager.current_enemy.deck
 		enemy_ai.ai_profile = GameManager.current_enemy.ai_profile
 	enemy_ai.scene = self
+	# Enemy starts at 1 Essence / 1 Mana (grows from its second turn, EnemyAI.run_turn).
+	state.enemy_essence_max = 1
+	state.enemy_mana_max = 1
+	state.refill_resources("enemy")
 	if GameManager.current_enemy != null:
 		enemy_ai._limited_cards = GameManager.current_enemy.limited_cards
 	enemy_ai.setup_deck(enemy_deck)
@@ -961,7 +964,7 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		turn_label.text = "Turn %d  |  Deck: %d" % [turn_manager.turn_number, turn_manager.player_deck.size()]
 	if deck_count_label:
 		deck_count_label.text = "%d cards" % turn_manager.player_deck.size()
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 	# Safety sweep: remove any dead minions still visually on the board.
 	# This catches edge cases where minion_vanished fired but the slot wasn't properly cleared.
 	_sweep_dead_minions()
@@ -1002,7 +1005,7 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		enemy_ai.run_turn()
 		# run_turn() grows resources and refills them synchronously before its
 		# first await, so this panel refresh sees the correct post-growth values.
-		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 
 func _on_turn_ended(is_player_turn: bool) -> void:
 	_clear_all_highlights()
@@ -1046,21 +1049,17 @@ func _refresh_end_turn_mode() -> void:
 	if combat_ui != null:
 		combat_ui.refresh_end_turn_mode()
 
+## Hand display only — ON_PLAYER_CARD_DRAWN is fired by CombatState.draw_cards /
+## add_to_hand right after these signals.
 func _on_card_drawn(inst: CardInstance) -> void:
 	if hand_display:
 		hand_display.add_card(inst)
 		# Don't refresh playability immediately — the shimmer animation sets modulate
 		# and _refresh_playable_state is called at the end of the tween
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
-	ctx.card = inst.card_data
-	trigger_manager.fire(ctx)
 
 func _on_card_generated(inst: CardInstance) -> void:
 	if hand_display:
 		hand_display.add_card_generated(inst)
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
-	ctx.card = inst.card_data
-	trigger_manager.fire(ctx)
 
 func _on_card_anim_finished() -> void:
 	if combat_ui != null:
@@ -2163,20 +2162,6 @@ func _opponent_board(owner: String) -> Array[MinionInstance]:
 func _opponent_of(owner: String) -> String:
 	return state._opponent_of(owner)
 
-## Return the deck belonging to the given owner.
-func _friendly_deck(owner: String) -> Array:
-	if owner == "player":
-		return turn_manager.player_deck
-	else:
-		return enemy_ai.deck if enemy_ai else []
-
-## Return the hand belonging to the given owner.
-func _friendly_hand(owner: String) -> Array:
-	if owner == "player":
-		return turn_manager.player_hand
-	else:
-		return enemy_ai.hand if enemy_ai else []
-
 ## Seris Starter — Fiendish Pact discount peek. Delegated to CombatState.
 func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
 	return state._peek_fiendish_pact_discount(mc)
@@ -2196,35 +2181,9 @@ func _consume_fiendish_pact_discount() -> void:
 	if has_method("_refresh_hand_spell_costs"):
 		_refresh_hand_spell_costs()
 
-## Add a CardInstance to the given owner's hand.
-func _add_to_owner_hand(owner: String, inst: CardInstance) -> void:
-	if owner == "player":
-		turn_manager.add_instance_to_hand(inst)
-	else:
-		enemy_ai.add_instance_to_hand(inst)
-
 ## Return the board slots belonging to the given owner.
 func _friendly_slots(owner: String) -> Array:
 	return state._friendly_slots(owner)
-
-## Return the active traps belonging to the given owner.
-func _friendly_traps(owner: String) -> Array:
-	if owner == "player":
-		return active_traps
-	else:
-		return enemy_ai.active_traps if enemy_ai else []
-
-## Return the active traps belonging to the opponent of the given owner.
-func _opponent_traps(owner: String) -> Array:
-	return _friendly_traps(_opponent_of(owner))
-
-## Return the unified card graveyard belonging to the given owner.
-## Each entry is a CardInstance with `resolved_on_turn` stamped at play time.
-func _friendly_graveyard(owner: String) -> Array:
-	if owner == "player":
-		return turn_manager.player_graveyard
-	else:
-		return enemy_ai.graveyard if enemy_ai else []
 
 ## Return a random minion from the given board array, or null if empty.
 func _find_random_minion(board: Array[MinionInstance]) -> MinionInstance:
@@ -2356,13 +2315,6 @@ func _maybe_spawn_aura_pulse(card: CardData, slot: BoardSlot) -> void:
 ## Count minions of a given type on the specified owner's board.
 func _count_type_on_board(type: Enums.MinionType, owner: String) -> int:
 	return _friendly_board(owner).filter(func(m: MinionInstance): return (m.card_data as MinionCardData).is_race(type)).size()
-
-## Return true if there is at least one empty player slot.
-func _has_empty_player_slot() -> bool:
-	for slot in player_slots:
-		if slot.is_empty():
-			return true
-	return false
 
 # ---------------------------------------------------------------------------
 # Test Mode (Option C) — applied after normal combat startup
@@ -3289,7 +3241,7 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			var pt = preload("res://combat/board/PhaseTransition.gd")
 			if pt.attempt(self):
 				_flash_hero("enemy", amount, Callable(), school, is_crit)
-				_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+				_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 				call_deferred("_force_end_player_turn_for_phase_transition")
 				return
 			_flash_hero("enemy", amount, _on_victory, school, is_crit)
@@ -3531,7 +3483,7 @@ func _flash_trap_slot_for(owner: String, slot_idx: int) -> void:
 ## slot.place_minion and triggers are deferred until after the reveal animation.
 func _on_enemy_minion_summoned(minion: MinionInstance, slot: BoardSlot) -> void:
 	_log("Enemy summons: %s" % minion.card_data.card_name, _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 	_enemy_summon_reveal_then_land(minion, slot,
 		minion.card_data.essence_cost + minion.card_data.mana_cost,
 		minion.card_data.is_champion)
@@ -3606,7 +3558,7 @@ func _show_enemy_summon_reveal(card: CardData) -> void:
 func _on_enemy_spell_cast(spell: SpellCardData) -> void:
 	_enemy_spell_cast_active = true
 	_log("Enemy casts: %s" % spell.card_name, _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 	# Phase Disruptor counter: player counters enemy spell
 	if _enemy_spell_counter > 0:
 		_enemy_spell_counter -= 1
@@ -3666,7 +3618,7 @@ func _on_enemy_trap_placed(trap: TrapCardData) -> void:
 		_apply_rune_aura(trap, "enemy")
 	else:
 		_log("Enemy sets a trap.", _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 	_update_enemy_trap_display()
 	if trap.is_rune:
 		# Hide the slot, then play the VFX. The VFX wrapper fades the art
@@ -3679,7 +3631,7 @@ func _on_enemy_trap_placed(trap: TrapCardData) -> void:
 ## Called by EnemyAI's environment_placed signal.
 func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
 	_log("Enemy plays environment: %s" % env.card_name, _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, enemy_ai, enemy_void_marks)
+	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 
 # Facades to CombatState's signal emit — external callers (HardcodedEffects,
 # EffectResolver, RelicEffects) keep working unchanged. Subscribers below do

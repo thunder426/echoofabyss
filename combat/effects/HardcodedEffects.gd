@@ -123,7 +123,7 @@ func _fiendish_pact(ctx: EffectContext) -> void:
 	var field := "_fiendish_pact_pending" if ctx.owner == "player" else "_enemy_fiendish_pact_pending"
 	_scene.set(field, 2)
 	# Display hint: mark every Demon in the caster's hand with essence_delta = -2 (cleared on consume or turn start).
-	var hand: Array = _scene._friendly_hand(ctx.owner)
+	var hand: Array[CardInstance] = _scene.state.hand_of(ctx.owner)
 	var count := 0
 	for inst in hand:
 		if inst == null or inst.card_data == null:
@@ -209,9 +209,7 @@ func _smoke_veil(ctx: EffectContext) -> void:
 	var opponent: String = _scene._opponent_of(ctx.owner)
 	# Cancel the opponent's attack
 	if opponent == "enemy":
-		var ai = _scene.get("enemy_ai")
-		if ai:
-			ai.attack_cancelled = true
+		_scene.state.attack_cancelled = true
 	# Exhaust all opponent minions and track damage prevented
 	var dmg_prevented := 0
 	for m in (_scene._opponent_board(ctx.owner) as Array):
@@ -233,14 +231,13 @@ func _smoke_veil(ctx: EffectContext) -> void:
 func _soul_rune_death(ctx: EffectContext) -> void:
 	var fires: int = _scene.get("_soul_rune_fires_this_turn") if _scene.get("_soul_rune_fires_this_turn") != null else 0
 	var soul_rune_count := 0
-	for trap in _scene._friendly_traps(ctx.owner):
-		if (trap as TrapCardData).is_rune and (trap as TrapCardData).rune_type == Enums.RuneType.SOUL_RUNE:
+	for trap: TrapCardData in _scene.state.traps_of(ctx.owner):
+		if trap.is_rune and trap.rune_type == Enums.RuneType.SOUL_RUNE:
 			soul_rune_count += 1
 	if fires >= soul_rune_count:
 		return
 	# Only fires during the opponent's turn (not the rune owner's turn)
-	var is_player_turn = _scene.turn_manager.get("is_player_turn")
-	var is_owner_turn: bool = (is_player_turn == true) if ctx.owner == "player" else (is_player_turn == false)
+	var is_owner_turn: bool = _scene.state.is_player_turn == (ctx.owner == "player")
 	if is_owner_turn:
 		return
 	if ctx.trigger_minion == null or not (ctx.trigger_minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):

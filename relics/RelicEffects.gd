@@ -14,23 +14,21 @@ func resolve(effect_id: String) -> bool:
 	match effect_id:
 		# ── Act 1 ────────────────────────────────────────────────────────────
 		"relic_draw_2":
-			_scene.turn_manager.draw_card()
-			_scene.turn_manager.draw_card()
+			_scene.state.draw_cards("player", 2)
 			_log("  Relic: Scout's Lantern — drew 2 cards.")
 			return true
 
 		"relic_add_void_imp":
 			var imp_data: CardData = CardDatabase.get_card("void_imp")
 			if imp_data:
-				_scene.turn_manager.add_to_hand(imp_data)
+				_scene.state.add_to_hand("player", imp_data)
 				_log("  Relic: Imp Talisman — added a Void Imp to hand.")
 			return true
 
 		"relic_refill_mana":
-			var tm = _scene.turn_manager
-			tm.mana = mini(tm.mana + 2, tm.mana_max)
-			tm.resources_changed.emit(tm.essence, tm.essence_max, tm.mana, tm.mana_max)
-			_log("  Relic: Mana Shard — gained +2 Mana (now %d/%d)." % [tm.mana, tm.mana_max])
+			var st: CombatState = _scene.state
+			st.gain_mana("player", 2)
+			_log("  Relic: Mana Shard — gained +2 Mana (now %d/%d)." % [st.player_mana, st.player_mana_max])
 			return true
 
 		"relic_hero_immune":
@@ -83,8 +81,8 @@ func resolve(effect_id: String) -> bool:
 		# Rebalanced to roughly Act-2 power — these were previously game-swinging.
 		"relic_extra_turn":
 			# Void Hourglass — +1 max Essence and +1 max Mana, respecting the combined cap.
-			_scene.turn_manager.grow_essence_max(1)
-			_scene.turn_manager.grow_mana_max(1)
+			_scene.state.grow_essence_max("player", 1)
+			_scene.state.grow_mana_max("player", 1)
 			_log("  Relic: Void Hourglass — +1 max Essence and +1 max Mana.")
 			return true
 
@@ -105,7 +103,7 @@ func resolve(effect_id: String) -> bool:
 
 		"relic_copy_cards":
 			# Phantom Deck — copy 2 random cards from hand back into hand.
-			var hand: Array = (_scene.turn_manager.player_hand as Array).duplicate()
+			var hand: Array[CardInstance] = _scene.state.player_hand.duplicate()
 			if hand.is_empty():
 				_log("  Relic: Phantom Deck — hand empty, no copies.")
 				return true
@@ -114,7 +112,7 @@ func resolve(effect_id: String) -> bool:
 			for inst in hand:
 				if added >= 2:
 					break
-				_scene.turn_manager.add_to_hand((inst as CardInstance).card_data)
+				_scene.state.add_to_hand("player", (inst as CardInstance).card_data)
 				added += 1
 			_log("  Relic: Phantom Deck — copied %d random cards from hand." % added)
 			return true

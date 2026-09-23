@@ -48,21 +48,23 @@ static func attempt(scene: Object) -> bool:
 # ---------------------------------------------------------------------------
 
 static func _do_transition(scene: Object) -> void:
-	scene._sovereign_phase = 2
-	scene._sovereign_transition_turn = _current_turn_number(scene)
+	var st: CombatState = scene.state
+	st._sovereign_phase = 2
+	st._sovereign_transition_turn = st.turn_number
 
 	# 1. Refill Sovereign HP to P2 max.
-	_set_enemy_hp(scene, SOVEREIGN_P2_HP, SOVEREIGN_P2_HP)
+	st.enemy_hp = SOVEREIGN_P2_HP
+	st.enemy_hp_max = SOVEREIGN_P2_HP
 
 	# 2. Silently wipe both boards. We do NOT fire death triggers — this is
 	#    a banish, not a kill (prevents cascading passives / player buffs).
-	_wipe_boards_silently(scene)
+	_wipe_boards_silently(st)
 
 	# 3. Clear environments, traps, void marks, per-turn/persistent auras.
-	_clear_combat_state(scene)
+	_clear_combat_state(st)
 
 	# 4. Clear the mandate bookkeeping — P2 has no abyssal_mandate.
-	scene.last_player_growth = ""
+	st.last_player_growth = ""
 
 	# 5. Enemy resources inherit current values (per Q1 option b). Nothing to do.
 
@@ -80,16 +82,6 @@ static func _do_transition(scene: Object) -> void:
 # Helpers — duck-typed across CombatScene and SimState.
 # ---------------------------------------------------------------------------
 
-static func _current_turn_number(scene: Object) -> int:
-	# Sim: _current_turn on SimState. Live: turn_manager.turn_number.
-	var t = scene.get("_current_turn")
-	if t != null:
-		return int(t)
-	var tm = scene.get("turn_manager")
-	if tm != null and tm.get("turn_number") != null:
-		return int(tm.turn_number)
-	return 0
-
 static func _read_ai_profile(scene: Object) -> String:
 	# Live: scene.enemy_ai.ai_profile. Sim: scene.enemy_ai_profile (string).
 	var ai = scene.get("enemy_ai")
@@ -100,47 +92,25 @@ static func _read_ai_profile(scene: Object) -> String:
 		return direct as String
 	return ""
 
-static func _set_enemy_hp(scene: Object, hp: int, hp_max: int) -> void:
-	scene.enemy_hp = hp
-	if scene.get("enemy_hp_max") != null:
-		scene.enemy_hp_max = hp_max
+static func _wipe_boards_silently(st: CombatState) -> void:
+	st.player_board.clear()
+	st.enemy_board.clear()
+	for slot: BoardSlot in st.player_slots + st.enemy_slots:
+		if slot != null and slot.minion != null:
+			slot.minion = null
 
-static func _wipe_boards_silently(scene: Object) -> void:
-	# Clear minion arrays and any slot references on both sides.
-	for side in ["player_board", "enemy_board"]:
-		var board: Array = scene.get(side)
-		if board != null:
-			board.clear()
-	# Slots: live uses player_slots/enemy_slots; sim uses the same names.
-	for side in ["player_slots", "enemy_slots"]:
-		var slots = scene.get(side)
-		if slots != null and slots is Array:
-			for slot in slots:
-				if slot != null and slot.get("minion") != null:
-					slot.minion = null
-
-static func _clear_combat_state(scene: Object) -> void:
-	# Environments (both sides)
-	if scene.get("active_environment") != null:
-		scene.active_environment = null
-	var ai = scene.get("enemy_ai")
-	if ai != null:
-		if ai.get("active_environment") != null:
-			ai.active_environment = null
-		if ai.get("active_traps") != null:
-			(ai.active_traps as Array).clear()
-		if ai.get("spell_cost_aura") != null:
-			ai.spell_cost_aura = 0
-		if ai.get("minion_essence_cost_aura") != null:
-			ai.minion_essence_cost_aura = 0
-		if ai.get("spell_cost_penalty") != null:
-			ai.spell_cost_penalty = 0
-	# Player-side traps (live: scene.active_traps; sim: scene.active_traps)
-	if scene.get("active_traps") != null:
-		(scene.active_traps as Array).clear()
+static func _clear_combat_state(st: CombatState) -> void:
+	# Environments, traps and runes (both sides)
+	st.active_environment = null
+	st.enemy_active_environment = null
+	st.active_traps.clear()
+	st.enemy_active_traps.clear()
+	# Enemy cost modifiers
+	st.enemy_spell_cost_aura = 0
+	st.enemy_minion_essence_cost_aura = 0
+	st.enemy_spell_cost_penalty = 0
 	# Void marks on enemy hero (cosmetic but resets cleanly)
-	if scene.get("enemy_void_marks") != null:
-		scene.enemy_void_marks = 0
+	st.enemy_void_marks = 0
 
 static func _swap_passives(scene: Object) -> void:
 	var tm: TriggerManager = scene.get("trigger_manager")
@@ -160,15 +130,13 @@ static func _swap_passives(scene: Object) -> void:
 
 static func _swap_deck_and_profile(scene: Object) -> void:
 	var cards: Array[String] = EncounterDecks.get_deck(SOVEREIGN_P2_DECK_ID)
-	# Live (CombatScene) path — EnemyAI has setup_deck + ai_profile setter.
+	(scene.state as CombatState).setup_deck("enemy", cards)
+	# Live (CombatScene) path — EnemyAI's ai_profile setter swaps the profile.
 	var ai = scene.get("enemy_ai")
-	if ai != null and ai.has_method("setup_deck"):
-		ai.setup_deck(cards)
+	if ai is EnemyAI:
 		ai.ai_profile = SOVEREIGN_P2_PROFILE
 		return
-	# Sim (SimState) path — rebuild deck on SimState, swap profile via factory.
-	if scene.has_method("setup_enemy_deck"):
-		scene.setup_enemy_deck(cards)
+	# Sim (SimState) path — swap profile via factory.
 	scene.enemy_ai_profile = SOVEREIGN_P2_PROFILE
 	var factory: Callable = scene.get("_e_profile_factory")
 	if factory.is_valid():

@@ -71,9 +71,7 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	sim.player_board.append(instance)
 	slot.place_minion(instance)
 	sim.minion_summoned.emit("player", instance, slot.index)
-	sim.player_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.player_graveyard.append(inst)
+	sim.remove_from_hand("player", inst)
 	if sim.trigger_manager != null:
 		# ON_PLAYER_MINION_PLAYED — triggers on-play effects and rune_caller
 		var played_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
@@ -94,9 +92,7 @@ func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 
 func commit_play_spell(inst: CardInstance, chosen_target = null, extra_cast_data: Dictionary = {}) -> bool:
 	var spell := inst.card_data as SpellCardData
-	sim.player_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.player_graveyard.append(inst)
+	sim.remove_from_hand("player", inst)
 	# Phase Disruptor counter: enemy counters player spell
 	if sim._player_spell_counter > 0:
 		sim._player_spell_counter -= 1
@@ -115,9 +111,7 @@ func commit_play_spell(inst: CardInstance, chosen_target = null, extra_cast_data
 
 func commit_play_trap(inst: CardInstance) -> bool:
 	var trap := inst.card_data as TrapCardData
-	sim.player_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.player_graveyard.append(inst)
+	sim.remove_from_hand("player", inst)
 	sim.active_traps.append(trap)
 	# Fire ON_PLAYER_TRAP_PLACED
 	if sim.trigger_manager != null:
@@ -134,9 +128,7 @@ func commit_play_trap(inst: CardInstance) -> bool:
 
 func commit_play_environment(inst: CardInstance) -> bool:
 	var env := inst.card_data as EnvironmentCardData
-	sim.player_hand.erase(inst)
-	inst.resolved_on_turn = sim._current_turn
-	sim.player_graveyard.append(inst)
+	sim.remove_from_hand("player", inst)
 	# Tear down previous environment before replacing
 	if sim.active_environment != null and sim.trigger_manager != null:
 		sim._unregister_env_rituals()

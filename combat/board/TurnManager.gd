@@ -31,41 +31,63 @@ signal player_turn_cleanup(player_board: Array[MinionInstance])
 # Resource caps
 # ---------------------------------------------------------------------------
 
-## Combined essence_max + mana_max can never exceed this.
-const COMBINED_RESOURCE_CAP: int = 11
-
-## Absolute ceiling on current essence — conversion effects can exceed essence_max up to this.
-const ESSENCE_HARD_CAP: int = 10
+const COMBINED_RESOURCE_CAP: int = CombatState.COMBINED_RESOURCE_CAP
+const ESSENCE_HARD_CAP: int = CombatState.ESSENCE_HARD_CAP
+const HAND_SIZE_MAX: int = CombatState.HAND_MAX
 
 # ---------------------------------------------------------------------------
-# State
+# State — façade over CombatState (LIVE_SIM_UNIFICATION_PLAN.md 1.3). The turn
+# counter, resources, deck, hand and graveyard live on `state`; these forward
+# so the UI keeps reading `turn_manager.essence` etc. Set by
+# CombatScene._connect_turn_manager, which also relays state's player-side
+# resources_changed / card_drawn / card_generated signals through this node.
 # ---------------------------------------------------------------------------
 
-var is_player_turn: bool = true
-var turn_number: int = 0
+var state: CombatState = null:
+	set(v):
+		state = v
+		state.resources_changed.connect(_on_state_resources_changed)
+		state.card_drawn.connect(_on_state_card_drawn)
+		state.card_generated.connect(_on_state_card_generated)
 
-# Current pool and maximums — updated each turn
-var essence: int = 0
-var essence_max: int = 0
-var mana: int = 0
-var mana_max: int = 0
+var is_player_turn: bool:
+	get: return state.is_player_turn
+	set(v): state.is_player_turn = v
+var turn_number: int:
+	get: return state.turn_number
+	set(v): state.turn_number = v
+var essence: int:
+	get: return state.player_essence
+	set(v): state.player_essence = v
+var essence_max: int:
+	get: return state.player_essence_max
+	set(v): state.player_essence_max = v
+var mana: int:
+	get: return state.player_mana
+	set(v): state.player_mana = v
+var mana_max: int:
+	get: return state.player_mana_max
+	set(v): state.player_mana_max = v
+var player_deck: Array[CardInstance]:
+	get: return state.player_deck
+var player_hand: Array[CardInstance]:
+	get: return state.player_hand
+## Unified graveyard — every card the player plays this combat, stamped with
+## `resolved_on_turn` (see CombatState.send_to_graveyard).
+var player_graveyard: Array[CardInstance]:
+	get: return state.player_graveyard
 
-# References set by CombatScene on ready
-var player_deck: Array[CardInstance] = []
-var player_hand: Array[CardInstance] = []
-var player_board: Array[MinionInstance] = []
-var enemy_board: Array[MinionInstance] = []
-## Deck shuffles use the engine RNG. Set by CombatScene._connect_turn_manager.
-var state: CombatState = null
+func _on_state_resources_changed(side: String, e: int, e_max: int, m: int, m_max: int) -> void:
+	if side == "player":
+		resources_changed.emit(e, e_max, m, m_max)
 
-## Unified graveyard — every card the player plays this combat is appended here
-## (minions, spells, traps, runes, environments) at the moment it leaves the hand.
-## Each entry has its `resolved_on_turn` stamped at append time.
-## Full-combat record — never cleared mid-combat. Cleared in `start_combat`.
-var player_graveyard: Array[CardInstance] = []
+func _on_state_card_drawn(side: String, inst: CardInstance) -> void:
+	if side == "player":
+		card_drawn.emit(inst)
 
-# Max hand size
-const HAND_SIZE_MAX: int = 10
+func _on_state_card_generated(side: String, inst: CardInstance) -> void:
+	if side == "player":
+		card_generated.emit(inst)
 
 # ---------------------------------------------------------------------------
 # Combat start
@@ -73,18 +95,19 @@ const HAND_SIZE_MAX: int = 10
 
 ## Call this once when the combat scene loads to begin the first turn.
 func start_combat(deck: Array[CardData]) -> void:
-	player_deck.clear()
+	state.player_deck.clear()
 	for card in deck:
-		player_deck.append(CardInstance.create(card))
-	state.rng_shuffle(player_deck)
-	player_hand.clear()
-	player_graveyard.clear()
-	turn_number = 0
-	essence_max = 1
-	mana_max = 1
+		state.player_deck.append(CardInstance.create(card))
+	state.rng_shuffle(state.player_deck)
+	state.player_hand.clear()
+	state.player_graveyard.clear()
+	state.turn_number = 0
+	# Opening maxima are not a growth choice — write the backing fields so
+	# last_player_growth stays "" until the player actually picks.
+	state._player_essence_max = 1
+	state._player_mana_max = 1
 	# Draw opening hand (3 cards)
-	for i in 3:
-		_draw_card()
+	state.draw_cards("player", 3)
 	begin_player_turn()
 
 # ---------------------------------------------------------------------------
@@ -92,14 +115,14 @@ func start_combat(deck: Array[CardData]) -> void:
 # ---------------------------------------------------------------------------
 
 func begin_player_turn() -> void:
-	is_player_turn = true
-	turn_number += 1
-	_refill_resources()
-	_draw_card()
-	_unexhaust_minions(player_board)
-	_clear_temp_buffs(player_board)
-	player_turn_cleanup.emit(player_board)
-	resources_changed.emit(essence, essence_max, mana, mana_max)
+	state.is_player_turn = true
+	state.turn_number += 1
+	state.refill_resources("player")
+	state.draw_cards("player", 1)
+	_unexhaust_minions(state.player_board)
+	_clear_temp_buffs(state.player_board)
+	player_turn_cleanup.emit(state.player_board)
+	state.emit_resources("player")
 	turn_started.emit(true)
 
 func end_player_turn() -> void:
@@ -107,9 +130,9 @@ func end_player_turn() -> void:
 	begin_enemy_turn()
 
 func begin_enemy_turn() -> void:
-	is_player_turn = false
-	_unexhaust_minions(enemy_board)
-	_clear_temp_buffs(enemy_board)
+	state.is_player_turn = false
+	_unexhaust_minions(state.enemy_board)
+	_clear_temp_buffs(state.enemy_board)
 	turn_started.emit(false)
 	# The CombatScene / EnemyAI listens to this signal and runs AI logic,
 	# then calls end_enemy_turn() when done.
@@ -119,74 +142,41 @@ func end_enemy_turn() -> void:
 	begin_player_turn()
 
 # ---------------------------------------------------------------------------
-# Resource management
+# Resource management — player side of the CombatState mutators. The ones that
+# emit on state reach the UI through _on_state_resources_changed.
 # ---------------------------------------------------------------------------
-
-func _refill_resources() -> void:
-	essence = essence_max
-	mana = mana_max
 
 ## Grow Essence maximum by amount (called by CombatScene on end-turn and by card/relic effects).
 func grow_essence_max(amount: int = 1) -> void:
-	for _i in amount:
-		if essence_max + mana_max >= COMBINED_RESOURCE_CAP:
-			break
-		essence_max += 1
+	state.grow_essence_max("player", amount)
 
 ## Grow Mana maximum by amount (called by CombatScene on end-turn and by card effects).
 func grow_mana_max(amount: int = 1) -> void:
-	for _i in amount:
-		if essence_max + mana_max >= COMBINED_RESOURCE_CAP:
-			break
-		mana_max += 1
+	state.grow_mana_max("player", amount)
 
 ## True if the player can afford a card with these dual costs
 func can_afford(e: int, m: int) -> bool:
-	return essence >= e and mana >= m
+	return state.can_afford("player", e, m)
 
-## Convert all current Essence into Mana (up to mana_max cap).
-## Used by the Energy Conversion neutral spell.
 func convert_essence_to_mana() -> void:
-	var amount := essence
-	essence = 0
-	mana = mini(mana + amount, mana_max)
-	resources_changed.emit(essence, essence_max, mana, mana_max)
+	state.convert_essence_to_mana("player")
 
-## Grant bonus Essence this turn (ignores essence_max cap since it's temporary).
-## Used by Essence Surge; resets naturally when the turn ends and _refill_resources() runs.
 func gain_essence(amount: int) -> void:
-	essence += amount
-	resources_changed.emit(essence, essence_max, mana, mana_max)
+	state.gain_essence("player", amount)
 
-## Grant bonus Mana this turn (capped at mana_max).
 func gain_mana(amount: int) -> void:
-	mana = mini(mana + amount, mana_max)
-	resources_changed.emit(essence, essence_max, mana, mana_max)
+	state.gain_mana("player", amount)
 
-## Convert up to max_convert current Mana into Essence.
-## Bypasses essence_max and the combined soft cap — only ESSENCE_HARD_CAP applies.
-## Pass max_convert = -1 to convert all remaining mana.
 func convert_mana_to_essence(max_convert: int = -1) -> void:
-	var amount := mana if max_convert < 0 else mini(mana, max_convert)
-	mana -= amount
-	essence = mini(essence + amount, ESSENCE_HARD_CAP)
-	resources_changed.emit(essence, essence_max, mana, mana_max)
+	state.convert_mana_to_essence("player", max_convert)
 
 ## Attempt to spend Abyss Essence. Returns false if not enough.
 func spend_essence(amount: int) -> bool:
-	if essence < amount:
-		return false
-	essence -= amount
-	resources_changed.emit(essence, essence_max, mana, mana_max)
-	return true
+	return state.spend_essence("player", amount)
 
 ## Attempt to spend Mana. Returns false if not enough.
 func spend_mana(amount: int) -> bool:
-	if mana < amount:
-		return false
-	mana -= amount
-	resources_changed.emit(essence, essence_max, mana, mana_max)
-	return true
+	return state.spend_mana("player", amount)
 
 # ---------------------------------------------------------------------------
 # Card draw
@@ -194,38 +184,19 @@ func spend_mana(amount: int) -> bool:
 
 ## Remove a specific card instance from the tracked hand (call when a card is played).
 func remove_from_hand(inst: CardInstance) -> void:
-	player_hand.erase(inst)
-	inst.resolved_on_turn = turn_number
-	player_graveyard.append(inst)
+	state.remove_from_hand("player", inst)
 
 ## Public wrapper — lets CombatScene draw an extra card (e.g. Ancient Tome relic).
 func draw_card() -> void:
-	_draw_card()
+	state.draw_cards("player", 1)
 
-## Add a CardData to the player's hand by wrapping it in a new CardInstance.
-## Burns silently if the hand is already full.
+## Add a CardData to the player's hand. Burns silently if the hand is full.
 func add_to_hand(card: CardData) -> void:
-	add_instance_to_hand(CardInstance.create(card))
+	state.add_to_hand("player", card)
 
-## Add an existing CardInstance directly to the player's hand.
-## Burns silently if the hand is already full.
+## Add an existing CardInstance to the player's hand. Burns silently if full.
 func add_instance_to_hand(inst: CardInstance) -> void:
-	if player_hand.size() >= HAND_SIZE_MAX:
-		return
-	player_hand.append(inst)
-	card_generated.emit(inst)
-
-func _draw_card() -> void:
-	if player_deck.is_empty():
-		# TODO: fatigue damage when deck runs out
-		return
-	if player_hand.size() >= HAND_SIZE_MAX:
-		# Card is burned — drawn but discarded immediately
-		player_deck.pop_front()
-		return
-	var inst: CardInstance = player_deck.pop_front()
-	player_hand.append(inst)
-	card_drawn.emit(inst)
+	state.add_to_hand("player", inst)
 
 # ---------------------------------------------------------------------------
 # Minion helpers

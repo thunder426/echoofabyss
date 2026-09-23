@@ -12,65 +12,16 @@ extends CombatState
 # Constants
 # ---------------------------------------------------------------------------
 
-# BOARD_MAX inherited from CombatState
-const PLAYER_HAND_MAX    := 10  ## matches TurnManager.HAND_SIZE_MAX
-const ENEMY_HAND_MAX     := 10  ## matches EnemyAI.HAND_MAX
-const COMBINED_RESOURCE_CAP := 11
-const ESSENCE_HARD_CAP   := 10
-
-## Self-pointer so callers (handlers, effects, profiles) can use the same
-## `_scene.state.X` accessor whether `_scene` is a CombatScene (which composes
-## CombatState) or a SimState (which IS a CombatState).
-var state: CombatState:
-	get: return self
+# BOARD_MAX, HAND_MAX, COMBINED_RESOURCE_CAP, ESSENCE_HARD_CAP inherited from CombatState
 
 # ---------------------------------------------------------------------------
 # Boards, hero HP, sovereign phase, _combat_ended, winner — inherited from CombatState
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Resources — profiles write these directly via agent.essence / agent.mana
+# Resources, decks, hands, graveyards, turn_number — inherited from CombatState
+# (plan 1.3). Profiles write resources directly via agent.essence / agent.mana.
 # ---------------------------------------------------------------------------
-
-var player_essence:     int = 0
-## Direct writes by profiles record the growth choice for F15 abyssal_mandate.
-var _player_essence_max: int = 0
-var player_essence_max: int:
-	get: return _player_essence_max
-	set(v):
-		if v > _player_essence_max:
-			last_player_growth = "essence"
-		_player_essence_max = v
-var player_mana:        int = 0
-var _player_mana_max: int = 0
-var player_mana_max: int:
-	get: return _player_mana_max
-	set(v):
-		if v > _player_mana_max:
-			last_player_growth = "mana"
-		_player_mana_max = v
-
-var enemy_essence:      int = 0
-var enemy_essence_max:  int = 0
-var enemy_mana:         int = 0
-var enemy_mana_max:     int = 0
-
-# ---------------------------------------------------------------------------
-# Decks / hands / discards
-# ---------------------------------------------------------------------------
-
-var player_deck:    Array[CardInstance] = []
-var player_hand:    Array[CardInstance] = []
-## Unified player graveyard — every card the player plays this combat is appended
-## here (minions, spells, traps, runes, environments) at play time. Each entry has
-## its `resolved_on_turn` stamped at append time. Full-combat record.
-var player_graveyard: Array[CardInstance] = []
-
-var enemy_deck:    Array[CardInstance] = []
-var enemy_hand:    Array[CardInstance] = []
-## Unified enemy graveyard — mirror of player_graveyard for the enemy side.
-var enemy_graveyard: Array[CardInstance] = []
-var enemy_limited_cards: Array[String] = []
 
 # ---------------------------------------------------------------------------
 # Traps / environment / void marks
@@ -141,19 +92,10 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	player_hp = p_hp
 	enemy_hp  = e_hp
 
-	# Build decks. Player side applies talent_overrides via _card_for; enemy
-	# side passes [] (enemies have no talents today). Mirrors live combat.
-	for id in p_deck_ids:
-		var card := _card_for("player", id)
-		if card:
-			player_deck.append(CardInstance.create(card))
-	rng_shuffle(player_deck)
-
-	for id in e_deck_ids:
-		var card := _card_for("enemy", id)
-		if card:
-			enemy_deck.append(CardInstance.create(card))
-	rng_shuffle(enemy_deck)
+	# Build + shuffle both decks (combat-time lookup, so overrides apply). The
+	# enemy draws its opening 5 inside setup_deck; the player's 3 are drawn below.
+	setup_deck("player", p_deck_ids)
+	setup_deck("enemy", e_deck_ids)
 
 	# Pre-allocate board slot placeholders (no scene tree — _ready never fires,
 	# _overlay stays null, so _refresh_visuals() returns early — safe to use)
@@ -187,9 +129,8 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
 
-	# Draw opening hands
-	_draw_player(3)
-	_draw_enemy(5)
+	# Draw the player's opening hand
+	draw_cards("player", 3)
 
 ## Subscriber to CombatState.damage_dealt — appends to dmg_log when enabled.
 ## Skips entries marked "__logged__" (void bolt split-log already captured the
@@ -199,7 +140,7 @@ func _capture_damage_for_dmg_log(source: String, _target: String, amount: int, _
 		return
 	if source == "__logged__":
 		return
-	dmg_log.append({turn = _current_turn, amount = amount, source = source})
+	dmg_log.append({turn = turn_number, amount = amount, source = source})
 
 # ---------------------------------------------------------------------------
 # Signal handlers — called by CombatManager
@@ -292,9 +233,6 @@ func _on_hero_healed(target: String, amount: int) -> void:
 ## (`_friendly_board`, `_opponent_board`, `_count_type_on_board` inherited from
 ## CombatState.)
 
-func _friendly_hand(owner: String) -> Array:
-	return player_hand if owner == "player" else enemy_hand
-
 ## (`_peek_fiendish_pact_discount` inherited from CombatState.)
 
 func _consume_fiendish_pact_discount() -> void:
@@ -314,9 +252,7 @@ func _consume_fiendish_pact_discount() -> void:
 
 ## (`_corrupt_minion` and `_apply_void_mark` inherited from CombatState.)
 
-## (`_gain_flesh`, `_spend_flesh`, `_on_flesh_spent` inherited from CombatState.
-## Flesh Bond's draw routes through state.turn_manager.draw_card(), which on
-## sim is SimTurnManager.draw_card() → _draw_player(1).)
+## (`_gain_flesh`, `_spend_flesh`, `_on_flesh_spent` inherited from CombatState.)
 
 ## (`_forge_counter_tick`, `_forge_counter_reset`, `_gain_forge_counter`,
 ## `_summon_forged_demon`, `_grant_forged_demon_auras` inherited from CombatState.)
@@ -345,67 +281,6 @@ func _on_corruption_removed_bus(target: Object, stacks: int) -> void:
 	ctx.minion = minion
 	ctx.damage = stacks
 	trigger_manager.fire(ctx)
-
-# ---------------------------------------------------------------------------
-# State digest — canonical text snapshot for determinism / parity checks.
-# Lives on SimState until Phase 1.3 hoists hands/decks/resources onto
-# CombatState (LIVE_SIM_UNIFICATION_PLAN.md 0.5); then it moves there.
-# ---------------------------------------------------------------------------
-
-## Stable, newline-separated snapshot of everything gameplay-relevant. Two
-## states with equal digests are the same game position.
-func digest_text() -> String:
-	var lines: PackedStringArray = []
-	lines.append("turn %d winner %s" % [_current_turn, winner])
-	lines.append("hp %d/%d vs %d/%d" % [player_hp, player_hp_max, enemy_hp, enemy_hp_max])
-	lines.append("res P %d/%d %d/%d  E %d/%d %d/%d" % [
-		player_essence, player_essence_max, player_mana, player_mana_max,
-		enemy_essence, enemy_essence_max, enemy_mana, enemy_mana_max])
-	lines.append("marks %d flesh %d/%d forge %d/%d armour %d/%d" % [
-		enemy_void_marks, player_flesh, player_flesh_max, forge_counter, forge_counter_threshold,
-		player_hero.armour, enemy_hero.armour])
-	lines.append("hero_buffs P %s E %s" % [_digest_buffs(player_hero.buffs), _digest_buffs(enemy_hero.buffs)])
-	for side in ["player", "enemy"]:
-		var slots: Array[BoardSlot] = player_slots if side == "player" else enemy_slots
-		for slot: BoardSlot in slots:
-			var m: MinionInstance = slot.minion
-			if m == null:
-				continue
-			lines.append("%s[%d] %s atk %d hp %d arm %d st %d %s" % [
-				side, slot.index, m.card_data.id, m.effective_atk(), m.current_health,
-				m.armour, m.state, _digest_buffs(m.buffs)])
-	lines.append("hand P %s" % ",".join(_digest_ids(player_hand)))
-	lines.append("hand E %s" % ",".join(_digest_ids(enemy_hand)))
-	lines.append("deck %d/%d grave %d/%d" % [player_deck.size(), enemy_deck.size(),
-		player_graveyard.size(), enemy_graveyard.size()])
-	var p_traps: PackedStringArray = []
-	for t: TrapCardData in active_traps:
-		p_traps.append(t.id)
-	var e_traps: PackedStringArray = []
-	for t: TrapCardData in enemy_active_traps:
-		e_traps.append(t.id)
-	lines.append("traps P %s E %s" % [",".join(p_traps), ",".join(e_traps)])
-	lines.append("env P %s E %s" % [
-		active_environment.id if active_environment != null else "-",
-		enemy_active_environment.id if enemy_active_environment != null else "-"])
-	return "\n".join(lines)
-
-func digest() -> int:
-	return digest_text().hash()
-
-static func _digest_ids(cards: Array[CardInstance]) -> PackedStringArray:
-	var out: PackedStringArray = []
-	for inst: CardInstance in cards:
-		out.append(inst.card_data.id)
-	return out
-
-## Buff list as sorted "type:amount:source" tokens (order-insensitive).
-static func _digest_buffs(buffs: Array) -> String:
-	var out: PackedStringArray = []
-	for e: BuffEntry in buffs:
-		out.append("%d:%d:%s" % [e.type, e.amount, e.source])
-	out.sort()
-	return "[" + ",".join(out) + "]"
 
 ## Disconnect global-bus subscriptions and drop references so this sim instance
 ## can be freed cleanly and its callbacks don't leak into the next sim run.
@@ -469,27 +344,7 @@ func _find_slot_for(_minion) -> Variant:
 
 ## (`_opponent_of` inherited from CombatState.)
 
-func _friendly_deck(owner: String) -> Array:
-	return player_deck if owner == "player" else enemy_deck
-
-func _add_to_owner_hand(owner: String, inst: CardInstance) -> void:
-	if owner == "player":
-		turn_manager.add_instance_to_hand(inst)
-	else:
-		if enemy_hand.size() < 10:
-			enemy_hand.append(inst)
-
 ## (`_friendly_slots` inherited from CombatState.)
-
-func _friendly_traps(owner: String) -> Array:
-	return active_traps if owner == "player" else enemy_active_traps
-
-## Return the unified card graveyard belonging to the given owner. Mirror of CombatScene._friendly_graveyard.
-func _friendly_graveyard(owner: String) -> Array:
-	return player_graveyard if owner == "player" else enemy_graveyard
-
-func _opponent_traps(owner: String) -> Array:
-	return _friendly_traps(_opponent_of(owner))
 
 ## (`_update_trap_display_for` inherited from CombatState — emits traps_changed
 ## which has no subscribers in headless sim, so the call is a no-op.)
@@ -554,47 +409,6 @@ var _handlers: CombatHandlers:
 ## sim-side `enemy_passives` field at setup time.)
 
 # ---------------------------------------------------------------------------
-# Card draw helpers
-# ---------------------------------------------------------------------------
-
-func _draw_player(count: int) -> void:
-	for _i in count:
-		if player_hand.size() >= PLAYER_HAND_MAX: break
-		if player_deck.is_empty(): break  # finite deck — no reshuffle
-		var inst: CardInstance = player_deck.pop_front()
-		player_hand.append(inst)
-		if trigger_manager != null:
-			var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
-			ctx.card = inst.card_data
-			trigger_manager.fire(ctx)
-
-## Rebuild the enemy deck/hand/graveyard from a fresh card-id list. Used by the
-## F15 phase transition to swap the Sovereign's deck between P1 and P2.
-func setup_enemy_deck(card_ids: Array[String]) -> void:
-	enemy_deck.clear()
-	enemy_hand.clear()
-	enemy_graveyard.clear()
-	for id in card_ids:
-		var card := _card_for("enemy", id)
-		if card:
-			enemy_deck.append(CardInstance.create(card))
-	rng_shuffle(enemy_deck)
-	_draw_enemy(5)
-
-func _draw_enemy(count: int) -> void:
-	for _i in count:
-		if enemy_hand.size() >= ENEMY_HAND_MAX: break
-		if enemy_deck.is_empty():
-			break
-		var inst: CardInstance = enemy_deck.pop_front()
-		enemy_hand.append(inst)
-		# Add a fresh replacement so the deck never truly empties
-		# Limited cards are NOT re-added (one-time draw per copy)
-		if inst.card_data.id not in enemy_limited_cards:
-			enemy_deck.append(CardInstance.create(inst.card_data))
-			rng_shuffle(enemy_deck)
-
-# ---------------------------------------------------------------------------
 # Turn helpers — called by CombatSim
 # ---------------------------------------------------------------------------
 
@@ -603,12 +417,13 @@ func _draw_enemy(count: int) -> void:
 var player_growth_override: Callable = Callable()
 var enemy_growth_override: Callable = Callable()
 
-func begin_player_turn(turn_number: int) -> void:
-	_current_turn = turn_number
+func begin_player_turn(turn: int) -> void:
+	turn_number = turn
+	is_player_turn = true
 	if player_growth_override.is_valid():
-		player_growth_override.call(turn_number)
+		player_growth_override.call(turn)
 	else:
-		_grow_player_resources(turn_number)
+		_grow_player_resources(turn)
 	player_essence = player_essence_max
 	player_mana    = player_mana_max
 	player_spell_cost_penalty = _spell_tax_for_player_turn
@@ -622,7 +437,7 @@ func begin_player_turn(turn_number: int) -> void:
 	_once_per_turn_used.clear()
 	if trigger_manager != null:
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
-	_draw_player(1)
+	draw_cards("player", 1)
 	_unexhaust_board(player_board)
 
 func end_player_turn() -> void:
@@ -631,11 +446,12 @@ func end_player_turn() -> void:
 	player_spell_cost_penalty = 0
 	_enemy_traps_blocked = false
 
-func begin_enemy_turn(turn_number: int) -> void:
+func begin_enemy_turn(turn: int) -> void:
+	is_player_turn = false
 	if enemy_growth_override.is_valid():
-		enemy_growth_override.call(turn_number)
+		enemy_growth_override.call(turn)
 	else:
-		_grow_enemy_resources(turn_number)
+		_grow_enemy_resources(turn)
 	enemy_essence = enemy_essence_max
 	enemy_mana    = enemy_mana_max
 	if _enemy_void_mana_drain_pending:
@@ -646,7 +462,7 @@ func begin_enemy_turn(turn_number: int) -> void:
 	_enemy_fiendish_pact_pending = 0
 	if trigger_manager != null:
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START))
-	_draw_enemy(1)
+	draw_cards("enemy", 1)
 	_unexhaust_board(enemy_board)
 
 func end_enemy_turn() -> void:
@@ -657,8 +473,8 @@ func end_enemy_turn() -> void:
 	enemy_spell_cost_penalty = 0
 	_player_traps_blocked = false
 
-func _grow_player_resources(turn_number: int) -> void:
-	if turn_number <= 1: return
+func _grow_player_resources(turn: int) -> void:
+	if turn <= 1: return
 	if player_essence_max + player_mana_max >= COMBINED_RESOURCE_CAP: return
 	if player_mana_max < player_essence_max - 2:
 		player_mana_max += 1
@@ -667,8 +483,8 @@ func _grow_player_resources(turn_number: int) -> void:
 		player_essence_max += 1
 		last_player_growth = "essence"
 
-func _grow_enemy_resources(turn_number: int) -> void:
-	if turn_number <= 1: return
+func _grow_enemy_resources(turn: int) -> void:
+	if turn <= 1: return
 	if enemy_essence_max + enemy_mana_max >= COMBINED_RESOURCE_CAP: return
 	if enemy_mana_max < enemy_essence_max - 2:
 		enemy_mana_max += 1

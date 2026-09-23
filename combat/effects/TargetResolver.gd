@@ -88,13 +88,13 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 		EffectStep.TargetScope.DEAD_MINION:
 			return [ctx.dead_minion] if ctx.dead_minion != null else []
 		EffectStep.TargetScope.SINGLE_RANDOM_TRAP:
-			return scene._friendly_traps(ctx.owner).duplicate()
+			return ctx.state.traps_of(ctx.owner).duplicate()
 		EffectStep.TargetScope.ALL_TRAPS:
 			# "Including your own" — Hurricane sweeps both sides. The DESTROY
 			# applier locates each trap on whichever side actually owns it.
-			return (scene._friendly_traps(ctx.owner) + scene._opponent_traps(ctx.owner)).duplicate()
+			return ctx.state.traps_of(ctx.owner) + ctx.state.traps_of(scene._opponent_of(ctx.owner))
 		EffectStep.TargetScope.SINGLE_RANDOM_OPPONENT_TRAP:
-			return scene._opponent_traps(ctx.owner).duplicate()
+			return ctx.state.traps_of(scene._opponent_of(ctx.owner)).duplicate()
 		EffectStep.TargetScope.SINGLE_CHOSEN_TRAP_OR_ENV:
 			# Must be set by the AI before casting — no fallback.
 			if ctx.chosen_object == null:

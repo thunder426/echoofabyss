@@ -86,21 +86,13 @@ func _run_env_passives_for_turn(event_type: int) -> void:
 		EffectResolver.run(env.passive_effect_steps, ctx)
 
 ## Returns [{env, owner}, ...] for every active environment across both sides.
-## Live: enemy env lives on enemy_ai.active_environment. Sim: enemy_active_environment.
 func _active_environments() -> Array:
 	var out: Array = []
-	if _scene.active_environment != null:
-		out.append({"env": _scene.active_environment, "owner": "player"})
-	var enemy_env: EnvironmentCardData = _enemy_active_environment()
-	if enemy_env != null:
-		out.append({"env": enemy_env, "owner": "enemy"})
+	for side in ["player", "enemy"]:
+		var env: EnvironmentCardData = _scene.state.environment_of(side)
+		if env != null:
+			out.append({"env": env, "owner": side})
 	return out
-
-func _enemy_active_environment() -> EnvironmentCardData:
-	var enemy_ai_obj: Object = _scene.get("enemy_ai")
-	if enemy_ai_obj != null:
-		return enemy_ai_obj.active_environment
-	return _scene.state.enemy_active_environment
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_SPELL_CAST
@@ -120,7 +112,7 @@ func _apply_spell_cast_passive(effect_id: String) -> void:
 			# _card_for so any future cost/effect overrides on Void Bolt apply.
 			var bolt: CardData = _scene._card_for("player", "void_bolt")
 			if bolt:
-				_scene.turn_manager.add_to_hand(bolt)
+				_scene.state.add_to_hand("player", bolt)
 				_log("  Void Archmagus: Void Bolt added to hand.", _LOG_PLAYER)
 
 func _apply_void_bolt_passives() -> void:
@@ -148,12 +140,13 @@ func on_card_drawn_void_echo(ctx: EventContext) -> void:
 	# Once per turn — tracked via scene flag, reset at player turn start.
 	if _scene.get("_void_echo_fired_this_turn"):
 		return
-	# Append directly — NOT via turn_manager.add_to_hand — to avoid re-triggering the drawn signal.
-	# _card_for so clan rules / overrides apply to the copy.
+	# Append directly — NOT via state.add_to_hand — so the copy doesn't fire
+	# ON_PLAYER_CARD_DRAWN again. _card_for so clan rules / overrides apply to the copy.
 	var copy: CardData = _scene._card_for("player", "void_imp")
-	if copy and _scene.turn_manager.player_hand.size() < _scene.turn_manager.HAND_SIZE_MAX:
+	var hand: Array[CardInstance] = _scene.state.player_hand
+	if copy and hand.size() < CombatState.HAND_MAX:
 		var inst := CardInstance.create(copy)
-		_scene.turn_manager.player_hand.append(inst)
+		hand.append(inst)
 		_scene.set("_void_echo_fired_this_turn", true)
 		if "hand_display" in _scene and _scene.hand_display:
 			_scene.hand_display.add_card_generated(inst)
@@ -1019,8 +1012,8 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
 	var mc := minion.card_data as MinionCardData
-	var chosen = _scene.enemy_ai.minion_play_chosen_target
-	_scene.enemy_ai.minion_play_chosen_target = null
+	var chosen = _scene.state.enemy_play_target
+	_scene.state.enemy_play_target = null
 	# Symmetric: shadow claw VFX for base & senior Void Imp only.
 	if _card_has_tag(mc, "base_void_imp") or _card_has_tag(mc, "senior_void_imp"):
 		_spawn_void_imp_claw_vfx(minion, "enemy")
@@ -1194,7 +1187,7 @@ func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
 	if feral_imps.is_empty():
 		return
 	var chosen: CardData = _scene.state.rng_pick(feral_imps)
-	_scene.enemy_ai.add_to_hand(chosen)
+	_scene.state.add_to_hand("enemy", chosen)
 	if _scene.has_method("_play_feral_reinforcement_vfx"):
 		_scene._play_feral_reinforcement_vfx(minion, chosen)
 	_log("  Feral Reinforcement: %s summoned → enemy draws %s." % [minion.card_data.card_name, chosen.card_name], _LOG_ENEMY)
@@ -1265,7 +1258,7 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not _has_tag(minion, "feral_imp"):
 		return
-	var enemy_traps: Array = _scene.enemy_ai.active_traps
+	var enemy_traps: Array[TrapCardData] = _scene.state.enemy_active_traps
 	var blood_idx    := -1
 	var dominion_idx := -1
 	for i in enemy_traps.size():
@@ -1332,7 +1325,7 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 		# could have changed if other handlers fired in between; re-index by
 		# trap reference for safety. Runs after RitualFiringVFX completes,
 		# so the panels visually empty when the runes are already gone.
-		var live_traps: Array = scene.enemy_ai.active_traps
+		var live_traps: Array[TrapCardData] = scene.state.enemy_active_traps
 		var b_idx: int = live_traps.find(blood_trap)
 		var d_idx: int = live_traps.find(dominion_trap)
 		if b_idx == -1 or d_idx == -1:
@@ -1341,8 +1334,8 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 		var lo: int = mini(b_idx, d_idx)
 		scene._remove_rune_aura(live_traps[hi] as TrapCardData, "enemy")
 		scene._remove_rune_aura(live_traps[lo] as TrapCardData, "enemy")
-		scene.enemy_ai.active_traps.remove_at(hi)
-		scene.enemy_ai.active_traps.remove_at(lo)
+		live_traps.remove_at(hi)
+		live_traps.remove_at(lo)
 		if scene.has_method("_update_enemy_trap_display"):
 			scene._update_enemy_trap_display()
 
@@ -1844,7 +1837,7 @@ func on_enemy_spell_champion_vrp(_ctx: EventContext) -> void:
 				BuffSystem.apply(m, Enums.BuffType.CRITICAL_STRIKE, 2, "critical_strike", false, false)
 				_scene._refresh_slot_for(m)
 				break
-		_scene.enemy_ai.spell_cost_aura = -1
+		_scene.state.enemy_spell_cost_aura = -1
 		_log("  Void Ritualist Prime's aura: enemy spells cost 1 less Mana.", _LOG_ENEMY)
 
 func on_enemy_died_champion_vrp(ctx: EventContext) -> void:
@@ -1852,7 +1845,7 @@ func on_enemy_died_champion_vrp(ctx: EventContext) -> void:
 	if minion == null:
 		return
 	if minion.card_data.id == "champion_void_ritualist_prime":
-		_scene.enemy_ai.spell_cost_aura = 0
+		_scene.state.enemy_spell_cost_aura = 0
 		_on_enemy_champion_killed()
 
 ## ── Champion: Void Champion (F14) ─────────────────────────────────────────
@@ -1902,18 +1895,8 @@ func on_enemy_turn_end_champion_vch_aura(_ctx: EventContext) -> void:
 			break
 	if not alive:
 		return
-	# Real combat path (CombatScene.enemy_ai) vs sim path (SimState.enemy_mana_max).
-	var ai = _scene.get("enemy_ai")
-	if ai != null and ai.get("mana_max") != null and ai.get("COMBINED_RESOURCE_CAP") != null:
-		if ai.essence_max + ai.mana_max < ai.COMBINED_RESOURCE_CAP:
-			ai.mana_max += 1
-		if ai.essence_max + ai.mana_max < ai.COMBINED_RESOURCE_CAP:
-			ai.essence_max += 1
-	else:
-		if _scene.enemy_mana_max + _scene.enemy_essence_max < 11:
-			_scene.enemy_mana_max += 1
-		if _scene.enemy_mana_max + _scene.enemy_essence_max < 11:
-			_scene.enemy_essence_max += 1
+	_scene.state.grow_mana_max("enemy", 1)
+	_scene.state.grow_essence_max("enemy", 1)
 	_log("  Void Champion aura: enemy gains +1 max Mana and +1 max Essence.", _LOG_ENEMY)
 
 # ---------------------------------------------------------------------------
@@ -1995,18 +1978,18 @@ const _ABYSSAL_MANDATE_AMOUNT: int = 2
 func on_enemy_turn_start_abyssal_mandate(_ctx: EventContext) -> void:
 	var choice: String = _scene.last_player_growth as String
 	if choice == "essence":
-		_scene.enemy_ai.minion_essence_cost_aura = -_ABYSSAL_MANDATE_AMOUNT
+		_scene.state.enemy_minion_essence_cost_aura = -_ABYSSAL_MANDATE_AMOUNT
 		_log("  Abyssal Mandate: enemy minions cost %d less Essence this turn." % _ABYSSAL_MANDATE_AMOUNT, _LOG_ENEMY)
 	elif choice == "mana":
-		_scene.enemy_ai.spell_cost_aura = -_ABYSSAL_MANDATE_AMOUNT
+		_scene.state.enemy_spell_cost_aura = -_ABYSSAL_MANDATE_AMOUNT
 		_log("  Abyssal Mandate: enemy spells cost %d less Mana this turn." % _ABYSSAL_MANDATE_AMOUNT, _LOG_ENEMY)
 	# No growth yet (turn 1, or player never grew) → no discount.
 
 func on_enemy_turn_end_abyssal_mandate(_ctx: EventContext) -> void:
-	if _scene.enemy_ai.minion_essence_cost_aura < 0:
-		_scene.enemy_ai.minion_essence_cost_aura = 0
-	if _scene.enemy_ai.spell_cost_aura < 0:
-		_scene.enemy_ai.spell_cost_aura = 0
+	if _scene.state.enemy_minion_essence_cost_aura < 0:
+		_scene.state.enemy_minion_essence_cost_aura = 0
+	if _scene.state.enemy_spell_cost_aura < 0:
+		_scene.state.enemy_spell_cost_aura = 0
 
 ## void_precision (Fight 10 — Void Scout): after an enemy minion deals crit
 ## damage (attack resolves), grant it +200 ATK permanently.

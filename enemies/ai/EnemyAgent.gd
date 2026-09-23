@@ -81,14 +81,11 @@ func consume_minion(minion: MinionInstance) -> void:
 # Utilities
 # ---------------------------------------------------------------------------
 
-## Duck-type essence_cost_discounts so CombatAgent.effective_minion_essence_cost() sees the discount.
-var essence_cost_discounts: Dictionary:
-	get: return _ai.essence_cost_discounts
+func _essence_cost_discounts() -> Dictionary:
+	return _ai.essence_cost_discounts
 
-## Duck-type minion_essence_cost_aura so CombatAgent sees F15 Abyssal Mandate.
-var minion_essence_cost_aura: int:
-	get: return _ai.minion_essence_cost_aura
-	set(v): _ai.minion_essence_cost_aura = v
+func _minion_essence_cost_aura() -> int:
+	return _ai.minion_essence_cost_aura
 
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return _ai.effective_spell_cost(spell)

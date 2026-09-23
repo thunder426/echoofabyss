@@ -57,7 +57,7 @@ func _get_spell_rules() -> Dictionary:
 
 ## Cast Void Wind only when opponent has a Void Rune.
 func _try_void_wind() -> void:
-	var opponent_traps: Array = agent.scene._opponent_traps("enemy")
+	var opponent_traps: Array = agent.scene.state.traps_of("player")
 	if opponent_traps.is_empty():
 		return
 	var has_void_rune := false

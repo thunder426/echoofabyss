@@ -147,18 +147,21 @@ func sort_by_total_cost(a: CardInstance, b: CardInstance) -> bool:
 func effective_spell_cost(spell: SpellCardData) -> int:
 	return spell.cost
 
-## Effective essence cost of a minion. Accounts for essence_cost_discounts on
-## subclasses, plus minion_essence_cost_aura (flat aura discount, e.g. F15
-## Abyssal Mandate after the player grew Essence last turn).
+## Effective essence cost of a minion. Accounts for the side's per-card essence
+## discounts plus its flat minion essence aura (e.g. F15 Abyssal Mandate after
+## the player grew Essence last turn).
 func effective_minion_essence_cost(mc: MinionCardData) -> int:
-	var cost: int = mc.essence_cost
-	var discounts = get("essence_cost_discounts")
-	if discounts is Dictionary and not discounts.is_empty():
-		cost -= (discounts.get(mc.id, 0) as int)
-	var aura = get("minion_essence_cost_aura")
-	if aura is int:
-		cost += aura as int
+	var cost: int = mc.essence_cost - (_essence_cost_discounts().get(mc.id, 0) as int)
+	cost += _minion_essence_cost_aura()
 	return maxi(0, cost)
+
+## Per-card essence discounts keyed by card id. Enemy agents override.
+func _essence_cost_discounts() -> Dictionary:
+	return {}
+
+## Flat essence adjustment on every minion (negative = cheaper). Enemy agents override.
+func _minion_essence_cost_aura() -> int:
+	return 0
 
 ## Effective mana cost of a minion. Subclasses override for additional modifiers.
 ## Talent-driven cost changes (e.g. piercing_void's +1 Mana on base Void Imp) are
