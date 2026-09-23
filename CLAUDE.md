@@ -28,6 +28,7 @@ Project work is logged in `tasks/` — one markdown file per task with frontmatt
 `design/TESTING.md` is the inventory of every test harness, simulator, and debug tool, with run commands. The two defaults:
 
 - **Correctness** — `res://debug/tests/RunAllTests.tscn` (~10s, ~500 assertions across 4 layers). Use `--filter <substring>` to scope. New cards/handlers should ship with a probe in `CardEffectTests.gd` or `TriggerHandlerTests.gd`.
+- **Refactor gate** — `tools/run_checks.sh` (Godot import → engine lint → RunAllTests → headless live-CombatScene smoke; fails on any `SCRIPT ERROR`). Run it for combat/rules changes: the plain suite runs on SimState and can't see live-only breakage.
 - **Balance** — `res://debug/BalanceSimBatch.tscn` is the default sim entry point (full Act × profile matrix). Reach for it first; use `DebugSingleSim` only for step-by-step debug logs.
 
 Both run headless via `godot --headless --path . <scene>`.

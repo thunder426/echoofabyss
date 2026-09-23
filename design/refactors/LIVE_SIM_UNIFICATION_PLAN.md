@@ -2,6 +2,7 @@
 
 **Status:** revised after code verification. **Committed scope: Phase 0 → Phase 2A** (~5 sessions). Phases 3–5 are **deferred** — re-evaluate at the checkpoint after 2A (section 4, "Checkpoint").
 **Written:** 2026-09-22 (task 039) · **Revised:** 2026-09-23 (verification pass against `1c9aa30`, see Appendix C)
+**Progress:** Phase 0 **done** 2026-09-23 (task 040, commits 0.605–0.614). Deviations: lint baseline was 39 not ~25 (extra unforwarded diagnostic counters); `digest_text()` lives on `SimState` until 1.3 hoists hands/decks/resources; D7 turned out to be balance-neutral in sim (byte-identical batch). Next: Phase 1.
 **Supersedes:** `COMBAT_STATE_MANIFEST.md` (the 0.54/0.55 state extraction — this plan finishes what that one started)
 **Audience:** a coding agent executing one phase per session, plus the owner answering the decisions in 3.3. Every step names the file, the anchor, the change, and the check that proves it landed. Line anchors were verified at `1c9aa30`; expect drift of a few lines — match on the quoted code, not the number.
 

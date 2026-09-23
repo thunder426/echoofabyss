@@ -252,6 +252,8 @@ Used for balance testing — no UI, no scene tree, no animations.
 | `sim/SimPlayerAgent.gd`, `sim/SimEnemyAgent.gd` | Per-side action runners. Use the same `CombatProfile` subclasses as live combat. |
 | `sim/SimTriggerSetup.gd` | Sim's `CombatSetup` analogue. Mirror of live registration. |
 
+Determinism: every gameplay random draws from `CombatState.rng` (seeded by `CombatSim.run(…, rng_seed)` in sim and `CombatScene._ready` in live — lint L2). `CombatSim.run` returns `seed` + `digest` so any run replays exactly.
+
 Sim defaults: always reach for `BalanceSimBatch` first; `DebugSingleSim` only for step-by-step debug logs (memory: `feedback_sim_defaults.md`).
 
 ## Talents
@@ -315,6 +317,8 @@ Talents implement effects by registering handlers in `CombatSetup` / `SimTrigger
 | `debug/tests/TestHarness.gd` | Base test framework (assert, run, report). |
 | `debug/tests/RunAllTests.gd` | Aggregate test runner. |
 | `debug/tests/{CardEffect,DamageType,TriggerHandler,Scenario}Tests.gd` | Test suites. |
+| `debug/tests/LiveSmokeTests.gd` + `LiveSmoke.tscn` | Headless boot of the live `CombatScene` (the only live-shell test). |
+| `tools/run_checks.sh` | The gate: import → `tools/lint/lint_engine.py` → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR`. |
 
 ## Key enums
 
@@ -336,3 +340,7 @@ These rules are the load-bearing invariants of the codebase. Breaking them tends
 8. **Type from untyped collections.** Always `var x: Type = arr[i]`, never `var x := arr[i]`. GDScript's `:=` from an untyped Array/Dictionary infers `Variant` and causes silent errors.
 9. **Trigger registration mirroring.** When you add a handler in `CombatSetup.gd`, mirror it in `SimTriggerSetup.gd`. They must stay in sync.
 10. **Card data lives in CardDatabase.gd.** Single source of truth. Never duplicate card stats elsewhere.
+11. **Rules code reaches data through `.state`.** In handlers/effects, gameplay fields and CombatState methods are `_scene.state.x` / `ctx.scene.state.x`, never `_scene.x` unless CombatScene declares `x`. Tests run on SimState (which *is* a CombatState), so a missing forwarder only breaks live. Lint L1 enforces it.
+12. **Engine-owned RNG.** Gameplay randomness uses `state.rng_pick / rng_shuffle / rng_range / rng_index`, never global `randi()/shuffle()/pick_random()`. VFX may use the global RNG. Lint L2 enforces it.
+
+The live/sim unification refactor ([LIVE_SIM_UNIFICATION_PLAN.md](../refactors/LIVE_SIM_UNIFICATION_PLAN.md)) will retire invariants 4, 7 and 9 as SimState/forwarding go away.

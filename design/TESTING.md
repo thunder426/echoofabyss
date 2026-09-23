@@ -18,6 +18,9 @@ Project-relative paths in the table below are clickable.
 
 | Tool | Purpose | Headless? | Asserts? | Time |
 |---|---|---|---|---|
+| [tools/run_checks.sh](#run_checkssh--the-refactor-gate) | **The gate**: import → engine lint → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR` | Yes | Yes | ~40s |
+| [Engine lint](#engine-lint--toolslintlint_enginepy) | Static checks: live-shell name drift (L1), global RNG in gameplay code (L2) | Yes (Python) | Yes | <1s |
+| [LiveSmoke](#livesmoke--headless-combatscene) | Boots the real `CombatScene` headless and plays an enemy turn | Yes | Yes | ~8s |
 | [RunAllTests](#runalltests--layered-test-suite) | Layered correctness tests (4 layers, ~500 assertions) | Yes | Yes | ~10s |
 | [BalanceSimBatch](#balancesimbatch--full-balance-matrix) | Full balance matrix across acts/decks/relics | Yes | No (prints stats) | 5–15 min |
 | [Baseline tool](#baseline-tool--regression-fingerprint) | Bit-exact regression detection across refactors | Yes (Python wrapper) | Yes (diff vs prior capture) | Same as BalanceSimBatch |
@@ -31,6 +34,50 @@ Project-relative paths in the table below are clickable.
 | [EnemyDeckBuilder](#enemydeckbuilder--encounter-deck-editor) | Edit per-encounter deck pools | No (editor) | No | Interactive |
 
 ---
+
+## run_checks.sh — the refactor gate
+
+**Path:** [tools/run_checks.sh](../tools/run_checks.sh)
+
+```bash
+tools/run_checks.sh            # uses $GODOT, else `godot` on PATH, else /Applications/Godot.app
+```
+
+Runs, in order: `godot --headless --import` (refreshes `.godot/global_script_class_cache.cfg`,
+which goes stale and makes CombatScene fail to parse), the engine lint,
+`RunAllTests`, then `LiveSmoke`. Exits non-zero on any lint error, test failure,
+or `SCRIPT ERROR` line in Godot's output (handler errors don't fail an assertion,
+they only print — this is how live-only crashes surface). Logs land in a temp
+dir printed on failure. Introduced by the live/sim unification refactor
+([LIVE_SIM_UNIFICATION_PLAN.md](refactors/LIVE_SIM_UNIFICATION_PLAN.md)); every
+step of that refactor must leave it green.
+
+## Engine lint — tools/lint/lint_engine.py
+
+| Rule | Fails on |
+|---|---|
+| L1 | Rules code (`CombatHandlers`, `HardcodedEffects`, `RelicEffects`, `EffectResolver`, `ConditionResolver`, `TargetResolver`, `CombatManager`, `MinionInstance`) reaching a name through the combat shell (`_scene.x`, `ctx.scene.x`, `.get/.set("x")`) that the **live** `CombatScene` doesn't declare. Such code works in tests (which run on `SimState`) and crashes or silently no-ops in the real game — write `_scene.state.x`. Also: `.state.x` must exist on `CombatState`; `CombatSetup` registry stat keys must exist on `CombatState`. Sim-only fallback branches are allow-listed in `tools/lint/l1_allow.txt` (to be emptied in Phase 1). |
+| L2 | Global `randi/randf/shuffle/pick_random` in engine, rules, sim or AI code. Gameplay randomness goes through `state.rng_pick / rng_shuffle / rng_range / rng_index` so a seed reproduces a fight. Opt out per line with `# lint: allow-rng (<reason>)` (only the two seed rolls do). |
+
+## LiveSmoke — headless CombatScene
+
+**Path:** [debug/tests/LiveSmokeTests.gd](../debug/tests/LiveSmokeTests.gd) · **Scene:** `res://debug/tests/LiveSmoke.tscn`
+
+The only test that instantiates the live `CombatScene` (everything else runs on
+`SimState`). Separate process because `RunAllTests` quits the tree. Scenarios:
+F1 boots with a 4-card hand and completes a full enemy turn; F13 fires 6 enemy
+spells and gets exactly one Void Ritualist Prime champion. Sets
+`UserProfile.saving_disabled` so scene changes never touch `user://profile.json`,
+and `BaseVfx.time_scale = 0.05` (not 0 — at 0 VfxSequence drops mid-phase beats).
+
+## Determinism and seeds
+
+All gameplay randomness uses the engine RNG on `CombatState` (`rng`, seeded via
+`seed_rng`). `CombatSim.run(…, rng_seed)` returns `result.seed` (rolled when
+`rng_seed < 0`), `result.digest` and `result.digest_text` (`SimState.digest_text()`),
+so any sim result can be replayed exactly. Live combat logs `Seed: N` as the
+first combat-log line; set `GameManager.next_combat_seed = N` before entering
+combat to replay it. `ScenarioTests` has two determinism probes (`--filter determinism`).
 
 ## RunAllTests — layered test suite
 
@@ -52,7 +99,7 @@ the count of failed assertions (0 = green).
 | L3 Scenarios | [ScenarioTests.gd](../echoofabyss/debug/tests/ScenarioTests.gd) | Full `CombatSim.run()` matches with structural invariants | 37 |
 
 Each test function fires multiple `assert_*` calls — total assertion count is
-~680 (last verified run: 681 passed, 0 failed, 0 skipped). The suite is
+~800 (last verified run: 797 passed, 0 failed, 0 skipped — 2026-09-23). The suite is
 fully green; any new failure represents a genuine regression.
 
 Shared infrastructure: [TestHarness.gd](../echoofabyss/debug/tests/TestHarness.gd)
