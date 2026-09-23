@@ -1,11 +1,11 @@
 ---
 id: "009"
 title: Korrath rewards and shop pool wiring
-status: backlog
+status: done
 area: meta
 priority: normal
-started:
-finished:
+started: 2026-05-29
+finished: 2026-05-29
 ---
 
 ## Description
@@ -21,7 +21,11 @@ Trivial diff — three or four one-liners — but easy to miss and fully invisib
 ## Work log
 
 - 2026-05-08: opened.
+- 2026-05-29: started. Reconciled scope against what shipped in tasks 023/024/025. RewardScene Korrath wiring + all act gates already exist; the real gap is ShopScene (`_get_branch_pool` + `_get_full_pool`) which has zero Korrath handling. Only `korrath_common` (branch-agnostic) and `korrath_iron_vanguard` (B1, gated on `iron_formation`) pools exist so far; runic_knight/abyssal_breaker are unshipped (§13/§14). `korrath_core` is deck-builder-only (§10) — correctly absent from reward/shop.
+- 2026-05-29: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Wired Korrath into both ShopScene pool builders — `_get_branch_pool` (active-branch-only view, falls back to `korrath_common` when no branch committed) and `_get_full_pool` (`korrath_common` always + unlocked branch pools) — mirroring the existing Vael/Seris pattern exactly. `korrath_common` is branch-agnostic (no talent gate); `korrath_iron_vanguard` (5 cards) gates on the `iron_formation` B1 T0 talent. RewardScene and all `_card_act_gates` entries (9 common + 5 iron-vanguard cards) were already in place from tasks 023/024/025, so the only code change is +12 lines in ShopScene.gd. 784/784 tests pass; pool membership verified from source (`_card_pools` + `_card_act_gates`). The task's original branch names (`infernal_bulwark`/`runic_knight`/`abyssal_breaker`) are outdated — B1 shipped as `iron_vanguard`.
+
+Follow-ups: B2 (`korrath_runic_knight`) and B3 (`korrath_abyssal_breaker`) pools are still unshipped (KORRATH_HERO_DESIGN §13/§14); when they land, add their `runeforge_strike`/`corrupting_presence` gates to the same two ShopScene blocks plus RewardScene `_get_active_support_pool_ids`. The branch-name update should be reflected in design docs that still say "Infernal Bulwark" (see [[korrath_branch_names]]).

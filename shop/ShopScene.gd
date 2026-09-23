@@ -456,6 +456,13 @@ func _get_branch_pool() -> Array[String]:
 			branch_pool_names.append("seris_corruption")
 		if branch_pool_names.is_empty():
 			branch_pool_names.append("seris_common")
+	elif GameManager.current_hero == "korrath":
+		# korrath_common is branch-agnostic (no talent gate); branch pools unlock
+		# at their B1/B2/B3 T0 talent — see KORRATH_HERO_DESIGN §11–14.
+		if GameManager.has_talent("iron_formation"):
+			branch_pool_names.append("korrath_iron_vanguard")
+		if branch_pool_names.is_empty():
+			branch_pool_names.append("korrath_common")
 	for card_id in CardDatabase.get_card_ids_in_pools(branch_pool_names):
 		if card_id in GameManager.permanent_unlocks and card_id not in VARIANT_CORE_UNITS and card_id not in seen:
 			pool.append(card_id)
@@ -493,6 +500,11 @@ func _get_full_pool() -> Array[String]:
 			talent_pools.append("seris_demon_forge")
 		if GameManager.has_talent("corrupt_flesh"):
 			talent_pools.append("seris_corruption")
+	elif GameManager.current_hero == "korrath":
+		# korrath_common is always available once Korrath is the active hero (no talent gate).
+		talent_pools.append("korrath_common")
+		if GameManager.has_talent("iron_formation"):
+			talent_pools.append("korrath_iron_vanguard")
 
 	for pool_name in talent_pools:
 		for card_id in CardDatabase.get_card_ids_in_pools([pool_name]):

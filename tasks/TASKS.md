@@ -3,11 +3,9 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-_(none)_
+- ["040"](040-live-sim-unification-phase-0.md) — Live/sim unification — Phase 0 (foundations + hotfixes) (combat, started 2026-09-23)
 
 ## Backlog
-- ["007"](007-hero-armour-and-armour-break.md) — Hero Armour and Armour Break — extend Korrath stats to player/enemy heroes (combat)
-- ["009"](009-korrath-rewards-shop-wiring.md) — Korrath rewards and shop pool wiring (meta)
 - ["010"](010-korrath-art-pass.md) — Korrath art pass — portraits, passive/talent icons, card art (art)
 - ["011"](011-korrath-mechanic-gaps.md) — Korrath mechanic gaps — Branch 2 capstone, talent prereqs, polish VFX (combat)
 - ["012"](012-korrath-balance-and-ai.md) — Korrath balance pass and branch-aware AI profiles (balance)
@@ -21,6 +19,9 @@ _(none)_
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
 
 ## Done
+- ["039"](039-live-sim-unification-refactor-plan.md) — Live/sim unification refactor plan (design/refactors) (combat, 2026-09-22 → 2026-09-22)
+- ["007"](007-hero-armour-and-armour-break.md) — Hero Armour and Armour Break — extend Korrath stats to player/enemy heroes (combat, 2026-05-29 → 2026-05-29)
+- ["009"](009-korrath-rewards-shop-wiring.md) — Korrath rewards and shop pool wiring (meta, 2026-05-29 → 2026-05-29)
 - ["024"](024-implement-korrath-common-cards.md) — Implement korrath_common cards in CardDatabase (content, 2026-05-18 → 2026-05-18)
 - ["025"](025-implement-korrath-iron-vanguard-cards.md) — Implement korrath_iron_vanguard cards in CardDatabase (content, 2026-05-18 → 2026-05-18)
 - ["023"](023-implement-korrath-core-cards.md) — Implement korrath_core cards in CardDatabase (content, 2026-05-16 → 2026-05-16)

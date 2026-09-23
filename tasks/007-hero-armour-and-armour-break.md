@@ -1,11 +1,11 @@
 ---
 id: "007"
 title: Hero Armour and Armour Break — extend Korrath stats to player/enemy heroes
-status: backlog
+status: done
 area: combat
 priority: normal
-started:
-finished:
+started: 2026-05-29
+finished: 2026-05-29
 ---
 
 ## Description
@@ -15,7 +15,12 @@ Today Armour and Armour Break only exist on minions. Korrath talents that target
 ## Work log
 
 - 2026-05-08: opened.
+- 2026-05-29: activated; beginning implementation.
+- 2026-05-29: investigated current code — feature was already shipped end-to-end across v0.600–0.604 (tasks 023–025, 034–038). The talents this task named (`abyssal_strike`, `path_of_destruction`) never existed; the Korrath tree was redesigned (`commanders_reach`, `iron_resolve`, `path_of_shattering`, `corrupting_presence`, etc.). Closing as already-done. Full suite 784/784 green.
+- 2026-05-29: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+No code shipped — the feature was already fully implemented and tested. Hero Armour and Armour Break landed incrementally across v0.600–0.604 (tasks 023–025, 034–038) rather than as a single task: `HeroState.armour` (starts 0) + `add_armour()`, AB via `HeroState.buffs`, `CombatManager.apply_hero_damage` routing heroes through the shared signed-net `_apply_armour_math` (school-gated), grant/strip paths (`add_hero_armour` from EffectResolver GRANT_ARMOUR, `apply_hero_buff` for AB, `corrupting_presence` armour-strip), hero-sentinel handling in `corrupting_strike` / `path_of_shattering` / the attack-rider dispatcher, and Armour/AB/Corruption badges on both hero panels via `CombatUI.update_korrath_debuffs`. Shipped cards already exercise it (Lord Commander grants +200 hero armour; Shield Bash scales off friendly+hero armour). This task's description and the talents it named (`abyssal_strike`, `path_of_destruction`) were stale — predating the Korrath tree redesign. Full suite 784/784 green.
+
+Follow-ups: the original open design questions were left as deliberate non-features and not pursued — enemy bosses do not currently ship with starting armour as a balance lever, and hero AB neither caps nor decays (persists like minion AB). Revisit only if balance work wants them.
