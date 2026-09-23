@@ -14,19 +14,18 @@ extends CombatProfile
 
 ## Resource growth: essence-heavy since the deck is almost all essence minions.
 ## Only grow mana to 2 (for void_screech) once essence reaches 4.
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		if turn <= 1:
-			return
-		var e: int = sim_state.enemy_essence_max
-		var m: int = sim_state.enemy_mana_max
-		if e + m >= 11:
-			return
-		# Get mana to 2 early (for abyssal_plague / void_screech), then essence
-		if m < 2 and e >= 2:
-			sim_state.enemy_mana_max += 1
-		else:
-			sim_state.enemy_essence_max += 1
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	if turn <= 1:
+		return
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
+	if e + m >= 11:
+		return
+	# Get mana to 2 early (for abyssal_plague / void_screech), then essence
+	if m < 2 and e >= 2:
+		state.grow_mana_max(side)
+	else:
+		state.grow_essence_max(side)
 
 ## Max humans to play per turn. Saves the rest for future turns so the
 ## corruption-detonation loop fires consistently every turn instead of

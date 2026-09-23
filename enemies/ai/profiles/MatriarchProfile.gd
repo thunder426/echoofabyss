@@ -25,23 +25,16 @@ const LOW_HP_THRESHOLD := 1200
 ## Minimum Feral Imps on board to cast Pack Frenzy (loosened from 3 to 2).
 const MATRIARCH_FERAL_THRESHOLD := 2
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		if turn <= 1:
-			return
-		var e: int = sim_state.enemy_essence_max
-		var m: int = sim_state.enemy_mana_max
-		if e + m >= 11:
-			return
-		# Pure mana growth — no minions in deck, all spells
-		sim_state.enemy_mana_max += 1
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	if turn <= 1:
+		return
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
+	if e + m >= 11:
+		return
+	# Pure mana growth — no minions in deck, all spells
+	state.grow_mana_max(side)
 
-## Real-game resource growth: pure mana only (mirrors setup_resource_growth).
-func grow_resources(enemy_ai: Object) -> bool:
-	if enemy_ai.essence_max + enemy_ai.mana_max >= 11:
-		return true
-	enemy_ai.mana_max += 1
-	return true
 
 func _should_cast_pack_frenzy() -> bool:
 	var pf := _find_pack_frenzy()

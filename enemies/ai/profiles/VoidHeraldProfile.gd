@@ -82,29 +82,28 @@ func _try_void_wind() -> void:
 # Resource growth
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		_herald_growth(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_herald_growth(state, side, turn)
 
-func _herald_growth(state: Object, turn: int) -> void:
+func _herald_growth(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e: int = state.enemy_essence_max
-	var m: int = state.enemy_mana_max
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
 	if e + m >= 11:
 		return
 	if e < 4:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	elif m < 2:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	elif e < 6:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	elif m < 3:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	elif e < 8:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	else:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 
 # ---------------------------------------------------------------------------
 # Board awareness helpers

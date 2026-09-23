@@ -49,29 +49,28 @@ func _get_spell_rules() -> Dictionary:
 # Resource growth
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		if turn <= 1:
-			return
-		var e: int = sim_state.enemy_essence_max
-		var m: int = sim_state.enemy_mana_max
-		if e + m >= 11:
-			return
-		# Essence to 2 first (cult_fanatic turn 1)
-		if e < 2:
-			sim_state.enemy_essence_max += 1
-		# Mana to 2 (enables rune placement)
-		elif m < 2:
-			sim_state.enemy_mana_max += 1
-		# Essence to 4 (rune_seeker at 3E, double cult_fanatic)
-		elif e < 4:
-			sim_state.enemy_essence_max += 1
-		# Mana to 4 (double rune or rune + dark_command)
-		elif m < 4:
-			sim_state.enemy_mana_max += 1
-		# Essence to 7
-		else:
-			sim_state.enemy_essence_max += 1
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	if turn <= 1:
+		return
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
+	if e + m >= 11:
+		return
+	# Essence to 2 first (cult_fanatic turn 1)
+	if e < 2:
+		state.grow_essence_max(side)
+	# Mana to 2 (enables rune placement)
+	elif m < 2:
+		state.grow_mana_max(side)
+	# Essence to 4 (rune_seeker at 3E, double cult_fanatic)
+	elif e < 4:
+		state.grow_essence_max(side)
+	# Mana to 4 (double rune or rune + dark_command)
+	elif m < 4:
+		state.grow_mana_max(side)
+	# Essence to 7
+	else:
+		state.grow_essence_max(side)
 
 # ---------------------------------------------------------------------------
 # Play helpers

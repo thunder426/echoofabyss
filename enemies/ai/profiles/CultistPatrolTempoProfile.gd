@@ -76,26 +76,25 @@ func pick_on_play_target(mc: MinionCardData):
 	return super.pick_on_play_target(mc)
 
 ## Resource growth: 2E → 2M → 5E → 3M → 7E → 4M
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		if turn <= 1:
-			return
-		var e: int = sim_state.enemy_essence_max
-		var m: int = sim_state.enemy_mana_max
-		if e + m >= 11:
-			return
-		if e < 2:
-			sim_state.enemy_essence_max += 1
-		elif m < 2:
-			sim_state.enemy_mana_max += 1
-		elif e < 5:
-			sim_state.enemy_essence_max += 1
-		elif m < 3:
-			sim_state.enemy_mana_max += 1
-		elif e < 7:
-			sim_state.enemy_essence_max += 1
-		else:
-			sim_state.enemy_mana_max += 1
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	if turn <= 1:
+		return
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
+	if e + m >= 11:
+		return
+	if e < 2:
+		state.grow_essence_max(side)
+	elif m < 2:
+		state.grow_mana_max(side)
+	elif e < 5:
+		state.grow_essence_max(side)
+	elif m < 3:
+		state.grow_mana_max(side)
+	elif e < 7:
+		state.grow_essence_max(side)
+	else:
+		state.grow_mana_max(side)
 
 # ---------------------------------------------------------------------------
 # Smart minion play — prefer imp if corruption on enemy, else human, highest ATK first

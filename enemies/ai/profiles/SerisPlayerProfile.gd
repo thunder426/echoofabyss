@@ -139,27 +139,26 @@ func _maybe_soul_forge_loop() -> void:
 # Resource growth — essence-first with mana catches (same shape as Swarm)
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.player_growth_override = func(turn: int) -> void:
-		_grow_seris(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_grow_seris(state, side, turn)
 
-func _grow_seris(state: Object, turn: int) -> void:
+func _grow_seris(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e_max: int = state.player_essence_max
-	var m_max: int = state.player_mana_max
+	var e_max: int = state.essence_max_of(side)
+	var m_max: int = state.mana_max_of(side)
 	if e_max + m_max >= 11:
 		return
 	# Essence push — minion in hand costs more than current essence_max
-	for inst in state.player_hand:
+	for inst in state.hand_of(side):
 		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).essence_cost > e_max:
-			state.player_essence_max += 1
+			state.grow_essence_max(side)
 			return
 	# Default: essence-first; catch mana up when it falls >2 behind
 	if m_max < e_max - 2:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 	else:
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 
 # ---------------------------------------------------------------------------
 # Play-phase helpers (shaped like SwarmPlayerProfile)

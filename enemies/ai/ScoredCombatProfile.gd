@@ -6,7 +6,7 @@
 ## Specialized profiles subclass this and:
 ##   1. Override _init() to adjust _weights fields
 ##   2. Override _adjust_* hooks for profile-specific rules
-##   3. Override setup_resource_growth() for custom growth logic
+##   3. Override grow_resources(state, side, turn) for custom growth logic
 class_name ScoredCombatProfile
 extends CombatProfile
 
@@ -328,29 +328,26 @@ func _execute_play(inst: CardInstance) -> bool:
 # Resource growth (hand-aware scoring)
 # ---------------------------------------------------------------------------
 
-## Install a scored growth strategy. Override setup_resource_growth on profile.
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.player_growth_override = func(turn: int) -> void:
-		_scored_growth(sim_state, turn)
-
-func _scored_growth(state: Object, turn: int) -> void:
+## Scored growth: whichever resource unlocks more hand value, for the side this
+## profile plays (it used to always grow the player, even as an enemy profile).
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e_max: int = state.player_essence_max
-	var m_max: int = state.player_mana_max
+	var e_max: int = state.essence_max_of(side)
+	var m_max: int = state.mana_max_of(side)
 	if e_max + m_max >= 11:
 		return
-	var e_value: float = _growth_value_essence(state, e_max + 1, m_max)
-	var m_value: float = _growth_value_mana(state, e_max, m_max + 1)
+	var hand: Array[CardInstance] = state.hand_of(side)
+	var e_value: float = _growth_value_essence(hand, e_max + 1, m_max)
+	var m_value: float = _growth_value_mana(hand, e_max, m_max + 1)
 	if e_value >= m_value:
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 	else:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 
-func _growth_value_essence(state: Object, new_e: int, m: int) -> float:
+func _growth_value_essence(hand: Array[CardInstance], new_e: int, m: int) -> float:
 	var w: ScoringWeights = get_weights()
 	var value: float = 20.0  # Base essence value
-	var hand: Array = state.player_hand
 	for inst in hand:
 		if inst.card_data is MinionCardData:
 			var mc: MinionCardData = inst.card_data as MinionCardData
@@ -361,10 +358,9 @@ func _growth_value_essence(state: Object, new_e: int, m: int) -> float:
 				value += BoardEvaluator.score_minion(hyp, w)
 	return value * w.resource_unlock_weight
 
-func _growth_value_mana(state: Object, e: int, new_m: int) -> float:
+func _growth_value_mana(hand: Array[CardInstance], e: int, new_m: int) -> float:
 	var w: ScoringWeights = get_weights()
 	var value: float = 15.0  # Base mana value
-	var hand: Array = state.player_hand
 	for inst in hand:
 		if inst.card_data is SpellCardData:
 			var spell: SpellCardData = inst.card_data as SpellCardData

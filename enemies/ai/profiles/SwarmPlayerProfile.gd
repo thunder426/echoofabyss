@@ -144,45 +144,44 @@ func _should_sacrifice() -> bool:
 # Resource growth — essence-first with mana catches
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.player_growth_override = func(turn: int) -> void:
-		_grow_swarm(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_grow_swarm(state, side, turn)
 
-func _grow_swarm(state: Object, turn: int) -> void:
+func _grow_swarm(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e_max: int = state.player_essence_max
-	var m_max: int = state.player_mana_max
+	var e_max: int = state.essence_max_of(side)
+	var m_max: int = state.mana_max_of(side)
 	if e_max + m_max >= 11:
 		return
 
 	# Mana push — Dominion Rune in hand + 3 Demons on board
 	if m_max < 2:
-		for inst in state.player_hand:
+		for inst in state.hand_of(side):
 			if inst.card_data is TrapCardData and inst.card_data.id == "dominion_rune":
 				if _board_demon_count(state) >= 3:
-					state.player_mana_max += 1
+					state.grow_mana_max(side)
 					return
 
 	# Mana push — Abyssal Sacrifice in hand + low hand + cheap token
 	if m_max < 2:
-		for inst in state.player_hand:
+		for inst in state.hand_of(side):
 			if inst.card_data is SpellCardData and inst.card_data.id == "abyssal_sacrifice":
-				if state.player_hand.size() <= 3 and _has_cheap_token(state):
-					state.player_mana_max += 1
+				if state.hand_of(side).size() <= 3 and _has_cheap_token(state):
+					state.grow_mana_max(side)
 					return
 
 	# Essence push — minion in hand costs more than current essence_max
-	for inst in state.player_hand:
+	for inst in state.hand_of(side):
 		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).essence_cost > e_max:
-			state.player_essence_max += 1
+			state.grow_essence_max(side)
 			return
 
 	# Default: essence-first; catch Mana up when it falls more than 2 behind
 	if m_max < e_max - 2:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 	else:
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 
 func _board_demon_count(state: Object) -> int:
 	var n := 0

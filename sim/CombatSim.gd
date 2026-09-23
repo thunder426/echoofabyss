@@ -166,15 +166,19 @@ func run(
 	var p_profile_script = _PLAYER_PROFILES.get(player_profile_id, _PLAYER_PROFILES["default"])
 	var p_profile: CombatProfile = p_profile_script.new()
 	p_profile.setup(p_agent)
-	p_profile.setup_resource_growth(state)
 
 	var e_profile_script = _ENEMY_PROFILES.get(enemy_profile_id, _ENEMY_PROFILES["default"])
 	var e_profile: CombatProfile = e_profile_script.new()
 	e_profile.setup(e_agent)
-	e_profile.setup_resource_growth(state)
 	# Store on state so the F15 phase-transition can swap it mid-run.
 	state._e_profile = e_profile
 	state._e_profile_factory = _make_profile_factory(e_agent, state)
+	# Resource growth: each side's profile, run by state.begin_turn (plan 2A.4).
+	# The enemy hook reads state._e_profile so the F15 swap carries over.
+	state.growth_hooks["player"] = func(side: String, turn: int) -> void:
+		p_profile.grow_resources(state, side, turn)
+	state.growth_hooks["enemy"] = func(side: String, turn: int) -> void:
+		state._e_profile.grow_resources(state, side, turn)
 
 	# Relic system
 	var relic_fx: RelicEffects = null
@@ -644,5 +648,4 @@ func _make_profile_factory(e_agent: Object, state: SimState) -> Callable:
 		var script = _ENEMY_PROFILES.get(profile_id, _ENEMY_PROFILES["default"])
 		var p: CombatProfile = script.new()
 		p.setup(e_agent)
-		p.setup_resource_growth(state)
 		return p

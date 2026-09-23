@@ -50,23 +50,22 @@ func play_phase() -> void:
 # Resource growth — E to 5 → M to 3 → E to 7
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		_void_captain_growth(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_void_captain_growth(state, side, turn)
 
-func _void_captain_growth(state: Object, turn: int) -> void:
+func _void_captain_growth(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e: int = state.enemy_essence_max
-	var m: int = state.enemy_mana_max
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
 	if e + m >= 11:
 		return
 	if e < 5:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	elif m < 3:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	else:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 
 # ---------------------------------------------------------------------------
 # Throne's Command — mass crit, only when 2+ friendly minions on board

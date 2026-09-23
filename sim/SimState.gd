@@ -1,5 +1,5 @@
 ## SimState.gd
-## Headless simulation shell over CombatState: setup, the profile hooks
+## Headless simulation shell over CombatState: setup, the profile references
 ## CombatSim needs, and the BuffSystem bus bridge. All gameplay rules — the turn
 ## engine included (plan 2A.3) — live on CombatState (lint L5 keeps it that way).
 ## No scene tree, no timers, no UI.
@@ -65,20 +65,6 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	damage_dealt.connect(_capture_damage_for_dmg_log)
 	combat_log.connect(_print_debug_log)
 
-	# Resource growth at turn start: the profiles' curves (setup_resource_growth
-	# writes the overrides), else the default — plan 2A.4 moves these onto
-	# CombatProfile.grow_resources.
-	growth_hooks["player"] = func(side: String, turn: int) -> void:
-		if player_growth_override.is_valid():
-			player_growth_override.call(turn)
-		else:
-			_default_growth(side, turn)
-	growth_hooks["enemy"] = func(side: String, turn: int) -> void:
-		if enemy_growth_override.is_valid():
-			enemy_growth_override.call(turn)
-		else:
-			_default_growth(side, turn)
-
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
 
@@ -121,12 +107,3 @@ func teardown() -> void:
 		if buff_bus.is_connected("corruption_removed", _buff_bus_callable):
 			buff_bus.disconnect("corruption_removed", _buff_bus_callable)
 	_buff_bus_callable = Callable()
-
-# ---------------------------------------------------------------------------
-# Resource-growth overrides — set by CombatProfile.setup_resource_growth,
-# called through growth_hooks (plan 2A.4 replaces both).
-# ---------------------------------------------------------------------------
-
-## Signature: func(turn_number: int) -> void
-var player_growth_override: Callable = Callable()
-var enemy_growth_override: Callable = Callable()

@@ -260,28 +260,27 @@ func _play_regular_minions() -> void:
 
 ## Resource growth override: E4 → M4 → E5 → M5 → E6 (cap 11 combined).
 ## More mana-forward than parent to enable Throne's Command + mana_for_spark substitution.
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		_void_champion_growth(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_void_champion_growth(state, side, turn)
 
-func _void_champion_growth(state: Object, turn: int) -> void:
+func _void_champion_growth(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e: int = state.enemy_essence_max
-	var m: int = state.enemy_mana_max
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
 	if e + m >= 11:
 		return
 	# Growth order: E4 → M4 → E5 → M5 → E6
 	if e < 4:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	elif m < 4:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	elif e < 5:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	elif m < 5:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	else:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 
 ## Target the highest-HP friendly minion WITHOUT crit (needs spell immunity).
 ## If all minions already have crit, fall back to highest ATK (extra stacks).

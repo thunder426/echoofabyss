@@ -37,26 +37,25 @@ const _BURN_IDS:        Array[String] = ["void_bolt"]
 # Resource growth hook
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.player_growth_override = func(turn: int) -> void:
-		_grow_spell_burn(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_grow_spell_burn(state, side, turn)
 
-func _grow_spell_burn(state: Object, turn: int) -> void:
+func _grow_spell_burn(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e_max: int = state.player_essence_max
-	var m_max: int = state.player_mana_max
+	var e_max: int = state.essence_max_of(side)
+	var m_max: int = state.mana_max_of(side)
 	if e_max + m_max >= 11:
 		return
 	# Mana to 3 first (void_bolt online early)
 	if m_max < 3:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 	# Essence to 2 (traveling_merchant playable)
 	elif e_max < 2:
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 	# Then pure mana for spell scaling
 	else:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 
 # ---------------------------------------------------------------------------
 # Play phase

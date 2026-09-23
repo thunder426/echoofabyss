@@ -30,6 +30,7 @@ static func run_all() -> void:
 	_turn_start_order_enemy()
 	_end_turn_growth_applies_next_turn()
 	_turn_start_expires_temp_buffs()
+	_growth_curves_match_the_ported_sim_curves()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -534,3 +535,73 @@ static func _turn_start_expires_temp_buffs() -> void:
 	state.start_combat()
 	TestHarness.assert_eq(imp.effective_atk(), atk, "expired at the player's turn start")
 	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Resource growth (plan 2A.4) — each profile's grow_resources, from 1/1 with an
+# empty hand, turns 1-10: [essence_max, mana_max] per turn. Captured from the
+# old sim growth callables before they were ported (D1), so live now runs the
+# same curves sim was tuned with.
+# ---------------------------------------------------------------------------
+
+const _GROWTH_CURVES: Array = [
+	["enemy", "default", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["enemy", "feral_pack", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["enemy", "feral_pack_screech", [1,1,2,1,3,1,4,1,4,2,5,2,6,2,6,3,7,3,8,3]],
+	["enemy", "corrupted_brood", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["enemy", "corrupted_brood_aggro", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["enemy", "corrupted_brood_rune", [1,1,2,1,2,2,3,2,4,2,5,2,6,2,6,3,6,4,7,4]],
+	["enemy", "matriarch", [1,1,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,10]],
+	["enemy", "matriarch_aggro", [1,1,2,1,3,1,4,1,4,2,5,2,6,2,6,3,6,4,7,4]],
+	["enemy", "matriarch_sac", [1,1,2,1,3,1,4,1,4,2,5,2,6,2,6,3,6,4,7,4]],
+	["enemy", "cultist_patrol", [1,1,2,1,2,2,3,2,4,2,5,2,6,2,7,2,8,2,9,2]],
+	["enemy", "cultist_patrol_tempo", [1,1,2,1,2,2,3,2,4,2,5,2,5,3,6,3,7,3,7,4]],
+	["enemy", "void_ritualist", [1,1,2,1,2,2,3,2,4,2,4,3,4,4,5,4,6,4,7,4]],
+	["enemy", "corrupted_handler", [1,1,2,1,3,1,4,1,4,2,5,2,6,2,7,2,7,3,7,4]],
+	["enemy", "rift_stalker", [1,1,2,1,3,1,4,1,5,1,5,2,5,3,6,3,7,3,8,3]],
+	["enemy", "void_aberration", [1,1,2,1,3,1,4,1,4,2,4,3,5,3,6,3,6,4,6,5]],
+	["enemy", "void_herald", [1,1,2,1,3,1,4,1,4,2,5,2,6,2,6,3,7,3,8,3]],
+	["enemy", "void_scout", [1,1,2,1,3,1,4,1,5,1,5,2,6,2,7,2,8,2,9,2]],
+	["enemy", "void_warband", [1,1,2,1,3,1,4,1,4,2,5,2,6,2,7,2,7,3,7,4]],
+	["enemy", "void_captain", [1,1,2,1,3,1,4,1,5,1,5,2,5,3,6,3,7,3,8,3]],
+	["enemy", "void_ritualist_prime", [1,1,1,2,1,3,1,4,2,4,3,4,3,5,3,6,4,6,4,7]],
+	["enemy", "void_champion", [1,1,2,1,3,1,4,1,4,2,4,3,4,4,5,4,5,5,6,5]],
+	["enemy", "abyss_sovereign", [1,1,2,1,3,1,4,1,5,1,5,2,6,2,7,2,8,2,9,2]],
+	["enemy", "abyss_sovereign_p2", [1,1,2,1,3,1,4,1,5,1,5,2,6,2,7,2,8,2,9,2]],
+	["enemy", "scored", [1,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,10,1]],  # was the default curve: the enemy scored* profiles grew the PLAYER (bug fixed in 2A.4)
+	["enemy", "scored_feral_pack", [1,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,10,1]],  # was the default curve: the enemy scored* profiles grew the PLAYER (bug fixed in 2A.4)
+	["enemy", "scored_corrupted_brood", [1,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,10,1]],  # was the default curve: the enemy scored* profiles grew the PLAYER (bug fixed in 2A.4)
+	["enemy", "scored_matriarch", [1,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,10,1]],  # was the default curve: the enemy scored* profiles grew the PLAYER (bug fixed in 2A.4)
+	["player", "default", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["player", "swarm", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["player", "spell_burn", [1,1,1,2,1,3,2,3,2,4,2,5,2,6,2,7,2,8,2,9]],
+	["player", "rune_tempo", [1,1,2,1,2,2,2,3,2,4,3,4,4,4,4,5,5,5,6,5]],
+	["player", "scored", [1,1,2,1,3,1,4,1,5,1,6,1,7,1,8,1,9,1,10,1]],
+	["player", "seris", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["player", "fleshcraft", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+	["player", "korrath", [1,1,2,1,3,1,4,1,4,2,5,2,5,3,6,3,6,4,7,4]],
+]
+
+static func _growth_curves_match_the_ported_sim_curves() -> void:
+	for row: Array in _GROWTH_CURVES:
+		var side: String = row[0]
+		var id: String = row[1]
+		var expected: Array = row[2]
+		var state := TestHarness.build_state({})
+		if not TestHarness.begin_test("growth / %s %s curve, turns 1-10" % [side, id], state):
+			state.teardown()
+			continue
+		var table: Dictionary = CombatSim._ENEMY_PROFILES if side == "enemy" else CombatSim._PLAYER_PROFILES
+		var prof: CombatProfile = table[id].new()
+		var agent := SimPlayerAgent.new()
+		agent.setup(state)
+		prof.setup(state.enemy_ai if side == "enemy" else agent)
+		state.enemy_hand.clear()
+		state.player_hand.clear()
+		state.start_combat()  # both sides 1/1
+		var got: Array = []
+		for turn in range(1, 11):
+			prof.grow_resources(state, side, turn)
+			got.append(state.essence_max_of(side))
+			got.append(state.mana_max_of(side))
+		TestHarness.assert_eq(got, expected, "curve")
+		state.teardown()

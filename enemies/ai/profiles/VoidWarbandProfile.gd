@@ -164,31 +164,30 @@ func _get_spell_rules() -> Dictionary:
 # Resource growth
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		_warband_growth(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_warband_growth(state, side, turn)
 
-func _warband_growth(state: Object, turn: int) -> void:
+func _warband_growth(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e: int = state.enemy_essence_max
-	var m: int = state.enemy_mana_max
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
 	if e + m >= 11:
 		return
 	# Lance-override: if essence would normally grow, but we have Void Lance in hand,
 	# mana_max is still 1, and a ≥600 HP threat is on the board, bias into mana first.
 	if m == 1 and _needs_mana_for_lance():
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 		return
 	# Base curve: Essence to 4 → Mana to 2 → Essence to 7 → Mana to 3
 	if e < 4:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	elif m < 2:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	elif e < 7:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	else:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 
 ## True if Void Lance is in hand and there's a ≥600 HP enemy threat that it could kill.
 func _needs_mana_for_lance() -> bool:

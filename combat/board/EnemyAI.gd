@@ -107,9 +107,6 @@ var mana_max: int:
 	get: return state.enemy_mana_max
 	set(v): state.enemy_mana_max = v
 
-## Skips resource growth on the very first turn so the enemy starts at 1E/1M.
-var _first_turn: bool = true
-
 ## Shared combined cap with the player (essence_max + mana_max ≤ this).
 const COMBINED_RESOURCE_CAP := CombatState.COMBINED_RESOURCE_CAP
 
@@ -257,27 +254,12 @@ func _setup_profile() -> void:
 # Private — resource growth
 # ---------------------------------------------------------------------------
 
-## state.growth_hooks["enemy"] — run by state.begin_turn("enemy"): no growth on
-## the enemy's first turn, then the profile's override or the default curve.
-func grow_at_turn_start(_side: String, _turn: int) -> void:
+## state.growth_hooks["enemy"] — run by state.begin_turn("enemy"): the active
+## profile's curve (CombatProfile.grow_resources; the base is the default curve).
+func grow_at_turn_start(side: String, turn: int) -> void:
 	if _active_profile == null:
 		_setup_profile()
-	if _first_turn:
-		_first_turn = false
-		return
-	_choose_resource_growth()
-
-func _choose_resource_growth() -> void:
-	if essence_max + mana_max >= COMBINED_RESOURCE_CAP:
-		return
-	# Let the active profile override growth (e.g. Matriarch: pure mana).
-	if _active_profile != null and _active_profile.grow_resources(self):
-		return
-	# Default: grow mana when it lags more than 2 behind essence; otherwise grow essence.
-	if mana_max < essence_max - 2:
-		mana_max += 1
-	else:
-		essence_max += 1
+	_active_profile.grow_resources(state, side, turn)
 
 # ---------------------------------------------------------------------------
 # Private — card draw

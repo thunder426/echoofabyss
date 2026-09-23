@@ -135,25 +135,24 @@ func _sort_mana_spell_priority(a: CardInstance, b: CardInstance) -> bool:
 # Resource growth — mana-heavier for spell-focused deck
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.enemy_growth_override = func(turn: int) -> void:
-		_ritualist_prime_growth(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_ritualist_prime_growth(state, side, turn)
 
-func _ritualist_prime_growth(state: Object, turn: int) -> void:
+func _ritualist_prime_growth(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e: int = state.enemy_essence_max
-	var m: int = state.enemy_mana_max
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
 	if e + m >= 11:
 		return
 	# Growth order: E2 → M4 → E3 → M6 → E4 → M7 (no growth beyond 2E on turn 1)
 	if m < 4:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	elif e < 3:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	elif m < 6:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)
 	elif e < 4:
-		state.enemy_essence_max += 1
+		state.grow_essence_max(side)
 	else:
-		state.enemy_mana_max += 1
+		state.grow_mana_max(side)

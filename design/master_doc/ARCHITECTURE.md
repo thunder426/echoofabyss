@@ -71,7 +71,7 @@ Combat is split across three orthogonal layers:
 
 1. **State (rules + data)** — `CombatState.gd`, RefCounted, no Node refs. Holds board, HP, traps, environments, buffs, relic flags + `relic_runtime`, talent state, and both sides' turn counter, resources, decks, hands and graveyards (`hand_of/deck_of/graveyard_of/traps_of(side)`, `draw_cards`, `add_to_hand`, `pay_card_cost`, `pay_sparks`, …). Owns the CombatManager signal handlers (`_on_minion_vanished`, `_on_hero_damaged`, `_on_hero_healed`) and the `CombatHandlers` ref. Emits **all gameplay signals** (hp_changed, minion_summoned, minion_died, damage_dealt, resources_changed, card_drawn, card_generated, traps_changed, environment_changed, flesh_changed, forge_changed, void_marks_changed, combat_log, minion_stats_changed, spell_damage_dealt). Shared between live combat and sim.
 2. **Live shell** — `CombatScene.gd`, Node2D. Composes `CombatState` and is its `presenter`: owns UI nodes, input, animation/VFX gating, and the presenter hooks state calls (`_on_minion_vanished_visual`, `_on_hero_damaged_visual`, …). Still forwards many state fields via property getters (removed in Phase 4). `TurnManager` and `EnemyAI` are façades whose fields forward onto state.
-3. **Headless shell** — `SimState.gd extends CombatState`. No Node tree, `presenter == null`. Only setup, the profile growth overrides (until 2A.4) and the BuffSystem bus bridge — the turn engine is CombatState's. Used by `CombatSim.gd` to run full matches with no UI for balance testing.
+3. **Headless shell** — `SimState.gd extends CombatState`. No Node tree, `presenter == null`. Only setup and the BuffSystem bus bridge — the turn engine is CombatState's; resource growth is each side's `CombatProfile.grow_resources(state, side, turn)` behind `state.growth_hooks` (live enemy via EnemyAI, sim both sides via CombatSim). Used by `CombatSim.gd` to run full matches with no UI for balance testing.
 
 Rules code (CombatHandlers, HardcodedEffects, RelicEffects, EffectResolver, Condition/TargetResolver, CombatManager) reaches combat three ways, and only these (lint L3/L4):
 
@@ -253,7 +253,7 @@ Used for balance testing — no UI, no scene tree, no animations.
 | File | Role |
 |---|---|
 | `sim/CombatSim.gd` | Entry point. `run(deck, profile_id, …)` → win/loss + diagnostic counters. |
-| `sim/SimState.gd` | Extends `CombatState`: setup, the profiles' growth overrides wired into `growth_hooks` (2A.4 replaces them), BuffSystem bus bridge. No gameplay rules (lint L5). |
+| `sim/SimState.gd` | Extends `CombatState`: setup, the enemy-profile references CombatSim swaps at the F15 transition, BuffSystem bus bridge. No gameplay rules (lint L5). |
 | `sim/SimPlayerAgent.gd`, `sim/SimEnemyAgent.gd` | Per-side action runners. Use the same `CombatProfile` subclasses as live combat. |
 | `sim/SimTriggerSetup.gd` | Creates the TriggerManager + handlers and the BuffSystem bus bridge, then delegates every registration (trap routes first — `CombatState.TRAP_ROUTES` — then always-on, talents, passives) to `CombatSetup.setup()`, exactly as live does. |
 

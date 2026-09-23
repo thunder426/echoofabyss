@@ -34,53 +34,52 @@ const _CHEAP_MINION_IDS: Array[String] = ["void_imp", "shadow_hound", "void_nett
 # Resource growth hook
 # ---------------------------------------------------------------------------
 
-func setup_resource_growth(sim_state: Object) -> void:
-	sim_state.player_growth_override = func(turn: int) -> void:
-		_grow_rune_tempo(sim_state, turn)
+func grow_resources(state: CombatState, side: String, turn: int) -> void:
+	_grow_rune_tempo(state, side, turn)
 
-func _grow_rune_tempo(state: Object, turn: int) -> void:
+func _grow_rune_tempo(state: CombatState, side: String, turn: int) -> void:
 	if turn <= 1:
 		return
-	var e: int = state.player_essence_max
-	var m: int = state.player_mana_max
+	var e: int = state.essence_max_of(side)
+	var m: int = state.mana_max_of(side)
 	if e + m >= 11:
 		return
 
 	# Phase 1: E to 2 first
 	if e < 2:
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 		return
 
 	# Phase 2: M to 2
 	if m < 2:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 		return
 
 	# Flex override: no minion in hand + M below 4 → grow M
 	if not _hand_has_minion(state) and m < 4:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 		return
 
 	# Flex override: large unaffordable minion in hand + no castable spell → grow E
 	if _hand_has_large_minion(state, e) and not _hand_has_castable_spell(state, m):
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 		return
 
 	# Phase 3: E to 4
 	if e < 4:
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 		return
 
 	# Phase 4: M to 4
 	if m < 4:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 		return
 
 	# Phase 5: E towards 7 (default); or M to 5 if nothing to play on board
 	if not _hand_has_minion(state) and m < 5:
-		state.player_mana_max += 1
+		state.grow_mana_max(side)
 	else:
-		state.player_essence_max += 1
+		state.grow_essence_max(side)
 
 # ---------------------------------------------------------------------------
 # Play phase
