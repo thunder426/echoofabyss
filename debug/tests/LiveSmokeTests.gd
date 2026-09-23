@@ -129,6 +129,23 @@ func _live_rules_paths() -> void:
 		await get_tree().process_frame
 	_check(st.enemy_hp == trap_hp - 100, "live: trap resolved at its reveal (%d → %d)" % [trap_hp, st.enemy_hp])
 	await get_tree().create_timer(1.0).timeout  # the reveal's trailing gap
+	# Relic bar → state.cmd_activate_relic (plan 2A.6). Blood Chalice asks for a
+	# target first and only spends its charge once one is picked.
+	st.relic_runtime = RelicRuntime.new()
+	st.relic_runtime.setup(["dark_mirror", "blood_chalice"])
+	for rs: RelicRuntime.RelicState in st.relic_runtime.relics:
+		rs.cooldown_remaining = 0
+	scene._on_relic_activated(st.relic_runtime.find_by_id("dark_mirror"))
+	_check(st._relic_cost_reduction == 2, "live: Dark Mirror via the command")
+	st.relic_runtime.activated_this_turn = false
+	var chalice: int = st.relic_runtime.find_by_id("blood_chalice")
+	scene._on_relic_activated(chalice)
+	_check(st.relic_runtime.get_state(chalice).charges_remaining > 0 and not st.relic_runtime.activated_this_turn,
+		"live: Blood Chalice waits for a target before spending")
+	var chalice_hp: int = st.enemy_hp
+	scene._resolve_relic_target_hero()
+	_check(st.enemy_hp == chalice_hp - 500, "live: Blood Chalice hit the enemy hero (%d → %d)" % [chalice_hp, st.enemy_hp])
+	await _drain(scene)
 	print("LiveSmoke: live rules paths completed")
 	await _teardown(scene)
 

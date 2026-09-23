@@ -209,7 +209,6 @@ var _handlers: CombatHandlers:
 var _hardcoded: HardcodedEffects:
 	get: return state._hardcoded
 	set(v): state._hardcoded = v
-var _relic_effects: RelicEffects
 var _relic_bar: RelicBar
 
 ## Centralised VFX dispatcher — resolved in _find_nodes. All spell/apply VFX
@@ -290,7 +289,7 @@ var _awaiting_minion_target: bool = false
 # Relic targeting — set when a relic (e.g. Blood Chalice) needs the player to pick a target.
 # Stores the effect_id; cleared after the target is chosen or cancelled.
 var _pending_relic_target: String = ""
-var _pending_relic_index: int = -1  ## Index into RelicRuntime.relics — used for refund on cancel
+var _pending_relic_index: int = -1  ## Relic awaiting a target (Blood Chalice) — activated once one is picked
 
 # Active global environment — forwarded to state.active_environment.
 var active_environment: EnvironmentCardData:
@@ -2291,8 +2290,6 @@ func _setup_relics() -> void:
 		_relic_bar = null
 	state.relic_runtime = RelicRuntime.new()
 	state.relic_runtime.setup(GameManager.player_relics, GameManager.relic_bonus_charges)
-	_relic_effects = RelicEffects.new()
-	_relic_effects.setup(self)
 
 	if state.relic_runtime.relics.is_empty():
 		return
@@ -2329,21 +2326,20 @@ func _on_relic_unhovered() -> void:
 	if input_handler != null:
 		input_handler.on_relic_unhovered()
 
+## Relic bar click. Relics resolve through state.cmd_activate_relic (plan
+## 2A.6); Blood Chalice first asks for a target and activates once one is picked.
 func _on_relic_activated(index: int) -> void:
-	if not turn_manager.is_player_turn:
+	if not turn_manager.is_player_turn or state.relic_runtime == null:
 		return
-	var effect_id: String = state.relic_runtime.activate(index)
-	if effect_id == "":
+	if not state.relic_runtime.can_activate(index):
 		return
 	_pip_bar.stop_blink()
-	# Blood Chalice: enter targeting mode instead of resolving immediately
+	var effect_id: String = state.relic_runtime.get_state(index).data.effect_id
 	if effect_id == "relic_execute":
 		_pending_relic_index = index
 		_begin_relic_targeting(effect_id)
-		if _relic_bar:
-			_relic_bar.refresh()
 		return
-	_relic_effects.resolve(effect_id)
+	state.cmd_activate_relic(index)
 	if _relic_bar:
 		_relic_bar.refresh()
 	_refresh_hand_spell_costs()
@@ -2363,35 +2359,28 @@ func _begin_relic_targeting(effect_id: String) -> void:
 		_enemy_hero_panel.start_spell_pulse()
 	_log("  Blood Chalice: choose a target (right-click to cancel).", _LogType.PLAYER)
 
-## Resolve a relic effect on a chosen enemy minion target.
+## Blood Chalice target picked: an enemy minion.
 func _resolve_relic_target_minion(minion: MinionInstance) -> void:
-	var effect := _pending_relic_target
-	_pending_relic_target = ""
-	_pending_relic_index = -1
-	_clear_all_highlights()
-	match effect:
-		"relic_execute":
-			_spell_dmg(minion, 500,
-					CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
-			_log("  Relic: Blood Chalice — dealt 500 damage to %s." % minion.card_data.card_name, _LogType.PLAYER)
+	_activate_pending_relic(minion)
 
-## Resolve a relic effect on the enemy hero.
+## Blood Chalice target picked: the enemy hero.
 func _resolve_relic_target_hero() -> void:
-	var effect := _pending_relic_target
+	_activate_pending_relic("enemy_hero")
+
+func _activate_pending_relic(target) -> void:
+	var index: int = _pending_relic_index
 	_pending_relic_target = ""
 	_pending_relic_index = -1
 	_clear_all_highlights()
-	match effect:
-		"relic_execute":
-			combat_manager.apply_hero_damage("enemy",
-					CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
-			_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.", _LogType.PLAYER)
+	if index >= 0:
+		state.cmd_activate_relic(index, target)
+	if _relic_bar:
+		_relic_bar.refresh()
 
-## Cancel relic targeting — refund the charge and reset state.
+## Cancel relic targeting — nothing was spent (the charge goes on activation).
 func _cancel_relic_targeting() -> void:
-	if _pending_relic_index >= 0 and state.relic_runtime:
-		state.relic_runtime.refund(_pending_relic_index)
-		_log("  Relic cancelled — charge refunded.", _LogType.PLAYER)
+	if _pending_relic_index >= 0:
+		_log("  Relic cancelled.", _LogType.PLAYER)
 	_pending_relic_target = ""
 	_pending_relic_index = -1
 	_clear_all_highlights()

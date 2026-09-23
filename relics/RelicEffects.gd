@@ -70,18 +70,7 @@ func resolve(effect_id: String) -> bool:
 			_log("  Relic: Dark Mirror — next card costs 2 Essence and 2 Mana less.")
 			return true
 
-		"relic_execute":
-			# Deal 500 damage to the highest-ATK enemy minion, or enemy hero if no minions
-			var target: MinionInstance = _pick_highest_atk_enemy()
-			if target:
-				state.combat_manager.apply_damage_to_minion(target,
-						CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
-				_log("  Relic: Blood Chalice — dealt 500 damage to %s." % target.card_data.card_name)
-			else:
-				state.combat_manager.apply_hero_damage("enemy",
-						CombatManager.make_damage_info(500, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice"))
-				_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.")
-			return true
+		# relic_execute (Blood Chalice) takes a target: CombatState.cmd_activate_relic resolves it.
 
 		# ── Act 3 ────────────────────────────────────────────────────────────
 		# Rebalanced to roughly Act-2 power — these were previously game-swinging.
@@ -170,16 +159,6 @@ func _relic_damage_random_enemy(amount: int) -> void:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-func _pick_highest_atk_enemy() -> MinionInstance:
-	var board: Array = state._opponent_board("player")
-	if board.is_empty():
-		return null
-	var best: MinionInstance = board[0]
-	for m in board:
-		if (m as MinionInstance).effective_atk() > best.effective_atk():
-			best = m
-	return best
 
 func _log(msg: String) -> void:
 	state._log(msg, 1)  # _LOG_PLAYER = 1

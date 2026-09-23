@@ -131,12 +131,9 @@ func run(
 		state._e_profile.grow_resources(state, side, turn)
 
 	# Relic system
-	var relic_fx: RelicEffects = null
 	if not player_relic_ids.is_empty():
 		state.relic_runtime = RelicRuntime.new()
 		state.relic_runtime.setup(player_relic_ids, relic_bonus_charges)
-		relic_fx = RelicEffects.new()
-		relic_fx.setup(state)
 
 	# Both sides open at 1/1; the player's first turn begins (shared turn engine,
 	# plan 2A.3). Each side's turn then ends with cmd_end_turn / end_turn.
@@ -160,31 +157,22 @@ func run(
 			print("  E_Hand: %s" % ", ".join(e_hand) if not e_hand.is_empty() else "  E_Hand: (empty)")
 
 		# ── Player turn (already begun) ──────────────────────────────────────
+		# Relic use is SimRelicPolicy's call; each activation is cmd_activate_relic.
 		if state.relic_runtime:
-			# Phase 1: Activate draw/imp/guardian relics at turn start (on cooldown)
-			_try_relic_start_of_turn(state.relic_runtime, relic_fx, state)
-			# Phase 1b: Dark Mirror — cost reduction before play phase
-			if not state.relic_runtime.activated_this_turn:
-				_try_relic_dark_mirror(state.relic_runtime, relic_fx, state)
+			SimRelicPolicy.start_of_turn(state)
 		await p_profile.play_phase()
 		if not state.winner.is_empty(): break
-		# Phase 2: Mana Shard — after play phase if mana spent and castable cards remain
 		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
-			_try_relic_mana_shard(state.relic_runtime, relic_fx, state, p_agent)
-			# If mana shard fired, try playing more cards
-			if state.relic_runtime.activated_this_turn:
-				await p_profile.play_phase()
+			if SimRelicPolicy.mana_shard(state):
+				await p_profile.play_phase()  # spend the refill
 				if not state.winner.is_empty(): break
-		# Phase 2b: Void Lens — AoE after play phase
 		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
-			_try_relic_void_lens(state.relic_runtime, relic_fx, state)
-		# Phase 2c: Blood Chalice — execute after play phase
+			SimRelicPolicy.void_lens(state)
 		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
-			_try_relic_blood_chalice(state.relic_runtime, relic_fx, state)
+			SimRelicPolicy.blood_chalice(state)
 		await p_profile.attack_phase()
-		# Phase 3: Bone Shield — after attacks, if enemy threatens lethal
 		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
-			_try_relic_bone_shield(state.relic_runtime, relic_fx, state)
+			SimRelicPolicy.bone_shield(state)
 		state.cmd_end_turn("player")
 		if not state.winner.is_empty(): break
 
@@ -484,104 +472,6 @@ func run_many(
 		"p1_losses":          p1_losses,
 		"p2_losses":          p2_losses,
 	}
-
-# ---------------------------------------------------------------------------
-# Relic AI helpers
-# ---------------------------------------------------------------------------
-
-## Start-of-turn relics: draw cards, add imp — fire on cooldown.
-func _try_relic_start_of_turn(rt: RelicRuntime, fx: RelicEffects, _state: SimState) -> void:
-	for i in rt.relics.size():
-		if not rt.can_activate(i):
-			continue
-		var eid: String = rt.relics[i].data.effect_id
-		if eid in ["relic_draw_2", "relic_add_void_imp", "relic_summon_guardian"]:
-			var effect_id: String = rt.activate(i)
-			if effect_id != "":
-				fx.resolve(effect_id)
-			return  # 1 per turn
-
-## Mana Shard: use after play phase if mana is low and hand has castable mana cards.
-func _try_relic_mana_shard(rt: RelicRuntime, fx: RelicEffects, state: SimState, agent: CombatAgent) -> void:
-	var idx: int = rt.find_by_id("mana_shard")
-	if idx < 0 or not rt.can_activate(idx):
-		return
-	# Only fire if we've spent mana (mana < max) and have castable cards after refill
-	if state.player_mana >= state.player_mana_max:
-		return  # Mana is full — no need
-	var mana_after: int = mini(state.player_mana + 2, state.player_mana_max)
-	var has_castable := false
-	for inst in agent.hand:
-		if inst.card_data is SpellCardData:
-			if (inst.card_data as SpellCardData).cost <= mana_after and (inst.card_data as SpellCardData).cost > state.player_mana:
-				has_castable = true
-				break
-		elif inst.card_data is TrapCardData:
-			var trap_cost: int = inst.effective_cost()
-			if trap_cost <= mana_after and trap_cost > state.player_mana:
-				has_castable = true
-				break
-		elif inst.card_data is EnvironmentCardData:
-			if (inst.card_data as EnvironmentCardData).cost <= mana_after and (inst.card_data as EnvironmentCardData).cost > state.player_mana:
-				has_castable = true
-				break
-	if not has_castable:
-		return
-	var effect_id: String = rt.activate(idx)
-	if effect_id != "":
-		fx.resolve(effect_id)
-
-## Bone Shield: use after attacks if enemy board threatens lethal next turn.
-func _try_relic_bone_shield(rt: RelicRuntime, fx: RelicEffects, state: SimState) -> void:
-	var idx: int = rt.find_by_id("bone_shield")
-	if idx < 0 or not rt.can_activate(idx):
-		return
-	# Calculate enemy board total ATK
-	var enemy_atk := 0
-	for m in state.enemy_board:
-		enemy_atk += m.effective_atk()
-	# Only activate if enemy can kill us next turn
-	if enemy_atk >= state.player_hp:
-		var effect_id: String = rt.activate(idx)
-		if effect_id != "":
-			fx.resolve(effect_id)
-
-## Dark Mirror: use before play phase — reduces next card cost by 2E+2M.
-func _try_relic_dark_mirror(rt: RelicRuntime, fx: RelicEffects, _state: SimState) -> void:
-	var idx: int = rt.find_by_id("dark_mirror")
-	if idx < 0 or not rt.can_activate(idx):
-		return
-	var effect_id: String = rt.activate(idx)
-	if effect_id != "":
-		fx.resolve(effect_id)
-
-## Void Lens: use after play phase — AoE 100 damage + corruption to all enemies.
-func _try_relic_void_lens(rt: RelicRuntime, fx: RelicEffects, state: SimState) -> void:
-	var idx: int = rt.find_by_id("void_lens")
-	if idx < 0 or not rt.can_activate(idx):
-		return
-	# Only fire if enemy has minions to hit
-	if state.enemy_board.is_empty():
-		return
-	var effect_id: String = rt.activate(idx)
-	if effect_id != "":
-		fx.resolve(effect_id)
-
-## Blood Chalice: use after play phase — 500 damage to highest ATK enemy.
-func _try_relic_blood_chalice(rt: RelicRuntime, fx: RelicEffects, state: SimState) -> void:
-	var idx: int = rt.find_by_id("blood_chalice")
-	if idx < 0 or not rt.can_activate(idx):
-		return
-	# Fire if there's a high-value target (ATK >= 300) or if it would kill something
-	var best_atk := 0
-	for m in state.enemy_board:
-		if m.effective_atk() > best_atk:
-			best_atk = m.effective_atk()
-	if best_atk < 300 and state.enemy_board.is_empty():
-		return
-	var effect_id: String = rt.activate(idx)
-	if effect_id != "":
-		fx.resolve(effect_id)
 
 ## Count 0-ATK minions on the player board (corrupted sparks clogging slots).
 static func _count_clogged_slots(state: SimState) -> int:
