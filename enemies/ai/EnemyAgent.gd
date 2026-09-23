@@ -14,6 +14,7 @@ var _sparks_prepaid: int = 0
 func setup(enemy_ai) -> void:
 	_ai = enemy_ai
 	side = "enemy"
+	decision_rng.seed = hash("%d:enemy" % enemy_ai.state.rng_seed)
 
 # ---------------------------------------------------------------------------
 # Boards / hand / resources

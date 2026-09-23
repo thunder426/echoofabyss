@@ -17,6 +17,7 @@ func setup(s: CombatState, p_side: String, p_pacer: Pacer = null) -> void:
 	_state = s
 	side = p_side
 	pacer = p_pacer if p_pacer != null else Pacer.new()
+	decision_rng.seed = hash("%d:%s" % [s.rng_seed, p_side])
 
 # ---------------------------------------------------------------------------
 # Boards / hand / resources

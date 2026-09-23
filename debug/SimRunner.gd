@@ -46,6 +46,7 @@ func _run() -> void:
 		profiles.append(args.profile as String)
 
 	var sim := CombatSim.new()
+	sim.dump_replay_path = args.dump_replay
 
 	for profile in profiles:
 		print("▶  %s …" % profile)
@@ -104,6 +105,7 @@ func _parse_args() -> Dictionary:
 		"hero_passives":    [] as Array[String],
 		"relics":           [] as Array[String],
 		"all_profiles":     false,
+		"dump_replay":      "",
 	}
 
 	var args := OS.get_cmdline_user_args()
@@ -143,6 +145,9 @@ func _parse_args() -> Dictionary:
 					result.player_profile = args[i + 1]; i += 1
 			"--all-profiles":
 				result.all_profiles = true
+			"--dump-replay":  # write the last run as a replay JSON (use with --runs 1)
+				if i + 1 < args.size():
+					result.dump_replay = args[i + 1]; i += 1
 		i += 1
 
 	return result

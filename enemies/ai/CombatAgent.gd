@@ -12,6 +12,15 @@ extends RefCounted
 ## The side this agent plays ("player" / "enemy").
 var side: String = "player"
 
+## Randomness for AI *decisions* (e.g. which enemy rune to target). Kept off the
+## engine's `state.rng` so a replay of the command log — which runs no profiles —
+## draws the same engine randoms as the original fight (plan 2A.8).
+var decision_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+
+## A random element of a non-empty `arr`, drawn from decision_rng.
+func decision_pick(arr: Array) -> Variant:
+	return arr[decision_rng.randi() % arr.size()]
+
 # ---------------------------------------------------------------------------
 # Boards / hand / resources — backed by virtual getters/setters
 # ---------------------------------------------------------------------------

@@ -26,7 +26,8 @@ Project-relative paths in the table below are clickable.
 | [Baseline tool](#baseline-tool--regression-fingerprint) | Bit-exact regression detection across refactors | Yes (Python wrapper) | Yes (diff vs prior capture) | Same as BalanceSimBatch |
 | [BalanceSim](#balancesim--interactive-balance-ui) | Editor UI to tweak settings + run sims | No (editor) | No | Interactive |
 | [DebugSingleSim](#debugsinglesim--single-fight-with-full-logging) | One F11 sim with full debug logging | Yes | No | <5s |
-| [SimRunner](#simrunner--general-cli-sim) | Generic sim CLI for ad-hoc deck/profile combos | Yes | No | Varies |
+| [SimRunner](#simrunner--general-cli-sim) | Generic sim CLI for ad-hoc deck/profile combos; `--dump-replay <path>` records a fight | Yes | No | Varies |
+| [ReplayRunner](#determinism-and-seeds) | Plays a recorded sim fight back through its command log; reports digest match / first refused command | Yes | Yes (exit code) | <5s |
 | [ScoredAITest](#scoredaitest--voidbolt-full-run) | Voidbolt full-run tuning report | Yes | No | ~1 min |
 | [DebugF13LossAnalysis](#debugf13lossanalysis--per-turn-loss-diagnosis) | Per-turn snapshots of F13 losses | Yes | No | ~10s |
 | [VoidboltDmgDebug](#voidboltdmgdebug--damage-source-trace) | Per-source enemy damage trace, 5 runs | Yes | No | <10s |
@@ -86,15 +87,26 @@ so any sim result can be replayed exactly. Live combat logs `Seed: N` as the
 first combat-log line; set `GameManager.next_combat_seed = N` before entering
 combat to replay it. `ScenarioTests` has two determinism probes (`--filter determinism`).
 
+**Command replay (sim).** Every sim action is a `CombatState.cmd_*` recorded in
+`state.command_log` (targets by slot / hero sentinel). `CombatSim.record_replay`
+(or `dump_replay_path`) returns / writes `{seed, config, command_log, digest}`;
+`CombatSim.replay(record)` rebuilds the same state and re-issues the commands
+(profiles are built only for their resource curves; AI decision randomness uses
+the agents' own `decision_rng`, so the engine RNG stream matches). Record with
+`SimRunner.tscn -- --runs 1 --dump-replay /tmp/f.json`, replay with
+`ReplayRunner.tscn -- /tmp/f.json` (exit 0 = digest matches, every command
+accepted). Probe: `--filter replay`. Live fights can't be replayed until Phase
+3.4 moves live input onto commands.
+
 ## RunAllTests — layered test suite
 
 **Path:** [debug/tests/RunAllTests.gd](../echoofabyss/debug/tests/RunAllTests.gd)
 **Scene:** `res://debug/tests/RunAllTests.tscn`
 **Source of truth for assertions:** the four Layer N files described below.
 
-This is the project's correctness gate. It runs four layers of probes against
-`SimState` / `EffectResolver` / `TriggerManager` / `CombatSim`, and exits with
-the count of failed assertions (0 = green).
+This is the project's correctness gate. It runs five layers of probes against
+`SimState` / `EffectResolver` / `TriggerManager` / `CombatState` commands /
+`CombatSim`, and exits with the count of failed assertions (0 = green).
 
 ### Layers
 
@@ -102,11 +114,12 @@ the count of failed assertions (0 = green).
 |---|---|---|---|
 | Damage type | [DamageTypeTests.gd](../echoofabyss/debug/tests/DamageTypeTests.gd) | Phase invariants of the source+school damage system | 33 |
 | L1 Card effects | [CardEffectTests.gd](../echoofabyss/debug/tests/CardEffectTests.gd) | Per-card `effect_steps` via `EffectResolver.run()` | 53 |
-| L2 Trigger handlers | [TriggerHandlerTests.gd](../echoofabyss/debug/tests/TriggerHandlerTests.gd) | One probe per handler registered in SimTriggerSetup | 106 |
+| L2 Trigger handlers | [TriggerHandlerTests.gd](../echoofabyss/debug/tests/TriggerHandlerTests.gd) | One probe per handler registered by CombatSetup; trap routes; the handler-order snapshot (`snapshots/handler_order.txt` — delete it to regenerate after an intended reorder) | 110 |
+| L5 Commands | [CommandTests.gd](../echoofabyss/debug/tests/CommandTests.gd) | `CombatState.cmd_*` refusals (no mutation) and happy paths, the turn engine, resource-growth curves, agents paying once, EncounterTable | 30 |
 | L3 Scenarios | [ScenarioTests.gd](../echoofabyss/debug/tests/ScenarioTests.gd) | Full `CombatSim.run()` matches with structural invariants | 37 |
 
 Each test function fires multiple `assert_*` calls — total assertion count is
-~800 (last verified run: 797 passed, 0 failed, 0 skipped — 2026-09-23). The suite is
+~1100 (last verified run: 1084 passed, 0 failed, 0 skipped — 2026-09-23). The suite is
 fully green; any new failure represents a genuine regression.
 
 Shared infrastructure: [TestHarness.gd](../echoofabyss/debug/tests/TestHarness.gd)

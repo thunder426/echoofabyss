@@ -45,6 +45,7 @@ static func run_all() -> void:
 	_death_circle_deck_with_environment()
 	await _determinism_same_seed_same_digest()
 	await _determinism_seed_recorded()
+	await _replay_reproduces_the_fight()
 	_seris_fleshcraft_match_to_completion()
 	_multi_match_rng_stability()
 	_voidbolt_burst_vs_void_aberration()
@@ -57,6 +58,35 @@ static func run_all() -> void:
 	_void_imp_dmg_evidence()
 	_korrath_iron_legion_match_to_completion()
 	_korrath_abyssal_vanguard_match_to_completion()
+
+## Sim replay (plan 2A.8): a fight's {seed, config, command_log}, round-tripped
+## through JSON like a dumped file, replays to the same digest with every
+## command accepted. Covers spark fuel (Void Warband) and relics.
+static func _replay_reproduces_the_fight() -> void:
+	if not TestHarness.begin_test("replay / a recorded sim fight replays to the same digest", null):
+		return
+	var cases: Array = [
+		["swarm", "feral_pack", 1, "default", [] as Array[String]],
+		["seris_starter", "corrupted_brood", 2, "seris", ["mana_shard", "imp_talisman"] as Array[String]],
+		["swarm", "void_warband", 11, "default", [] as Array[String]],
+	]
+	for c: Array in cases:
+		var deck := _deck(c[0])
+		if deck.is_empty():
+			deck = _deck("swarm")
+		var pool: Array[String] = EncounterDecks.get_pool(c[2])
+		var enemy_deck: Array[String] = EncounterDecks.get_deck(pool[0]) if not pool.is_empty() else [] as Array[String]
+		var hero: String = "seris" if c[3] == "seris" else "lord_vael"
+		var sim := CombatSim.new()
+		sim.record_replay = true
+		var result: Dictionary = await sim.run(deck, c[1], enemy_deck, 3000, 2000, [], c[3],
+				[], c[4], {}, false, false, [], hero, 4242)
+		var record: Dictionary = JSON.parse_string(JSON.stringify(result["replay"]))
+		var out: Dictionary = CombatSim.new().replay(record)
+		var label: String = "%s vs %s" % [c[0], c[1]]
+		TestHarness.assert_eq(int(out["failed_index"]), -1, "%s: every command applies (%s)" % [label, out["reason"]])
+		TestHarness.assert_eq(out["digest_text"], result["digest_text"], "%s: same end state" % label)
+		TestHarness.assert_true((record["command_log"] as Array).size() > 10, "%s: log has the fight's commands" % label)
 
 ## Pull a preset deck by id. Returns a typed Array[String] of card ids.
 static func _deck(preset_id: String) -> Array[String]:

@@ -928,11 +928,11 @@ func _pick_default_trap_env_target():
 	var traps: Array[TrapCardData] = st.traps_of(opp)
 	var runes: Array = traps.filter(func(t) -> bool: return (t as TrapCardData).is_rune)
 	if not runes.is_empty():
-		return st.rng_pick(runes)
+		return agent.decision_pick(runes)
 	if st.environment_of(opp) != null:
 		return st.environment_of(opp)
 	if not traps.is_empty():
-		return st.rng_pick(traps)
+		return agent.decision_pick(traps)
 	return null
 
 # ---------------------------------------------------------------------------

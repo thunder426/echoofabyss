@@ -21,6 +21,173 @@ const MAX_TURNS := 60
 ## Optional per-turn snapshot callback forwarded to SimState. Set before run().
 var turn_snapshot_callback: Callable = Callable()
 
+## Sim replay (plan 2A.8): when set, run() returns result["replay"] =
+## {seed, config, command_log, digest}; with dump_replay_path it also writes
+## that as JSON (the last run wins). ReplayRunner.tscn plays one back.
+var record_replay: bool = false
+var dump_replay_path: String = ""
+
+## A fight's inputs as plain data — with the seed, everything a replay needs.
+static func make_config(player_deck_ids: Array[String], enemy_profile_id: String,
+		enemy_deck_ids: Array[String], player_hp: int, enemy_hp: int,
+		player_talents: Array[String], player_profile_id: String,
+		player_hero_passives: Array[String], player_relic_ids: Array[String],
+		relic_bonus_charges: Dictionary, enemy_limited: Array[String],
+		player_hero_id: String) -> Dictionary:
+	return {
+		"player_deck": player_deck_ids.duplicate(), "enemy_profile": enemy_profile_id,
+		"enemy_deck": enemy_deck_ids.duplicate(), "player_hp": player_hp, "enemy_hp": enemy_hp,
+		"talents": player_talents.duplicate(), "player_profile": player_profile_id,
+		"hero_passives": player_hero_passives.duplicate(), "relics": player_relic_ids.duplicate(),
+		"relic_bonus_charges": relic_bonus_charges.duplicate(), "enemy_limited": enemy_limited.duplicate(),
+		"hero_id": player_hero_id,
+	}
+
+## Build and wire a SimState for `config`: seed, decks, heroes, triggers, one
+## StateAgent + profile per side, growth hooks, relics. Combat not yet started.
+## Returns {state, p_profile}. JSON-loaded configs work (numbers may be floats).
+func _build(config: Dictionary, rng_seed: int, dmg_log: bool = false, debug: bool = false) -> Dictionary:
+	var state := SimState.new()
+	state.seed_rng(rng_seed)
+	state.dmg_log_enabled = dmg_log
+	state.debug_log_enabled = debug
+	state.enemy_limited_cards.assign(config["enemy_limited"])
+	# Talents must be set BEFORE setup() so deck construction inside setup()
+	# can apply talent_overrides via _card_for(). Same flow as live combat where
+	# CombatScene assigns state.talents prior to building the deck.
+	state.talents.assign(config["talents"])
+	state.hero_passives.assign(config["hero_passives"])
+	state.player_hero_id = config["hero_id"]
+	var enemy_profile_id: String = config["enemy_profile"]
+	# The encounter this profile plays (EncounterTable) sets the enemy passives.
+	state.enemy_passives.assign(EncounterTable.passives_for_profile(enemy_profile_id))
+	state.enemy_ai_profile = enemy_profile_id
+	# Each sim run gets a clean override cache (different talent sets across batches).
+	CardDatabase.clear_override_cache()
+	var p_deck: Array[String] = []
+	p_deck.assign(config["player_deck"])
+	var e_deck: Array[String] = []
+	e_deck.assign(config["enemy_deck"])
+	var enemy_hp: int = int(config["enemy_hp"])
+	state.setup(p_deck, e_deck, int(config["player_hp"]), enemy_hp)
+	state.enemy_hp_max = enemy_hp
+
+	# One StateAgent per side — every action is a state command (plan 2A.5).
+	var p_agent := StateAgent.new()
+	p_agent.setup(state, "player")
+	var e_agent := StateAgent.new()
+	e_agent.setup(state, "enemy")
+
+	var trigger_setup := SimTriggerSetup.new()
+	trigger_setup.setup(state)
+
+	var p_profile: CombatProfile = ProfileRegistry.make("player", config["player_profile"])
+	p_profile.setup(p_agent)
+	var e_profile: CombatProfile = ProfileRegistry.make("enemy", enemy_profile_id)
+	e_profile.setup(e_agent)
+	# Store on state so the F15 phase-transition can swap it mid-run.
+	state._e_profile = e_profile
+	state._e_profile_factory = _make_profile_factory(e_agent, state)
+	# Resource growth: each side's profile, run by state.begin_turn (plan 2A.4).
+	# The enemy hook reads state._e_profile so the F15 swap carries over.
+	state.growth_hooks["player"] = func(side: String, turn: int) -> void:
+		p_profile.grow_resources(state, side, turn)
+	state.growth_hooks["enemy"] = func(side: String, turn: int) -> void:
+		state._e_profile.grow_resources(state, side, turn)
+
+	var relic_ids: Array[String] = []
+	relic_ids.assign(config["relics"])
+	if not relic_ids.is_empty():
+		var bonus: Dictionary = {}
+		for k in (config["relic_bonus_charges"] as Dictionary):
+			bonus[k] = int(config["relic_bonus_charges"][k])
+		state.relic_runtime = RelicRuntime.new()
+		state.relic_runtime.setup(relic_ids, bonus)
+	return {"state": state, "p_profile": p_profile}
+
+## Play a recorded fight back: build the same state from its config and seed,
+## start combat and apply the command log. Profiles are built only for their
+## resource curves — they make no decisions. Returns {winner, digest_text,
+## digest, failed_index (-1 = all applied), failed_command, reason}.
+func replay(record: Dictionary) -> Dictionary:
+	var built: Dictionary = _build(record["config"], int(record["seed"]))
+	var state: SimState = built["state"]
+	state.start_combat()
+	var log: Array = record["command_log"]
+	var failed: int = -1
+	var reason: String = ""
+	for i in log.size():
+		var r: CommandResult = apply_logged_command(state, log[i])
+		if not r.ok:
+			failed = i
+			reason = r.reason
+			break
+	var text: String = state.digest_text()
+	var out: Dictionary = {
+		"winner": state.winner if not state.winner.is_empty() else "draw",
+		"digest_text": text, "digest": text.hash(),
+		"failed_index": failed, "failed_command": log[failed] if failed >= 0 else {}, "reason": reason,
+	}
+	state.teardown()
+	MinionInstance.corruption_inverts_on_friendly_demons = false
+	return out
+
+## Re-issue one command_log entry against `state` (targets and spark fuel by slot).
+static func apply_logged_command(state: CombatState, rec: Dictionary) -> CommandResult:
+	var side: String = rec["side"]
+	var slot: int = int(rec["slot"])
+	var target: Variant = _decode_target(state, rec.get("target"))
+	var extra: Dictionary = (rec.get("extra", {}) as Dictionary).duplicate()
+	if extra.has("spark_fuel"):
+		var fuel: Array = []
+		for s in extra["spark_fuel"]:
+			fuel.append(state._friendly_slots(side)[int(s)].minion)
+		extra["spark_fuel"] = fuel
+	if extra.has("sparks_prepaid"):
+		extra["sparks_prepaid"] = int(extra["sparks_prepaid"])
+	var inst: CardInstance = null
+	var hand_index: int = int(rec.get("hand_index", -1))
+	if hand_index >= 0:
+		var hand: Array[CardInstance] = state.hand_of(side)
+		if hand_index >= hand.size() or hand[hand_index].card_data.id != rec["card_id"]:
+			return CommandResult.refused("replay_hand_mismatch")
+		inst = hand[hand_index]
+	var minion_at_slot: MinionInstance = null
+	if slot >= 0 and slot < state._friendly_slots(side).size():
+		minion_at_slot = (state._friendly_slots(side)[slot] as BoardSlot).minion
+	match rec["cmd"]:
+		"play_minion":      return state.cmd_play_minion(side, inst, slot, target, extra)
+		"play_spell":       return state.cmd_play_spell(side, inst, target, extra)
+		"play_trap":        return state.cmd_play_trap(side, inst)
+		"play_environment": return state.cmd_play_environment(side, inst)
+		"attack":           return state.cmd_attack(side, minion_at_slot, target)
+		"attack_hero":      return state.cmd_attack_hero(side, minion_at_slot)
+		"consume_minion":   return state.cmd_consume_minion(side, minion_at_slot)
+		"activate_relic":   return state.cmd_activate_relic(slot, target)
+		"hero_skill":       return state.cmd_hero_skill(side, extra.get("skill", ""), target)
+		"end_turn":         return state.cmd_end_turn(side, extra.get("growth", ""))
+	return CommandResult.refused("replay_unknown_command")
+
+static func _decode_target(state: CombatState, t: Variant) -> Variant:
+	if t == null or not (t is Dictionary):
+		return null
+	var d: Dictionary = t
+	var side: String = d.get("side", "")
+	var slot: int = int(d.get("slot", -1))
+	match d.get("kind", ""):
+		"minion":
+			if slot >= 0 and slot < state._friendly_slots(side).size():
+				return (state._friendly_slots(side)[slot] as BoardSlot).minion
+		"hero":
+			return "%s_hero" % side
+		"trap":
+			var traps: Array[TrapCardData] = state.traps_of(side)
+			if slot >= 0 and slot < traps.size():
+				return traps[slot]
+		"env":
+			return state.environment_of(side)
+	return null
+
 # ---------------------------------------------------------------------------
 # Run a single simulation
 # ---------------------------------------------------------------------------
@@ -49,64 +216,26 @@ func run(
 		player_hero_id: String = "lord_vael",
 		rng_seed: int = -1) -> Dictionary:
 
-	var state := SimState.new()
-	# Engine RNG — seeded before setup() shuffles the decks. A negative seed rolls
-	# a fresh one; either way it's returned as result["seed"] so any run can be
-	# reproduced by passing it back in.
+	# Engine RNG — a negative seed rolls a fresh one; either way it's returned as
+	# result["seed"] so any run can be reproduced by passing it back in.
 	if rng_seed < 0:
 		rng_seed = randi() & 0x7FFFFFFF  # lint: allow-rng (seed roll)
-	state.seed_rng(rng_seed)
-	state.dmg_log_enabled = dmg_log
+	var config: Dictionary = make_config(player_deck_ids, enemy_profile_id, enemy_deck_ids,
+			player_hp, enemy_hp, player_talents, player_profile_id, player_hero_passives,
+			player_relic_ids, relic_bonus_charges, enemy_limited, player_hero_id)
+	var built: Dictionary = _build(config, rng_seed, dmg_log, debug)
+	var state: SimState = built["state"]
+	var p_profile: CombatProfile = built["p_profile"]
+	var e_profile: CombatProfile = state._e_profile
 	if turn_snapshot_callback.is_valid():
 		state.turn_snapshot_callback = turn_snapshot_callback
-	state.debug_log_enabled = debug
-	state.enemy_limited_cards = enemy_limited
-	# Talents must be set BEFORE setup() so deck construction inside setup()
-	# can apply talent_overrides via _card_for(). Same flow as live combat where
-	# CombatScene assigns state.talents prior to building the deck.
-	state.talents = player_talents
-	state.hero_passives = player_hero_passives
-	state.player_hero_id = player_hero_id
-	# The encounter this profile plays (EncounterTable) sets the enemy passives.
-	state.enemy_passives.assign(EncounterTable.passives_for_profile(enemy_profile_id))
-	state.enemy_ai_profile = enemy_profile_id
-	# Each sim run gets a clean override cache (different talent sets across batches).
-	CardDatabase.clear_override_cache()
-	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
-	state.enemy_hp_max = enemy_hp
-
-	# One StateAgent per side — every action is a state command (plan 2A.5).
-	var p_agent := StateAgent.new()
-	p_agent.setup(state, "player")
-	var e_agent := StateAgent.new()
-	e_agent.setup(state, "enemy")
-
-	var trigger_setup := SimTriggerSetup.new()
-	trigger_setup.setup(state)
-
-	# Build profiles
-	var p_profile: CombatProfile = ProfileRegistry.make("player", player_profile_id)
-	p_profile.setup(p_agent)
-
-	var e_profile: CombatProfile = ProfileRegistry.make("enemy", enemy_profile_id)
-	e_profile.setup(e_agent)
-	# Store on state so the F15 phase-transition can swap it mid-run.
-	state._e_profile = e_profile
-	state._e_profile_factory = _make_profile_factory(e_agent, state)
-	# Resource growth: each side's profile, run by state.begin_turn (plan 2A.4).
-	# The enemy hook reads state._e_profile so the F15 swap carries over.
-	state.growth_hooks["player"] = func(side: String, turn: int) -> void:
-		p_profile.grow_resources(state, side, turn)
-	state.growth_hooks["enemy"] = func(side: String, turn: int) -> void:
-		state._e_profile.grow_resources(state, side, turn)
-
-	# Relic system
-	if not player_relic_ids.is_empty():
-		state.relic_runtime = RelicRuntime.new()
-		state.relic_runtime.setup(player_relic_ids, relic_bonus_charges)
+		# Snapshot at the end of each enemy turn (before the player's next begins).
+		state.turn_ended.connect(func(side: String) -> void:
+			if side == "enemy":
+				state.turn_snapshot_callback.call(state, state.turn_number))
 
 	# Both sides open at 1/1; the player's first turn begins (shared turn engine,
-	# plan 2A.3). Each side's turn then ends with cmd_end_turn / end_turn.
+	# plan 2A.3). Each side's turn then ends with cmd_end_turn.
 	state.start_combat()
 
 	# Run the loop
@@ -161,12 +290,9 @@ func run(
 		await e_profile.attack_phase()
 		if state.debug_log_enabled:
 			print("  P_HP after attacks: %d  E_HP: %d" % [state.player_hp, state.enemy_hp])
-		state.end_turn("enemy")
-		if state.turn_snapshot_callback.is_valid():
-			state.turn_snapshot_callback.call(state, turn)
+		state.cmd_end_turn("enemy")  # also begins the player's next turn
 		if not state.winner.is_empty() or turn >= MAX_TURNS:
 			break
-		state.begin_turn("player")
 
 	# Count Behemoth/Bastion still alive on enemy board as "survived"
 	for m: MinionInstance in state.enemy_board:
@@ -176,6 +302,14 @@ func run(
 			state._vw_bastion_lost["survived"] += 1
 	# Snapshot before teardown drops references.
 	var digest_text: String = state.digest_text()
+	var replay: Dictionary = {}
+	if record_replay or not dump_replay_path.is_empty():
+		replay = {"seed": rng_seed, "config": config, "command_log": state.command_log.duplicate(true), "digest": digest_text.hash()}
+		if not dump_replay_path.is_empty():
+			var f := FileAccess.open(dump_replay_path, FileAccess.WRITE)
+			if f != null:
+				f.store_string(JSON.stringify(replay, "\t"))
+				f.close()
 	# Disconnect global-bus subscriptions so this sim's callable doesn't fire for the next run.
 	state.teardown()
 	# Also reset Seris globals so they don't bleed into the next sim invocation.
@@ -187,6 +321,7 @@ func run(
 		"seed":         rng_seed,
 		"digest":       digest_text.hash(),
 		"digest_text":  digest_text,
+		"replay":       replay,
 		"turns":        turn,
 		"player_hp":    state.player_hp,
 		"enemy_hp":     state.enemy_hp,
