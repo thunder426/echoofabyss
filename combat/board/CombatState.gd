@@ -375,10 +375,11 @@ func _register_env_rituals(env: EnvironmentCardData) -> void:
 		trigger_manager.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h, 5)
 
 ## Run the outgoing environment's on_replace_effect_steps (e.g. strip its
-## persistent buffs) when a new environment replaces it.
-func _unregister_env_aura(env: EnvironmentCardData) -> void:
+## persistent buffs) when a new environment replaces it. `owner` is the side
+## whose environment is leaving.
+func _unregister_env_aura(env: EnvironmentCardData, owner: String = "player") -> void:
 	if not env.on_replace_effect_steps.is_empty():
-		EffectResolver.run(env.on_replace_effect_steps, EffectContext.make(_get_scene_facade(), "player"))
+		EffectResolver.run(env.on_replace_effect_steps, EffectContext.make(_get_scene_facade(), owner))
 
 ## Unregister all environment-ritual handlers (when env is replaced/cleared).
 func _unregister_env_rituals() -> void:
@@ -514,17 +515,23 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 ## The trigger fire (ON_PLAYER_SPELL_CAST) is left to the caller since live
 ## combat fires it at different points per callsite (inside resolve_damage for
 ## AoE; after VFX completes for targeted) — preserving existing timing.
-func cast_player_targeted_spell(spell: SpellCardData, target: MinionInstance, extra_cast_data: Dictionary = {}) -> void:
+## `target` is a MinionInstance, null, or a non-minion object (a TrapCardData /
+## EnvironmentCardData for Cyclone), which goes to ctx.chosen_object.
+func cast_player_targeted_spell(spell: SpellCardData, target, extra_cast_data: Dictionary = {}) -> void:
+	var minion_target: MinionInstance = target if target is MinionInstance else null
 	_pre_player_spell_cast(spell)
 	if not spell.effect_steps.is_empty():
 		var ctx := EffectContext.make(_get_scene_facade(), "player")
-		ctx.chosen_target = target
+		if target is MinionInstance or target == null:
+			ctx.chosen_target = minion_target
+		else:
+			ctx.chosen_object = target
 		ctx.source_card_id = spell.id
 		ctx.extra_cast_data = extra_cast_data
 		EffectResolver.run(spell.effect_steps, ctx)
 	else:
-		_resolve_spell_effect(spell.effect_id, target)
-	_post_player_spell_cast(spell, target)
+		_resolve_spell_effect(spell.effect_id, minion_target)
+	_post_player_spell_cast(spell, minion_target)
 
 ## Compose a player hero-targeted spell cast (the spell hits the enemy hero
 ## directly). Bypasses EffectResolver: damage is summed from DAMAGE_MINION
@@ -1045,10 +1052,11 @@ func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = nul
 ## Void Amplification / Void Resonance) are player-only and not invoked here.
 ## The trigger ON_ENEMY_SPELL_CAST fires before this method (Null Seal can
 ## cancel via _spell_cancelled; caller short-circuits in that case).
-func cast_enemy_spell(spell: SpellCardData, chosen) -> void:
+func cast_enemy_spell(spell: SpellCardData, chosen, extra_cast_data: Dictionary = {}) -> void:
 	if not spell.effect_steps.is_empty():
 		var ectx := EffectContext.make(_get_scene_facade(), "enemy")
 		ectx.source_card_id = spell.id
+		ectx.extra_cast_data = extra_cast_data
 		if chosen is MinionInstance:
 			ectx.chosen_target = chosen
 		else:
@@ -2242,6 +2250,530 @@ static func _digest_buffs(buffs: Array) -> String:
 		out.append("%d:%d:%s" % [e.type, e.amount, e.source])
 	out.sort()
 	return "[" + ",".join(out) + "]"
+
+# ---------------------------------------------------------------------------
+# Commands (LIVE_SIM_UNIFICATION_PLAN.md 2A.1) — the synchronous way into the
+# rules engine, one set for both sides. Sim and tests drive combat through
+# these; live input moves onto them in Phase 3.4. Every command validates
+# before it mutates (a refused command changes nothing), pays its own costs,
+# and records itself in command_log.
+# ---------------------------------------------------------------------------
+
+## Accepted commands in order: {turn, side, cmd, card_id, hand_index, slot,
+## target, extra}. Targets and spark fuel are recorded by slot / hero sentinel
+## so the log replays against a fresh state built from the same seed.
+var command_log: Array[Dictionary] = []
+
+## Relic effect resolver for cmd_activate_relic — built on first use.
+var relic_effects: RelicEffects = null
+
+## Play a minion from `side`'s hand into slot `slot_index`. `target` is the
+## on-play target (MinionInstance, or a trap/environment for the enemy's
+## non-minion picks). extra.spark_fuel: the minions to consume for a spark cost
+## (default: the engine picks). Event order: place in slot →
+## ON_*_MINION_PLAYED (not yet on the board array, so ALL_FRIENDLY on-play
+## effects skip it) → join the board → minion_summoned → ON_*_MINION_SUMMONED.
+func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target = null, extra: Dictionary = {}) -> CommandResult:
+	var why: String = _check_card_play(side, inst)
+	if why.is_empty() and not (inst.card_data is MinionCardData):
+		why = "wrong_card_type"
+	var slots: Array[BoardSlot] = player_slots if side == "player" else enemy_slots
+	if why.is_empty() and (slot_index < 0 or slot_index >= slots.size()):
+		why = "bad_slot"
+	if why.is_empty() and not slots[slot_index].is_empty():
+		why = "slot_occupied"
+	var cost: Dictionary = {}
+	if why.is_empty():
+		cost = _plan_cost(side, inst, extra)
+		why = cost.get("why", "")
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("play_minion", side, inst, slot_index, target, extra)
+	var mc := inst.card_data as MinionCardData
+	var fp_discount: int = _peek_fiendish_pact_discount(mc) if side == "player" else 0
+	_pay_planned_cost(side, cost)
+	if fp_discount > 0:
+		_log("  Fiendish Pact: %s costs %d less Essence." % [mc.card_name, fp_discount], 1)  # PLAYER
+		_consume_fiendish_pact_discount()
+	var slot: BoardSlot = slots[slot_index]
+	if not slot.is_empty():
+		# A spark-consumed trigger filled the slot while paying — take the next free one.
+		slot = null
+		for s: BoardSlot in slots:
+			if s.is_empty():
+				slot = s
+				break
+		if slot == null:
+			remove_from_hand(side, inst)
+			return CommandResult.accepted("board_full")
+	remove_from_hand(side, inst)
+	_log(("You play: %s" if side == "player" else "Enemy summons: %s") % mc.card_name,
+			1 if side == "player" else 2)  # PLAYER / ENEMY
+	if side == "enemy":
+		if mc.id == "bastion_colossus":
+			_vw_bastion_plays += 1
+		elif mc.id == "void_behemoth":
+			_vw_behemoth_plays += 1
+	var instance := MinionInstance.create(mc, side)
+	instance.card_instance = inst
+	slot.place_minion(instance)
+	if side == "enemy":
+		enemy_play_target = target  # read (and cleared) by the ON_ENEMY_MINION_PLAYED handler
+	if trigger_manager != null:
+		var played_ctx := EventContext.make(
+				Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED if side == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED, side)
+		played_ctx.minion = instance
+		played_ctx.card   = mc
+		if target is MinionInstance:
+			played_ctx.target = target
+		trigger_manager.fire(played_ctx)
+	_friendly_board(side).append(instance)
+	minion_summoned.emit(side, instance, slot.index)
+	if trigger_manager != null:
+		var summon_ctx := EventContext.make(
+				Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if side == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, side)
+		summon_ctx.minion = instance
+		summon_ctx.card   = mc
+		trigger_manager.fire(summon_ctx)
+	return CommandResult.accepted()
+
+## Cast a spell from `side`'s hand. `target`: MinionInstance, "enemy_hero" /
+## "player_hero", a TrapCardData / EnvironmentCardData (Cyclone), or null.
+## extra: pre-resolved cast choices (rally_race) plus optional spark_fuel.
+## ON_*_SPELL_CAST fires before resolution (D8) so a counter / Silence Trap can
+## cancel it; a Phase Disruptor counter stops it before the event.
+func cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dictionary = {}) -> CommandResult:
+	var why: String = _check_card_play(side, inst)
+	if why.is_empty() and not (inst.card_data is SpellCardData):
+		why = "wrong_card_type"
+	if why.is_empty():
+		why = _check_spell_target(inst.card_data as SpellCardData, target)
+	var cost: Dictionary = {}
+	if why.is_empty():
+		cost = _plan_cost(side, inst, extra)
+		why = cost.get("why", "")
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("play_spell", side, inst, -1, target, extra)
+	var spell := inst.card_data as SpellCardData
+	_pay_planned_cost(side, cost)
+	remove_from_hand(side, inst)
+	_log(("You cast: %s" if side == "player" else "Enemy casts: %s") % spell.card_name,
+			1 if side == "player" else 2)  # PLAYER / ENEMY
+	# Phase Disruptor: the opponent countered this side's next spell.
+	if side == "player" and _player_spell_counter > 0:
+		_player_spell_counter -= 1
+		_log("  Spell countered!", 2)  # ENEMY
+		return CommandResult.accepted("countered")
+	if side == "enemy" and _enemy_spell_counter > 0:
+		_enemy_spell_counter -= 1
+		_log("  Spell countered!", 1)  # PLAYER
+		return CommandResult.accepted("countered")
+	if trigger_manager != null:
+		var cast_ctx := EventContext.make(
+				Enums.TriggerEvent.ON_PLAYER_SPELL_CAST if side == "player" else Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, side)
+		cast_ctx.card = spell
+		trigger_manager.fire(cast_ctx)
+	if _spell_cancelled:
+		_spell_cancelled = false
+		return CommandResult.accepted("cancelled")
+	var cast_data: Dictionary = extra.duplicate()
+	cast_data.erase("spark_fuel")
+	if side == "enemy":
+		cast_enemy_spell(spell, target, cast_data)
+	elif target is String and target == "enemy_hero":
+		cast_player_hero_spell(spell)
+	else:
+		cast_player_targeted_spell(spell, target, cast_data)
+	return CommandResult.accepted()
+
+## Set a trap or place a rune from `side`'s hand. Refused when the side's trap
+## slots are full or it already has the same non-rune trap set.
+func cmd_play_trap(side: String, inst: CardInstance) -> CommandResult:
+	var why: String = _check_card_play(side, inst)
+	if why.is_empty() and not (inst.card_data is TrapCardData):
+		why = "wrong_card_type"
+	var traps: Array[TrapCardData] = traps_of(side)
+	if why.is_empty() and traps.size() >= TRAP_SLOTS_MAX:
+		why = "trap_slots_full"
+	if why.is_empty() and not (inst.card_data as TrapCardData).is_rune:
+		for existing: TrapCardData in traps:
+			if not existing.is_rune and existing.id == inst.card_data.id:
+				why = "duplicate_trap"
+				break
+	var cost: Dictionary = {}
+	if why.is_empty():
+		cost = _plan_cost(side, inst, {})
+		why = cost.get("why", "")
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("play_trap", side, inst, -1, null, {})
+	var trap := inst.card_data as TrapCardData
+	_pay_planned_cost(side, cost)
+	remove_from_hand(side, inst)
+	if side == "player":
+		_log(("You place rune: %s" if trap.is_rune else "You set trap: %s") % trap.card_name, 1)  # PLAYER
+	else:
+		_log("Enemy places rune: %s" % trap.card_name if trap.is_rune else "Enemy sets a trap.", 2)  # ENEMY
+	traps.append(trap)
+	_update_trap_display_for(side)
+	if trigger_manager == null:
+		return CommandResult.accepted()
+	var place_ctx := EventContext.make(
+			Enums.TriggerEvent.ON_PLAYER_TRAP_PLACED if side == "player" else Enums.TriggerEvent.ON_ENEMY_TRAP_PLACED, side)
+	place_ctx.card = trap
+	trigger_manager.fire(place_ctx)
+	if trap.is_rune:
+		_apply_rune_aura(trap, side)
+		# Rituals consume the player's runes only.
+		if side == "player":
+			var rune_ctx := EventContext.make(Enums.TriggerEvent.ON_RUNE_PLACED, "player")
+			rune_ctx.card = trap
+			trigger_manager.fire(rune_ctx)
+	return CommandResult.accepted()
+
+## Play an environment from `side`'s hand, replacing the side's current one:
+## the outgoing environment runs its on_replace steps (and, for the player,
+## drops its ritual handlers); the new one registers its rituals (player),
+## fires ON_RITUAL_ENVIRONMENT_PLAYED, then runs on-enter and passive steps.
+func cmd_play_environment(side: String, inst: CardInstance) -> CommandResult:
+	var why: String = _check_card_play(side, inst)
+	if why.is_empty() and not (inst.card_data is EnvironmentCardData):
+		why = "wrong_card_type"
+	var cost: Dictionary = {}
+	if why.is_empty():
+		cost = _plan_cost(side, inst, {})
+		why = cost.get("why", "")
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("play_environment", side, inst, -1, null, {})
+	var env := inst.card_data as EnvironmentCardData
+	_pay_planned_cost(side, cost)
+	remove_from_hand(side, inst)
+	_log(("You play environment: %s" if side == "player" else "Enemy plays environment: %s") % env.card_name,
+			1 if side == "player" else 2)  # PLAYER / ENEMY
+	var prev: EnvironmentCardData = environment_of(side)
+	if prev != null:
+		if side == "player" and trigger_manager != null:
+			_unregister_env_rituals()
+		_unregister_env_aura(prev, side)
+	set_environment(side, env)
+	if side == "player":
+		_update_environment_display()
+		if trigger_manager != null:
+			_register_env_rituals(env)
+			if not env.rituals.is_empty():
+				var env_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, "player")
+				env_ctx.card = env
+				trigger_manager.fire(env_ctx)
+	if not env.on_enter_effect_steps.is_empty():
+		EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(_get_scene_facade(), side))
+	if not env.passive_effect_steps.is_empty():
+		EffectResolver.run(env.passive_effect_steps, EffectContext.make(_get_scene_facade(), side))
+	return CommandResult.accepted()
+
+## `attacker` (on `side`'s board) attacks the opposing minion `target`.
+## Refused unless the attacker can attack and — when the opponent has a Guard
+## up — the target is a Guard (B5: no silent redirect; pick a legal target).
+## Enemy attacks fire ON_ENEMY_ATTACK first; a Smoke Veil there cancels it.
+func cmd_attack(side: String, attacker: MinionInstance, target: MinionInstance) -> CommandResult:
+	var why: String = _check_can_act(side)
+	if why.is_empty() and (attacker == null or not _friendly_board(side).has(attacker)):
+		why = "no_attacker"
+	if why.is_empty() and (target == null or not _opponent_board(side).has(target)):
+		why = "no_target"
+	if why.is_empty() and not attacker.can_attack():
+		why = "cannot_attack"
+	if why.is_empty() and not target.has_guard() \
+			and CombatManager.board_has_taunt(_opponent_board(side)):
+		why = "guard"
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("attack", side, null, attacker.slot_index, target, {})
+	var pre: String = _fire_enemy_attack_declared(side, attacker)
+	if not pre.is_empty():
+		return CommandResult.accepted(pre)
+	if not _opponent_board(side).has(target):
+		return CommandResult.accepted("target_gone")
+	combat_manager.resolve_minion_attack(attacker, target)
+	return CommandResult.accepted()
+
+## `attacker` attacks the opposing hero. Refused unless the attacker can attack
+## the hero (not SWIFT-only) and the opponent has no Guard up.
+func cmd_attack_hero(side: String, attacker: MinionInstance) -> CommandResult:
+	var why: String = _check_can_act(side)
+	if why.is_empty() and (attacker == null or not _friendly_board(side).has(attacker)):
+		why = "no_attacker"
+	if why.is_empty() and not attacker.can_attack_hero():
+		why = "cannot_attack"
+	if why.is_empty() and CombatManager.board_has_taunt(_opponent_board(side)):
+		why = "guard"
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("attack_hero", side, null, attacker.slot_index, "%s_hero" % _opponent_of(side), {})
+	var pre: String = _fire_enemy_attack_declared(side, attacker)
+	if not pre.is_empty():
+		return CommandResult.accepted(pre)
+	if side == "player":
+		_pending_dmg_source = "%s_atk" % attacker.card_data.id
+	combat_manager.resolve_minion_attack_hero(attacker, _opponent_of(side))
+	return CommandResult.accepted()
+
+## Remove a friendly minion as spark fuel: no death, no on-death effects.
+## Fires ON_*_SPARK_CONSUMED when it carried spark value.
+func cmd_consume_minion(side: String, minion: MinionInstance) -> CommandResult:
+	var why: String = _check_can_act(side)
+	if why.is_empty() and (minion == null or not _friendly_board(side).has(minion)):
+		why = "no_minion"
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("consume_minion", side, null, minion.slot_index, null, {})
+	_consume_minion(side, minion)
+	return CommandResult.accepted()
+
+## Activate the player's relic at `index`. Blood Chalice ("relic_execute") needs
+## a target: an enemy MinionInstance or "enemy_hero".
+func cmd_activate_relic(index: int, target = null) -> CommandResult:
+	var why: String = _check_can_act("player")
+	if why.is_empty() and (relic_runtime == null or not relic_runtime.can_activate(index)):
+		why = "unavailable"
+	if why.is_empty() and relic_runtime.get_state(index).data.effect_id == "relic_execute":
+		var on_minion: bool = target is MinionInstance and enemy_board.has(target)
+		var on_hero: bool = target is String and target == "enemy_hero"
+		if not (on_minion or on_hero):
+			why = "no_target"
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("activate_relic", "player", null, index, target, {})
+	var effect_id: String = relic_runtime.activate(index)
+	if effect_id == "relic_execute":
+		var info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice")
+		if target is MinionInstance:
+			var victim: MinionInstance = target
+			_spell_dmg(victim, 500, info)
+			_log("  Relic: Blood Chalice — dealt 500 damage to %s." % victim.card_data.card_name, 1)  # PLAYER
+		else:
+			info["amount"] = 500
+			combat_manager.apply_hero_damage("enemy", info)
+			_log("  Relic: Blood Chalice — dealt 500 damage to enemy hero.", 1)  # PLAYER
+		return CommandResult.accepted()
+	if relic_effects == null:
+		relic_effects = RelicEffects.new()
+		relic_effects.setup(_get_scene_facade())
+	relic_effects.resolve(effect_id)
+	return CommandResult.accepted()
+
+## Hero activated abilities: "seris_corrupt" (target: a friendly minion) and
+## "soul_forge". Refused when the ability isn't available (talent missing,
+## already used this turn, not enough Flesh).
+func cmd_hero_skill(side: String, skill_id: String, target = null) -> CommandResult:
+	var why: String = _check_can_act(side)
+	if why.is_empty() and side != "player":
+		why = "no_skill"
+	if why.is_empty() and skill_id == "seris_corrupt" and not (target is MinionInstance):
+		why = "no_target"
+	if why.is_empty() and not (skill_id in ["seris_corrupt", "soul_forge"]):
+		why = "no_skill"
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	# Both bodies validate before they mutate, so a false return changed nothing.
+	var done: bool = _seris_corrupt_apply(target) if skill_id == "seris_corrupt" else _soul_forge_activate()
+	if not done:
+		return CommandResult.refused("unavailable")
+	_log_command("hero_skill", side, null, -1, target, {"skill": skill_id})
+	return CommandResult.accepted()
+
+# -- Command helpers ---------------------------------------------------------
+
+## "" when `side` may act now, else the refusal reason.
+func _check_can_act(side: String) -> String:
+	if not winner.is_empty() or _combat_ended:
+		return "combat_over"
+	if is_player_turn != (side == "player"):
+		return "not_your_turn"
+	return ""
+
+func _check_card_play(side: String, inst: CardInstance) -> String:
+	var why: String = _check_can_act(side)
+	if why.is_empty() and (inst == null or not hand_of(side).has(inst)):
+		why = "not_in_hand"
+	return why
+
+func _check_spell_target(spell: SpellCardData, target) -> String:
+	if target == null:
+		return "no_target" if spell.requires_target else ""
+	if target is MinionInstance:
+		return "" if (player_board.has(target) or enemy_board.has(target)) else "no_target"
+	return ""
+
+## Essence / Mana a card costs `side` right now, before the Dark Mirror relic.
+func card_cost(side: String, inst: CardInstance) -> Vector2i:
+	var card: CardData = inst.card_data
+	if card is MinionCardData:
+		var mc := card as MinionCardData
+		return Vector2i(minion_essence_cost(side, mc), maxi(0, mc.mana_cost))
+	if card is SpellCardData:
+		return Vector2i(0, spell_cost(side, card as SpellCardData))
+	if card is TrapCardData:
+		return Vector2i(0, inst.effective_cost())
+	return Vector2i(0, maxi(0, card.cost))
+
+## Minion Essence cost: the player's pending Fiendish Pact discount; the enemy's
+## per-card discounts and flat minion aura (F2 corrupted_death, F15 mandate).
+func minion_essence_cost(side: String, mc: MinionCardData) -> int:
+	if side == "player":
+		return maxi(0, mc.essence_cost - _peek_fiendish_pact_discount(mc))
+	var cost: int = mc.essence_cost - (enemy_essence_cost_discounts.get(mc.id, 0) as int)
+	return maxi(0, cost + enemy_minion_essence_cost_aura)
+
+## Spell Mana cost: the player's board discount (mana_cost_discount auras) and
+## spell tax; the enemy's tax, aura and per-card discounts.
+func spell_cost(side: String, spell: SpellCardData) -> int:
+	if side == "player":
+		var discount: int = 0
+		for m: MinionInstance in player_board:
+			discount += (m.card_data as MinionCardData).mana_cost_discount
+		return maxi(0, spell.cost - discount + player_spell_cost_penalty)
+	return maxi(0, spell.cost + enemy_spell_cost_penalty + enemy_spell_cost_aura \
+		- (enemy_spell_cost_discounts.get(spell.id, 0) as int))
+
+## Spark cost after passives: a friendly Void Herald champion zeroes it; enemy
+## encounter passives ritualist_spark_free (spells free), captain_orders
+## (Throne's Command -1) and void_mastery (halved, min 1).
+func spark_cost_of(side: String, card: CardData) -> int:
+	var base: int = card.void_spark_cost
+	if base <= 0:
+		return 0
+	for m: MinionInstance in _friendly_board(side):
+		if m.card_data.id == "champion_void_herald":
+			return 0
+	if side != "enemy":
+		return base
+	if "ritualist_spark_free" in _active_enemy_passives and card is SpellCardData:
+		return 0
+	var cost: int = base
+	if "captain_orders" in _active_enemy_passives and card.id == "thrones_command":
+		cost = maxi(cost - 1, 0)
+	if "void_mastery" in _active_enemy_passives:
+		return maxi(ceili(float(cost) / 2.0), 1)
+	return cost
+
+## Work out how `side` pays for `inst`, without paying. Returns {why} on
+## failure, else {essence, mana, sparks, fuel, auto_sparks}. Spark fuel comes
+## from extra.spark_fuel (caller's pick; any shortfall is paid in Mana under
+## the enemy mana_for_spark passive) or, when absent, the engine's pick
+## (pay_sparks). The Dark Mirror relic discount is applied as pay_card_cost will.
+func _plan_cost(side: String, inst: CardInstance, extra: Dictionary) -> Dictionary:
+	var base: Vector2i = card_cost(side, inst)
+	var sparks: int = spark_cost_of(side, inst.card_data)
+	var fuel: Array[MinionInstance] = []
+	var extra_mana: int = 0
+	var auto_sparks: bool = false
+	if sparks > 0:
+		if extra.has("spark_fuel"):
+			var fuel_value: int = 0
+			for raw in extra["spark_fuel"]:
+				var m: MinionInstance = raw as MinionInstance
+				if m == null or not _friendly_board(side).has(m) or fuel.has(m):
+					return {why = "bad_fuel"}
+				fuel.append(m)
+				fuel_value += m.effective_spark_value(self)
+			if fuel_value < sparks:
+				if side == "enemy" and "mana_for_spark" in _active_enemy_passives:
+					extra_mana = sparks - fuel_value
+				else:
+					return {why = "sparks"}
+		elif can_afford_sparks(side, sparks):
+			auto_sparks = true
+		else:
+			return {why = "sparks"}
+	var ess: int = base.x
+	var mana: int = base.y + extra_mana
+	if side == "player" and _relic_cost_reduction > 0:
+		ess -= mini(_relic_cost_reduction, ess)
+		mana -= mini(_relic_cost_reduction, mana)
+	if not can_afford(side, ess, mana):
+		return {why = "cost"}
+	return {essence = base.x, mana = base.y + extra_mana, sparks = sparks, fuel = fuel, auto_sparks = auto_sparks}
+
+## Pay a cost planned by _plan_cost: spark fuel first, then Essence / Mana.
+func _pay_planned_cost(side: String, cost: Dictionary) -> void:
+	if cost.get("auto_sparks", false):
+		pay_sparks(side, cost["sparks"])
+	else:
+		for m: MinionInstance in cost.get("fuel", []):
+			if _friendly_board(side).has(m):
+				_consume_minion(side, m)
+	pay_card_cost(side, cost.get("essence", 0), cost.get("mana", 0))
+
+## Silent removal as spark fuel (cmd_consume_minion, caller-picked spark fuel).
+func _consume_minion(side: String, minion: MinionInstance) -> void:
+	var spark_val: int = minion.effective_spark_value(self)
+	if minion.card_data.id == "void_behemoth":
+		_vw_behemoth_lost["consumed"] += 1
+	elif minion.card_data.id == "bastion_colossus":
+		_vw_bastion_lost["consumed"] += 1
+	_friendly_board(side).erase(minion)
+	for slot: BoardSlot in _friendly_slots(side):
+		if slot.minion == minion:
+			slot.remove_minion()
+			break
+	_log("  %s consumed as spark fuel." % minion.card_data.card_name, 1 if side == "player" else 2)
+	# Effective value so spirit_resonance-boosted Spirits still count.
+	if spark_val > 0 and trigger_manager != null:
+		var ctx := EventContext.make(
+				Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED if side == "player" else Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED, side)
+		ctx.minion = minion
+		ctx.damage = spark_val
+		trigger_manager.fire(ctx)
+
+## Enemy attacks announce themselves (ON_ENEMY_ATTACK) before resolving so a
+## Smoke Veil can cancel them. Returns "" to proceed, else why it stopped.
+func _fire_enemy_attack_declared(side: String, attacker: MinionInstance) -> String:
+	if side != "enemy" or trigger_manager == null:
+		return ""
+	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
+	ctx.minion = attacker
+	trigger_manager.fire(ctx)
+	if attack_cancelled:
+		attack_cancelled = false
+		return "cancelled"
+	if not enemy_board.has(attacker):
+		return "attacker_gone"
+	return ""
+
+func _log_command(cmd: String, side: String, inst: CardInstance, slot: int, target, extra: Dictionary) -> void:
+	var rec_extra: Dictionary = extra.duplicate()
+	if rec_extra.has("spark_fuel"):
+		var fuel_slots: Array[int] = []
+		for raw in rec_extra["spark_fuel"]:
+			var m: MinionInstance = raw as MinionInstance
+			fuel_slots.append(m.slot_index if m != null else -1)
+		rec_extra["spark_fuel"] = fuel_slots
+	command_log.append({
+		turn = turn_number, side = side, cmd = cmd,
+		card_id = inst.card_data.id if inst != null else "",
+		hand_index = hand_of(side).find(inst) if inst != null else -1,
+		slot = slot, target = _encode_target(target), extra = rec_extra,
+	})
+
+## A command target as plain data: {kind: minion|hero|trap|env, side, slot}.
+func _encode_target(target) -> Variant:
+	if target == null:
+		return null
+	if target is MinionInstance:
+		var m: MinionInstance = target
+		return {kind = "minion", side = m.owner, slot = m.slot_index}
+	if target is String:
+		return {kind = "hero", side = "enemy" if target == "enemy_hero" else "player", slot = -1}
+	if target is TrapCardData:
+		var p_idx: int = active_traps.find(target)
+		if p_idx >= 0:
+			return {kind = "trap", side = "player", slot = p_idx}
+		return {kind = "trap", side = "enemy", slot = enemy_active_traps.find(target)}
+	if target is EnvironmentCardData:
+		return {kind = "env", side = "player" if target == active_environment else "enemy", slot = -1}
+	return {kind = "unknown", side = "", slot = -1}
 
 # ---------------------------------------------------------------------------
 # Sub-systems shared by scene and sim.

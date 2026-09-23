@@ -144,9 +144,6 @@ var attack_cancelled: bool:
 	get: return state.attack_cancelled
 	set(v): state.attack_cancelled = v
 
-## When non-null, Imp Barricade redirects the current attack to this minion.
-var redirect_attack_target: MinionInstance = null
-
 ## Chosen non-minion target for the spell currently being cast (trap or environment).
 ## Set by commit_spell_cast before emitting; read by CombatScene to populate EffectContext.
 var spell_chosen_target = null
@@ -461,14 +458,11 @@ func commit_play_environment(inst: CardInstance) -> bool:
 		await scene.on_play_vfx_done
 	return is_inside_tree()
 
-## Execute a minion-vs-minion attack, handling cancel and redirect.
+## Execute a minion-vs-minion attack, handling cancel.
 ## Returns false if the attack was skipped (cancelled / attacker died) or
 ## the scene tree is gone — the profile should check is_inside_tree() to
 ## distinguish the two cases.
 func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
-	if redirect_attack_target != null:
-		target = redirect_attack_target
-		redirect_attack_target = null
 	# Enforce Guard: if the player board has any Guard minion, the attack must
 	# be directed at one of them, regardless of how the profile chose the target.
 	var guards := CombatManager.get_taunt_minions(player_board)
@@ -487,7 +481,7 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	await _wait_for_death_vfx()
 	return is_inside_tree()
 
-## Execute a minion-vs-hero attack, handling cancel and Imp Barricade redirect.
+## Execute a minion-vs-hero attack, handling cancel.
 ## Returns false if the attack was skipped or the scene tree is gone.
 func do_attack_hero(attacker: MinionInstance) -> bool:
 	# Enforce Guard: cannot attack hero while any player Guard minion is alive.
@@ -497,16 +491,6 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 	if attack_cancelled:
 		attack_cancelled = false
 		return false
-	if redirect_attack_target != null:
-		var barricade := redirect_attack_target
-		redirect_attack_target = null
-		if enemy_board.has(attacker):
-			combat_manager.resolve_minion_attack(attacker, barricade)
-		if not is_inside_tree(): return false
-		await get_tree().create_timer(ACTION_DELAY).timeout
-		if not is_inside_tree(): return false
-		await _wait_for_death_vfx()
-		return is_inside_tree()
 	if not enemy_board.has(attacker):
 		return false
 	combat_manager.resolve_minion_attack_hero(attacker, "player")

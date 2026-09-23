@@ -12,6 +12,7 @@ const CardEffectTestsScript    = preload("res://debug/tests/CardEffectTests.gd")
 const TriggerHandlerTestsScript = preload("res://debug/tests/TriggerHandlerTests.gd")
 const ScenarioTestsScript      = preload("res://debug/tests/ScenarioTests.gd")
 const DamageTypeTestsScript    = preload("res://debug/tests/DamageTypeTests.gd")
+const CommandTestsScript       = preload("res://debug/tests/CommandTests.gd")
 
 func _ready() -> void:
 	_parse_args()
@@ -26,6 +27,7 @@ func _ready() -> void:
 	DamageTypeTestsScript.run_all()
 	CardEffectTestsScript.run_all()
 	TriggerHandlerTestsScript.run_all()
+	CommandTestsScript.run_all()
 	await ScenarioTestsScript.run_all()
 
 	print("\n=== %s ===" % TestHarnessScript.summary())
