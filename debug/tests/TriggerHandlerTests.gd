@@ -89,6 +89,7 @@ static func run_all() -> void:
 	_vrp_aura_sets_spell_cost_aura()
 	_vrp_death_resets_spell_cost_aura()
 	_vrp_summons_exactly_once()
+	_player_turn_end_fires_minion_turn_end_steps()
 	_setup_stats_land_on_state()
 	_vch_summon_at_3_crit_kills()
 	_vch_aura_grows_resources()
@@ -1678,6 +1679,18 @@ static func _setup_stats_land_on_state() -> void:
 		return
 	TestHarness.assert_true(state._armour_doubled_on_knight, "unbreakable → _armour_doubled_on_knight")
 	TestHarness.assert_true(state._path_of_corruption_active, "path_of_corruption → _path_of_corruption_active")
+	state.teardown()
+
+## ON_PLAYER_TURN_END was never fired (live or sim) before task 040 / D7, so
+## on_turn_end_effect_steps on the player side never ran.
+static func _player_turn_end_fires_minion_turn_end_steps() -> void:
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("turn end / end_player_turn runs Altar Thrall's end-of-turn sacrifice", state):
+		return
+	var thrall := TestHarness.spawn_friendly(state, "altar_thrall")
+	TestHarness.assert_true(thrall in state.player_board, "thrall on board before turn end")
+	state.end_player_turn()
+	TestHarness.assert_true(not (thrall in state.player_board), "thrall sacrificed at end of turn")
 	state.teardown()
 
 static func _vrp_aura_sets_spell_cost_aura() -> void:

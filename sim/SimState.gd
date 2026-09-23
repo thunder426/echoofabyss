@@ -565,6 +565,8 @@ func begin_player_turn(turn_number: int) -> void:
 	_unexhaust_board(player_board)
 
 func end_player_turn() -> void:
+	if trigger_manager:
+		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_END, "player"))
 	player_spell_cost_penalty = 0
 	_enemy_traps_blocked = false
 

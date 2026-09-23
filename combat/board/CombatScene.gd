@@ -999,6 +999,14 @@ func _on_turn_ended(is_player_turn: bool) -> void:
 	_enemy_hero_panel.show_attackable(false)
 	selected_attacker = null
 	pending_play_card = null
+	# Turn-end triggers fire before the side's end-of-turn cleanup (same order as
+	# SimState.end_player_turn / end_enemy_turn).
+	if is_player_turn:
+		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_END, "player"))
+	else:
+		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_END, "enemy"))
+	if _combat_ended:
+		return
 	if is_player_turn:
 		# Imp Overload: temp Void Imps summoned this turn expire now
 		for imp in _temp_imps.duplicate():
