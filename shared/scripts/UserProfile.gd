@@ -9,9 +9,15 @@ const SAVE_PATH := "user://profile.json"
 # Public API
 # ---------------------------------------------------------------------------
 
+## Headless tests set this so a scene change inside a test never overwrites the
+## developer's user://profile.json.
+var saving_disabled: bool = false
+
 ## Save the full current state (permanent unlocks + active run if any).
 ## Called automatically by GameManager.go_to_scene().
 func save() -> void:
+	if saving_disabled:
+		return
 	var data: Dictionary = {
 		"permanent_unlocks": GameManager.permanent_unlocks,
 		"run": null,
