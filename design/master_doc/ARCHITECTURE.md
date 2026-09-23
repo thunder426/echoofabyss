@@ -11,7 +11,7 @@ All paths in this doc are relative to `echoofabyss/` (the Godot project root).
 | Card data resource shapes | `shared/resources/{Card,Minion,Spell,Trap,Environment,Ritual}*.gd` |
 | Live combat root | `combat/board/CombatScene.gd` |
 | Pure combat data (shared with sim) | `combat/board/CombatState.gd` |
-| Turn cycle / resources / draw | `combat/board/TurnManager.gd` |
+| Turn cycle / resources / draw | `CombatState.gd` (turn engine: `start_combat`, `begin_turn`, `end_turn`, `cmd_end_turn`); live façade `combat/board/TurnManager.gd` |
 | Attack math, hero damage, healing | `combat/board/CombatManager.gd` |
 | Per-minion runtime state | `combat/board/MinionInstance.gd` |
 | Buffs / debuffs (apply, tick, query) | `combat/board/BuffSystem.gd` |
@@ -71,7 +71,7 @@ Combat is split across three orthogonal layers:
 
 1. **State (rules + data)** — `CombatState.gd`, RefCounted, no Node refs. Holds board, HP, traps, environments, buffs, relic flags + `relic_runtime`, talent state, and both sides' turn counter, resources, decks, hands and graveyards (`hand_of/deck_of/graveyard_of/traps_of(side)`, `draw_cards`, `add_to_hand`, `pay_card_cost`, `pay_sparks`, …). Owns the CombatManager signal handlers (`_on_minion_vanished`, `_on_hero_damaged`, `_on_hero_healed`) and the `CombatHandlers` ref. Emits **all gameplay signals** (hp_changed, minion_summoned, minion_died, damage_dealt, resources_changed, card_drawn, card_generated, traps_changed, environment_changed, flesh_changed, forge_changed, void_marks_changed, combat_log, minion_stats_changed, spell_damage_dealt). Shared between live combat and sim.
 2. **Live shell** — `CombatScene.gd`, Node2D. Composes `CombatState` and is its `presenter`: owns UI nodes, input, animation/VFX gating, and the presenter hooks state calls (`_on_minion_vanished_visual`, `_on_hero_damaged_visual`, …). Still forwards many state fields via property getters (removed in Phase 4). `TurnManager` and `EnemyAI` are façades whose fields forward onto state.
-3. **Headless shell** — `SimState.gd extends CombatState`. No Node tree, `presenter == null`. Only setup, the sim turn engine and the BuffSystem bus bridge (≈200 lines). Used by `CombatSim.gd` to run full matches with no UI for balance testing.
+3. **Headless shell** — `SimState.gd extends CombatState`. No Node tree, `presenter == null`. Only setup, the profile growth overrides (until 2A.4) and the BuffSystem bus bridge — the turn engine is CombatState's. Used by `CombatSim.gd` to run full matches with no UI for balance testing.
 
 Rules code (CombatHandlers, HardcodedEffects, RelicEffects, EffectResolver, Condition/TargetResolver, CombatManager) reaches combat three ways, and only these (lint L3/L4):
 
@@ -109,7 +109,7 @@ These are separate `Node`/class objects, each instantiated once per combat. They
 
 | File | Responsibility |
 |---|---|
-| `combat/board/TurnManager.gd` | Live turn cycle. Façade over CombatState's player side (resources, deck, hand, turn number forward onto state); relays state's player `resources_changed` / `card_drawn` / `card_generated`. Signals: `turn_started`, `turn_ended`, `resources_changed`, `card_drawn`, `card_generated`, `player_turn_cleanup`. |
+| `combat/board/TurnManager.gd` | Live façade over the CombatState turn engine (D5; deleted in Phase 4). Player-side fields forward onto state; `start_combat` builds the deck and calls `state.start_combat()`; `end_player_turn` / `end_enemy_turn` run `state.end_turn` + `begin_turn`. Relays state's `turn_started` / `turn_ended` and player `resources_changed` / `card_drawn` / `card_generated`. |
 | `combat/board/CombatManager.gd` | Resolves attack math, simultaneous strike, hero damage/heal, shield. Signals: `attack_resolved`, `minion_vanished`, `hero_damaged`, `hero_healed`. No visuals. |
 | `combat/board/MinionInstance.gd` | Per-board-slot RefCounted (HP, ATK, buffs, attack count, states EXHAUSTED/SWIFT/NORMAL). All stat changes go through `BuffSystem`. `card_data` is never mutated. |
 | `combat/board/BuffSystem.gd` | Static helpers for apply/remove/query buffs. Lazy-inits a buff signal bus. Reads buff entries off `MinionInstance.buffs`. |
@@ -253,8 +253,7 @@ Used for balance testing — no UI, no scene tree, no animations.
 | File | Role |
 |---|---|
 | `sim/CombatSim.gd` | Entry point. `run(deck, profile_id, …)` → win/loss + diagnostic counters. |
-| `sim/SimState.gd` | Extends `CombatState`: setup, the sim turn engine (`begin/end_*_turn`, replaced by the shared engine in 2A.3), BuffSystem bus bridge. No gameplay rules (lint L5). |
-| `sim/SimTurnManager.gd` | Façade over CombatState's player side (deleted in 2A.3). |
+| `sim/SimState.gd` | Extends `CombatState`: setup, the profiles' growth overrides wired into `growth_hooks` (2A.4 replaces them), BuffSystem bus bridge. No gameplay rules (lint L5). |
 | `sim/SimPlayerAgent.gd`, `sim/SimEnemyAgent.gd` | Per-side action runners. Use the same `CombatProfile` subclasses as live combat. |
 | `sim/SimTriggerSetup.gd` | Creates the TriggerManager + handlers and the BuffSystem bus bridge, then delegates every registration (trap routes first — `CombatState.TRAP_ROUTES` — then always-on, talents, passives) to `CombatSetup.setup()`, exactly as live does. |
 

@@ -454,14 +454,10 @@ static func _runic_blast_distinct_targets() -> void:
 # ---------------------------------------------------------------------------
 
 static func _runic_echo_own_runes_only() -> void:
-	# KNOWN BUG: HardcodedEffects._runic_echo calls _add_to_owner_hand → SimState
-	# calls turn_manager.add_instance_to_hand(inst), which doesn't exist on
-	# SimTurnManager (only add_to_hand(CardData) does). Copy silently drops.
-	# Probe asserts the intended behavior (hand +1) and will fail until either
-	# add_instance_to_hand is added to SimTurnManager, or _runic_echo is rewritten
-	# to use the existing API.
+	# Copies only the caster's own runes into hand (fixed in plan 1.3, when hand
+	# adds moved onto CombatState.add_to_hand).
 	var state := TestHarness.build_state({})
-	if not TestHarness.begin_test("runic_echo / copies own runes only (KNOWN BUG: sim path drops the copy)", state):
+	if not TestHarness.begin_test("runic_echo / copies own runes only", state):
 		return
 	var own_rune := CardDatabase.get_card("soul_rune") as TrapCardData
 	var enemy_rune := CardDatabase.get_card("dominion_rune") as TrapCardData

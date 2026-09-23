@@ -578,7 +578,7 @@ static func _relic_phantom_deck() -> void:
 		return
 	var imp := CardDatabase.get_card("void_imp")
 	for i in 3:
-		state.turn_manager.add_to_hand(imp)
+		state.add_to_hand("player", imp)
 	var before := state.player_hand.size()
 	var fx := RelicEffects.new()
 	fx.setup(state)
@@ -1699,11 +1699,11 @@ static func _setup_stats_land_on_state() -> void:
 ## on_turn_end_effect_steps on the player side never ran.
 static func _player_turn_end_fires_minion_turn_end_steps() -> void:
 	var state := TestHarness.build_state()
-	if not TestHarness.begin_test("turn end / end_player_turn runs Altar Thrall's end-of-turn sacrifice", state):
+	if not TestHarness.begin_test("turn end / end_turn(player) runs Altar Thrall's end-of-turn sacrifice", state):
 		return
 	var thrall := TestHarness.spawn_friendly(state, "altar_thrall")
 	TestHarness.assert_true(thrall in state.player_board, "thrall on board before turn end")
-	state.end_player_turn()
+	state.end_turn("player")
 	TestHarness.assert_true(not (thrall in state.player_board), "thrall sacrificed at end of turn")
 	state.teardown()
 
@@ -3324,11 +3324,10 @@ static func _state_turn_flag_drives_turn_conditions() -> void:
 	if not TestHarness.begin_test("state / is_player_turn follows the sim turn flow", state):
 		return
 	var ctx := EffectContext.make(state, "player")
-	state.begin_player_turn(1)
+	state.start_combat()
 	TestHarness.assert_true(state.is_player_turn, "player turn → is_player_turn")
 	TestHarness.assert_true(ConditionResolver.check("player_turn", ctx, null), "player_turn condition true")
-	state.end_player_turn()
-	state.begin_enemy_turn(1)
+	state.cmd_end_turn("player")
 	TestHarness.assert_true(not state.is_player_turn, "enemy turn → not is_player_turn")
 	TestHarness.assert_true(ConditionResolver.check("enemy_turn", ctx, null), "enemy_turn condition true")
 	state.teardown()

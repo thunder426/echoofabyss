@@ -26,6 +26,10 @@ static func run_all() -> void:
 	_activate_relic()
 	_hero_skill()
 	_command_log_records_targets_by_slot()
+	_turn_start_order_player()
+	_turn_start_order_enemy()
+	_end_turn_growth_applies_next_turn()
+	_turn_start_expires_temp_buffs()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -444,4 +448,89 @@ static func _command_log_records_targets_by_slot() -> void:
 	state.cmd_attack_hero("player", imp2)
 	rec = state.command_log[state.command_log.size() - 1]
 	TestHarness.assert_eq(rec.get("target"), {kind = "hero", side = "enemy", slot = -1}, "hero sentinel")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Turn engine (plan 2A.3)
+# ---------------------------------------------------------------------------
+
+static func _turn_start_order_player() -> void:
+	var state := TestHarness.build_state({"player_deck": ["void_imp", "void_imp", "void_imp", "void_imp", "void_imp", "void_imp"]})
+	if not TestHarness.begin_test("turn engine / player turn start: refill, draw, ready, then ON_PLAYER_TURN_START (D2)", state):
+		return
+	var imp := TestHarness.spawn_friendly(state, "void_imp")
+	imp.state = Enums.MinionState.EXHAUSTED
+	state._relic_cost_reduction = 2
+	var seen: Dictionary = {}
+	state.trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START, func(_ctx: EventContext) -> void:
+		seen["hand"] = state.player_hand.size()
+		seen["essence"] = state.player_essence
+		seen["ready"] = imp.state == Enums.MinionState.NORMAL
+		seen["mirror"] = state._relic_cost_reduction, -1)
+	var hand_before := state.player_hand.size()
+	state.start_combat()
+	TestHarness.assert_eq(state.turn_number, 1, "turn 1")
+	TestHarness.assert_eq(seen.get("hand"), hand_before + 1, "event saw the drawn card")
+	TestHarness.assert_eq(seen.get("essence"), 1, "event saw refilled Essence")
+	TestHarness.assert_eq(seen.get("ready"), true, "event saw the board readied")
+	TestHarness.assert_eq(seen.get("mirror"), 0, "Dark Mirror discount expired")
+	state.teardown()
+
+static func _turn_start_order_enemy() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("turn engine / enemy turn start: growth, refill, drain, draw, ready, then event (D9)", state):
+		return
+	state.start_combat()
+	state.cmd_end_turn("player")   # enemy turn 1: no growth
+	TestHarness.assert_eq(state.enemy_essence_max + state.enemy_mana_max, 2, "no growth on the enemy's first turn")
+	state.end_turn("enemy")
+	state.begin_turn("player")
+	var brute := TestHarness.spawn_enemy(state, "abyssal_brute")
+	brute.state = Enums.MinionState.EXHAUSTED
+	state._enemy_void_mana_drain_pending = true
+	var seen: Dictionary = {}
+	state.trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START, func(_ctx: EventContext) -> void:
+		seen["max"] = state.enemy_essence_max + state.enemy_mana_max
+		seen["essence"] = state.enemy_essence
+		seen["mana"] = state.enemy_mana
+		seen["hand"] = state.enemy_hand.size()
+		seen["ready"] = brute.state == Enums.MinionState.NORMAL, -1)
+	var hand_before := state.enemy_hand.size()
+	state.cmd_end_turn("player")   # enemy turn 2
+	TestHarness.assert_eq(seen.get("max"), 3, "grew before the event")
+	TestHarness.assert_eq(seen.get("essence"), state.enemy_essence_max, "refilled before the event")
+	TestHarness.assert_eq(seen.get("mana"), 0, "Void Rift Lord drain before the event")
+	TestHarness.assert_eq(seen.get("hand"), mini(hand_before + 1, CombatState.HAND_MAX), "drew before the event")
+	TestHarness.assert_eq(seen.get("ready"), true, "board readied before the event")
+	state.teardown()
+
+static func _end_turn_growth_applies_next_turn() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("turn engine / end-turn growth pick applies at the next player turn (D10)", state):
+		return
+	state.growth_hooks.erase("player")  # live: the player grows only by their pick
+	state.start_combat()
+	TestHarness.assert_true(state.cmd_end_turn("player", "essence").ok, "end turn with a pick")
+	TestHarness.assert_eq(state.player_essence_max, 1, "not grown during the enemy turn")
+	TestHarness.assert_eq(state.last_player_growth, "essence", "pick recorded at once (Abyssal Mandate)")
+	state.cmd_end_turn("enemy")
+	TestHarness.assert_eq(state.player_essence_max, 2, "grown at the player's turn start")
+	TestHarness.assert_eq(state.player_essence, 2, "and refilled")
+	TestHarness.assert_true(state.cmd_end_turn("player").ok, "end turn with no pick")
+	state.cmd_end_turn("enemy")
+	TestHarness.assert_eq(state.player_essence_max + state.player_mana_max, 3, "no pick → no growth")
+	var before := _snap(state)
+	_assert_refused(state, state.cmd_end_turn("enemy"), "not_your_turn", before, "off-turn end")
+	state.teardown()
+
+static func _turn_start_expires_temp_buffs() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("turn engine / a side's temp buffs expire at its turn start", state):
+		return
+	var imp := TestHarness.spawn_friendly(state, "void_imp")
+	var atk := imp.effective_atk()
+	BuffSystem.apply(imp, Enums.BuffType.TEMP_ATK, 200, "probe", true, false)
+	TestHarness.assert_eq(imp.effective_atk(), atk + 200, "temp buff applied")
+	state.start_combat()
+	TestHarness.assert_eq(imp.effective_atk(), atk, "expired at the player's turn start")
 	state.teardown()

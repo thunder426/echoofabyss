@@ -1,7 +1,7 @@
 ## SimState.gd
-## Headless simulation shell over CombatState: setup, the sim turn engine, the
-## profile hooks CombatSim needs, and the BuffSystem bus bridge. All gameplay
-## rules live on CombatState (plan 1.4 — lint L5 keeps it that way).
+## Headless simulation shell over CombatState: setup, the profile hooks
+## CombatSim needs, and the BuffSystem bus bridge. All gameplay rules — the turn
+## engine included (plan 2A.3) — live on CombatState (lint L5 keeps it that way).
 ## No scene tree, no timers, no UI.
 ##
 ## CombatSim creates one of these, builds two CombatAgents on top of it,
@@ -65,8 +65,19 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	damage_dealt.connect(_capture_damage_for_dmg_log)
 	combat_log.connect(_print_debug_log)
 
-	turn_manager = SimTurnManager.new()
-	turn_manager.setup(self)
+	# Resource growth at turn start: the profiles' curves (setup_resource_growth
+	# writes the overrides), else the default — plan 2A.4 moves these onto
+	# CombatProfile.grow_resources.
+	growth_hooks["player"] = func(side: String, turn: int) -> void:
+		if player_growth_override.is_valid():
+			player_growth_override.call(turn)
+		else:
+			_default_growth(side, turn)
+	growth_hooks["enemy"] = func(side: String, turn: int) -> void:
+		if enemy_growth_override.is_valid():
+			enemy_growth_override.call(turn)
+		else:
+			_default_growth(side, turn)
 
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
@@ -112,88 +123,10 @@ func teardown() -> void:
 	_buff_bus_callable = Callable()
 
 # ---------------------------------------------------------------------------
-# Turn helpers — called by CombatSim (the shared turn engine replaces these in 2A.3)
+# Resource-growth overrides — set by CombatProfile.setup_resource_growth,
+# called through growth_hooks (plan 2A.4 replaces both).
 # ---------------------------------------------------------------------------
 
-## Optional override set by a CombatProfile to replace the default resource-growth logic.
 ## Signature: func(turn_number: int) -> void
 var player_growth_override: Callable = Callable()
 var enemy_growth_override: Callable = Callable()
-
-func begin_player_turn(turn: int) -> void:
-	turn_number = turn
-	is_player_turn = true
-	if player_growth_override.is_valid():
-		player_growth_override.call(turn)
-	else:
-		_grow_player_resources(turn)
-	player_essence = player_essence_max
-	player_mana    = player_mana_max
-	player_spell_cost_penalty = _spell_tax_for_player_turn
-	_spell_tax_for_player_turn = 0
-	if _void_mana_drain_pending:
-		_void_mana_drain_pending = false
-		player_mana = 0
-	for inst in player_hand:
-		inst.reset_deltas()
-	_fiendish_pact_pending = 0
-	_once_per_turn_used.clear()
-	if trigger_manager != null:
-		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
-	draw_cards("player", 1)
-	_unexhaust_board(player_board)
-
-func end_player_turn() -> void:
-	if trigger_manager:
-		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_END, "player"))
-	player_spell_cost_penalty = 0
-	_enemy_traps_blocked = false
-
-func begin_enemy_turn(turn: int) -> void:
-	is_player_turn = false
-	if enemy_growth_override.is_valid():
-		enemy_growth_override.call(turn)
-	else:
-		_grow_enemy_resources(turn)
-	enemy_essence = enemy_essence_max
-	enemy_mana    = enemy_mana_max
-	if _enemy_void_mana_drain_pending:
-		_enemy_void_mana_drain_pending = false
-		enemy_mana = 0
-	enemy_spell_cost_penalty = _spell_tax_for_enemy_turn
-	_spell_tax_for_enemy_turn = 0
-	_enemy_fiendish_pact_pending = 0
-	if trigger_manager != null:
-		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START))
-	draw_cards("enemy", 1)
-	_unexhaust_board(enemy_board)
-
-func end_enemy_turn() -> void:
-	# Fire ON_ENEMY_TURN_END before cleanup (void_unraveling spark transfer)
-	if trigger_manager:
-		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_END, "enemy")
-		trigger_manager.fire(ctx)
-	enemy_spell_cost_penalty = 0
-	_player_traps_blocked = false
-
-func _grow_player_resources(turn: int) -> void:
-	if turn <= 1: return
-	if player_essence_max + player_mana_max >= COMBINED_RESOURCE_CAP: return
-	if player_mana_max < player_essence_max - 2:
-		player_mana_max += 1
-		last_player_growth = "mana"
-	else:
-		player_essence_max += 1
-		last_player_growth = "essence"
-
-func _grow_enemy_resources(turn: int) -> void:
-	if turn <= 1: return
-	if enemy_essence_max + enemy_mana_max >= COMBINED_RESOURCE_CAP: return
-	if enemy_mana_max < enemy_essence_max - 2:
-		enemy_mana_max += 1
-	else:
-		enemy_essence_max += 1
-
-func _unexhaust_board(board: Array[MinionInstance]) -> void:
-	for minion in board:
-		minion.on_turn_start()

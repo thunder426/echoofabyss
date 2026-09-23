@@ -46,6 +46,13 @@ func _f1_enemy_turn_completes() -> void:
 		"F1: enemy turn completed and turn 2 began (turn=%d, player_turn=%s)" % [tm.turn_number, tm.is_player_turn])
 	if tm.turn_number == 2:
 		print("LiveSmoke: enemy turn completed")
+	# Shared turn engine (plan 2A.3): the pick applies at the next turn start (D10);
+	# the enemy opens at 1/1 and doesn't grow on its first turn.
+	var st: CombatState = scene.state
+	_check(st.player_essence_max == 2 and st.player_mana_max == 1,
+		"F1: Essence pick applied on turn 2 (%d/%d)" % [st.player_essence_max, st.player_mana_max])
+	_check(st.enemy_essence_max == 1 and st.enemy_mana_max == 1,
+		"F1: enemy at 1/1 after its first turn (%d/%d)" % [st.enemy_essence_max, st.enemy_mana_max])
 	await _teardown(scene)
 
 ## F13: Void Ritualist Prime's champion counter (bug B1 — crashed live on every

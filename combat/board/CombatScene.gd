@@ -242,9 +242,6 @@ var _relic_hero_immune: bool:
 var _relic_cost_reduction: int:
 	get: return state._relic_cost_reduction
 	set(v): state._relic_cost_reduction = v
-var _relic_extra_turn: bool:
-	get: return state._relic_extra_turn
-	set(v): state._relic_extra_turn = v
 
 # Live boards
 var player_board: Array[MinionInstance]:
@@ -865,10 +862,9 @@ func _setup_enemy_ai() -> void:
 		enemy_deck = GameManager.current_enemy.deck
 		enemy_ai.ai_profile = GameManager.current_enemy.ai_profile
 	enemy_ai.scene = self
-	# Enemy starts at 1 Essence / 1 Mana (grows from its second turn, EnemyAI.run_turn).
-	state.enemy_essence_max = 1
-	state.enemy_mana_max = 1
-	state.refill_resources("enemy")
+	# Enemy resource growth runs inside state.begin_turn("enemy"); the opening
+	# 1 Essence / 1 Mana is set by state.start_combat.
+	state.growth_hooks["enemy"] = enemy_ai.grow_at_turn_start
 	if GameManager.current_enemy != null:
 		enemy_ai._limited_cards = GameManager.current_enemy.limited_cards
 	enemy_ai.setup_deck(enemy_deck)
@@ -946,9 +942,9 @@ func _on_enemy_trap_slot_hover(idx: int) -> void:
 # Turn events
 # ---------------------------------------------------------------------------
 
+## UI half of a turn start — the state's begin_turn already ran the gameplay
+## (growth, refill, draw, resets, ON_*_TURN_START). Kicks off the enemy's turn.
 func _on_turn_started(is_player_turn: bool) -> void:
-	var who := "Player" if is_player_turn else "Enemy"
-	_log("── Turn %d  %s ──" % [turn_manager.turn_number, who], _LogType.TURN)
 	if end_turn_essence_button:
 		end_turn_essence_button.disabled = not is_player_turn
 	if end_turn_mana_button:
@@ -968,68 +964,24 @@ func _on_turn_started(is_player_turn: bool) -> void:
 	# Refresh all slot visuals — clears Exhausted badges and any stale occupied states
 	for slot in player_slots + enemy_slots:
 		slot._refresh_visuals()
-	# Fire turn-start events — all effects are handled by registered listeners in _setup_triggers().
 	if is_player_turn:
-		player_spell_cost_penalty = _spell_tax_for_player_turn
-		_spell_tax_for_player_turn = 0
-		if _void_mana_drain_pending:
-			_void_mana_drain_pending = false
-			turn_manager.mana = 0
-			turn_manager.resources_changed.emit(
-				turn_manager.essence, turn_manager.essence_max,
-				turn_manager.mana, turn_manager.mana_max)
-			_log("  Void Rift Lord: your Mana has been drained to 0!", _LogType.ENEMY)
-		_relic_hero_immune = false
-		_relic_cost_reduction = 0
-		for inst in turn_manager.player_hand:
-			inst.reset_deltas()
-		_fiendish_pact_pending = 0
-		_once_per_turn_used.clear()
 		_refresh_hand_spell_costs()
-		if state.relic_runtime:
-			state.relic_runtime.on_turn_start()
-			if _relic_bar:
-				_relic_bar.refresh()
-		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
-	else:
-		enemy_ai.spell_cost_penalty = _spell_tax_for_enemy_turn
-		_spell_tax_for_enemy_turn = 0
-		state._enemy_fiendish_pact_pending = 0
-		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START))
-		await get_tree().create_timer(0.4).timeout
-		if not is_inside_tree():
-			return
-		enemy_ai.run_turn()
-		# run_turn() grows resources and refills them synchronously before its
-		# first await, so this panel refresh sees the correct post-growth values.
-		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
+		if _relic_bar:
+			_relic_bar.refresh()
+		return
+	if _combat_ended:
+		return
+	await get_tree().create_timer(0.4).timeout
+	if not is_inside_tree() or _combat_ended:
+		return
+	enemy_ai.run_turn()
 
-func _on_turn_ended(is_player_turn: bool) -> void:
+## UI half of a turn end — the state's end_turn fired ON_*_TURN_END and cleaned up.
+func _on_turn_ended(_is_player_turn: bool) -> void:
 	_clear_all_highlights()
 	_enemy_hero_panel.show_attackable(false)
 	selected_attacker = null
 	pending_play_card = null
-	# Turn-end triggers fire before the side's end-of-turn cleanup (same order as
-	# SimState.end_player_turn / end_enemy_turn).
-	if is_player_turn:
-		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_END, "player"))
-	else:
-		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_END, "enemy"))
-	if _combat_ended:
-		return
-	if is_player_turn:
-		# Clear player spell cost penalty after player turn ends
-		player_spell_cost_penalty = 0
-		_enemy_traps_blocked = false
-		# Void Hourglass: take another player turn instead of passing to enemy
-		if _relic_extra_turn:
-			_relic_extra_turn = false
-			_log("  Void Hourglass: extra turn!", _LogType.PLAYER)
-			turn_manager.start_player_turn()
-	else:
-		# Clear enemy spell cost penalty after their turn ends
-		enemy_ai.spell_cost_penalty = 0
-		_player_traps_blocked = false
 
 ## Resource pip / label refresh delegated to combat_ui.
 func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
@@ -1076,14 +1028,9 @@ func _do_end_turn(growth: String = "") -> void:
 	if not turn_manager.is_player_turn:
 		return
 	_end_turn_in_progress = true
-	# Apply resource growth immediately — the player picked it, the pip should
-	# reflect that choice while spell VFX completes.
-	if growth == "essence":
-		turn_manager.grow_essence_max()
-		last_player_growth = "essence"
-	elif growth == "mana":
-		turn_manager.grow_mana_max()
-		last_player_growth = "mana"
+	# Record the growth pick now; the state applies it when the player's next
+	# turn begins (D10).
+	state.choose_player_growth(growth)
 	# Drain any in-flight on-play VFX or death animations before relinquishing
 	# the turn. Spell VFX no longer gates here — P4B mutates state before the
 	# spell's projectile flight, so kills land regardless of when end-turn

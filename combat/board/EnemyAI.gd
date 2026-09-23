@@ -227,20 +227,11 @@ func draw_cards(count: int) -> void:
 # Entry point
 # ---------------------------------------------------------------------------
 
+## The enemy's actions. Growth, refill, the Void Rift Lord drain and the draw
+## already ran in state.begin_turn("enemy").
 func run_turn() -> void:
 	if _active_profile == null:
 		_setup_profile()
-	if _first_turn:
-		_first_turn = false
-	else:
-		_choose_resource_growth()
-	essence = essence_max
-	mana    = mana_max
-	if state._enemy_void_mana_drain_pending:
-		state._enemy_void_mana_drain_pending = false
-		mana = 0
-		scene._log("  Void Rift Lord: enemy Mana has been drained to 0!", scene._LogType.PLAYER)
-	_draw_cards(1)
 	await _active_profile.play_phase()
 	if not is_inside_tree(): return
 	# Brief pause between the play phase and attack phase so that Swift-minion
@@ -265,6 +256,16 @@ func _setup_profile() -> void:
 # ---------------------------------------------------------------------------
 # Private — resource growth
 # ---------------------------------------------------------------------------
+
+## state.growth_hooks["enemy"] — run by state.begin_turn("enemy"): no growth on
+## the enemy's first turn, then the profile's override or the default curve.
+func grow_at_turn_start(_side: String, _turn: int) -> void:
+	if _active_profile == null:
+		_setup_profile()
+	if _first_turn:
+		_first_turn = false
+		return
+	_choose_resource_growth()
 
 func _choose_resource_growth() -> void:
 	if essence_max + mana_max >= COMBINED_RESOURCE_CAP:

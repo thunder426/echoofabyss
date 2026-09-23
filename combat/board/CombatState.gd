@@ -1754,7 +1754,6 @@ var relic_runtime: RelicRuntime = null
 
 var _relic_hero_immune: bool = false   ## Bone Shield: ignore damage this turn
 var _relic_cost_reduction: int = 0     ## Dark Mirror: reduce next card cost
-var _relic_extra_turn: bool = false    ## Void Hourglass: take extra turn
 
 # ---------------------------------------------------------------------------
 # Crit + Dark Channeling
@@ -2285,6 +2284,138 @@ static func _digest_buffs(buffs: Array) -> String:
 	return "[" + ",".join(out) + "]"
 
 # ---------------------------------------------------------------------------
+# Turn engine (LIVE_SIM_UNIFICATION_PLAN.md 2A.3) — one turn flow for both
+# shells. Live's TurnManager is a façade that calls these and relays
+# turn_started / turn_ended to the UI (which kicks off the live enemy turn);
+# CombatSim reaches them through cmd_end_turn. No awaits: draw animations hang
+# off card_drawn.
+# ---------------------------------------------------------------------------
+
+## A side's turn has begun — after its start-of-turn event resolved.
+signal turn_started(side: String, turn: int)
+## A side's turn has ended — after its end-of-turn event and cleanup.
+signal turn_ended(side: String)
+
+## Per-side resource growth run at that side's turn start:
+## Callable(side: String, turn: int) -> void. Without a hook the enemy grows by
+## the default curve and the player grows only by its end-of-turn choice.
+var growth_hooks: Dictionary = {}
+## The player's end-of-turn growth pick ("essence" / "mana"), applied when their
+## next turn begins (D10).
+var _pending_player_growth: String = ""
+
+## Begin combat: both sides at 1 Essence / 1 Mana max (written to the backing
+## fields — not a growth choice), then the player's first turn. Opening hands
+## come from deck setup (enemy 5) and the shell (player 3).
+func start_combat() -> void:
+	turn_number = 0
+	_player_essence_max = 1
+	_player_mana_max = 1
+	enemy_essence_max = 1
+	enemy_mana_max = 1
+	refill_resources("enemy")
+	begin_turn("player")
+
+## Start `side`'s turn. Player (D2, live's order): growth → refill → draw 1 →
+## ready the board → spell tax, Void Rift Lord drain, relic / per-turn resets →
+## ON_PLAYER_TURN_START. Enemy (D9, mirrored): growth → refill → spell tax →
+## drain → draw 1 → ready the board → ON_ENEMY_TURN_START.
+func begin_turn(side: String) -> void:
+	is_player_turn = side == "player"
+	if side == "player":
+		turn_number += 1
+	_log("── Turn %d  %s ──" % [turn_number, "Player" if side == "player" else "Enemy"], 0)  # TURN
+	_grow_resources(side)
+	refill_resources(side)
+	if side == "player":
+		draw_cards("player", 1)
+		_ready_board(player_board)
+		player_spell_cost_penalty = _spell_tax_for_player_turn
+		_spell_tax_for_player_turn = 0
+		if _void_mana_drain_pending:
+			_void_mana_drain_pending = false
+			player_mana = 0
+			_log("  Void Rift Lord: your Mana has been drained to 0!", 2)  # ENEMY
+		_relic_hero_immune = false
+		_relic_cost_reduction = 0
+		for inst: CardInstance in player_hand:
+			inst.reset_deltas()
+		_fiendish_pact_pending = 0
+		_once_per_turn_used.clear()
+		if relic_runtime != null:
+			relic_runtime.on_turn_start()
+	else:
+		enemy_spell_cost_penalty = _spell_tax_for_enemy_turn
+		_spell_tax_for_enemy_turn = 0
+		_enemy_fiendish_pact_pending = 0
+		if _enemy_void_mana_drain_pending:
+			_enemy_void_mana_drain_pending = false
+			enemy_mana = 0
+			_log("  Void Rift Lord: enemy Mana has been drained to 0!", 1)  # PLAYER
+		draw_cards("enemy", 1)
+		_ready_board(enemy_board)
+	emit_resources(side)
+	if trigger_manager != null:
+		trigger_manager.fire(EventContext.make(
+				Enums.TriggerEvent.ON_PLAYER_TURN_START if side == "player" else Enums.TriggerEvent.ON_ENEMY_TURN_START, side))
+	turn_started.emit(side, turn_number)
+
+## End `side`'s turn: ON_*_TURN_END, then (unless combat ended) clear that
+## turn's spell tax and the opponent's trap block.
+func end_turn(side: String) -> void:
+	if trigger_manager != null:
+		trigger_manager.fire(EventContext.make(
+				Enums.TriggerEvent.ON_PLAYER_TURN_END if side == "player" else Enums.TriggerEvent.ON_ENEMY_TURN_END, side))
+	if winner.is_empty() and not _combat_ended:
+		if side == "player":
+			player_spell_cost_penalty = 0
+			_enemy_traps_blocked = false
+		else:
+			enemy_spell_cost_penalty = 0
+			_player_traps_blocked = false
+	turn_ended.emit(side)
+
+## Record the player's end-of-turn growth pick: applied at their next turn
+## start (D10), but recorded as the latest choice now (F15 Abyssal Mandate reads
+## it during the enemy turn that follows).
+func choose_player_growth(growth: String) -> void:
+	if growth != "essence" and growth != "mana":
+		return
+	_pending_player_growth = growth
+	last_player_growth = growth
+
+func _grow_resources(side: String) -> void:
+	if side == "player" and not _pending_player_growth.is_empty():
+		if _pending_player_growth == "essence":
+			grow_essence_max("player")
+		else:
+			grow_mana_max("player")
+		_pending_player_growth = ""
+		return
+	var hook: Callable = growth_hooks.get(side, Callable())
+	if hook.is_valid():
+		hook.call(side, turn_number)
+	elif side == "enemy":
+		_default_growth("enemy", turn_number)
+
+## Default curve: none on the first turn; otherwise +1 Mana when it lags
+## Essence by more than 2, else +1 Essence (combined cap applies).
+func _default_growth(side: String, turn: int) -> void:
+	if turn <= 1:
+		return
+	if mana_max_of(side) < essence_max_of(side) - 2:
+		grow_mana_max(side)
+	else:
+		grow_essence_max(side)
+
+## Start-of-turn upkeep for a side's minions: exhausted → ready, and buffs that
+## last "this turn" expire.
+func _ready_board(board: Array[MinionInstance]) -> void:
+	for minion: MinionInstance in board:
+		minion.on_turn_start()
+		BuffSystem.expire_temp(minion)
+
+# ---------------------------------------------------------------------------
 # Commands (LIVE_SIM_UNIFICATION_PLAN.md 2A.1) — the synchronous way into the
 # rules engine, one set for both sides. Sim and tests drive combat through
 # these; live input moves onto them in Phase 3.4. Every command validates
@@ -2616,6 +2747,20 @@ func cmd_hero_skill(side: String, skill_id: String, target = null) -> CommandRes
 	_log_command("hero_skill", side, null, -1, target, {"skill": skill_id})
 	return CommandResult.accepted()
 
+## End `side`'s turn and begin the opponent's. `growth` ("essence" / "mana") is
+## the player's resource pick, applied when their next turn starts (D10).
+func cmd_end_turn(side: String, growth: String = "") -> CommandResult:
+	var why: String = _check_can_act(side)
+	if not why.is_empty():
+		return CommandResult.refused(why)
+	_log_command("end_turn", side, null, -1, null, {growth = growth} if not growth.is_empty() else {})
+	if side == "player":
+		choose_player_growth(growth)
+	end_turn(side)
+	if winner.is_empty() and not _combat_ended:
+		begin_turn(_opponent_of(side))
+	return CommandResult.accepted()
+
 # -- Command helpers ---------------------------------------------------------
 
 ## "" when `side` may act now, else the refusal reason.
@@ -2818,7 +2963,7 @@ func _encode_target(target) -> Variant:
 var trigger_manager: TriggerManager = null
 
 ## Turn-manager: live combat assigns the scene-tree TurnManager (Node), sim a
-## SimTurnManager. Both are façades over the turn/resource/deck fields above;
+## nothing (null). The façade forwards the turn/resource/deck fields above;
 ## rules code uses those directly (lint L3). Untyped so either fits.
 var turn_manager = null
 

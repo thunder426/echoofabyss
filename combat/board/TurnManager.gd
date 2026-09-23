@@ -1,7 +1,8 @@
 ## TurnManager.gd
-## Manages the turn cycle, resource growth, and phase transitions.
-## Attach this as a Node child of the CombatScene.
-## CombatScene listens to its signals to update UI and trigger AI.
+## Live façade over the CombatState turn engine (LIVE_SIM_UNIFICATION_PLAN.md
+## 2A.3, D5 — deleted in Phase 4). Forwards the player-side turn / resource /
+## deck fields and relays state's turn and resource signals to the UI;
+## CombatScene listens to them to update UI and kick off the enemy turn.
 class_name TurnManager
 extends Node
 
@@ -15,7 +16,7 @@ signal turn_started(is_player_turn: bool)
 ## Fired at the end of a turn.
 signal turn_ended(is_player_turn: bool)
 
-## Fired whenever resources change so the UI can update its display.
+## Fired whenever the player's resources change so the UI can update its display.
 signal resources_changed(essence: int, essence_max: int, mana: int, mana_max: int)
 
 ## Fired when the player draws a card. The scene adds it to the hand display.
@@ -23,9 +24,6 @@ signal card_drawn(card_inst: CardInstance)
 
 ## Fired when a card is generated into the hand (not drawn from deck).
 signal card_generated(card_inst: CardInstance)
-
-## Fired at the start of each player turn to clear per-turn buffs on minions.
-signal player_turn_cleanup(player_board: Array[MinionInstance])
 
 # ---------------------------------------------------------------------------
 # Resource caps
@@ -49,6 +47,8 @@ var state: CombatState = null:
 		state.resources_changed.connect(_on_state_resources_changed)
 		state.card_drawn.connect(_on_state_card_drawn)
 		state.card_generated.connect(_on_state_card_generated)
+		state.turn_started.connect(_on_state_turn_started)
+		state.turn_ended.connect(_on_state_turn_ended)
 
 var is_player_turn: bool:
 	get: return state.is_player_turn
@@ -89,11 +89,18 @@ func _on_state_card_generated(side: String, inst: CardInstance) -> void:
 	if side == "player":
 		card_generated.emit(inst)
 
+func _on_state_turn_started(side: String, _turn: int) -> void:
+	turn_started.emit(side == "player")
+
+func _on_state_turn_ended(side: String) -> void:
+	turn_ended.emit(side == "player")
+
 # ---------------------------------------------------------------------------
 # Combat start
 # ---------------------------------------------------------------------------
 
-## Call this once when the combat scene loads to begin the first turn.
+## Call this once when the combat scene loads: build and shuffle the player's
+## deck, draw the opening 3, then start the first turn.
 func start_combat(deck: Array[CardData]) -> void:
 	state.player_deck.clear()
 	for card in deck:
@@ -101,45 +108,24 @@ func start_combat(deck: Array[CardData]) -> void:
 	state.rng_shuffle(state.player_deck)
 	state.player_hand.clear()
 	state.player_graveyard.clear()
-	state.turn_number = 0
-	# Opening maxima are not a growth choice — write the backing fields so
-	# last_player_growth stays "" until the player actually picks.
-	state._player_essence_max = 1
-	state._player_mana_max = 1
-	# Draw opening hand (3 cards)
 	state.draw_cards("player", 3)
-	begin_player_turn()
+	state.start_combat()
 
 # ---------------------------------------------------------------------------
-# Turn flow
+# Turn flow — the state runs it; turn_started / turn_ended relay to the UI.
 # ---------------------------------------------------------------------------
-
-func begin_player_turn() -> void:
-	state.is_player_turn = true
-	state.turn_number += 1
-	state.refill_resources("player")
-	state.draw_cards("player", 1)
-	_unexhaust_minions(state.player_board)
-	_clear_temp_buffs(state.player_board)
-	player_turn_cleanup.emit(state.player_board)
-	state.emit_resources("player")
-	turn_started.emit(true)
 
 func end_player_turn() -> void:
-	turn_ended.emit(true)
-	begin_enemy_turn()
+	_pass_turn("player")
 
-func begin_enemy_turn() -> void:
-	state.is_player_turn = false
-	_unexhaust_minions(state.enemy_board)
-	_clear_temp_buffs(state.enemy_board)
-	turn_started.emit(false)
-	# The CombatScene / EnemyAI listens to this signal and runs AI logic,
-	# then calls end_enemy_turn() when done.
-
+## Connected to EnemyAI.ai_turn_finished.
 func end_enemy_turn() -> void:
-	turn_ended.emit(false)
-	begin_player_turn()
+	_pass_turn("enemy")
+
+func _pass_turn(side: String) -> void:
+	state.end_turn(side)
+	if state.winner.is_empty() and not state._combat_ended:
+		state.begin_turn(state._opponent_of(side))
 
 # ---------------------------------------------------------------------------
 # Resource management — player side of the CombatState mutators. The ones that
@@ -197,15 +183,3 @@ func add_to_hand(card: CardData) -> void:
 ## Add an existing CardInstance to the player's hand. Burns silently if full.
 func add_instance_to_hand(inst: CardInstance) -> void:
 	state.add_to_hand("player", inst)
-
-# ---------------------------------------------------------------------------
-# Minion helpers
-# ---------------------------------------------------------------------------
-
-func _unexhaust_minions(board: Array[MinionInstance]) -> void:
-	for minion in board:
-		minion.on_turn_start()
-
-func _clear_temp_buffs(board: Array[MinionInstance]) -> void:
-	for minion in board:
-		BuffSystem.expire_temp(minion)

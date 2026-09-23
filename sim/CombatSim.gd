@@ -184,17 +184,13 @@ func run(
 		relic_fx = RelicEffects.new()
 		relic_fx.setup(state)
 
-	# Initialise resources (turn 1 starts at 1/1). The player's opening maxima are
-	# not a growth choice — write the backing fields so last_player_growth stays ""
-	# (same as live's TurnManager.start_combat).
-	state._player_essence_max = 1
-	state._player_mana_max    = 1
-	state.enemy_essence_max  = 1
-	state.enemy_mana_max     = 1
+	# Both sides open at 1/1; the player's first turn begins (shared turn engine,
+	# plan 2A.3). Each side's turn then ends with cmd_end_turn / end_turn.
+	state.start_combat()
 
 	# Run the loop
 	var turn := 0
-	while state.winner.is_empty() and turn < MAX_TURNS:
+	while true:
 		turn += 1
 
 		if state.debug_log_enabled:
@@ -209,12 +205,8 @@ func run(
 			for inst in state.enemy_hand: e_hand.append(inst.card_data.card_name)
 			print("  E_Hand: %s" % ", ".join(e_hand) if not e_hand.is_empty() else "  E_Hand: (empty)")
 
-		# ── Player turn ──────────────────────────────────────────────────────
-		state.begin_player_turn(turn)
-		state._relic_hero_immune = false
-		state._relic_cost_reduction = 0
+		# ── Player turn (already begun) ──────────────────────────────────────
 		if state.relic_runtime:
-			state.relic_runtime.on_turn_start()
 			# Phase 1: Activate draw/imp/guardian relics at turn start (on cooldown)
 			_try_relic_start_of_turn(state.relic_runtime, relic_fx, state)
 			# Phase 1b: Dark Mirror — cost reduction before play phase
@@ -239,21 +231,10 @@ func run(
 		# Phase 3: Bone Shield — after attacks, if enemy threatens lethal
 		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
 			_try_relic_bone_shield(state.relic_runtime, relic_fx, state)
-		state.end_player_turn()
-		# Void Hourglass: extra player turn
-		if state._relic_extra_turn:
-			state._relic_extra_turn = false
-			state.begin_player_turn(turn)
-			state._relic_hero_immune = false
-			state._relic_cost_reduction = 0
-			await p_profile.play_phase()
-			if not state.winner.is_empty(): break
-			await p_profile.attack_phase()
-			state.end_player_turn()
+		state.cmd_end_turn("player")
 		if not state.winner.is_empty(): break
 
-		# ── Enemy turn ───────────────────────────────────────────────────────
-		state.begin_enemy_turn(turn)
+		# ── Enemy turn (begun by the player's cmd_end_turn) ─────────────────
 		if state.debug_log_enabled:
 			print("  -- Enemy play phase --")
 		e_profile = state._e_profile
@@ -268,9 +249,12 @@ func run(
 		await e_profile.attack_phase()
 		if state.debug_log_enabled:
 			print("  P_HP after attacks: %d  E_HP: %d" % [state.player_hp, state.enemy_hp])
-		state.end_enemy_turn()
+		state.end_turn("enemy")
 		if state.turn_snapshot_callback.is_valid():
 			state.turn_snapshot_callback.call(state, turn)
+		if not state.winner.is_empty() or turn >= MAX_TURNS:
+			break
+		state.begin_turn("player")
 
 	# Count Behemoth/Bastion still alive on enemy board as "survived"
 	for m: MinionInstance in state.enemy_board:
