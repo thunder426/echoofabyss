@@ -179,6 +179,12 @@ func grant_boss_unlocks(act_number: int) -> void:
 		if has_talent("corrupt_flesh"):
 			# font_of_the_depths is dual-pooled (vael_piercing_void + seris_corruption); pulled in here for Seris.
 			candidates.append_array(CardDatabase.get_card_ids_in_pools(["seris_corruption"]))
+	elif current_hero == "korrath":
+		# korrath_common is branch-agnostic; branch pools unlock at their T0 talent
+		# (same mapping as RewardScene / ShopScene).
+		candidates.append_array(CardDatabase.get_card_ids_in_pools(["korrath_common"]))
+		if has_talent("iron_formation"):
+			candidates.append_array(CardDatabase.get_card_ids_in_pools(["korrath_iron_vanguard"]))
 
 	# Roll each candidate whose act_gate <= current act and not yet unlocked.
 	last_boss_unlocks.clear()

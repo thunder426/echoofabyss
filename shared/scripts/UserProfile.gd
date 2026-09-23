@@ -126,6 +126,7 @@ func _ensure_default_unlocks() -> void:
 	var support_pools: Array[String] = [
 		"vael_common", "vael_piercing_void", "vael_endless_tide", "vael_rune_master",
 		"seris_common", "seris_fleshcraft", "seris_demon_forge", "seris_corruption",
+		"korrath_common", "korrath_iron_vanguard",
 	]
 	for card_id in CardDatabase.get_card_ids_in_pools(support_pools):
 		var card := CardDatabase.get_card(card_id)
