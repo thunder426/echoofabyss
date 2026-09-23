@@ -16,23 +16,23 @@ Swarm      | none | F2 Corrupted Broodlings   | Win  87.0% | Loss  13.0% | T  5.
 Swarm      | none | F3 Imp Matriarch          | Win  87.0% | Loss  13.0% | T  5.7 | HP +2165 | Champ 0.11 [f3_a]
 Swarm      | none | F3 Imp Matriarch          | Win  85.5% | Loss  14.5% | T  6.8 | HP +2345 | Champ 0.14 [f3_b]
 Swarm      | none | F3 Imp Matriarch          | Win  86.5% | Loss  13.5% | T  6.3 | HP +2361 | Champ 0.14 [f3_c]
-Voidbolt   | none | F1 Rogue Imp Pack         | Win  87.0% | Loss  13.0% | T  5.8 | HP +1376 | Champ 0.21 [f1_a]
+Voidbolt   | none | F1 Rogue Imp Pack         | Win  87.0% | Loss  13.0% | T  5.6 | HP +1376 | Champ 0.21 [f1_a]
              Plg:1.2/1.2 | VB:1.3x/1790dmg | Imp:251
-Voidbolt   | none | F1 Rogue Imp Pack         | Win  85.5% | Loss  14.5% | T  5.7 | HP +1732 | Champ 0.29 [f1_b]
+Voidbolt   | none | F1 Rogue Imp Pack         | Win  85.5% | Loss  14.5% | T  5.5 | HP +1732 | Champ 0.29 [f1_b]
              Plg:1.1/1.2 | VB:1.3x/1791dmg | Imp:250
-Voidbolt   | none | F1 Rogue Imp Pack         | Win  83.5% | Loss  16.5% | T  5.7 | HP +1484 | Champ 0.18 [f1_c]
+Voidbolt   | none | F1 Rogue Imp Pack         | Win  83.5% | Loss  16.5% | T  5.5 | HP +1484 | Champ 0.18 [f1_c]
              Plg:1.2/1.0 | VB:1.3x/1787dmg | Imp:252
-Voidbolt   | none | F2 Corrupted Broodlings   | Win  93.5% | Loss   6.5% | T  5.9 | HP +1574 | Champ 0.45 [f2_a]
+Voidbolt   | none | F2 Corrupted Broodlings   | Win  93.5% | Loss   6.5% | T  5.6 | HP +1574 | Champ 0.45 [f2_a]
              Plg:1.2/0.1 | VB:1.3x/1850dmg | Imp:257
-Voidbolt   | none | F2 Corrupted Broodlings   | Win  83.5% | Loss  16.5% | T  5.8 | HP +1219 | Champ 0.41 [f2_b]
+Voidbolt   | none | F2 Corrupted Broodlings   | Win  83.5% | Loss  16.5% | T  5.6 | HP +1219 | Champ 0.41 [f2_b]
              Plg:1.2/0.1 | VB:1.3x/1811dmg | Imp:257
-Voidbolt   | none | F2 Corrupted Broodlings   | Win  85.0% | Loss  15.0% | T  5.6 | HP +1381 | Champ 0.34 [f2_c]
+Voidbolt   | none | F2 Corrupted Broodlings   | Win  85.0% | Loss  15.0% | T  5.4 | HP +1381 | Champ 0.34 [f2_c]
              Plg:1.1/0.1 | VB:1.2x/1680dmg | Imp:250
-Voidbolt   | none | F3 Imp Matriarch          | Win  68.5% | Loss  31.5% | T  5.8 | HP +1327 | Champ 0.17 [f3_a]
+Voidbolt   | none | F3 Imp Matriarch          | Win  68.5% | Loss  31.5% | T  5.7 | HP +1327 | Champ 0.17 [f3_a]
              Plg:1.2/0.2 | VB:1.3x/1891dmg | Imp:263
-Voidbolt   | none | F3 Imp Matriarch          | Win  81.5% | Loss  18.5% | T  7.1 | HP +1654 | Champ 0.27 [f3_b]
+Voidbolt   | none | F3 Imp Matriarch          | Win  81.5% | Loss  18.5% | T  6.8 | HP +1654 | Champ 0.27 [f3_b]
              Plg:1.4/0.8 | VB:1.6x/2694dmg | Imp:308
-Voidbolt   | none | F3 Imp Matriarch          | Win  64.0% | Loss  36.0% | T  6.8 | HP +1322 | Champ 0.33 [f3_c]
+Voidbolt   | none | F3 Imp Matriarch          | Win  64.0% | Loss  36.0% | T  6.6 | HP +1322 | Champ 0.33 [f3_c]
              Plg:1.3/1.0 | VB:1.6x/2529dmg | Imp:306
 DeathCircle | none | F1 Rogue Imp Pack         | Win  44.0% | Loss  56.0% | T  5.6 | HP  +585 | Champ 0.45 [f1_a]
              PRit:1.1

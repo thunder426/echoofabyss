@@ -33,6 +33,14 @@ rule set and the phase that introduces each rule.
       func defined on both CombatScene and SimState, and no SimState override of
       a CombatState func. Allowed exceptions live in tools/lint/l5_allow.txt.
 
+  L6  (plan 2A.9) The engine never waits: no `await`, `get_tree(` or
+      `create_timer(` in CombatState.gd.
+
+  L7  (plan 2A.9) One engine, defined once repo-wide: each state command
+      (`func cmd_*`), the turn engine (`begin_turn`, `end_turn`),
+      trap routing (`_fire_traps_for`), and the AI profile table (a script that
+      preloads the enemies/ai/profiles/ scripts — ProfileRegistry).
+
 Rules not yet enforced (see ENFORCED) are still computed; `--all` prints them,
 but they do not count toward the exit code.
 
@@ -70,8 +78,9 @@ SCENE_FILES = [
 SETUP = "combat/events/CombatSetup.gd"
 RULES_FILES = UNDERSCORE_SCENE_FILES + SCENE_FILES
 
-# Rules counted toward the exit code (L3/L4 since plan step 1.2, L5 since 1.6).
-ENFORCED = {"L1", "L2", "L3", "L4", "L5"}
+# Rules counted toward the exit code (L3/L4 since plan step 1.2, L5 since 1.6,
+# L6/L7 since 2A.9).
+ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7"}
 
 # L3: handles that resolve to the combat shell / facade, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
@@ -314,6 +323,41 @@ class Linter:
         for name in sorted((state_f & sim_f) - allow):
             self.err("L5", SIM_STATE, 0, f"{name} overrides a CombatState func")
 
+    # -- L6 ------------------------------------------------------------------
+    def scan_engine_waits(self) -> None:
+        wait_re = re.compile(r"\bawait\b|get_tree\(|create_timer\(")
+        for i, raw in enumerate(read(STATE), start=1):
+            m = wait_re.search(strip_comment(raw))
+            if m:
+                self.err("L6", STATE, i, f"`{m.group(0)}` in the engine — CombatState never waits")
+
+    # -- L7 ------------------------------------------------------------------
+    def scan_single_definitions(self) -> None:
+        func_re = re.compile(r"^\s*(?:static\s+)?func\s+(cmd_\w+|begin_turn|end_turn|_fire_traps_for)\s*\(")
+        seen: dict[str, list[str]] = {}
+        registries: list[str] = []
+        for dirpath, dirs, names in os.walk(ROOT):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("tasks", "addons")]
+            for n in sorted(names):
+                if not n.endswith(".gd"):
+                    continue
+                rel = os.path.relpath(os.path.join(dirpath, n), ROOT)
+                lines = read(rel)
+                for i, raw in enumerate(lines, start=1):
+                    m = func_re.match(raw)
+                    if m:
+                        seen.setdefault(m.group(1), []).append(f"{rel}:{i}")
+                if sum(raw.count('preload("res://enemies/ai/profiles/') for raw in lines) > 3:
+                    registries.append(rel)
+        for name, where in sorted(seen.items()):
+            if len(where) > 1:
+                for loc in where:
+                    rel, line = loc.rsplit(":", 1)
+                    self.err("L7", rel, int(line), f"func {name} defined {len(where)}× repo-wide — keep the one engine body")
+        if len(registries) != 1:
+            self.err("L7", registries[0] if registries else "enemies/ai/ProfileRegistry.gd", 0,
+                     f"AI profile table defined in {len(registries)} scripts ({', '.join(registries) or 'none'}) — keep ProfileRegistry only")
+
     # -- L2 ------------------------------------------------------------------
     def scan_rng(self) -> None:
         files = list(RNG_FILES)
@@ -342,6 +386,8 @@ class Linter:
             self.scan_seam(rel)
         self.scan_presenter_calls(STATE)
         self.scan_pairs()
+        self.scan_engine_waits()
+        self.scan_single_definitions()
         return sum(1 for e in self.errors if e.split(" ", 1)[0] in ENFORCED)
 
 
