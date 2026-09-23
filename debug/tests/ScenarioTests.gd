@@ -43,6 +43,8 @@ static func run_all() -> void:
 	_rune_tempo_player_profile()
 	_spell_burn_profile_fires_smoke_veil()
 	_death_circle_deck_with_environment()
+	await _determinism_same_seed_same_digest()
+	await _determinism_seed_recorded()
 	_seris_fleshcraft_match_to_completion()
 	_multi_match_rng_stability()
 	_voidbolt_burst_vs_void_aberration()
@@ -81,6 +83,41 @@ static func _baseline_swarm_vs_feral_pack() -> void:
 		return
 	var result: Dictionary = await sim.run(deck, "feral_pack")
 	TestHarness.assert_clean_finish(result, "swarm v feral_pack")
+
+# ---------------------------------------------------------------------------
+# Determinism — the engine RNG (CombatState.rng) alone decides a fight. The two
+# runs start from deliberately different GLOBAL seeds, so any gameplay code
+# still drawing from randi()/shuffle() shows up as a digest mismatch (task 040).
+# ---------------------------------------------------------------------------
+
+static func _determinism_same_seed_same_digest() -> void:
+	if not TestHarness.begin_test("determinism / same seed → same fight (global RNG perturbed)", null):
+		return
+	var deck := _deck("swarm")
+	var enemy_deck: Array[String] = EncounterDecks.get_deck("f1_a")
+	TestHarness.assert_false(enemy_deck.is_empty(), "f1_a encounter deck loaded")
+	seed(1)
+	var a: Dictionary = await CombatSim.new().run(deck, "feral_pack", enemy_deck, 3000, 2000, [], "default",
+			[], [], {}, false, false, [], "lord_vael", 12345)
+	seed(987654)
+	var b: Dictionary = await CombatSim.new().run(deck, "feral_pack", enemy_deck, 3000, 2000, [], "default",
+			[], [], {}, false, false, [], "lord_vael", 12345)
+	TestHarness.assert_eq(a.get("winner"), b.get("winner"), "same winner")
+	TestHarness.assert_eq(a.get("turns"), b.get("turns"), "same turn count")
+	TestHarness.assert_eq(a.get("digest"), b.get("digest"), "same final digest")
+	if a.get("digest") != b.get("digest"):
+		print("    --- run A ---\n%s\n    --- run B ---\n%s" % [a.get("digest_text"), b.get("digest_text")])
+
+static func _determinism_seed_recorded() -> void:
+	if not TestHarness.begin_test("determinism / rolled seed is returned and replays the fight", null):
+		return
+	var deck := _deck("swarm")
+	var a: Dictionary = await CombatSim.new().run(deck, "feral_pack")
+	var s: int = a.get("seed", -1)
+	TestHarness.assert_true(s >= 0, "result carries the rolled seed")
+	var b: Dictionary = await CombatSim.new().run(deck, "feral_pack", [], 3000, 2000, [], "default",
+			[], [], {}, false, false, [], "lord_vael", s)
+	TestHarness.assert_eq(a.get("digest"), b.get("digest"), "replaying the seed reproduces the digest")
 
 # ---------------------------------------------------------------------------
 # S2 — Corrupted Brood encounter: chain effects don't cause infinite loops.

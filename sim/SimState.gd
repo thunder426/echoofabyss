@@ -346,6 +346,67 @@ func _on_corruption_removed_bus(target: Object, stacks: int) -> void:
 	ctx.damage = stacks
 	trigger_manager.fire(ctx)
 
+# ---------------------------------------------------------------------------
+# State digest — canonical text snapshot for determinism / parity checks.
+# Lives on SimState until Phase 1.3 hoists hands/decks/resources onto
+# CombatState (LIVE_SIM_UNIFICATION_PLAN.md 0.5); then it moves there.
+# ---------------------------------------------------------------------------
+
+## Stable, newline-separated snapshot of everything gameplay-relevant. Two
+## states with equal digests are the same game position.
+func digest_text() -> String:
+	var lines: PackedStringArray = []
+	lines.append("turn %d winner %s" % [_current_turn, winner])
+	lines.append("hp %d/%d vs %d/%d" % [player_hp, player_hp_max, enemy_hp, enemy_hp_max])
+	lines.append("res P %d/%d %d/%d  E %d/%d %d/%d" % [
+		player_essence, player_essence_max, player_mana, player_mana_max,
+		enemy_essence, enemy_essence_max, enemy_mana, enemy_mana_max])
+	lines.append("marks %d flesh %d/%d forge %d/%d armour %d/%d" % [
+		enemy_void_marks, player_flesh, player_flesh_max, forge_counter, forge_counter_threshold,
+		player_hero.armour, enemy_hero.armour])
+	lines.append("hero_buffs P %s E %s" % [_digest_buffs(player_hero.buffs), _digest_buffs(enemy_hero.buffs)])
+	for side in ["player", "enemy"]:
+		var slots: Array[BoardSlot] = player_slots if side == "player" else enemy_slots
+		for slot: BoardSlot in slots:
+			var m: MinionInstance = slot.minion
+			if m == null:
+				continue
+			lines.append("%s[%d] %s atk %d hp %d arm %d st %d %s" % [
+				side, slot.index, m.card_data.id, m.effective_atk(), m.current_health,
+				m.armour, m.state, _digest_buffs(m.buffs)])
+	lines.append("hand P %s" % ",".join(_digest_ids(player_hand)))
+	lines.append("hand E %s" % ",".join(_digest_ids(enemy_hand)))
+	lines.append("deck %d/%d grave %d/%d" % [player_deck.size(), enemy_deck.size(),
+		player_graveyard.size(), enemy_graveyard.size()])
+	var p_traps: PackedStringArray = []
+	for t: TrapCardData in active_traps:
+		p_traps.append(t.id)
+	var e_traps: PackedStringArray = []
+	for t: TrapCardData in enemy_active_traps:
+		e_traps.append(t.id)
+	lines.append("traps P %s E %s" % [",".join(p_traps), ",".join(e_traps)])
+	lines.append("env P %s E %s" % [
+		active_environment.id if active_environment != null else "-",
+		enemy_active_environment.id if enemy_active_environment != null else "-"])
+	return "\n".join(lines)
+
+func digest() -> int:
+	return digest_text().hash()
+
+static func _digest_ids(cards: Array[CardInstance]) -> PackedStringArray:
+	var out: PackedStringArray = []
+	for inst: CardInstance in cards:
+		out.append(inst.card_data.id)
+	return out
+
+## Buff list as sorted "type:amount:source" tokens (order-insensitive).
+static func _digest_buffs(buffs: Array) -> String:
+	var out: PackedStringArray = []
+	for e: BuffEntry in buffs:
+		out.append("%d:%d:%s" % [e.type, e.amount, e.source])
+	out.sort()
+	return "[" + ",".join(out) + "]"
+
 ## Disconnect global-bus subscriptions and drop references so this sim instance
 ## can be freed cleanly and its callbacks don't leak into the next sim run.
 func teardown() -> void:

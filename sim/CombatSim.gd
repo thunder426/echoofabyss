@@ -277,6 +277,8 @@ func run(
 			state._vw_behemoth_lost["survived"] += 1
 		elif m.card_data.id == "bastion_colossus":
 			state._vw_bastion_lost["survived"] += 1
+	# Snapshot before teardown drops references.
+	var digest_text: String = state.digest_text()
 	# Disconnect global-bus subscriptions so this sim's callable doesn't fire for the next run.
 	state.teardown()
 	# Also reset Seris globals so they don't bleed into the next sim invocation.
@@ -286,6 +288,8 @@ func run(
 	return {
 		"winner":       state.winner if not state.winner.is_empty() else "draw",
 		"seed":         rng_seed,
+		"digest":       digest_text.hash(),
+		"digest_text":  digest_text,
 		"turns":        turn,
 		"player_hp":    state.player_hp,
 		"enemy_hp":     state.enemy_hp,
