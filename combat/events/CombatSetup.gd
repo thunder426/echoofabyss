@@ -11,7 +11,7 @@
 ## Registry entry shape:
 ##   "passive_id": {
 ##       "triggers": [ { "event": TriggerEvent, "method": "handler_name", "priority": int }, ... ],
-##       "stats":    { "scene_field_name": value, ... }   -- applied via scene.set() at setup
+##       "stats":    { "state_field_name": value, ... }   -- applied via scene.state.set() at setup
 ##   }
 class_name CombatSetup
 extends RefCounted
@@ -620,7 +620,7 @@ func _apply(id: String, tm: TriggerManager, h: CombatHandlers, scene: Object) ->
 	for t in entry["triggers"]:
 		tm.register(t["event"], Callable(h, t["method"]), t["priority"])
 	for stat in entry["stats"]:
-		scene.set(stat, entry["stats"][stat])
+		_set_stat(scene, stat, entry["stats"][stat])
 
 ## Public entrypoint for dynamic passive (un)registration — used by the F15
 ## phase transition to swap passives mid-combat without tearing down the whole
@@ -632,7 +632,14 @@ static func apply_passive(id: String, tm: TriggerManager, h: CombatHandlers, sce
 	for t in entry["triggers"]:
 		tm.register(t["event"], Callable(h, t["method"]), t["priority"])
 	for stat in entry["stats"]:
-		scene.set(stat, entry["stats"][stat])
+		_set_stat(scene, stat, entry["stats"][stat])
+
+## Registry stats are CombatState fields. Write through `scene.state` — CombatScene
+## forwards only some of them, and `set()` on an unforwarded name silently no-ops live.
+static func _set_stat(scene: Object, stat: String, value: Variant) -> void:
+	var st: CombatState = scene.state
+	assert(stat in st, "CombatSetup: registry stat '%s' is not a CombatState field" % stat)
+	st.set(stat, value)
 
 static func unapply_passive(id: String, tm: TriggerManager, h: CombatHandlers) -> void:
 	if not _REGISTRY.has(id):

@@ -88,6 +88,8 @@ static func run_all() -> void:
 	_vrp_summon_at_5_enemy_spells()
 	_vrp_aura_sets_spell_cost_aura()
 	_vrp_death_resets_spell_cost_aura()
+	_vrp_summons_exactly_once()
+	_setup_stats_land_on_state()
 	_vch_summon_at_3_crit_kills()
 	_vch_aura_grows_resources()
 	_as_counts_player_cards_played()
@@ -1650,6 +1652,32 @@ static func _vrp_summon_at_5_enemy_spells() -> void:
 		_fire_enemy_spell_cast(state, vb)
 	TestHarness.assert_true(state.get("_champion_vrp_summoned") == true, "champion summoned")
 	TestHarness.assert_eq(state._champion_vrp_spells_cast, 5, "spell count = 5")
+	state.teardown()
+
+static func _vrp_summons_exactly_once() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_void_ritualist_prime"]})
+	if not TestHarness.begin_test("champion_vrp / spells past the threshold do not re-summon", state):
+		return
+	var vb := CardDatabase.get_card("void_bolt")
+	for i in 8:
+		_fire_enemy_spell_cast(state, vb)
+	var champions: int = 0
+	for m: MinionInstance in state.enemy_board:
+		if m.card_data.id == "champion_void_ritualist_prime":
+			champions += 1
+	TestHarness.assert_eq(champions, 1, "exactly one champion on the board")
+	TestHarness.assert_eq(state._champion_summon_count, 1, "summon count = 1")
+	TestHarness.assert_eq(state._champion_vrp_spells_cast, 5, "counter stops at the threshold")
+	state.teardown()
+
+## CombatSetup registry "stats" are CombatState fields and must land on the state
+## (live CombatScene forwards only some of them — task 040, bug B9).
+static func _setup_stats_land_on_state() -> void:
+	var state := TestHarness.build_state({"talents": ["unbreakable", "path_of_corruption"]})
+	if not TestHarness.begin_test("CombatSetup / registry stats are written to CombatState", state):
+		return
+	TestHarness.assert_true(state._armour_doubled_on_knight, "unbreakable → _armour_doubled_on_knight")
+	TestHarness.assert_true(state._path_of_corruption_active, "path_of_corruption → _path_of_corruption_active")
 	state.teardown()
 
 static func _vrp_aura_sets_spell_cost_aura() -> void:

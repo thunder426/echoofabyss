@@ -100,7 +100,7 @@ func _enemy_active_environment() -> EnvironmentCardData:
 	var enemy_ai_obj: Object = _scene.get("enemy_ai")
 	if enemy_ai_obj != null:
 		return enemy_ai_obj.active_environment
-	return _scene.get("enemy_active_environment")
+	return _scene.state.enemy_active_environment
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_SPELL_CAST
@@ -264,7 +264,7 @@ func on_formation_triggered_commanders_reach(ctx: EventContext) -> void:
 			continue
 		if not (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 			continue
-		m.add_armour(50, _scene)
+		m.add_armour(50, _scene.state)
 		_scene._refresh_slot_for(m)
 
 ## Korrath B2 T0 — Runeforge Strike on-attack half. Whenever the Abyssal Knight
@@ -276,7 +276,7 @@ func on_player_attack_runeforge_strike(ctx: EventContext) -> void:
 		return
 	if attacker.card_data.id != "abyssal_knight":
 		return
-	_scene._korrath_place_random_rune()
+	_scene.state._korrath_place_random_rune()
 
 ## Korrath B2 T2 — Path of Demons. When a Demon is summoned on the player side, deal
 ## 50 damage to a random enemy, repeated X times — where X = active rune slots +
@@ -328,7 +328,7 @@ func _korrath_x_count() -> int:
 	for trap in _scene.active_traps:
 		if (trap as TrapCardData).is_rune:
 			rune_slots += 1
-	return rune_slots + _scene._korrath_absorbed_aura_count()
+	return rune_slots + _scene.state._korrath_absorbed_aura_count()
 
 ## Korrath B2 T3 — Grand Ritual: Chaos. Fires on ON_RUNE_PLACED whenever the rune
 ## board reaches 3. Consumes ALL 3 active runes, fires three volatile effects with
@@ -1181,17 +1181,17 @@ func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 ## Human Imp Caller — shared Act 2 passive
 ## When a human is summoned: add a random feral imp to the enemy's hand.
 func on_enemy_turn_reset_feral_reinforcement(_ctx: EventContext) -> void:
-	_scene.set("_imp_caller_fired", false)
+	_scene.state._imp_caller_fired = false
 
 func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
-	if _scene.get("_imp_caller_fired") == true:
+	if _scene.state._imp_caller_fired:
 		return
 	var minion := ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
 	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		return
-	_scene.set("_imp_caller_fired", true)
+	_scene.state._imp_caller_fired = true
 	var feral_imps: Array[CardData] = []
 	for id in CardDatabase.get_all_card_ids():
 		var card: CardData = CardDatabase.get_card(id)
@@ -1222,8 +1222,7 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not _has_tag(minion, "feral_imp"):
 		return
-	var _prev_det = _scene.get("_detonation_count")
-	_scene.set("_detonation_count", (_prev_det if _prev_det != null else 0) + 1)
+	_scene.state._detonation_count += 1
 	_scene._corruption_detonation_times += 1
 
 	var targets: Array = []
@@ -1389,8 +1388,7 @@ func on_enemy_summon_void_unraveling_human(ctx: EventContext) -> void:
 		return
 	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		return
-	var _prev = _scene.get("_spark_spawned_count")
-	_scene.set("_spark_spawned_count", (_prev if _prev != null else 0) + 1)
+	_scene.state._spark_spawned_count += 1
 	_scene._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Void Unraveling: %s summoned → a Void Spark arises!" % minion.card_data.card_name, _LOG_ENEMY)
 
@@ -1421,8 +1419,7 @@ func on_enemy_turn_end_void_unraveling(_ctx: EventContext) -> void:
 	var spark: MinionInstance = sparks[randi() % sparks.size()]
 	if not BuffSystem.has_type(spark, Enums.BuffType.CORRUPTION):
 		_scene._corrupt_minion(spark)
-	var _prev = _scene.get("_spark_transfer_count")
-	_scene.set("_spark_transfer_count", (_prev if _prev != null else 0) + 1)
+	_scene.state._spark_transfer_count += 1
 	if not _transfer_to_player_board(spark):
 		_scene.combat_manager.kill_minion(spark)
 		_log("  Void Unraveling: player board full — Void Spark destroyed.", _LOG_ENEMY)
@@ -1523,8 +1520,7 @@ func on_turn_end_hollow_sentinel(ctx: EventContext) -> void:
 				_scene._refresh_slot_for(m)
 				buffed += 1
 		if buffed > 0:
-			if _scene.get("_hollow_sentinel_buffs") != null:
-				_scene._hollow_sentinel_buffs += 1
+			_scene.state._hollow_sentinel_buffs += 1
 			var side: int = _LOG_ENEMY if entry.owner == "enemy" else _LOG_PLAYER
 			_log("  Hollow Sentinel: %d Void Sparks gain +100 ATK." % buffed, side)
 
@@ -1839,10 +1835,10 @@ const _VRP_THRESHOLD := 5
 const _VRP_PIPS := 5
 
 func on_enemy_spell_champion_vrp(_ctx: EventContext) -> void:
-	if _scene.get("_champion_vrp_summoned"):
+	if _scene.state._champion_vrp_summoned:
 		return
-	_scene._champion_vrp_spells_cast += 1
-	var total: int = _scene._champion_vrp_spells_cast
+	_scene.state._champion_vrp_spells_cast += 1
+	var total: int = _scene.state._champion_vrp_spells_cast
 	var pips: int = mini(total, _VRP_PIPS)
 	_scene._update_champion_progress(pips, _VRP_PIPS)
 	_log("  Champion progress: %d / %d spells cast." % [mini(total, _VRP_THRESHOLD), _VRP_THRESHOLD], _LOG_ENEMY)
@@ -1964,10 +1960,10 @@ const _AS_THRESHOLD := 12
 const _AS_PIPS := 12
 
 func on_player_card_champion_as(_ctx: EventContext) -> void:
-	if _scene.get("_champion_as_summoned"):
+	if _scene.state._champion_as_summoned:
 		return
-	_scene._champion_as_cards_played += 1
-	var total: int = _scene._champion_as_cards_played
+	_scene.state._champion_as_cards_played += 1
+	var total: int = _scene.state._champion_as_cards_played
 	var pips: int = mini(total, _AS_PIPS)
 	_scene._update_champion_progress(pips, _AS_PIPS)
 	_log("  Champion progress: %d / %d cards played." % [mini(total, _AS_THRESHOLD), _AS_THRESHOLD], _LOG_ENEMY)
@@ -2379,6 +2375,27 @@ func on_enemy_died_champion_ch(ctx: EventContext) -> void:
 ## ── Shared champion helpers ─────────────────────────────────────────────────
 
 func _summon_enemy_champion(card_id: String) -> void:
+	# Mark the champion summoned BEFORE any await — a second qualifying event
+	# during the death-anim wait (e.g. an AoE killing several minions) must see
+	# the flag and not queue a second champion.
+	var st: CombatState = _scene.state
+	match card_id:
+		"champion_rogue_imp_pack":       st._champion_rip_summoned = true
+		"champion_corrupted_broodlings": st._champion_cb_summoned = true
+		"champion_imp_matriarch":        st._champion_im_summoned = true
+		"champion_abyss_cultist_patrol": st._champion_acp_summoned = true
+		"champion_void_ritualist":       st._champion_vr_summoned = true
+		"champion_corrupted_handler":    st._champion_ch_summoned = true
+		"champion_rift_stalker":         st._champion_rs_summoned = true
+		"champion_void_aberration":      st._champion_va_summoned = true
+		"champion_void_herald":          st._champion_vh_summoned = true
+		"champion_void_scout":           st._champion_vs_summoned = true
+		"champion_void_warband":         st._champion_vw_summoned = true
+		"champion_void_captain":         st._champion_vc_summoned = true
+		"champion_void_ritualist_prime": st._champion_vrp_summoned = true
+		"champion_void_champion":        st._champion_vch_summoned = true
+		"champion_abyss_sovereign":      st._champion_as_summoned = true
+	st._champion_summon_count += 1
 	# If a minion death animation is in flight (e.g. this summon was triggered by
 	# the 3rd enemy death), wait for it to finish so the champion banner doesn't
 	# overlap the on-death VFX of the minion that triggered it.
@@ -2387,39 +2404,6 @@ func _summon_enemy_champion(card_id: String) -> void:
 		await _scene.death_anims_done
 		if not _scene.is_inside_tree():
 			return
-	match card_id:
-		"champion_rogue_imp_pack":
-			_scene.set("_champion_rip_summoned", true)
-		"champion_corrupted_broodlings":
-			_scene.set("_champion_cb_summoned", true)
-		"champion_imp_matriarch":
-			_scene.set("_champion_im_summoned", true)
-		"champion_abyss_cultist_patrol":
-			_scene.set("_champion_acp_summoned", true)
-		"champion_void_ritualist":
-			_scene.set("_champion_vr_summoned", true)
-		"champion_corrupted_handler":
-			_scene.set("_champion_ch_summoned", true)
-		"champion_rift_stalker":
-			_scene.set("_champion_rs_summoned", true)
-		"champion_void_aberration":
-			_scene.set("_champion_va_summoned", true)
-		"champion_void_herald":
-			_scene.set("_champion_vh_summoned", true)
-		"champion_void_scout":
-			_scene.set("_champion_vs_summoned", true)
-		"champion_void_warband":
-			_scene.set("_champion_vw_summoned", true)
-		"champion_void_captain":
-			_scene.set("_champion_vc_summoned", true)
-		"champion_void_ritualist_prime":
-			_scene.set("_champion_vrp_summoned", true)
-		"champion_void_champion":
-			_scene.set("_champion_vch_summoned", true)
-		"champion_abyss_sovereign":
-			_scene.set("_champion_as_summoned", true)
-	var count: int = _scene.get("_champion_summon_count")
-	_scene.set("_champion_summon_count", count + 1)
 	_scene._summon_token(card_id, "enemy")
 	_log("  ★ %s champion has arrived!" % CardDatabase.get_card(card_id).card_name, _LOG_ENEMY)
 	# Apply aura immediately for Rogue Imp Pack

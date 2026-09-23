@@ -246,8 +246,8 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 	if damage <= 0:
 		return
 	if minion.has_immune():
-		if scene != null and scene.get("_immune_dmg_prevented") != null:
-			scene._immune_dmg_prevented += damage
+		if scene != null:
+			scene.state._immune_dmg_prevented += damage
 		return
 	# Korrath — Armour math gates by school, not source. Only PHYSICAL and NONE
 	# go through armour and Armour Break math; ARCANE and VOID lineage bypass

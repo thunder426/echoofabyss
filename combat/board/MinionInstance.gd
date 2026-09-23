@@ -231,12 +231,12 @@ func has_pierce() -> bool:
 
 ## Korrath — central armour mutator. All armour gains/losses go through this so the
 ## branch-1 T3 Unbreakable "doubled armour gains on Abyssal Knight" check lives in one
-## place. Phase 3 will read scene._armour_doubled_on_knight and double `amount` for
-## abyssal_knight; for now this is a passthrough.
+## place: when `state._armour_doubled_on_knight` is set, positive `amount` is doubled
+## for abyssal_knight. Pass the CombatState (`_scene.state`), not the scene.
 ##
 ## Negative amounts are allowed (e.g. armour stripping); armour floors at 0.
-func add_armour(amount: int, scene: Object = null) -> void:
-	if amount > 0 and scene != null and scene.get("_armour_doubled_on_knight") == true \
+func add_armour(amount: int, state: CombatState = null) -> void:
+	if amount > 0 and state != null and state._armour_doubled_on_knight \
 			and card_data != null and card_data.id == "abyssal_knight":
 		amount *= 2
 	armour = maxi(0, armour + amount)

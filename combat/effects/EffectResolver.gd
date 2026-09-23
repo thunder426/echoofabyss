@@ -342,11 +342,10 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var opponent: String = ctx.scene._opponent_of(ctx.owner)
 				if opponent == "player":
-					ctx.scene.set("_void_mana_drain_pending", true)
+					ctx.scene.state._void_mana_drain_pending = true
 				else:
-					ctx.scene.set("_enemy_void_mana_drain_pending", true)
-				if ctx.scene.get("_rift_lord_plays") != null:
-					ctx.scene._rift_lord_plays += 1
+					ctx.scene.state._enemy_void_mana_drain_pending = true
+				ctx.scene.state._rift_lord_plays += 1
 			return
 
 		EffectStep.EffectType.HARDCODED:
@@ -525,7 +524,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			# Route through add_armour() so Branch 1 T3 Unbreakable's "all armour
 			# gains on the knight are doubled" check stays in one place.
 			if target is MinionInstance:
-				(target as MinionInstance).add_armour(amount, scene)
+				(target as MinionInstance).add_armour(amount, scene.state)
 				scene._refresh_slot_for(target)
 
 		EffectStep.EffectType.APPLY_ARMOUR_BREAK:
@@ -725,7 +724,7 @@ static func _build_damage_info(step: EffectStep, ctx: EffectContext, amount: int
 static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, school: int = Enums.DamageSchool.VOID_CORRUPTION) -> int:
 	if ctx.owner != "player":
 		return base
-	if ctx.scene == null or ctx.scene.get("_path_of_corruption_active") != true:
+	if ctx.scene == null or not ctx.scene.state._path_of_corruption_active:
 		return base
 	if not Enums.has_school(school, Enums.DamageSchool.VOID_CORRUPTION):
 		return base
@@ -752,7 +751,7 @@ static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, s
 static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> void:
 	if ctx.owner != "player":
 		return
-	if ctx.scene == null or ctx.scene.get("_path_of_corruption_active") != true:
+	if ctx.scene == null or not ctx.scene.state._path_of_corruption_active:
 		return
 	if target is MinionInstance:
 		var m: MinionInstance = target
