@@ -209,7 +209,6 @@ var _handlers: CombatHandlers:
 var _hardcoded: HardcodedEffects:
 	get: return state._hardcoded
 	set(v): state._hardcoded = v
-var _relic_runtime: RelicRuntime
 var _relic_effects: RelicEffects
 var _relic_bar: RelicBar
 
@@ -987,8 +986,8 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		_fiendish_pact_pending = 0
 		_once_per_turn_used.clear()
 		_refresh_hand_spell_costs()
-		if _relic_runtime:
-			_relic_runtime.on_turn_start()
+		if state.relic_runtime:
+			state.relic_runtime.on_turn_start()
 			if _relic_bar:
 				_relic_bar.refresh()
 		trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START))
@@ -2343,12 +2342,12 @@ func _setup_relics() -> void:
 	if _relic_bar != null:
 		_relic_bar.queue_free()
 		_relic_bar = null
-	_relic_runtime = RelicRuntime.new()
-	_relic_runtime.setup(GameManager.player_relics, GameManager.relic_bonus_charges)
+	state.relic_runtime = RelicRuntime.new()
+	state.relic_runtime.setup(GameManager.player_relics, GameManager.relic_bonus_charges)
 	_relic_effects = RelicEffects.new()
 	_relic_effects.setup(self)
 
-	if _relic_runtime.relics.is_empty():
+	if state.relic_runtime.relics.is_empty():
 		return
 
 	# Build relic bar UI just below the EndTurnPanel, same width, center-aligned
@@ -2370,7 +2369,7 @@ func _setup_relics() -> void:
 	_relic_bar.add_theme_constant_override("separation", 6)
 	_relic_bar.alignment = BoxContainer.ALIGNMENT_CENTER
 	ui_root.add_child(_relic_bar)
-	_relic_bar.setup(_relic_runtime)
+	_relic_bar.setup(state.relic_runtime)
 	_relic_bar.relic_activated.connect(_on_relic_activated)
 	_relic_bar.relic_hovered.connect(_on_relic_hovered)
 	_relic_bar.relic_unhovered.connect(_on_relic_unhovered)
@@ -2386,7 +2385,7 @@ func _on_relic_unhovered() -> void:
 func _on_relic_activated(index: int) -> void:
 	if not turn_manager.is_player_turn:
 		return
-	var effect_id: String = _relic_runtime.activate(index)
+	var effect_id: String = state.relic_runtime.activate(index)
 	if effect_id == "":
 		return
 	_pip_bar.stop_blink()
@@ -2443,8 +2442,8 @@ func _resolve_relic_target_hero() -> void:
 
 ## Cancel relic targeting — refund the charge and reset state.
 func _cancel_relic_targeting() -> void:
-	if _pending_relic_index >= 0 and _relic_runtime:
-		_relic_runtime.refund(_pending_relic_index)
+	if _pending_relic_index >= 0 and state.relic_runtime:
+		state.relic_runtime.refund(_pending_relic_index)
 		_log("  Relic cancelled — charge refunded.", _LogType.PLAYER)
 	_pending_relic_target = ""
 	_pending_relic_index = -1

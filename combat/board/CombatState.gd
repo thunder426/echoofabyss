@@ -1707,6 +1707,10 @@ var last_player_growth: String = ""
 # Relic state flags (set by relic effects, consumed by combat logic)
 # ---------------------------------------------------------------------------
 
+## Per-combat relic charges/cooldowns. Built by CombatScene._setup_relics (live)
+## or CombatSim.run (sim); null when the player carries no relics in sim.
+var relic_runtime: RelicRuntime = null
+
 var _relic_hero_immune: bool = false   ## Bone Shield: ignore damage this turn
 var _relic_cost_reduction: int = 0     ## Dark Mirror: reduce next card cost
 var _relic_extra_turn: bool = false    ## Void Hourglass: take extra turn
@@ -2215,6 +2219,11 @@ func digest_text() -> String:
 	lines.append("env P %s E %s" % [
 		active_environment.id if active_environment != null else "-",
 		enemy_active_environment.id if enemy_active_environment != null else "-"])
+	if relic_runtime != null:
+		var relic_parts: PackedStringArray = []
+		for rs: RelicRuntime.RelicState in relic_runtime.relics:
+			relic_parts.append("%s:%d/%d" % [rs.data.id, rs.charges_remaining, rs.cooldown_remaining])
+		lines.append("relics %s" % ",".join(relic_parts))
 	return "\n".join(lines)
 
 func digest() -> int:

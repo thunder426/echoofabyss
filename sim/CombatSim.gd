@@ -177,17 +177,18 @@ func run(
 	state._e_profile_factory = _make_profile_factory(e_agent, state)
 
 	# Relic system
-	var relic_rt: RelicRuntime = null
 	var relic_fx: RelicEffects = null
 	if not player_relic_ids.is_empty():
-		relic_rt = RelicRuntime.new()
-		relic_rt.setup(player_relic_ids, relic_bonus_charges)
+		state.relic_runtime = RelicRuntime.new()
+		state.relic_runtime.setup(player_relic_ids, relic_bonus_charges)
 		relic_fx = RelicEffects.new()
 		relic_fx.setup(state)
 
-	# Initialise resources (turn 1 starts at 1/1)
-	state.player_essence_max = 1
-	state.player_mana_max    = 1
+	# Initialise resources (turn 1 starts at 1/1). The player's opening maxima are
+	# not a growth choice — write the backing fields so last_player_growth stays ""
+	# (same as live's TurnManager.start_combat).
+	state._player_essence_max = 1
+	state._player_mana_max    = 1
 	state.enemy_essence_max  = 1
 	state.enemy_mana_max     = 1
 
@@ -212,32 +213,32 @@ func run(
 		state.begin_player_turn(turn)
 		state._relic_hero_immune = false
 		state._relic_cost_reduction = 0
-		if relic_rt:
-			relic_rt.on_turn_start()
+		if state.relic_runtime:
+			state.relic_runtime.on_turn_start()
 			# Phase 1: Activate draw/imp/guardian relics at turn start (on cooldown)
-			_try_relic_start_of_turn(relic_rt, relic_fx, state)
+			_try_relic_start_of_turn(state.relic_runtime, relic_fx, state)
 			# Phase 1b: Dark Mirror — cost reduction before play phase
-			if not relic_rt.activated_this_turn:
-				_try_relic_dark_mirror(relic_rt, relic_fx, state)
+			if not state.relic_runtime.activated_this_turn:
+				_try_relic_dark_mirror(state.relic_runtime, relic_fx, state)
 		await p_profile.play_phase()
 		if not state.winner.is_empty(): break
 		# Phase 2: Mana Shard — after play phase if mana spent and castable cards remain
-		if relic_rt and not relic_rt.activated_this_turn:
-			_try_relic_mana_shard(relic_rt, relic_fx, state, p_agent)
+		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
+			_try_relic_mana_shard(state.relic_runtime, relic_fx, state, p_agent)
 			# If mana shard fired, try playing more cards
-			if relic_rt.activated_this_turn:
+			if state.relic_runtime.activated_this_turn:
 				await p_profile.play_phase()
 				if not state.winner.is_empty(): break
 		# Phase 2b: Void Lens — AoE after play phase
-		if relic_rt and not relic_rt.activated_this_turn:
-			_try_relic_void_lens(relic_rt, relic_fx, state)
+		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
+			_try_relic_void_lens(state.relic_runtime, relic_fx, state)
 		# Phase 2c: Blood Chalice — execute after play phase
-		if relic_rt and not relic_rt.activated_this_turn:
-			_try_relic_blood_chalice(relic_rt, relic_fx, state)
+		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
+			_try_relic_blood_chalice(state.relic_runtime, relic_fx, state)
 		await p_profile.attack_phase()
 		# Phase 3: Bone Shield — after attacks, if enemy threatens lethal
-		if relic_rt and not relic_rt.activated_this_turn:
-			_try_relic_bone_shield(relic_rt, relic_fx, state)
+		if state.relic_runtime and not state.relic_runtime.activated_this_turn:
+			_try_relic_bone_shield(state.relic_runtime, relic_fx, state)
 		state.end_player_turn()
 		# Void Hourglass: extra player turn
 		if state._relic_extra_turn:
@@ -331,7 +332,7 @@ func run(
 		"rift_collapse_casts": state._rift_collapse_casts,
 		"rift_collapse_kills": state._rift_collapse_kills,
 		"dmg_log": state.dmg_log,
-		"relic_activations": relic_rt.total_activations if relic_rt else 0,
+		"relic_activations": state.relic_runtime.total_activations if state.relic_runtime else 0,
 		"sovereign_phase_reached":   state._sovereign_phase,
 		"sovereign_transition_turn": state._sovereign_transition_turn,
 	}
