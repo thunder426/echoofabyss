@@ -290,7 +290,4 @@ static func _estimate_passive_value(m: MinionInstance, w: ScoringWeights) -> flo
 	# Spell-cast passives (value depends on spell frequency, hard to estimate)
 	if mc.on_spell_cast_passive_effect_id != "":
 		value += 50.0
-	# Void bolt passives
-	if mc.on_void_bolt_passive_effect_id != "":
-		value += 50.0
 	return value * w.passive_weight

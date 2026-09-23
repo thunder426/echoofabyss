@@ -39,6 +39,12 @@ _spawn_void_imp_claw_vfx_at
 _pulse_lifedrain_icon
 _on_minion_siphon_healed
 _flash_trap_slot_for
+# CombatState hooks (plan 1.4) — animation / popup half of the shared handlers
+_on_minion_vanished_visual        # hand glows, spell costs, death animation (deferred mid-lunge)
+_defer_on_death_vfx               # queue on-death effects behind the icon VFX (D3, until Phase 3.0)
+_on_hero_damaged_visual           # flash / popup; lethal → defeat/victory, F15 transition
+_on_hero_healed_visual
+_on_card_left_hand                # hand-display removal without a play animation
 # Buff application animation (S3 — the BuffApplyVFX applies the buff at its beat;
 # Phase 3.0 moves the mutation back into the engine)
 _request_buff_apply

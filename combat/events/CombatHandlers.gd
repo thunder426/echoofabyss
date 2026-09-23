@@ -12,6 +12,12 @@ extends RefCounted
 ## The scene object — either a CombatScene node or a SimState RefCounted.
 ## All data access goes through this reference so both contexts work identically.
 var _scene: Object
+## The combat state — gameplay reads and writes (LIVE_SIM_UNIFICATION_PLAN.md 1.2).
+var state: CombatState
+## Presentation: the CombatScene in live, null in sim/tests. Null-check every call;
+## names are listed in tools/lint/presentation_allowlist.txt [presenter].
+var presenter: Object:
+	get: return state.presenter
 
 ## Log-side constants matching CombatScene._LogType enum values.
 const _LOG_PLAYER := 0
@@ -19,6 +25,7 @@ const _LOG_ENEMY  := 1
 
 func setup(scene: Object) -> void:
 	_scene = scene
+	state = scene.state
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_TURN_START
@@ -115,21 +122,6 @@ func _apply_spell_cast_passive(effect_id: String) -> void:
 				_scene.state.add_to_hand("player", bolt)
 				_log("  Void Archmagus: Void Bolt added to hand.", _LOG_PLAYER)
 
-func _apply_void_bolt_passives() -> void:
-	var counts: Dictionary = {}
-	for m in _scene.player_board:
-		var eid: String = m.card_data.on_void_bolt_passive_effect_id
-		if eid != "":
-			counts[eid] = counts.get(eid, 0) + 1
-	for eid in counts:
-		_apply_void_bolt_passive(eid, counts[eid])
-
-func _apply_void_bolt_passive(effect_id: String, count: int) -> void:
-	match effect_id:
-		"void_mark_per_channeler":
-			_scene._apply_void_mark(count)
-			_log("  Void Channeler: +%d Void Mark(s) applied." % count, _LOG_PLAYER)
-
 # ---------------------------------------------------------------------------
 # ON_PLAYER_CARD_DRAWN
 # ---------------------------------------------------------------------------
@@ -206,8 +198,7 @@ func on_summon_board_synergies(ctx: EventContext) -> void:
 			_apply_board_passive_on_summon(pid, m, summoned)
 	if _is_void_imp(summoned):
 		_scene._refresh_slot_for(summoned)
-		if _scene.has_method("_check_champion_triggers"):
-			_scene._check_champion_triggers()
+		_scene.state._check_champion_triggers()
 
 ## Korrath FORMATION — fires whenever a minion enters the board (either side). Walks
 ## both adjacent slots on the summoned minion's own side and, for each adjacent
@@ -734,8 +725,6 @@ func on_minion_died_death_effect(ctx: EventContext) -> void:
 ## Called immediately for sim / non-VFX deaths, or deferred after icon VFX.
 func _resolve_on_death(minion: MinionInstance) -> void:
 	var card := minion.card_data as MinionCardData
-	if not card.on_death_effect.is_empty() and _scene.has_method("_resolve_on_death_effect"):
-		_scene._resolve_on_death_effect(minion)
 	if not card.on_death_effect_steps.is_empty():
 		var eff_ctx    := EffectContext.make(_scene, minion.owner)
 		eff_ctx.source = minion
@@ -810,9 +799,8 @@ func on_minion_died_environment(ctx: EventContext) -> void:
 func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInstance, dead: MinionInstance) -> void:
 	match passive_id:
 		"void_spark_on_friendly_death":
-			if (dead.card_data as MinionCardData).is_race(Enums.MinionType.DEMON) \
-					and _scene.has_method("_summon_void_spark"):
-				_scene._summon_void_spark()
+			if (dead.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
+				_scene.state._summon_void_spark()
 		"deal_200_hero_on_friendly_death":
 			_log("  Abyssal Tide: deal 200 damage to enemy hero.", _LOG_PLAYER)
 			_scene.combat_manager.apply_hero_damage("enemy",
@@ -939,7 +927,8 @@ func on_corruption_removed_detonation(ctx: EventContext) -> void:
 				CombatManager.make_damage_info(damage, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "corrupt_detonation"))
 
 ## corrupt_flesh (T0) — reset the 1-per-turn activated-ability flag at the start of
-## the player's turn. The activation itself lives on CombatScene._seris_corrupt_activate.
+## the player's turn. The button starts targeting (CombatScene._seris_corrupt_activate);
+## the apply is CombatState._seris_corrupt_apply.
 func on_turn_start_corrupt_flesh_reset(_ctx: EventContext) -> void:
 	if _scene.has_method("_seris_corrupt_reset_turn"):
 		_scene._seris_corrupt_reset_turn()
@@ -1030,7 +1019,8 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 		else:
 			ectx.chosen_object = chosen
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
-		_scene._update_counter_warning()
+		if presenter != null:
+			presenter._update_counter_warning()
 
 ## Generic presence aura recompute. Fires on any minion summon/death/sacrifice on either
 ## side. Walks both boards, finds every minion with non-empty presence_aura_steps, groups
@@ -1529,7 +1519,7 @@ func on_enemy_attack_champion_rs(ctx: EventContext) -> void:
 	_scene._champion_rs_spark_dmg += dmg
 	var total: int = _scene._champion_rs_spark_dmg
 	var pips: int = mini(total / (_RS_THRESHOLD / _RS_PIPS), _RS_PIPS)
-	_scene._update_champion_progress(pips, _RS_PIPS)
+	_show_champion_progress(pips, _RS_PIPS)
 	_log("  Champion progress: %d / %d spark damage." % [mini(total, _RS_THRESHOLD), _RS_THRESHOLD], _LOG_ENEMY)
 	if total >= _RS_THRESHOLD:
 		_summon_enemy_champion("champion_rift_stalker")
@@ -1587,7 +1577,7 @@ func on_spark_consumed_champion_va(ctx: EventContext) -> void:
 	_scene._champion_va_sparks_consumed += spark_val
 	var total: int = _scene._champion_va_sparks_consumed
 	var pips: int = mini(total, _VA_PIPS)
-	_scene._update_champion_progress(pips, _VA_PIPS)
+	_show_champion_progress(pips, _VA_PIPS)
 	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
 	_log("  Champion progress: %d / %d sparks consumed." % [mini(total, _VA_THRESHOLD), _VA_THRESHOLD], side)
 	if total >= _VA_THRESHOLD:
@@ -1624,7 +1614,7 @@ func on_enemy_spark_card_champion_vh(ctx: EventContext) -> void:
 	_scene._champion_vh_spark_cards_played += 1
 	var total: int = _scene._champion_vh_spark_cards_played
 	var pips: int = mini(total, _VH_PIPS)
-	_scene._update_champion_progress(pips, _VH_PIPS)
+	_show_champion_progress(pips, _VH_PIPS)
 	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
 	_log("  Champion progress: %d / %d spark-cost cards played." % [mini(total, _VH_THRESHOLD), _VH_THRESHOLD], side)
 	if total >= _VH_THRESHOLD:
@@ -1661,7 +1651,7 @@ func on_enemy_turn_end_champion_vs(ctx: EventContext) -> void:
 	if total <= 0:
 		return
 	var pips: int = mini(total, _VS_PIPS)
-	_scene._update_champion_progress(pips, _VS_PIPS)
+	_show_champion_progress(pips, _VS_PIPS)
 	if total >= _VS_THRESHOLD and not _scene.get("_champion_vs_summoned"):
 		_log("  Champion progress: %d / %d crits consumed." % [_VS_THRESHOLD, _VS_THRESHOLD], _LOG_ENEMY)
 		_summon_enemy_champion("champion_void_scout")
@@ -1723,7 +1713,7 @@ func on_spark_consumed_champion_vw(ctx: EventContext) -> void:
 	_scene._champion_vw_spirits_consumed += 1
 	var total: int = _scene._champion_vw_spirits_consumed
 	var pips: int = mini(total, _VW_PIPS)
-	_scene._update_champion_progress(pips, _VW_PIPS)
+	_show_champion_progress(pips, _VW_PIPS)
 	_log("  Champion progress: %d / %d Spirits consumed." % [mini(total, _VW_THRESHOLD), _VW_THRESHOLD], _LOG_ENEMY)
 	if total >= _VW_THRESHOLD:
 		_summon_enemy_champion("champion_void_warband")
@@ -1785,7 +1775,7 @@ func on_enemy_spell_champion_vc(ctx: EventContext) -> void:
 	_scene._champion_vc_tc_cast += 1
 	var total: int = _scene._champion_vc_tc_cast
 	var pips: int = mini(total, _VC_PIPS)
-	_scene._update_champion_progress(pips, _VC_PIPS)
+	_show_champion_progress(pips, _VC_PIPS)
 	_log("  Champion progress: %d / %d Throne's Command cast." % [mini(total, _VC_THRESHOLD), _VC_THRESHOLD], _LOG_ENEMY)
 	if total >= _VC_THRESHOLD:
 		_summon_enemy_champion("champion_void_captain")
@@ -1827,7 +1817,7 @@ func on_enemy_spell_champion_vrp(_ctx: EventContext) -> void:
 	_scene.state._champion_vrp_spells_cast += 1
 	var total: int = _scene.state._champion_vrp_spells_cast
 	var pips: int = mini(total, _VRP_PIPS)
-	_scene._update_champion_progress(pips, _VRP_PIPS)
+	_show_champion_progress(pips, _VRP_PIPS)
 	_log("  Champion progress: %d / %d spells cast." % [mini(total, _VRP_THRESHOLD), _VRP_THRESHOLD], _LOG_ENEMY)
 	if total >= _VRP_THRESHOLD:
 		_summon_enemy_champion("champion_void_ritualist_prime")
@@ -1867,7 +1857,7 @@ func on_player_died_champion_vch(ctx: EventContext) -> void:
 	_scene._champion_vch_crit_kills += 1
 	var total: int = _scene._champion_vch_crit_kills
 	var pips: int = mini(total, _VCH_PIPS)
-	_scene._update_champion_progress(pips, _VCH_PIPS)
+	_show_champion_progress(pips, _VCH_PIPS)
 	_log("  Champion progress: %d / %d crit kills." % [mini(total, _VCH_THRESHOLD), _VCH_THRESHOLD], _LOG_ENEMY)
 	if total >= _VCH_THRESHOLD:
 		_summon_enemy_champion("champion_void_champion")
@@ -1942,7 +1932,7 @@ func on_player_card_champion_as(_ctx: EventContext) -> void:
 	_scene.state._champion_as_cards_played += 1
 	var total: int = _scene.state._champion_as_cards_played
 	var pips: int = mini(total, _AS_PIPS)
-	_scene._update_champion_progress(pips, _AS_PIPS)
+	_show_champion_progress(pips, _AS_PIPS)
 	_log("  Champion progress: %d / %d cards played." % [mini(total, _AS_THRESHOLD), _AS_THRESHOLD], _LOG_ENEMY)
 	# Gate the summon on Phase 2 so the avatar can never appear during P1, even
 	# if the player burns through 12 cards before the Sovereign's HP drops.
@@ -2136,7 +2126,7 @@ func on_enemy_attack_champion_rip(ctx: EventContext) -> void:
 		return
 	_scene._champion_rip_attack_ids.append(uid)
 	var count: int = _scene._champion_rip_attack_ids.size()
-	_scene._update_champion_progress(count, 4)
+	_show_champion_progress(count, 4)
 	_log("  Champion progress: %d / 4 rabid imp attacks." % count, _LOG_ENEMY)
 	if count >= 4:
 		_summon_enemy_champion("champion_rogue_imp_pack")
@@ -2186,7 +2176,7 @@ func on_enemy_died_champion_cb(ctx: EventContext) -> void:
 		return
 	var count: int = _scene.get("_champion_cb_death_count") + 1
 	_scene.set("_champion_cb_death_count", count)
-	_scene._update_champion_progress(count, 3)
+	_show_champion_progress(count, 3)
 	_log("  Champion progress: %d / 3 minion deaths." % count, _LOG_ENEMY)
 	if count >= 3:
 		_summon_enemy_champion("champion_corrupted_broodlings")
@@ -2210,7 +2200,7 @@ func on_enemy_spell_champion_im(ctx: EventContext) -> void:
 	# Track Pack Frenzy casts toward summon threshold
 	var count: int = _scene.get("_champion_im_frenzy_count") + 1
 	_scene.set("_champion_im_frenzy_count", count)
-	_scene._update_champion_progress(count, 2)
+	_show_champion_progress(count, 2)
 	_log("  Champion progress: %d / 2 Pack Frenzy casts." % count, _LOG_ENEMY)
 	if count >= 2:
 		_summon_enemy_champion("champion_imp_matriarch")
@@ -2235,7 +2225,7 @@ func on_champion_acp_track_stacks(stacks: int) -> void:
 		return
 	var total: int = _scene._champion_acp_stacks_consumed + stacks
 	_scene._champion_acp_stacks_consumed = total
-	_scene._update_champion_progress(mini(total, 5), 5)
+	_show_champion_progress(mini(total, 5), 5)
 	_log("  Champion progress: %d / 5 corruption stacks consumed." % mini(total, 5), _LOG_ENEMY)
 	if total >= 5:
 		_summon_enemy_champion("champion_abyss_cultist_patrol")
@@ -2303,7 +2293,7 @@ func on_enemy_summon_champion_vr(_ctx: EventContext) -> void:
 func on_ritual_sacrifice_champion_vr() -> void:
 	if _scene.get("_champion_vr_summoned"):
 		return
-	_scene._update_champion_progress(1, 1)
+	_show_champion_progress(1, 1)
 	_log("  Champion progress: 1 / 1 ritual sacrifice triggered.", _LOG_ENEMY)
 	_summon_enemy_champion("champion_void_ritualist")
 
@@ -2330,7 +2320,7 @@ func on_enemy_summon_champion_ch_spark_buff(ctx: EventContext) -> void:
 		if not _scene.get("_champion_ch_summoned"):
 			_scene._champion_ch_spark_count += 1
 			var count: int = _scene._champion_ch_spark_count
-			_scene._update_champion_progress(mini(count, 3), 3)
+			_show_champion_progress(mini(count, 3), 3)
 			_log("  Champion progress: %d / 3 void sparks created." % mini(count, 3), _LOG_ENEMY)
 			if count >= 3:
 				_summon_enemy_champion("champion_corrupted_handler")
@@ -2350,6 +2340,11 @@ func on_enemy_died_champion_ch(ctx: EventContext) -> void:
 		_on_enemy_champion_killed()
 
 ## ── Shared champion helpers ─────────────────────────────────────────────────
+
+## Champion progress pips on the enemy hero panel (live only).
+func _show_champion_progress(current: int, total: int) -> void:
+	if presenter != null:
+		presenter._update_champion_progress(current, total)
 
 func _summon_enemy_champion(card_id: String) -> void:
 	# Mark the champion summoned BEFORE any await — a second qualifying event
@@ -2389,7 +2384,8 @@ func _summon_enemy_champion(card_id: String) -> void:
 
 func _on_enemy_champion_killed() -> void:
 	_log("  ★ Champion slain!", _LOG_ENEMY)
-	_scene._on_champion_killed()
+	if presenter != null:
+		presenter._on_champion_killed()
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -2428,6 +2424,8 @@ func _count_void_imps(board: Array[MinionInstance]) -> int:
 ## Spawn shadow claw VFX over the opponent's hero panel.
 ## owner_side: "player" means the imp belongs to the player → claw hits enemy panel.
 func _spawn_void_imp_claw_vfx(minion: MinionInstance, owner_side: String) -> void:
+	if presenter == null:
+		return
 	# Find source position from the minion's board slot
 	var source_pos := Vector2.ZERO
 	var slots: Array = _scene.player_slots if owner_side == "player" else _scene.enemy_slots
@@ -2435,7 +2433,7 @@ func _spawn_void_imp_claw_vfx(minion: MinionInstance, owner_side: String) -> voi
 		if (slot as BoardSlot).minion == minion:
 			source_pos = (slot as BoardSlot).global_position + (slot as BoardSlot).size / 2.0
 			break
-	_scene._spawn_void_imp_claw_vfx_at(source_pos, owner_side)
+	presenter._spawn_void_imp_claw_vfx_at(source_pos, owner_side)
 
 
 ## Pack Frenzy card text is "+250 ATK and SWIFT this turn" — so the ATK buff

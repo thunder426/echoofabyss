@@ -105,10 +105,6 @@ func shares_race(other: MinionCardData) -> bool:
 ## E.g. "add_void_bolt_on_spell" for Void Archmagus.
 @export var on_spell_cast_passive_effect_id: String = ""
 
-## Effect ID resolved each time _deal_void_bolt_damage fires while this minion is on board.
-## E.g. "void_mark_per_channeler" for Void Channeler.
-@export var on_void_bolt_passive_effect_id: String = ""
-
 ## Declarative effect steps fired at the start of the owner's turn while this minion is on board.
 ## Uses EffectResolver with the minion as ctx.source.
 @export var on_turn_start_effect_steps: Array = []

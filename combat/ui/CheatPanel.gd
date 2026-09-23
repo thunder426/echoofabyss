@@ -160,12 +160,12 @@ func _build_ui() -> void:
 	vbox.add_child(heal_row)
 	var heal_player := Button.new()
 	heal_player.text = "Heal Player"
-	heal_player.pressed.connect(func(): _scene._on_hero_healed("player", int(_dmg_input.value)))
+	heal_player.pressed.connect(func(): _scene.state._on_hero_healed("player", int(_dmg_input.value)))
 	heal_row.add_child(heal_player)
 
 	var heal_enemy := Button.new()
 	heal_enemy.text = "Heal Enemy"
-	heal_enemy.pressed.connect(func(): _scene._on_hero_healed("enemy", int(_dmg_input.value)))
+	heal_enemy.pressed.connect(func(): _scene.state._on_hero_healed("enemy", int(_dmg_input.value)))
 	heal_row.add_child(heal_enemy)
 
 	vbox.add_child(HSeparator.new())

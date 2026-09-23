@@ -17,6 +17,12 @@ extends RefCounted
 
 ## The scene object — either a CombatScene node or a SimState RefCounted.
 var _scene: Object
+## The combat state — gameplay reads and writes (LIVE_SIM_UNIFICATION_PLAN.md 1.2).
+var state: CombatState
+## Presentation: the CombatScene in live, null in sim/tests. A getter — setup()
+## runs before CombatScene assigns itself as the presenter.
+var presenter: Object:
+	get: return state.presenter
 
 ## _LogType enum values matching CombatScene (TURN=0, PLAYER=1, ENEMY=2, DAMAGE=3, HEAL=4, TRAP=5, DEATH=6)
 const _LOG_PLAYER := 1
@@ -25,6 +31,7 @@ const _LOG_TRAP   := 5
 
 func setup(scene: Object) -> void:
 	_scene = scene
+	state = scene.state
 
 func _log_side(owner: String) -> int:
 	return _LOG_PLAYER if owner == "player" else _LOG_ENEMY
@@ -43,7 +50,7 @@ func resolve(id: String, ctx: EffectContext) -> void:
 		"fiendish_pact":
 			_fiendish_pact(ctx)
 		"void_devourer_sacrifice":
-			_scene._resolve_void_devourer_sacrifice(ctx.source, ctx.owner)
+			_scene.state._resolve_void_devourer_sacrifice(ctx.source, ctx.owner)
 		# --- Environment passives ---
 		"dark_covenant_passive":
 			_dark_covenant_passive(ctx)
@@ -99,7 +106,7 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 		return
 	# Capture the sac slot centre BEFORE kill — needed by the graft tendril VFX.
 	var sac_center: Vector2 = Vector2.ZERO
-	var sac_slot: Variant = _scene._find_slot_for(sac)
+	var sac_slot: Variant = presenter._find_slot_for(sac) if presenter != null else null
 	if sac_slot != null and is_instance_valid(sac_slot):
 		sac_center = sac_slot.global_position + sac_slot.size * 0.5
 	SacrificeSystem.sacrifice(_scene, sac, "grafted_butcher")
@@ -243,7 +250,7 @@ func _soul_rune_death(ctx: EffectContext) -> void:
 	if ctx.trigger_minion == null or not (ctx.trigger_minion.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return
 	_scene.set("_soul_rune_fires_this_turn", fires + 1)
-	var mult: int = _scene._rune_aura_multiplier()
+	var mult: int = _scene.state._rune_aura_multiplier()
 	_scene._summon_token("void_spark", ctx.owner, 100 * mult, 100 * mult)
 	_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [100 * mult, 100 * mult], _LOG_TRAP)
 
@@ -258,7 +265,7 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 		if m != ctx.source and _scene._minion_has_tag(m, "feral_imp"):
 			feral_count += 1
 	var dmg := 100 + 100 * feral_count
-	var frenzied_target: MinionInstance = _scene._find_random_minion(_scene._opponent_board(ctx.owner))
+	var frenzied_target: MinionInstance = _scene.state._find_random_minion(_scene.state._opponent_board(ctx.owner))
 	if frenzied_target == null:
 		_log("  Frenzied Imp: no target.", _log_side(ctx.owner))
 		return
@@ -298,7 +305,7 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 	for m in feral_board:
 		if _scene._minion_has_tag(m, "feral_imp"):
 			targets.append(m)
-			var slot: BoardSlot = _scene._find_slot_for(m)
+			var slot: BoardSlot = presenter._find_slot_for(m) if presenter != null else null
 			if slot != null:
 				target_slots.append(slot)
 
@@ -337,7 +344,7 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 func _battle_drillmaster_cascade(ctx: EffectContext) -> void:
 	if _scene == null:
 		return
-	var handlers: CombatHandlers = _scene.get("_handlers") as CombatHandlers
+	var handlers: CombatHandlers = _scene.state._handlers
 	if handlers == null:
 		push_warning("battle_drillmaster_cascade: no _handlers on scene")
 		return

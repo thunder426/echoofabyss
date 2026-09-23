@@ -8,7 +8,7 @@ extends RefCounted
 func setup(sim: SimState) -> void:
 	var h := CombatHandlers.new()
 	h.setup(sim)
-	sim._handlers_ref = h
+	sim._handlers = h
 
 	# Mirror the sim-side `enemy_passives` array into the live-side
 	# `_active_enemy_passives` field that CombatProfile reads via

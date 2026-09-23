@@ -365,6 +365,21 @@ func _harvest_aura_source_tags(rune: TrapCardData) -> Array[String]:
 			tags.append(tag)
 	return tags
 
+## Register 2-rune ritual handlers for the given environment (when it is played).
+func _register_env_rituals(env: EnvironmentCardData) -> void:
+	for ritual in env.rituals:
+		var r: RitualData = ritual
+		var h := func(_ctx: EventContext): _handlers.on_env_ritual(r)
+		_env_ritual_handlers.append(h)
+		trigger_manager.register(Enums.TriggerEvent.ON_RUNE_PLACED, h, 5)
+		trigger_manager.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, h, 5)
+
+## Run the outgoing environment's on_replace_effect_steps (e.g. strip its
+## persistent buffs) when a new environment replaces it.
+func _unregister_env_aura(env: EnvironmentCardData) -> void:
+	if not env.on_replace_effect_steps.is_empty():
+		EffectResolver.run(env.on_replace_effect_steps, EffectContext.make(_get_scene_facade(), "player"))
+
 ## Unregister all environment-ritual handlers (when env is replaced/cleared).
 func _unregister_env_rituals() -> void:
 	for h in _env_ritual_handlers:
@@ -425,6 +440,20 @@ func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
 	if mc == null or not mc.is_race(Enums.MinionType.DEMON):
 		return 0
 	return mini(_fiendish_pact_pending, mc.essence_cost)
+
+## Seris Starter — consume the Fiendish Pact pending discount after a Demon is
+## played, and clear the display-only essence_delta on the Demons left in hand.
+func _consume_fiendish_pact_discount() -> void:
+	if _fiendish_pact_pending <= 0:
+		return
+	_fiendish_pact_pending = 0
+	for inst in player_hand:
+		if inst == null or inst.card_data == null:
+			continue
+		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
+			inst.essence_delta = 0
+	if presenter != null:
+		presenter._refresh_hand_spell_costs()
 
 ## Seris — called at the start of each player spell cast. Computes the Void
 ## Amplification damage bonus from friendly-Demon Corruption stacks at this moment
@@ -750,6 +779,7 @@ func _soul_forge_activate() -> bool:
 		return false
 	_log("  Soul Forge: summoning Grafted Fiend.", 1)
 	_summon_token("grafted_fiend", "player")
+	_debug_soul_forge_fires += 1
 	return true
 
 ## Register a rune's aura handlers with the trigger manager and run any
@@ -829,6 +859,7 @@ func _is_minion_summoned_trigger(trigger: int) -> bool:
 ## instance is consumed at most once (tracked by index, removed in reverse).
 ## Emits `traps_changed` for "player" so live UI refreshes the slot panel.
 func _fire_ritual(ritual: RitualData) -> void:
+	_player_ritual_count += 1
 	var consumed_indices: Array[int] = []
 	for req in ritual.required_runes:
 		var found := false
@@ -1049,6 +1080,7 @@ func _seris_corrupt_apply(target: MinionInstance) -> bool:
 	for _i in stacks:
 		BuffSystem.apply(target, Enums.BuffType.CORRUPTION, 100, "corrupt_flesh", false, false)
 	_seris_corrupt_used_this_turn = true
+	_debug_corrupt_flesh_fires += 1
 	_log("  Corrupt Flesh: %d Corruption stack(s) applied to %s." % [stacks, target.card_data.card_name], 1)
 	_refresh_slot_for(target)
 	return true
@@ -1609,8 +1641,6 @@ var _player_spell_damage_bonus: int = 0
 ## is consumed even if the gated step's body fails (e.g. ADD_CARD on a full hand).
 var _once_per_turn_used: Dictionary = {}
 
-## Vael — Void Imps summoned by Imp Overload that must die at end of player turn.
-var _temp_imps: Array[MinionInstance] = []
 
 # ---------------------------------------------------------------------------
 # Cost penalties / spell counters / once-per-turn flags
@@ -1867,6 +1897,9 @@ var _rift_collapse_kills: int = 0
 var _ritual_sacrifice_count: int = 0
 var _detonation_count: int = 0
 var _player_ritual_count: int = 0
+## Seris button presses (Soul Forge / Corrupt Flesh) — BalanceSim behaviour reports.
+var _debug_soul_forge_fires: int = 0
+var _debug_corrupt_flesh_fires: int = 0
 var _spark_spawned_count: int = 0
 var _spark_transfer_count: int = 0
 var _void_bolt_spell_casts: int = 0
@@ -1881,6 +1914,265 @@ var turn_snapshot_callback: Callable = Callable()
 var dmg_log_enabled: bool = false
 var dmg_log: Array = []
 var _pending_dmg_source: String = ""
+
+# ---------------------------------------------------------------------------
+# CombatManager signal handlers — one body for both shells (plan 1.4). Both
+# CombatScene and SimState connect combat_manager's minion_vanished /
+# hero_damaged / hero_healed here; the presenter hooks play the animations.
+# ---------------------------------------------------------------------------
+
+## A minion left the board through death. Removes it from board + slot (a slot
+## frozen mid-lunge keeps its occupant — the death animation clears it), emits
+## minion_died, then fires ON_CORRUPTION_REMOVED (stacks it held) and
+## ON_*_MINION_DIED with the attacker.
+func _on_minion_vanished(minion: MinionInstance) -> void:
+	var slots: Array[BoardSlot] = player_slots if minion.owner == "player" else enemy_slots
+	var dead_slot: BoardSlot = null
+	for slot: BoardSlot in slots:
+		if slot.minion == minion:
+			dead_slot = slot
+			break
+	_friendly_board(minion.owner).erase(minion)
+	if dead_slot != null and not dead_slot.freeze_visuals:
+		dead_slot.remove_minion()
+	minion_died.emit(minion.owner, minion, dead_slot.index if dead_slot != null else -1)
+	_log("  %s died" % minion.card_data.card_name, 6)  # DEATH
+	# Live defers on-death effects of minions with an on-death icon VFX until the
+	# icon plays (D3 — resolved inline once Phase 3.0 lands).
+	if presenter != null:
+		presenter._defer_on_death_vfx(minion)
+	if trigger_manager != null:
+		var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
+		if pre_corruption > 0:
+			var rm_ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+			rm_ctx.minion = minion
+			rm_ctx.damage = pre_corruption
+			trigger_manager.fire(rm_ctx)
+		var event := Enums.TriggerEvent.ON_PLAYER_MINION_DIED if minion.owner == "player" \
+			else Enums.TriggerEvent.ON_ENEMY_MINION_DIED
+		var ctx := EventContext.make(event, minion.owner)
+		ctx.minion = minion
+		ctx.attacker = _last_attacker
+		trigger_manager.fire(ctx)
+	if presenter != null:
+		presenter._on_minion_vanished_visual(minion, dead_slot)
+
+## A hero took damage. Bone Shield absorbs player damage. Fires ON_HERO_DAMAGED /
+## ON_ENEMY_HERO_DAMAGED on every landed hit (lethal included). The first lethal
+## hit sets `winner` — except on the F15 Sovereign's Phase 1, which transitions
+## to Phase 2 instead. The presenter gets the outcome ("", "lethal", "transition").
+func _on_hero_damaged(target: String, info: Dictionary) -> void:
+	if _combat_ended:
+		return
+	var amount: int = info.get("amount", 0)
+	var school: int = info.get("school", Enums.DamageSchool.NONE)
+	var is_crit: bool = _last_attack_was_crit
+	var outcome: String = ""
+	if target == "player":
+		if _relic_hero_immune:
+			_log("  Bone Shield absorbs %d damage!" % amount, 1)  # PLAYER
+			return
+		player_hp -= amount
+		damage_dealt.emit(str(info.get("source_card", "")), "player", amount, school, is_crit)
+		_log("  You take %d damage  (HP: %d)" % [amount, player_hp], 3)  # DAMAGE
+		var pctx := EventContext.make(Enums.TriggerEvent.ON_HERO_DAMAGED, "player")
+		pctx.damage = amount
+		pctx.damage_info = info
+		trigger_manager.fire(pctx)
+		if player_hp <= 0 and winner.is_empty():
+			outcome = "lethal"
+			winner = "enemy"
+	else:
+		enemy_hp -= amount
+		# Source label for the sim damage log: DamageInfo.source_card, else the
+		# legacy _pending_dmg_source plumbing, else a generic label.
+		var src_label: String = str(info.get("source_card", ""))
+		if src_label.is_empty():
+			var src: Enums.DamageSource = info.get("source", Enums.DamageSource.SPELL)
+			src_label = _pending_dmg_source if not _pending_dmg_source.is_empty() \
+				else ("minion_atk" if src == Enums.DamageSource.MINION else "spell_onplay")
+		damage_dealt.emit(src_label, "enemy", amount, school, is_crit)
+		_pending_dmg_source = ""
+		_log("  Enemy takes %d damage  (HP: %d)" % [amount, enemy_hp], 3)  # DAMAGE
+		var ectx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_HERO_DAMAGED, "enemy")
+		ectx.damage = amount
+		ectx.damage_info = info
+		trigger_manager.fire(ectx)
+		if enemy_hp <= 0 and winner.is_empty():
+			# F15 Abyss Sovereign: intercept P1 death and transition to P2.
+			if PhaseTransition.attempt(_get_scene_facade()):
+				outcome = "transition"
+			else:
+				outcome = "lethal"
+				winner = "player"
+	if presenter != null:
+		presenter._on_hero_damaged_visual(target, amount, school, is_crit, outcome)
+
+## A hero was healed — clamped to that hero's max HP.
+func _on_hero_healed(target: String, amount: int) -> void:
+	if target == "player":
+		player_hp = mini(player_hp + amount, player_hp_max)
+		_log("  You heal %d HP  (HP: %d)" % [amount, player_hp], 4)  # HEAL
+	elif target == "enemy":
+		enemy_hp = mini(enemy_hp + amount, enemy_hp_max)
+		_log("  Enemy heals %d HP  (HP: %d)" % [amount, enemy_hp], 2)  # ENEMY
+	else:
+		return
+	if presenter != null:
+		presenter._on_hero_healed_visual(target, amount)
+
+# ---------------------------------------------------------------------------
+# Gameplay helpers that lived on CombatScene / SimState (plan 1.4)
+# ---------------------------------------------------------------------------
+
+## Summon a 100/100 Void Spark on the player board (void_spark_on_friendly_death).
+func _summon_void_spark() -> void:
+	_summon_token("void_spark", "player")
+
+## Void Devourer on-play: sacrifice the adjacent friendly minions, +300/+300 per sacrifice.
+func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = "player") -> void:
+	var idx: int = devourer.slot_index
+	var to_sacrifice: Array[MinionInstance] = []
+	for m: MinionInstance in _friendly_board(owner):
+		if m != devourer and (m.slot_index == idx - 1 or m.slot_index == idx + 1):
+			to_sacrifice.append(m)
+	var count: int = to_sacrifice.size()
+	for m: MinionInstance in to_sacrifice:
+		_log("  Void Devourer sacrifices %s!" % m.card_data.card_name, 1)
+		SacrificeSystem.sacrifice(_get_scene_facade(), m, "void_devourer")
+	if count > 0:
+		BuffSystem.apply(devourer, Enums.BuffType.ATK_BONUS, count * 300, "void_devourer", false, false)
+		devourer.current_health += count * 300
+		_log("  Void Devourer grows to %d/%d!" % [devourer.effective_atk(), devourer.current_health], 1)
+		_refresh_slot_for(devourer)
+
+## Player champions (e.g. the Void Imp champion) auto-summon from hand or deck
+## when their board condition is met. At most one per check.
+func _check_champion_triggers() -> void:
+	var all_cards: Array[CardInstance] = player_hand + player_deck
+	for inst: CardInstance in all_cards:
+		if not (inst.card_data is MinionCardData):
+			continue
+		var champion := inst.card_data as MinionCardData
+		if not champion.is_champion:
+			continue
+		var already_on_board := false
+		for m: MinionInstance in player_board:
+			if m.card_data.id == champion.id:
+				already_on_board = true
+				break
+		if already_on_board:
+			continue
+		if _check_champion_condition(champion):
+			_summon_champion_card(champion, inst, inst in player_hand)
+			return
+
+func _check_champion_condition(champion: MinionCardData) -> bool:
+	match champion.auto_summon_condition:
+		"board_tag_count":
+			var count := 0
+			for m: MinionInstance in player_board:
+				if _minion_has_tag(m, champion.auto_summon_tag):
+					count += 1
+			return count >= champion.auto_summon_threshold
+	return false
+
+## Place the champion card on the first empty player slot, free of cost.
+func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: bool) -> void:
+	for slot: BoardSlot in player_slots:
+		if not slot.is_empty():
+			continue
+		var instance := MinionInstance.create(card, "player")
+		instance.card_instance = inst
+		player_board.append(instance)
+		slot.place_minion(instance)
+		minion_summoned.emit("player", instance, slot.index)
+		if from_hand:
+			remove_from_hand("player", inst)
+			if presenter != null:
+				presenter._on_card_left_hand(inst)
+		else:
+			player_deck.erase(inst)
+		_log("⚡ 3 Void Imps on board — %s emerges!" % card.card_name, 1)
+		var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
+		ctx.minion = instance
+		ctx.card   = card
+		trigger_manager.fire(ctx)
+		return
+
+# ---------------------------------------------------------------------------
+# Cost payment (plan 1.4). Profiles still deduct their own essence/mana until
+# 2A.5 routes them through commands; live's play paths call these.
+# ---------------------------------------------------------------------------
+
+## Pay a card's Essence + Mana. The player's pending Dark Mirror relic discount
+## reduces both costs first (and is consumed). Returns false (nothing spent) if
+## the side can't afford it.
+func pay_card_cost(side: String, essence_cost: int, mana_cost: int) -> bool:
+	if side == "player" and _relic_cost_reduction > 0:
+		var reduction: int = _relic_cost_reduction
+		_relic_cost_reduction = 0
+		var essence_reduction: int = mini(reduction, essence_cost)
+		var mana_reduction: int = mini(reduction, mana_cost)
+		essence_cost -= essence_reduction
+		mana_cost -= mana_reduction
+		if essence_reduction + mana_reduction > 0:
+			_log("  Dark Mirror: cost reduced by %d Essence and %d Mana!" % [essence_reduction, mana_reduction], 1)
+	if not can_afford(side, essence_cost, mana_cost):
+		return false
+	spend_essence(side, essence_cost)
+	if mana_cost > 0:
+		spend_mana(side, mana_cost)
+	return true
+
+## Total spark value on `side`'s board.
+func available_sparks(side: String) -> int:
+	var total := 0
+	for m: MinionInstance in _friendly_board(side):
+		total += (m.card_data as MinionCardData).spark_value
+	return total
+
+func can_afford_sparks(side: String, cost: int) -> bool:
+	return cost <= 0 or available_sparks(side) >= cost
+
+## Consume board minions to pay a spark cost: eligible fuel has spark_value <=
+## cost, biggest first (fewest bodies). Void Spark tokens die (death triggers
+## fire — Blood Rune etc.); other spark minions are consumed silently. Each
+## consumption fires ON_*_SPARK_CONSUMED. Returns true if fully paid.
+func pay_sparks(side: String, cost: int) -> bool:
+	if cost <= 0:
+		return true
+	var board: Array[MinionInstance] = _friendly_board(side)
+	var eligible: Array[MinionInstance] = []
+	for m: MinionInstance in board:
+		var sv: int = (m.card_data as MinionCardData).spark_value
+		if sv > 0 and sv <= cost:
+			eligible.append(m)
+	eligible.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
+		return (a.card_data as MinionCardData).spark_value > (b.card_data as MinionCardData).spark_value)
+	var remaining := cost
+	for m: MinionInstance in eligible:
+		if remaining <= 0:
+			break
+		var sv: int = (m.card_data as MinionCardData).spark_value
+		if m.card_data.id == "void_spark":
+			combat_manager.kill_minion(m)
+		else:
+			board.erase(m)
+			for slot: BoardSlot in _friendly_slots(side):
+				if slot.minion == m:
+					slot.remove_minion()
+					break
+			_log("  %s consumed as spark fuel." % m.card_data.card_name)
+		if trigger_manager != null:
+			var event := Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED if side == "player" \
+				else Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED
+			var ctx := EventContext.make(event, side)
+			ctx.minion = m
+			ctx.damage = sv
+			trigger_manager.fire(ctx)
+		remaining -= sv
+	return remaining <= 0
 
 # ---------------------------------------------------------------------------
 # State digest — canonical text snapshot for determinism / parity checks
@@ -1955,6 +2247,10 @@ var trigger_manager: TriggerManager = null
 ## SimTurnManager. Both are façades over the turn/resource/deck fields above;
 ## rules code uses those directly (lint L3). Untyped so either fits.
 var turn_manager = null
+
+## Trigger handlers (CombatHandlers). Live creates them in CombatScene._setup_triggers,
+## sim in SimTriggerSetup. Environment rituals and a few VFX callbacks call into them.
+var _handlers: CombatHandlers = null
 
 ## Hardcoded-effect resolver. Live combat creates one in CombatScene._ready
 ## and assigns it through the forwarding property; sim creates one in

@@ -29,10 +29,14 @@ rule set and the phase that introduces each rule.
       state, enemy_ai / turn_manager aliases, event contexts). Dictionary
       `.get("key")` is fine.
 
+  L5  (`--report-pairs`, plan 1.4) One implementation per gameplay method: no
+      func defined on both CombatScene and SimState, and no SimState override of
+      a CombatState func. Allowed exceptions live in tools/lint/l5_allow.txt.
+
 Rules not yet enforced (see ENFORCED) are still computed; `--all` prints them,
 but they do not count toward the exit code.
 
-Usage:  python3 tools/lint/lint_engine.py [--quiet] [--all]
+Usage:  python3 tools/lint/lint_engine.py [--quiet] [--all] [--report-pairs]
 Output: `<rule> <file>:<line>: <message>`; exit code = enforced error count (capped 255).
 """
 from __future__ import annotations
@@ -290,6 +294,23 @@ class Linter:
             for m in duck_re.finditer(line):
                 self.err("L4", rel, i, f'.get/.set("{m.group(1)}") on an object — use the typed member')
 
+    def scan_presenter_calls(self, rel: str) -> None:
+        """CombatState itself may call only [presenter] names on `presenter`."""
+        pres_re = re.compile(r"(?<![\w.])presenter\.(\w+)")
+        for i, raw in enumerate(read(rel), start=1):
+            for m in pres_re.finditer(strip_comment(raw)):
+                if m.group(1) not in self.presenter_names:
+                    self.err("L3", rel, i, f"presenter.{m.group(1)} is not in [presenter]")
+
+    # -- L5 ------------------------------------------------------------------
+    def scan_pairs(self) -> None:
+        allow = {n for _, n in load_allow("l5_allow.txt")}
+        scene_f, state_f, sim_f = declared_funcs(SCENE), declared_funcs(STATE), declared_funcs(SIM_STATE)
+        for name in sorted((scene_f & sim_f) - allow):
+            self.err("L5", SIM_STATE, 0, f"{name} is defined on both CombatScene and SimState — one CombatState body")
+        for name in sorted((state_f & sim_f) - allow):
+            self.err("L5", SIM_STATE, 0, f"{name} overrides a CombatState func")
+
     # -- L2 ------------------------------------------------------------------
     def scan_rng(self) -> None:
         files = list(RNG_FILES)
@@ -316,12 +337,16 @@ class Linter:
         self.check_allowlist()
         for rel in RULES_FILES:
             self.scan_seam(rel)
+        self.scan_presenter_calls(STATE)
+        self.scan_pairs()
         return sum(1 for e in self.errors if e.split(" ", 1)[0] in ENFORCED)
 
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
     show_all = "--all" in sys.argv
+    if "--report-pairs" in sys.argv:
+        ENFORCED.add("L5")
     linter = Linter()
     count = linter.run()
     pending: dict[str, int] = {}

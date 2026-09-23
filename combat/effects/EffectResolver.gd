@@ -51,7 +51,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.HEAL_HERO:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				ctx.scene._on_hero_healed(ctx.owner, _amount(step, ctx))
+				ctx.state._on_hero_healed(ctx.owner, _amount(step, ctx))
 			return
 
 		EffectStep.EffectType.ADD_HERO_ARMOUR:
@@ -627,7 +627,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 static func _amount(step: EffectStep, ctx: EffectContext) -> int:
 	var base: int
 	match step.multiplier_key:
-		"rune_aura":  base = step.amount * ctx.scene._rune_aura_multiplier()
+		"rune_aura":  base = step.amount * ctx.state._rune_aura_multiplier()
 		"void_marks": base = step.amount * ctx.scene.enemy_void_marks
 		"flesh_spent": base = step.amount * ctx.flesh_spent_this_cast
 		"board_count":

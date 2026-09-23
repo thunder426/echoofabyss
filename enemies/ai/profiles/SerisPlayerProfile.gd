@@ -106,7 +106,7 @@ func _get_spell_rules() -> Dictionary:
 ## so buffing the biggest Demon maximises damage and feeds Corrupt Detonation.
 func _maybe_corrupt_flesh() -> void:
 	var sim: SimState = agent.sim
-	if sim == null or not sim.has_method("_seris_corrupt_activate"):
+	if sim == null:
 		return
 	if not sim._has_talent("corrupt_flesh"):
 		return
@@ -120,7 +120,7 @@ func _maybe_corrupt_flesh() -> void:
 			best = m
 	if best == null:
 		return
-	sim._seris_corrupt_activate(best)
+	sim._seris_corrupt_apply(best)
 
 ## Greedy Soul Forge — summon Grafted Fiends while we can afford 3 Flesh and
 ## have board space. Multiple presses per turn are allowed (design does not

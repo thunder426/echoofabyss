@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The suite every refactor step must keep green (LIVE_SIM_UNIFICATION_PLAN.md 3.1):
 #   1. refresh Godot's import + global class cache (it goes stale and breaks parsing)
-#   2. engine lint
+#   2. engine lint + every script compiles
 #   3. RunAllTests (headless)
 #   4. LiveSmoke — headless CombatScene (once debug/tests/LiveSmoke.tscn exists)
 # Fails on any lint error, test failure, or `SCRIPT ERROR` in Godot's output.
@@ -21,6 +21,16 @@ status=0
 "$GODOT" --headless --path . --import >"$LOG_DIR/import.log" 2>&1 || { echo "run_checks: import failed (see $LOG_DIR/import.log)"; status=1; }
 
 python3 tools/lint/lint_engine.py || status=1
+
+# Every script must compile — tests only load the scripts they reach.
+"$GODOT" --headless --path . --script res://tools/lint/load_all_scripts.gd >"$LOG_DIR/load_all.log" 2>&1
+if [ $? -ne 0 ] || grep -q 'SCRIPT ERROR\|Parse Error' "$LOG_DIR/load_all.log"; then
+	echo "run_checks: scripts failed to compile (log: $LOG_DIR/load_all.log):"
+	grep -E 'LOADFAIL|Parse Error|Compile Error' "$LOG_DIR/load_all.log" | head -20
+	status=1
+else
+	grep 'load_all:' "$LOG_DIR/load_all.log"
+fi
 
 run_scene() {  # $1 = label, $2 = scene path
 	local log="$LOG_DIR/$1.log"

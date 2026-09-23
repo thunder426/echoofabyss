@@ -533,7 +533,7 @@ func play_ritual_sacrifice_sequence(imp: MinionInstance,
 		if scene.has_method("_on_ritual_sacrifice_summon_champion"):
 			await scene._on_ritual_sacrifice_summon_champion()
 		else:
-			# Direct fallback — handler is reachable via state._handlers_ref on
+			# Direct fallback — handler is reachable via state._handlers on
 			# both live and sim, but live-side scene shim may not exist.
 			if state != null and state.has_method("_summon_champion_void_ritualist"):
 				state._summon_champion_void_ritualist()

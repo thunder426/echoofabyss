@@ -96,6 +96,10 @@ static func run_all() -> void:
 	_state_turn_flag_drives_turn_conditions()
 	_state_graveyard_stamps_turn_number()
 	_sim_enemy_agent_sees_essence_discounts()
+	# Plan 1.4 — gameplay that only ran on CombatScene now runs in sim too
+	_state_void_devourer_sacrifices_adjacent()
+	_state_hero_heal_clamps_to_max()
+	_state_player_champion_auto_summons()
 	_setup_stats_land_on_state()
 	_vch_summon_at_3_crit_kills()
 	_vch_aura_grows_resources()
@@ -405,7 +409,7 @@ static func _corrupt_flesh_activate() -> void:
 		return
 	state.player_flesh = 5
 	var fiend := TestHarness.spawn_friendly(state, "grafted_fiend")
-	var ok: bool = state._seris_corrupt_activate(fiend)
+	var ok: bool = state._seris_corrupt_apply(fiend)
 	var stacks: int = BuffSystem.sum_type(fiend, Enums.BuffType.CORRUPTION)
 	TestHarness.assert_true(ok, "activation returns true")
 	TestHarness.assert_eq(state.player_flesh, 4, "Flesh spent: 5 → 4")
@@ -1358,7 +1362,7 @@ static func _acp_stacks_capped_at_5_in_progress() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_cultist_patrol"]})
 	if not TestHarness.begin_test("champion_acp / tracker accepts over-shoot stacks (raw sum preserved)", state):
 		return
-	state._handlers_ref.on_champion_acp_track_stacks(10)
+	state._handlers.on_champion_acp_track_stacks(10)
 	TestHarness.assert_eq(state._champion_acp_stacks_consumed, 10, "raw stacks_consumed == 10")
 	TestHarness.assert_true(state.get("_champion_acp_summoned") == true, "summoned at first feed >=5")
 	state.teardown()
@@ -1372,12 +1376,12 @@ static func _vr_summon_on_first_ritual_sacrifice() -> void:
 	if not TestHarness.begin_test("champion_vr / on_ritual_sacrifice_champion_vr summons on first call", state):
 		return
 	TestHarness.assert_false(state.get("_champion_vr_summoned") == true, "not summoned initially")
-	state._handlers_ref.on_ritual_sacrifice_champion_vr()
+	state._handlers.on_ritual_sacrifice_champion_vr()
 	TestHarness.assert_true(state.get("_champion_vr_summoned") == true, "summoned after first call")
 	TestHarness.assert_true(TestHarness.has_on_board(state, "enemy", "champion_void_ritualist"), "champion on board")
 	# Second call should no-op (guard on _champion_vr_summoned)
 	var board_size := state.enemy_board.size()
-	state._handlers_ref.on_ritual_sacrifice_champion_vr()
+	state._handlers.on_ritual_sacrifice_champion_vr()
 	TestHarness.assert_eq(state.enemy_board.size(), board_size, "no re-summon")
 	state.teardown()
 
@@ -3353,4 +3357,51 @@ static func _sim_enemy_agent_sees_essence_discounts() -> void:
 	state.enemy_minion_essence_cost_aura = -2
 	TestHarness.assert_eq(agent.effective_minion_essence_cost(vti), maxi(0, vti.essence_cost - 3),
 			"Abyssal Mandate aura stacks on top")
+	state.teardown()
+
+## Void Devourer's on-play was a `pass` stub in SimState; the live body is now
+## the one CombatState implementation.
+static func _state_void_devourer_sacrifices_adjacent() -> void:
+	var state := TestHarness.build_state()
+	if not TestHarness.begin_test("state / Void Devourer sacrifices both adjacent friendlies and grows", state):
+		return
+	TestHarness.spawn_friendly_at(state, "void_imp", 0)
+	var devourer: MinionInstance = TestHarness.spawn_friendly_at(state, "void_devourer", 1)
+	TestHarness.spawn_friendly_at(state, "void_imp", 2)
+	var far: MinionInstance = TestHarness.spawn_friendly_at(state, "void_imp", 4)
+	var ctx := EffectContext.make(state, "player")
+	ctx.source = devourer
+	EffectResolver.run((devourer.card_data as MinionCardData).on_play_effect_steps, ctx)
+	TestHarness.assert_eq(state.player_board.size(), 2, "the two neighbours are gone")
+	TestHarness.assert_true(state.player_board.has(far), "the non-adjacent imp survives")
+	TestHarness.assert_eq(devourer.effective_atk(), devourer.card_data.atk + 600, "+300 ATK per sacrifice")
+	TestHarness.assert_eq(devourer.current_health, (devourer.card_data as MinionCardData).health + 600, "+300 HP per sacrifice")
+	state.teardown()
+
+## Live clamped heals at max HP; sim didn't (and had no max HP set).
+static func _state_hero_heal_clamps_to_max() -> void:
+	var state := TestHarness.build_state({"player_hp": 3000})
+	if not TestHarness.begin_test("state / hero heals clamp to max HP", state):
+		return
+	state.player_hp = 2900
+	state._on_hero_healed("player", 500)
+	TestHarness.assert_eq(state.player_hp, 3000, "healed to max, not past it")
+	state.enemy_hp = 1000
+	state._on_hero_healed("enemy", 200)
+	TestHarness.assert_eq(state.enemy_hp, 1200, "partial enemy heal lands in full")
+	state.teardown()
+
+## Nyx'ael auto-summons when 3 Void Imp clan minions are on board — this lived
+## only on CombatScene, so sim never summoned player champions.
+static func _state_player_champion_auto_summons() -> void:
+	var state := TestHarness.build_state({"player_deck": ["nyx_ael"]})
+	if not TestHarness.begin_test("state / Nyx'ael auto-summons from hand at 3 Void Imps", state):
+		return
+	var in_hand: bool = state.player_hand.any(func(i: CardInstance) -> bool: return i.card_data.id == "nyx_ael")
+	TestHarness.assert_true(in_hand, "Nyx'ael drawn into the opening hand")
+	for _i in 3:
+		state._summon_token("void_imp", "player")
+	var on_board: bool = state.player_board.any(func(m: MinionInstance) -> bool: return m.card_data.id == "nyx_ael")
+	TestHarness.assert_true(on_board, "Nyx'ael is on the board")
+	TestHarness.assert_true(state.player_hand.is_empty(), "left the hand")
 	state.teardown()

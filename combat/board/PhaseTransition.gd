@@ -113,8 +113,9 @@ static func _clear_combat_state(st: CombatState) -> void:
 	st.enemy_void_marks = 0
 
 static func _swap_passives(scene: Object) -> void:
-	var tm: TriggerManager = scene.get("trigger_manager")
-	var h: CombatHandlers  = scene.get("_handlers_ref") if scene.get("_handlers_ref") != null else scene.get("_handlers")
+	var st: CombatState = scene.state
+	var tm: TriggerManager = st.trigger_manager
+	var h: CombatHandlers  = st._handlers
 	if tm == null or h == null:
 		push_warning("PhaseTransition: missing trigger_manager or handlers — cannot swap passives")
 		return

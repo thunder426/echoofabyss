@@ -9,7 +9,6 @@
 ## surface implementation gaps.
 ##
 ## Skipped (sim cannot cover):
-##   - void_devourer (SimState._resolve_void_devourer_sacrifice is a no-op stub)
 ##   - soul_shatter no-valid-target gate (play-gate lives in UI, not sim)
 class_name CardEffectTests
 extends RefCounted

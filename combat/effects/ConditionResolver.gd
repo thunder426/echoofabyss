@@ -59,11 +59,11 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 		"has_active_environment":
 			return scene.active_environment != null
 		"has_friendly_demon":
-			return scene._count_type_on_board(Enums.MinionType.DEMON, ctx.owner) > 0
+			return ctx.state._count_type_on_board(Enums.MinionType.DEMON, ctx.owner) > 0
 		"has_friendly_human":
-			return scene._count_type_on_board(Enums.MinionType.HUMAN, ctx.owner) > 0
+			return ctx.state._count_type_on_board(Enums.MinionType.HUMAN, ctx.owner) > 0
 		"not_has_friendly_human":
-			return scene._count_type_on_board(Enums.MinionType.HUMAN, ctx.owner) == 0
+			return ctx.state._count_type_on_board(Enums.MinionType.HUMAN, ctx.owner) == 0
 		"owner_runes_gte_2":
 			# True when the owner has at least 2 runes in their active_traps. Used by
 			# Runic Blast to branch between "AoE all" and "2 random picks" damage modes.
