@@ -1,0 +1,11 @@
+# L1 allow-list: `path:name  # reason`. Must shrink to empty by the end of
+# Phase 1 (LIVE_SIM_UNIFICATION_PLAN.md 1.2). Only add sim-only fallback
+# branches that are unreachable in live — never a real live access.
+
+# Void Champion aura / GAIN_MAX_RESOURCE fallback when there is no enemy agent
+# with mana_max (bare test states). Live always takes the enemy_ai branch.
+# Phase 1.3 replaces both branches with state.set_max(side, …).
+combat/events/CombatHandlers.gd:enemy_mana_max
+combat/events/CombatHandlers.gd:enemy_essence_max
+combat/effects/EffectResolver.gd:enemy_mana_max
+combat/effects/EffectResolver.gd:enemy_essence_max
