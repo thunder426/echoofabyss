@@ -52,10 +52,15 @@ var _listeners: Dictionary = {}
 func register(event: int, handler: Callable, priority: int = 0) -> void:
 	if not _listeners.has(event):
 		_listeners[event] = []
+	# Ordered insert: by priority, then registration order among equals. (A
+	# re-sort relied on sort_custom being stable, which it is only for ≤ 16 entries.)
 	var entries: Array = _listeners[event]
-	entries.append(_Entry.new(handler, priority))
-	entries.sort_custom(func(a: _Entry, b: _Entry) -> bool:
-		return a.priority < b.priority)
+	var at: int = entries.size()
+	for i in entries.size():
+		if (entries[i] as _Entry).priority > priority:
+			at = i
+			break
+	entries.insert(at, _Entry.new(handler, priority))
 
 ## Unregister a specific handler.  Safe to call during fire().
 func unregister(event: int, handler: Callable) -> void:
@@ -79,6 +84,22 @@ func fire(ctx: EventContext) -> void:
 	for entry in snapshot:
 		if entry.handler.is_valid():
 			entry.handler.call(ctx)
+
+## Dispatch order as text, one line per event (by event id):
+## "EVENT: priority:method, ...". The handler-order snapshot test compares it
+## against a checked-in file to catch accidental reordering.
+func dump_order() -> String:
+	var events: Array = _listeners.keys()
+	events.sort()
+	var lines: PackedStringArray = []
+	for event in events:
+		var parts: PackedStringArray = []
+		for entry in _listeners[event]:
+			var e: _Entry = entry
+			var method: String = str(e.handler.get_method())
+			parts.append("%d:%s" % [e.priority, method])
+		lines.append("%s: %s" % [Enums.TriggerEvent.find_key(event), ", ".join(parts)])
+	return "\n".join(lines)
 
 ## Remove all registered listeners.  Call between combats if reusing the instance.
 func clear() -> void:

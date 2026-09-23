@@ -642,7 +642,7 @@ func _ready() -> void:
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
 	# This scene is the state's presenter. Every EffectContext the state builds
-	# (cast_player_targeted_spell, _check_and_fire_traps, env rituals, etc.)
+	# (cast_player_targeted_spell, _fire_traps_for, env rituals, etc.)
 	# carries `ctx.scene = scene` via state._get_scene_facade(), so VFX-bound
 	# calls like ctx.scene._deal_void_bolt_damage / ._corrupt_minion / ._fire_ritual
 	# reach the scene's VFX-rich overrides instead of state's bare bodies.
@@ -3140,41 +3140,20 @@ func _on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 # Trap helpers
 # ---------------------------------------------------------------------------
 
-## Fire all non-rune traps for owner ("player"/"enemy") whose trigger matches trigger.
-## triggering_minion is the relevant minion (attacker, summoned minion, dead minion, etc.).
-## Traps play their animations one-by-one so they don't overlap.
-func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInstance = null) -> void:
-	if owner == "enemy" and _enemy_traps_blocked:
-		return
-	if owner == "player" and _player_traps_blocked:
-		return
-	var traps: Array = active_traps if owner == "player" else (enemy_ai.active_traps if enemy_ai else [])
-	if owner == "enemy" and enemy_ai == null:
-		return
-	# Collect matching traps first, then resolve sequentially
-	var matching: Array[TrapCardData] = []
-	for trap in traps.duplicate():
-		if trap.is_rune:
-			continue
-		if trap.trigger != trigger:
-			continue
-		matching.append(trap)
-	for trap in matching:
+## Presentation for traps the state sprang (CombatState._fire_traps_for already
+## logged and consumed them): one at a time, flash the slot, play the card
+## animation and run the trap's `resolve` callable at its impact, then a short
+## gap. `reveals`: Array of {trap, slot_index, resolve}.
+func play_trap_reveals(owner: String, reveals: Array) -> void:
+	for entry: Dictionary in reveals:
 		if not is_inside_tree():
 			return
-		var slot_idx := traps.find(trap)
-		_flash_trap_slot_for(owner, slot_idx)
-		_log("⚡ %s%s triggered!" % [("Enemy " if owner == "enemy" else ""), trap.card_name], _LogType.TRAP)
-		# Consume non-reusable trap immediately so a subsequent trigger (e.g. the
-		# next enemy attack) during the ~1.1s cast animation doesn't re-fire it.
-		if not trap.reusable:
-			traps.erase(trap)
-			_update_trap_display_for(owner)
+		var trap: TrapCardData = entry["trap"]
+		var resolve: Callable = entry["resolve"]
+		_flash_trap_slot_for(owner, entry["slot_index"])
 		var effect_resolved := false
 		_show_card_cast_anim(trap, owner == "enemy", func() -> void:
-			var ctx := EffectContext.make(self, owner)
-			ctx.trigger_minion = triggering_minion
-			EffectResolver.run(trap.effect_steps, ctx)
+			resolve.call()
 			effect_resolved = true
 		)
 		# Wait for the full card animation to finish (~1.1s)
@@ -4576,16 +4555,7 @@ func _setup_triggers() -> void:
 	# Only register live-only handlers here to avoid double-registration.
 	# NOTE: Old passive relic handlers (on_player_turn_relics, on_summon_relic) removed.
 	# Relics are now activated abilities — see _setup_relics().
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_DIED,    _trap_check_friendly_death,               20)
-	# Trap routing — scene-specific methods bridging events to _fire_traps_for()
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_TURN_START,      _trap_check_enemy_turn_start,             30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, _trap_check_enemy_summon,                 30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,      _trap_check_enemy_spell,                  30)
-	trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_ATTACK,          _trap_check_enemy_attack,                 30)
-	trigger_manager.register(Enums.TriggerEvent.ON_HERO_DAMAGED,          _trap_check_damage_taken,                 10)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, _enemy_trap_check_player_summon,         35)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,      _enemy_trap_check_player_spell,          35)
-	trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,      _enemy_trap_check_player_turn_start,     35)
+	# Trap routes are registered first inside CombatSetup.setup (shared with sim).
 
 	# ── ancient_frenzy hand injection (live-only side effect) ─────────────────
 	if "ancient_frenzy" in _active_enemy_passives:
@@ -4608,36 +4578,3 @@ func _setup_triggers() -> void:
 		hero_passive_ids,
 		_active_enemy_passives
 	)
-
-# ---------------------------------------------------------------------------
-# Trap routing stubs — bridge TriggerManager events to _fire_traps_for()
-# ---------------------------------------------------------------------------
-
-func _trap_check_enemy_turn_start(ctx: EventContext) -> void:
-	_fire_traps_for("player", ctx.event_type)
-
-func _trap_check_friendly_death(ctx: EventContext) -> void:
-	# Traps that react to friendly death only fire during the enemy's turn
-	if not turn_manager.is_player_turn:
-		_fire_traps_for("player", ctx.event_type, ctx.minion)
-
-func _trap_check_enemy_summon(ctx: EventContext) -> void:
-	_fire_traps_for("player", ctx.event_type, ctx.minion)
-
-func _trap_check_enemy_spell(ctx: EventContext) -> void:
-	_fire_traps_for("player", ctx.event_type)
-
-func _trap_check_enemy_attack(ctx: EventContext) -> void:
-	_fire_traps_for("player", ctx.event_type, ctx.minion)
-
-func _trap_check_damage_taken(ctx: EventContext) -> void:
-	_fire_traps_for("player", ctx.event_type)
-
-func _enemy_trap_check_player_summon(ctx: EventContext) -> void:
-	_fire_traps_for("enemy", ctx.event_type, ctx.minion)
-
-func _enemy_trap_check_player_spell(_ctx: EventContext) -> void:
-	_fire_traps_for("enemy", Enums.TriggerEvent.ON_PLAYER_SPELL_CAST)
-
-func _enemy_trap_check_player_turn_start(_ctx: EventContext) -> void:
-	_fire_traps_for("enemy", Enums.TriggerEvent.ON_PLAYER_TURN_START)

@@ -124,6 +124,10 @@ static func run_all() -> void:
 	_abyssal_mandate_essence_branch()
 	_abyssal_mandate_mana_branch()
 	_abyssal_mandate_end_clears_aura()
+	_trap_route_friendly_death_enemy_turn_only()
+	_trap_route_enemy_turn_start()
+	_trap_route_enemy_trap_on_player_turn_start()
+	_handler_order_snapshot()
 
 	# Korrath — FORMATION keyword (tasks 036 one-shot consumable + 037 both-sides)
 	_formation_fires_when_both_sides_same_race()
@@ -3404,4 +3408,98 @@ static func _state_player_champion_auto_summons() -> void:
 	var on_board: bool = state.player_board.any(func(m: MinionInstance) -> bool: return m.card_data.id == "nyx_ael")
 	TestHarness.assert_true(on_board, "Nyx'ael is on the board")
 	TestHarness.assert_true(state.player_hand.is_empty(), "left the hand")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Trap routing (plan 2A.2) — CombatState.TRAP_ROUTES, exact trigger match
+# ---------------------------------------------------------------------------
+
+static func _probe_trap(trigger: int, dmg: int) -> TrapCardData:
+	var t := TrapCardData.new()
+	t.id = "_probe_trap_%d" % trigger
+	t.card_name = "Probe Trap"
+	t.trigger = trigger
+	t.effect_steps = [{"type": "DAMAGE_HERO", "amount": dmg}]
+	return t
+
+static func _trap_route_friendly_death_enemy_turn_only() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("trap routes / player ON_PLAYER_MINION_DIED trap springs on the enemy's turn only", state):
+		return
+	state.active_traps.append(_probe_trap(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, 100))
+	var hp0 := state.enemy_hp
+	var imp := TestHarness.spawn_friendly(state, "void_imp")
+	state.combat_manager.kill_minion(imp)
+	TestHarness.assert_eq(state.enemy_hp, hp0, "own turn: trap stays")
+	TestHarness.assert_eq(state.active_traps.size(), 1, "still set")
+	state.is_player_turn = false
+	var imp2 := TestHarness.spawn_friendly(state, "void_imp")
+	state.combat_manager.kill_minion(imp2)
+	TestHarness.assert_eq(state.enemy_hp, hp0 - 100, "enemy turn: trap springs")
+	TestHarness.assert_eq(state.active_traps.size(), 0, "consumed")
+	state.teardown()
+
+static func _trap_route_enemy_turn_start() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("trap routes / player trap on ON_ENEMY_TURN_START", state):
+		return
+	state.active_traps.append(_probe_trap(Enums.TriggerEvent.ON_ENEMY_TURN_START, 100))
+	var hp0 := state.enemy_hp
+	TestHarness.fire(state, Enums.TriggerEvent.ON_ENEMY_TURN_START, "enemy")
+	TestHarness.assert_eq(state.enemy_hp, hp0 - 100, "sprang")
+	state.teardown()
+
+static func _trap_route_enemy_trap_on_player_turn_start() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("trap routes / enemy trap on ON_PLAYER_TURN_START (absolute trigger, no mirroring)", state):
+		return
+	state.enemy_active_traps.append(_probe_trap(Enums.TriggerEvent.ON_PLAYER_TURN_START, 100))
+	# A mirrored trigger must NOT spring it: ON_ENEMY_TURN_START is the enemy's own turn.
+	var p0 := state.player_hp
+	TestHarness.fire(state, Enums.TriggerEvent.ON_ENEMY_TURN_START, "enemy")
+	TestHarness.assert_eq(state.player_hp, p0, "not on the mirrored event")
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_TURN_START, "player")
+	TestHarness.assert_eq(state.player_hp, p0 - 100, "springs on the player's turn start")
+	TestHarness.assert_eq(state.enemy_active_traps.size(), 0, "consumed")
+	state.enemy_active_traps.append(_probe_trap(Enums.TriggerEvent.ON_PLAYER_TURN_START, 100))
+	state._enemy_traps_blocked = true
+	TestHarness.fire(state, Enums.TriggerEvent.ON_PLAYER_TURN_START, "player")
+	TestHarness.assert_eq(state.player_hp, p0 - 100, "blocked by Saboteur Adept")
+	state.teardown()
+
+## Dispatch order of every handler CombatSetup can register (all registry ids at
+## once), compared with a checked-in snapshot. A mismatch means a registration
+## moved: if intended, delete the snapshot file and re-run to regenerate it.
+const _HANDLER_ORDER_SNAPSHOT := "res://debug/tests/snapshots/handler_order.txt"
+
+static func _handler_order_snapshot() -> void:
+	var ids: Array[String] = []
+	for id in CombatSetup._REGISTRY.keys():
+		ids.append(str(id))
+	var state := TestHarness.build_state({"hero_passives": ids})  # same _apply path as talents, minus the grand-ritual lookup
+	if not TestHarness.begin_test("trigger manager / handler dispatch order matches the snapshot", state):
+		state.teardown()
+		return
+	var dump: String = state.trigger_manager.dump_order() + "\n"
+	if not FileAccess.file_exists(_HANDLER_ORDER_SNAPSHOT):
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(_HANDLER_ORDER_SNAPSHOT.get_base_dir()))
+		var f := FileAccess.open(_HANDLER_ORDER_SNAPSHOT, FileAccess.WRITE)
+		f.store_string(dump)
+		f.close()
+		TestHarness.assert_true(false, "snapshot was missing — written, re-run to compare")
+	else:
+		var expected: String = FileAccess.get_file_as_string(_HANDLER_ORDER_SNAPSHOT)
+		var same: bool = expected == dump
+		if not same:
+			var a: PackedStringArray = expected.split("\n")
+			var b: PackedStringArray = dump.split("\n")
+			for i in maxi(a.size(), b.size()):
+				var ea: String = a[i] if i < a.size() else "<none>"
+				var eb: String = b[i] if i < b.size() else "<none>"
+				if ea != eb:
+					print("    snapshot: %s\n    now:      %s" % [ea, eb])
+					break
+		TestHarness.assert_true(same, "dispatch order unchanged")
+	MinionInstance.corruption_inverts_on_friendly_demons = false
+	MinionInstance.iron_resolve_active = false
 	state.teardown()

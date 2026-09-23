@@ -520,6 +520,11 @@ func setup(
 		hero_passives: Array[String],
 		enemy_passives: Array[String]) -> void:
 
+	# ── Trap routes — first, so equal-priority handlers keep live's order ─────
+	var st: CombatState = scene.state
+	for route: Array in CombatState.TRAP_ROUTES:
+		tm.register(route[0], st._on_trap_route.bind(route[1]), route[2])
+
 	# ── Shared always-on handlers (both live and sim) ─────────────────────────
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,     h.on_player_turn_environment,           10)
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,     h.on_minion_turn_start_passives,        21)

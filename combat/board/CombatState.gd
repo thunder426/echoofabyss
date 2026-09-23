@@ -1018,35 +1018,68 @@ func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstanc
 	combat_manager.apply_hero_damage("player",
 			CombatManager.make_damage_info(base_damage, src, Enums.DamageSchool.VOID_BOLT, source_minion, base_source))
 
-## Fire matching non-rune traps for the given trigger event (both player and
-## enemy). Skips player traps when `_player_traps_blocked` is set (enemy-side
-## relic / Phase Disruptor trap-block effects). Mirror-translates the trigger
-## for enemy traps. Removes non-reusable traps after firing.
-func _check_and_fire_traps(trigger: int, triggering_minion: MinionInstance = null) -> void:
-	# Player traps
-	if not _player_traps_blocked:
-		for trap in active_traps.duplicate():
-			if trap.is_rune:
-				continue
-			if trap.trigger != trigger:
-				continue
-			var ctx := EffectContext.make(_get_scene_facade(), "player")
+## A trap fired: removed from its slot (unless reusable) and about to resolve.
+signal trap_fired(owner: String, trap: TrapCardData, slot_index: int)
+
+## The trap routes (plan 2A.2) — [event, owner of the traps it springs, priority].
+## A trap springs when its `trigger` equals the event exactly (no mirroring).
+## CombatSetup.setup registers these first so equal-priority handlers keep
+## live's order. The player's ON_PLAYER_MINION_DIED route only springs during
+## the enemy's turn.
+const TRAP_ROUTES: Array = [
+	[Enums.TriggerEvent.ON_PLAYER_MINION_DIED,     "player", 20],
+	[Enums.TriggerEvent.ON_ENEMY_TURN_START,       "player", 30],
+	[Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED,  "player", 30],
+	[Enums.TriggerEvent.ON_ENEMY_SPELL_CAST,       "player", 30],
+	[Enums.TriggerEvent.ON_ENEMY_ATTACK,           "player", 30],
+	[Enums.TriggerEvent.ON_HERO_DAMAGED,           "player", 10],
+	[Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "enemy",  35],
+	[Enums.TriggerEvent.ON_PLAYER_SPELL_CAST,      "enemy",  35],
+	[Enums.TriggerEvent.ON_PLAYER_TURN_START,      "enemy",  35],
+]
+
+## Trap route handler: springs `owner`'s traps for the event.
+func _on_trap_route(ctx: EventContext, owner: String) -> void:
+	if ctx.event_type == Enums.TriggerEvent.ON_PLAYER_MINION_DIED and is_player_turn:
+		return  # friendly-death traps react to the enemy's kills only
+	_fire_traps_for(owner, ctx.event_type, ctx.minion)
+
+## Spring `owner`'s non-rune traps whose trigger is `trigger` (skipped while the
+## side's traps are blocked by Saboteur Adept). Each is consumed (unless
+## reusable) before it resolves, so a second trigger mid-resolution can't
+## re-fire it. With a presenter (live) the resolutions go to
+## presenter.play_trap_reveals, which runs each after its card animation
+## (B12 stays open until Phase 3.0); without one they resolve inline.
+func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInstance = null) -> void:
+	if owner == "enemy" and _enemy_traps_blocked:
+		return
+	if owner == "player" and _player_traps_blocked:
+		return
+	var traps: Array[TrapCardData] = traps_of(owner)
+	var matching: Array[TrapCardData] = []
+	for trap: TrapCardData in traps:
+		if not trap.is_rune and trap.trigger == trigger:
+			matching.append(trap)
+	var reveals: Array = []
+	for trap: TrapCardData in matching:
+		var slot_idx: int = traps.find(trap)
+		if slot_idx < 0:
+			continue  # removed by an earlier trap's resolution
+		_log("⚡ %s%s triggered!" % [("Enemy " if owner == "enemy" else ""), trap.card_name], 5)  # TRAP
+		if not trap.reusable:
+			traps.erase(trap)
+			_update_trap_display_for(owner)
+		trap_fired.emit(owner, trap, slot_idx)
+		var resolve := func() -> void:
+			var ctx := EffectContext.make(_get_scene_facade(), owner)
 			ctx.trigger_minion = triggering_minion
 			EffectResolver.run(trap.effect_steps, ctx)
-			if not trap.reusable:
-				active_traps.erase(trap)
-	# Enemy traps (mirror trigger: player events → enemy equivalents)
-	var enemy_trigger: int = Enums.mirror_trigger(trigger as Enums.TriggerEvent)
-	for trap in enemy_active_traps.duplicate():
-		if trap.is_rune:
-			continue
-		if trap.trigger != enemy_trigger:
-			continue
-		var ctx := EffectContext.make(_get_scene_facade(), "enemy")
-		ctx.trigger_minion = triggering_minion
-		EffectResolver.run(trap.effect_steps, ctx)
-		if not trap.reusable:
-			enemy_active_traps.erase(trap)
+		if presenter != null:
+			reveals.append({trap = trap, slot_index = slot_idx, resolve = resolve})
+		else:
+			resolve.call()
+	if not reveals.is_empty():
+		presenter.play_trap_reveals(owner, reveals)
 
 ## Compose an enemy spell cast resolution. The pre/post-cast hooks (Seris
 ## Void Amplification / Void Resonance) are player-only and not invoked here.

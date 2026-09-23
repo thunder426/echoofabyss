@@ -156,15 +156,17 @@ When adding a new card, prefer declarative `effect_steps`. Add to HardcodedEffec
 
 ## Trigger event system
 
-Every passive, relic, talent, trap, and on-play hook registers as a handler on `TriggerManager` with an event type and priority. Same code runs live and in sim — only the registration site differs.
+Every passive, relic, talent, trap, and on-play hook registers as a handler on `TriggerManager` with an event type and priority. Same code and the same registrations run live and in sim: both shells call `CombatSetup.setup()`, which registers the trap routes first, then the always-on handlers, then the registry-driven talents / passives. Equal priorities dispatch in registration order (ordered insert); `debug/tests/snapshots/handler_order.txt` pins the full order.
+
+**Traps** spring through `CombatState.TRAP_ROUTES` → `_fire_traps_for(owner, trigger, minion)`: exact trigger match (no mirroring), skipped while the side's traps are blocked, consumed before resolving, the player's friendly-death route only on the enemy's turn. Live hands the resolutions to `presenter.play_trap_reveals` (each resolves at its card animation's impact — B12 until Phase 3.0); sim and tests resolve inline.
 
 | File | Role |
 |---|---|
-| `combat/events/TriggerManager.gd` | Per-combat event bus. `register_handler(event, callable, priority)`. Safe for handlers that mutate during iteration. |
+| `combat/events/TriggerManager.gd` | Per-combat event bus. `register(event, callable, priority)` (ordered insert), `fire(ctx)`, `dump_order()`. Safe for handlers that mutate during iteration. |
 | `combat/events/EventContext.gd` | Event payload (event type, source, targets, extra dict). |
 | `combat/events/CombatHandlers.gd` | All handler implementations. Symmetric — uses `ctx.owner` and `_opponent_of()`, never hardcodes "player"/"enemy". |
-| `combat/events/CombatSetup.gd` | Live-combat handler registration. Loads hero stats, deck, talents, relics, passives. |
-| `sim/SimTriggerSetup.gd` | Sim handler registration. **Must stay in sync with CombatSetup** when registering new handlers. |
+| `combat/events/CombatSetup.gd` | The one handler registration, for both shells: trap routes, always-on handlers, registry-driven talents / hero passives / enemy passives and their stat overrides. |
+| `sim/SimTriggerSetup.gd` | Sim bootstrap: creates the TriggerManager + handlers and the BuffSystem bus bridge, then calls `CombatSetup.setup()`. |
 
 Event types are `Enums.TriggerEvent` values (ON_PLAYER_TURN_START, ON_MINION_DIED, ON_DAMAGE_DEALT, …).
 
@@ -254,7 +256,7 @@ Used for balance testing — no UI, no scene tree, no animations.
 | `sim/SimState.gd` | Extends `CombatState`: setup, the sim turn engine (`begin/end_*_turn`, replaced by the shared engine in 2A.3), BuffSystem bus bridge. No gameplay rules (lint L5). |
 | `sim/SimTurnManager.gd` | Façade over CombatState's player side (deleted in 2A.3). |
 | `sim/SimPlayerAgent.gd`, `sim/SimEnemyAgent.gd` | Per-side action runners. Use the same `CombatProfile` subclasses as live combat. |
-| `sim/SimTriggerSetup.gd` | Creates the TriggerManager + handlers, registers sim trap routing, then delegates everything else to `CombatSetup.setup()`. |
+| `sim/SimTriggerSetup.gd` | Creates the TriggerManager + handlers and the BuffSystem bus bridge, then delegates every registration (trap routes first — `CombatState.TRAP_ROUTES` — then always-on, talents, passives) to `CombatSetup.setup()`, exactly as live does. |
 
 Determinism: every gameplay random draws from `CombatState.rng` (seeded by `CombatSim.run(…, rng_seed)` in sim and `CombatScene._ready` in live — lint L2). `CombatSim.run` returns `seed` + `digest` so any run replays exactly.
 

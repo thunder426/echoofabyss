@@ -101,6 +101,22 @@ func _live_rules_paths() -> void:
 	st._on_hero_healed("player", 1000)
 	_check(st.player_hp == st.player_hp_max, "live: heal clamps at max HP (%d / %d)" % [st.player_hp, st.player_hp_max])
 	await _drain(scene)
+	# Trap routing (plan 2A.2): the state springs + consumes the trap, the
+	# presenter's play_trap_reveals resolves it at its card animation's impact.
+	var trap := TrapCardData.new()
+	trap.id = "_smoke_probe_trap"
+	trap.card_name = "Probe Trap"
+	trap.trigger = Enums.TriggerEvent.ON_ENEMY_TURN_START
+	trap.effect_steps = [{"type": "DAMAGE_HERO", "amount": 100}]
+	st.active_traps.append(trap)
+	var trap_hp: int = st.enemy_hp
+	scene.trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START, "enemy"))
+	_check(not st.active_traps.has(trap), "live: sprung trap consumed at once")
+	t0 = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS and st.enemy_hp == trap_hp:
+		await get_tree().process_frame
+	_check(st.enemy_hp == trap_hp - 100, "live: trap resolved at its reveal (%d → %d)" % [trap_hp, st.enemy_hp])
+	await get_tree().create_timer(1.0).timeout  # the reveal's trailing gap
 	print("LiveSmoke: live rules paths completed")
 	await _teardown(scene)
 

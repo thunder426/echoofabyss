@@ -43,6 +43,7 @@ enemy_trap_slot_panels            # ritual-sacrifice VFX anchors
 # CombatState hooks (plan 1.4) — animation / popup half of the shared handlers
 _on_minion_vanished_visual        # hand glows, spell costs, death animation (deferred mid-lunge)
 _defer_on_death_vfx               # queue on-death effects behind the icon VFX (D3, until Phase 3.0)
+play_trap_reveals                 # trap card animations; runs each resolve at impact (B12, until Phase 3.0)
 _on_hero_damaged_visual           # flash / popup; lethal → defeat/victory, F15 transition
 _on_hero_healed_visual
 _on_card_left_hand                # hand-display removal without a play animation
