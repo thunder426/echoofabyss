@@ -1951,8 +1951,8 @@ static func _spirit_conscription_summons_spark() -> void:
 	# KNOWN BUG (double dead-code): spirit_conscription handler gates on the
 	# minion_tag "void_spirit", but NO minion in CardDatabase has that tag.
 	# Additionally, "spirit_conscription" is registered in CombatSetup._REGISTRY
-	# but not assigned to any enemy profile (CombatSim._ENEMY_PASSIVES /
-	# CombatScene._ENEMY_PASSIVES). So the passive can never fire in game.
+	# but not assigned to any encounter (EncounterTable passives /
+	# GameManager). So the passive can never fire in game.
 	# Either the tag must be added to Spirit-clan minions and the passive
 	# assigned to an enemy profile, or the whole passive should be retired
 	# (same cleanup pattern as feral_instinct in Batch 2).

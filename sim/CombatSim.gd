@@ -13,37 +13,6 @@
 class_name CombatSim
 extends RefCounted
 
-## Passive IDs active for each enemy profile — mirrors EnemyData.passives in the live game.
-const _ENEMY_PASSIVES: Dictionary = {
-	"feral_pack":           ["pack_instinct", "champion_rogue_imp_pack"],
-	"feral_pack_screech":   ["pack_instinct", "champion_rogue_imp_pack"],
-	"corrupted_brood":      ["corrupted_death", "champion_corrupted_broodlings"],
-	"corrupted_brood_aggro": ["corrupted_death", "champion_corrupted_broodlings"],
-	"corrupted_brood_rune": ["corrupted_death", "champion_corrupted_broodlings"],
-	"matriarch":            ["ancient_frenzy", "champion_imp_matriarch"],
-	"matriarch_aggro":      ["ancient_frenzy", "champion_imp_matriarch"],
-	"matriarch_sac":        ["ancient_frenzy", "champion_imp_matriarch"],
-	"default":              [],
-	"cultist_patrol":       ["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"],
-	"cultist_patrol_tempo": ["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"],
-	"void_ritualist":       ["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"],
-	"corrupted_handler":    ["feral_reinforcement", "void_unraveling", "champion_corrupted_handler"],
-	"rift_stalker":         ["void_rift", "void_empowerment", "champion_rift_stalker"],
-	"void_aberration":      ["void_rift", "void_detonation_passive", "champion_void_aberration"],
-	"void_herald":          ["void_rift", "void_mastery", "champion_void_herald"],
-	# Act 4 — Void Castle
-	"void_scout":           ["void_might", "void_precision", "champion_void_scout"],
-	"void_warband":         ["void_might", "spirit_resonance", "champion_void_warband"],
-	"void_captain":         ["void_might", "captain_orders", "champion_void_captain"],
-	"void_ritualist_prime": ["void_might", "dark_channeling", "ritualist_spark_free", "champion_void_ritualist_prime"],
-	"void_champion":        ["void_might", "mana_for_spark", "champion_void_champion"],
-	"abyss_sovereign":      ["void_might", "abyssal_mandate", "dark_channeling"],
-	# Scored variants
-	"scored":               [],
-	"scored_feral_pack":    ["pack_instinct", "champion_rogue_imp_pack"],
-	"scored_corrupted_brood": ["corrupted_death", "champion_corrupted_broodlings"],
-	"scored_matriarch":     ["ancient_frenzy", "champion_imp_matriarch"],
-}
 
 
 ## Maximum turns before declaring a draw — prevents infinite loops.
@@ -98,7 +67,8 @@ func run(
 	state.talents = player_talents
 	state.hero_passives = player_hero_passives
 	state.player_hero_id = player_hero_id
-	state.enemy_passives.assign(_ENEMY_PASSIVES.get(enemy_profile_id, []))
+	# The encounter this profile plays (EncounterTable) sets the enemy passives.
+	state.enemy_passives.assign(EncounterTable.passives_for_profile(enemy_profile_id))
 	state.enemy_ai_profile = enemy_profile_id
 	# Each sim run gets a clean override cache (different talent sets across batches).
 	CardDatabase.clear_override_cache()

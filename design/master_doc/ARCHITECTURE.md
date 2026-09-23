@@ -246,7 +246,7 @@ Per-copy runtime wrapper:
 | Player sim profiles | `enemies/ai/profiles/*PlayerProfile.gd` | Player decks for balance sims (Default, Fleshcraft, Seris, SpellBurn, Swarm, RuneTempo). |
 | Encounter profiles | `enemies/ai/profiles/*Profile.gd` | One per encounter family: Feral Pack, Matriarch, Corrupted Brood, Void faction (Aberration, Captain, Champion, Herald, Ritualist, Scout, Warband), Cultist Patrol, Rift Stalker, Corrupted Handler, etc. |
 
-Encounter definitions: `enemies/data/EncounterDecks.gd` (`get_encounter(id)` → `EnemyData`). `EnemyData.gd` resource fields: `enemy_name`, `hp`, `deck`, `ai_profile`, `passives`, `limited_cards`, `portrait_path`, story/background.
+Encounter definitions: `enemies/data/EncounterTable.gd` — the one table of the 15 encounters (HP, passives, default AI profile + the variant profiles that share its passives, story text); `GameManager.get_encounter(i)` builds `EnemyData` from it and picks a deck from `enemies/data/EncounterDecks.gd`; the sim reads HP / passives from it (`passives_for_profile`). `EnemyData.gd` resource fields: `enemy_name`, `hp`, `deck`, `ai_profile`, `passives`, `limited_cards`, `portrait_path`, story/background.
 
 ## Headless simulation (`sim/`)
 

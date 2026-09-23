@@ -8,17 +8,17 @@
 extends Control
 
 # ---------------------------------------------------------------------------
-# Act 1 fight configs  (mirrors GameManager._make_encounter calls)
+# Fight options (enemy HP comes from EncounterTable)
 # ---------------------------------------------------------------------------
-const _FIGHTS: Array = [
+const _FIGHT_OPTIONS: Array = [
 	# Act 1
-	{"label": "Fight 1  —  Rogue Imp Pack",      "hp": 1800, "profile": "feral_pack",       "encounter": 1, "talent_points": 1, "act": 1},
-	{"label": "Fight 2  —  Corrupted Broodlings", "hp": 2400, "profile": "corrupted_brood",  "encounter": 2, "talent_points": 1, "act": 1},
-	{"label": "Fight 3  —  Imp Matriarch",         "hp": 2600, "profile": "matriarch",        "encounter": 3, "talent_points": 1, "act": 1},
+	{"label": "Fight 1  —  Rogue Imp Pack",      "profile": "feral_pack",       "encounter": 1, "talent_points": 1, "act": 1},
+	{"label": "Fight 2  —  Corrupted Broodlings", "profile": "corrupted_brood",  "encounter": 2, "talent_points": 1, "act": 1},
+	{"label": "Fight 3  —  Imp Matriarch",         "profile": "matriarch",        "encounter": 3, "talent_points": 1, "act": 1},
 	# Act 2
-	{"label": "Fight 4  —  Abyss Cultist Patrol",  "hp": 2800, "profile": "cultist_patrol",   "encounter": 4, "talent_points": 2, "act": 2},
-	{"label": "Fight 5  —  Void Ritualist",         "hp": 3400, "profile": "void_ritualist",   "encounter": 5, "talent_points": 2, "act": 2},
-	{"label": "Fight 6  —  Corrupted Handler",      "hp": 4000, "profile": "corrupted_handler","encounter": 6, "talent_points": 2, "act": 2},
+	{"label": "Fight 4  —  Abyss Cultist Patrol",  "profile": "cultist_patrol",   "encounter": 4, "talent_points": 2, "act": 2},
+	{"label": "Fight 5  —  Void Ritualist",         "profile": "void_ritualist",   "encounter": 5, "talent_points": 2, "act": 2},
+	{"label": "Fight 6  —  Corrupted Handler",      "profile": "corrupted_handler","encounter": 6, "talent_points": 2, "act": 2},
 ]
 
 # ---------------------------------------------------------------------------
@@ -224,8 +224,8 @@ func _build_enemy_section(parent: Control) -> void:
 	var vbox := _section_body(parent)
 
 	var current_act := 0
-	for i in _FIGHTS.size():
-		var fight: Dictionary = _FIGHTS[i]
+	for i in _FIGHT_OPTIONS.size():
+		var fight: Dictionary = _FIGHT_OPTIONS[i]
 		var act: int = fight.get("act", 1) as int
 		if act != current_act:
 			current_act = act
@@ -377,7 +377,7 @@ func _rebuild_relic_dropdown() -> void:
 	_relic_ids.append("")
 
 	# Show relics from acts below the current fight's act
-	var fight_act: int = (_FIGHTS[_fight_idx] as Dictionary).get("act", 1) as int
+	var fight_act: int = (_FIGHT_OPTIONS[_fight_idx] as Dictionary).get("act", 1) as int
 	for act in range(1, fight_act):
 		var relics := RelicDatabase.get_offer_for_act(act)
 		# get_offer_for_act returns shuffled subset; get all instead
@@ -483,7 +483,7 @@ func _on_talent_toggled(pressed: bool, talent_id: String) -> void:
 	if pressed:
 		# Recount after toggling on
 		_points_used = _count_checked()
-		var points_available: int = (_FIGHTS[_fight_idx] as Dictionary).get("talent_points", 1) as int
+		var points_available: int = (_FIGHT_OPTIONS[_fight_idx] as Dictionary).get("talent_points", 1) as int
 		if _points_used > points_available:
 			# Over budget — undo
 			check.set_pressed_no_signal(false)
@@ -505,7 +505,7 @@ func _cascade_uncheck(removed_id: String) -> void:
 	_points_used = _count_checked()
 
 func _clamp_talents_to_budget() -> void:
-	var limit: int = (_FIGHTS[_fight_idx] as Dictionary).get("talent_points", 1) as int
+	var limit: int = (_FIGHT_OPTIONS[_fight_idx] as Dictionary).get("talent_points", 1) as int
 	# Uncheck all talents that now exceed point budget or have broken prerequisites
 	# Simple approach: if checked count > limit, uncheck from highest tier down
 	var checked_ids: Array[String] = _get_checked_ids()
@@ -524,7 +524,7 @@ func _clamp_talents_to_budget() -> void:
 	_points_used = _count_checked()
 
 func _refresh_talent_ui() -> void:
-	var points_available: int = (_FIGHTS[_fight_idx] as Dictionary).get("talent_points", 1) as int
+	var points_available: int = (_FIGHT_OPTIONS[_fight_idx] as Dictionary).get("talent_points", 1) as int
 	_points_used = _count_checked()
 	_talent_points_label.text = "Points: %d / %d" % [_points_used, points_available]
 
@@ -542,7 +542,7 @@ func _refresh_talent_ui() -> void:
 # ---------------------------------------------------------------------------
 
 func _on_run_pressed() -> void:
-	var fight: Dictionary = _FIGHTS[_fight_idx]
+	var fight: Dictionary = _FIGHT_OPTIONS[_fight_idx]
 	var talents  := _get_checked_ids()
 	var runs     := int(_runs_input.value)
 
@@ -609,7 +609,7 @@ func _on_run_pressed() -> void:
 			fight.profile as String,
 			enemy_deck,
 			3000,
-			fight.hp as int,
+			EncounterTable.entry(fight.encounter as int)["hp"] as int,
 			talents,
 			_player_profile_id,
 			hero_passives,

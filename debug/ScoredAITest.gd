@@ -8,27 +8,27 @@ const T2: Array[String] = ["piercing_void", "deepened_curse"]
 const RELICS: Array[String] = ["scouts_lantern", "imp_talisman", "mana_shard", "bone_shield"]
 
 const ENCOUNTERS: Array = [
-	{"fight": 1, "name": "Rogue Imp Pack",       "hp": 1800, "profile": "feral_pack",       "tp": 1,
+	{"fight": 1, "name": "Rogue Imp Pack",       "profile": "feral_pack",       "tp": 1,
 	 "deck": ["rabid_imp","rabid_imp","rabid_imp","rabid_imp","brood_imp","brood_imp","brood_imp",
 			  "imp_brawler","imp_brawler","imp_brawler","feral_surge","feral_surge","void_screech","void_screech"]},
-	{"fight": 2, "name": "Corrupted Broodlings", "hp": 2400, "profile": "corrupted_brood",  "tp": 1,
+	{"fight": 2, "name": "Corrupted Broodlings", "profile": "corrupted_brood",  "tp": 1,
 	 "deck": ["brood_imp","brood_imp","void_touched_imp","void_touched_imp","void_touched_imp","void_touched_imp",
 			  "rabid_imp","rabid_imp","rabid_imp","rabid_imp","void_screech","pack_frenzy","pack_frenzy"]},
-	{"fight": 3, "name": "Imp Matriarch",        "hp": 3000, "profile": "matriarch",        "tp": 1,
+	{"fight": 3, "name": "Imp Matriarch",        "profile": "matriarch",        "tp": 1,
 	 "deck": ["rabid_imp","rabid_imp","rabid_imp","brood_imp","brood_imp","imp_brawler","imp_brawler",
 			  "void_touched_imp","rogue_imp_elder","matriarchs_broodling","pack_frenzy","pack_frenzy",
 			  "feral_surge","void_screech","brood_call"]},
-	{"fight": 4, "name": "Cultist Patrol",       "hp": 2800, "profile": "cultist_patrol",   "tp": 2,
+	{"fight": 4, "name": "Cultist Patrol",       "profile": "cultist_patrol",   "tp": 2,
 	 "deck": ["abyss_cultist","abyss_cultist","abyss_cultist","abyss_cultist",
 			  "void_netter","void_stalker","corruption_weaver","corruption_weaver",
 			  "cult_fanatic","cult_fanatic","void_stalker","spell_taxer","spell_taxer",
 			  "dark_command","dark_command"]},
-	{"fight": 5, "name": "Void Ritualist",       "hp": 3400, "profile": "void_ritualist",   "tp": 2,
+	{"fight": 5, "name": "Void Ritualist",       "profile": "void_ritualist",   "tp": 2,
 	 "deck": ["abyss_cultist","abyss_cultist","abyss_cultist",
 			  "cult_fanatic","cult_fanatic","cult_fanatic","corruption_weaver","corruption_weaver",
 			  "void_stalker","dominion_rune","dominion_rune","blood_rune","blood_rune",
 			  "dark_command","dark_command"]},
-	{"fight": 6, "name": "Corrupted Handler",    "hp": 4000, "profile": "corrupted_handler", "tp": 2,
+	{"fight": 6, "name": "Corrupted Handler",    "profile": "corrupted_handler", "tp": 2,
 	 "deck": ["abyss_cultist","abyss_cultist","abyss_cultist",
 			  "cult_fanatic","cult_fanatic","cult_fanatic","corruption_weaver","corruption_weaver",
 			  "soul_collector","void_stalker","void_stalker","spell_taxer",
@@ -66,10 +66,10 @@ func _run() -> void:
 			print("  Running F%d baseline..." % enc["fight"])
 			var s_base: Dictionary = await sim.run_many(
 				RUNS, deck, enc["profile"] as String, enc_deck,
-				3000, enc["hp"] as int, talents, "spell_burn", HERO_PASSIVES)
+				3000, _enemy_hp(enc), talents, "spell_burn", HERO_PASSIVES)
 			var base_win: float = s_base.win_rate * 100.0
 			print("  %-5d %-22s │ %4d │ %-16s │ %6.1f%% │ %+7.0f │    -" % [
-				enc["fight"], enc["name"], enc["hp"], "(none)", base_win, s_base.avg_player_hp])
+				enc["fight"], enc["name"], _enemy_hp(enc), "(none)", base_win, s_base.avg_player_hp])
 
 			# Each relic
 			for relic_id in RELICS:
@@ -78,7 +78,7 @@ func _run() -> void:
 				print("  Running F%d + %s..." % [enc["fight"], relic_id])
 				var s: Dictionary = await sim.run_many(
 					RUNS, deck, enc["profile"] as String, enc_deck,
-					3000, enc["hp"] as int, talents, "spell_burn", HERO_PASSIVES,
+					3000, _enemy_hp(enc), talents, "spell_burn", HERO_PASSIVES,
 					relic_ids)
 				var win_pct: float = s.win_rate * 100.0
 				var avg_uses: float = s.get("avg_relic_activations", 0.0)
@@ -91,12 +91,16 @@ func _run() -> void:
 			print("  Running F%d..." % enc["fight"])
 			var s: Dictionary = await sim.run_many(
 				RUNS, deck, enc["profile"] as String, enc_deck,
-				3000, enc["hp"] as int, talents, "spell_burn", HERO_PASSIVES)
+				3000, _enemy_hp(enc), talents, "spell_burn", HERO_PASSIVES)
 			var win_pct: float = s.win_rate * 100.0
 			print("  %-5d %-22s │ %4d │ %-16s │ %6.1f%% │ %+7.0f │    -" % [
-				enc["fight"], enc["name"], enc["hp"], "-", win_pct, s.avg_player_hp])
+				enc["fight"], enc["name"], _enemy_hp(enc), "-", win_pct, s.avg_player_hp])
 
 		print("  ───── ──────────────────────┼──────┼──────────────────┼─────────┼──────────┼────────")
 
 	print("")
 	print("Done.")
+
+## Live's enemy HP for this fight (EncounterTable).
+func _enemy_hp(enc: Dictionary) -> int:
+	return EncounterTable.entry(enc["fight"] as int)["hp"] as int

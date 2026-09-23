@@ -234,8 +234,8 @@ func has_talent(id: String) -> bool:
 ## the card's cost fields directly — no modifier helper needed.
 
 # ---------------------------------------------------------------------------
-# Encounter Definitions — 4 acts (3 + 3 + 3 + 6 = 15 fights)
-# Card pools and HP are placeholders; unique AI will be designed per-encounter later.
+# Encounters — 4 acts (3 + 3 + 3 + 6 = 15 fights), defined in EncounterTable;
+# decks come from EncounterDecks.
 # ---------------------------------------------------------------------------
 
 ## The deck ID that was picked for the current encounter (for logging/display).
@@ -259,133 +259,8 @@ func get_encounter(index: int) -> EnemyData:
 	e.limited_cards = EncounterDecks.get_deck_limited(current_deck_id)
 	return e
 
+## Encounter data (HP, passives, default AI profile, story) lives in
+## EncounterTable — the one table live and sim read (plan 2A.7).
 func _build_encounter(index: int) -> EnemyData:
-	match index:
-		# -- Act 1: Imp Lair --
-		1:
-			return _make_encounter("Rogue Imp Pack", 1800, [],
-				"ENCOUNTER I",
-				"The outer tunnels of the Imp Lair crawl with feral Void Imps freshly escaped from their cages. They are wild, disorganised — but their numbers are not to be underestimated.",
-				"res://assets/art/progression/backgrounds/a1_fight1_background.png",
-				["pack_instinct", "champion_rogue_imp_pack"], "feral_pack",
-				"res://assets/art/enemies/portraits/rogue_imp_pack_portrait.png")
-		2:
-			return _make_encounter("Corrupted Broodlings", 2100, [],
-				"ENCOUNTER II",
-				"Deeper in, the air turns thick with void energy. The broodlings here have been touched by something ancient — their eyes glow with a hunger that wasn't there before.",
-				"res://assets/art/progression/backgrounds/a1_fight2_background.png",
-				["corrupted_death", "champion_corrupted_broodlings"], "corrupted_brood",
-				"res://assets/art/enemies/portraits/corrupted_broodlings_portrait.png")
-		3:
-			return _make_encounter("Imp Matriarch", 2200, [],
-				"IMP MATRIARCH",
-				"At the heart of the lair, a monstrous Imp Matriarch holds court. She is the source of the corruption — ancient, cunning, and furious at the intrusion into her domain.",
-				"res://assets/art/progression/backgrounds/a1_fight3_background.png",
-				["ancient_frenzy", "champion_imp_matriarch"], "matriarch",
-				"res://assets/art/enemies/portraits/imp_matriarch_portrait.png")
-		# -- Act 2: Abyss Dungeon --
-		4:
-			return _make_encounter("Abyss Cultist Patrol", 2800, [],
-				"ENCOUNTER I",
-				"The Abyss Dungeon. Cultists who willingly surrendered themselves to the void patrol these stone corridors. They have given up their names, their faces — only devotion remains.",
-				"res://assets/art/progression/backgrounds/fight4_loading.png",
-				["feral_reinforcement", "corrupt_authority", "champion_abyss_cultist_patrol"], "cultist_patrol",
-				"res://assets/art/enemies/portraits/abyss_cultist_patrol_portrait.png")
-		5:
-			return _make_encounter("Void Ritualist", 3400, [],
-				"ENCOUNTER II",
-				"A Void Ritualist performs an unending ceremony in the dungeon's depths. Runes of blood and shadow cover every wall. Whatever he is summoning, it must not be allowed to complete.",
-				"res://assets/art/progression/backgrounds/fight5_loading.png",
-				["feral_reinforcement", "ritual_sacrifice", "champion_void_ritualist"], "void_ritualist",
-				"res://assets/art/enemies/portraits/void_ritualist_portrait.png")
-		6:
-			return _make_encounter("Corrupted Handler", 4000, [],
-				"CORRUPTED HANDLER",
-				"The Handler was once a warden of this dungeon. Now something else wears his shape. His eyes are empty voids. His commands come in a language that shouldn't exist.",
-				"res://assets/art/progression/backgrounds/fight6_loading.png",
-				["feral_reinforcement", "void_unraveling", "champion_corrupted_handler"], "corrupted_handler",
-				"res://assets/art/enemies/portraits/corrupted_handler_portrait.png")
-		# -- Act 3: Void Rift World --
-		7:
-			return _make_encounter("Rift Stalker", 3000, [],
-				"ENCOUNTER I",
-				"The Void Rift World — a place where reality has frayed. Rift Stalkers phase between dimensions, attacking from angles that shouldn't exist. Stay focused. Don't let it disorient you.",
-				"res://assets/art/progression/backgrounds/fight7_loading.png",
-				["void_rift", "void_empowerment", "champion_rift_stalker"], "rift_stalker",
-				"res://assets/art/enemies/portraits/rift_stalker_portrait.png")
-		8:
-			return _make_encounter("Void Aberration", 3400, [],
-				"ENCOUNTER II",
-				"A Void Aberration — a creature that should not exist in any plane. It was assembled from the broken remnants of things consumed by the rift. It has no purpose except destruction.",
-				"res://assets/art/progression/backgrounds/fight8_loading.png",
-				["void_rift", "void_detonation_passive", "champion_void_aberration"], "void_aberration",
-				"res://assets/art/enemies/portraits/void_aberration_portrait.png")
-		9:
-			return _make_encounter("Void Herald", 4000, [],
-				"VOID HERALD",
-				"The Void Herald speaks with the voice of the Abyss itself. It has crossed countless worlds before this one. It carries a message: the Abyss Sovereign is coming, and nothing will remain.",
-				"res://assets/art/progression/backgrounds/fight9_loading.png",
-				["void_rift", "void_mastery", "champion_void_herald"], "void_herald",
-				"res://assets/art/enemies/portraits/void_herald_portrait.png")
-		# -- Act 4: Void Castle --
-		10:
-			return _make_encounter("Void Scout", 5000, [],
-				"ENCOUNTER I",
-				"The Void Castle looms at the edge of existence. Void Scouts patrol its outer walls — swift, precise, and utterly loyal. The Sovereign's inner sanctum is somewhere beyond.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "void_precision", "champion_void_scout"], "void_scout",
-				"res://assets/art/enemies/portraits/void_scout_portrait.png")
-		11:
-			return _make_encounter("Void Warband", 5000, [],
-				"ENCOUNTER II",
-				"A full Void Warband stands between you and the castle's keep. These are the Sovereign's chosen soldiers — hardened by centuries of conquest across dying worlds.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "spirit_resonance", "champion_void_warband"], "void_warband",
-				"res://assets/art/enemies/portraits/void_warband_portrait.png")
-		12:
-			return _make_encounter("Void Captain", 5000, [],
-				"VOID CAPTAIN",
-				"The Void Captain commands the castle's garrison. A veteran of a hundred conquests, she has never known defeat. She regards you with curiosity — a new species of prey.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "captain_orders", "champion_void_captain"], "void_captain",
-				"res://assets/art/enemies/portraits/void_captain_portrait.png")
-		13:
-			return _make_encounter("Void Ritualist Prime", 5000, [],
-				"VOID RITUALIST PRIME",
-				"The Ritualist Prime is the Sovereign's high priest. He has spent his eternal life weaving void energy into a prison for the soul. He will try to do the same to you.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "dark_channeling", "ritualist_spark_free", "champion_void_ritualist_prime"], "void_ritualist_prime",
-				"res://assets/art/enemies/portraits/void_ritualist_prime_portrait.png")
-		14:
-			return _make_encounter("Void Champion", 5000, [],
-				"VOID CHAMPION",
-				"The last guardian before the throne. The Void Champion was forged from pure abyss energy — no flesh, no weakness, no mercy. Beyond him, the Sovereign waits.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "mana_for_spark", "champion_void_champion"], "void_champion",
-				"res://assets/art/enemies/portraits/void_champion_portrait.png")
-		15:
-			return _make_encounter("Abyss Sovereign", 3000, [],
-				"ABYSS SOVEREIGN",
-				"At last. The Abyss Sovereign — the source of all corruption, the end of all things. It has devoured worlds without count. Today, it faces something it has never encountered: defiance.",
-				"res://assets/art/progression/backgrounds/a1_combat_background.png",
-				["void_might", "abyssal_mandate", "dark_channeling", "champion_abyss_sovereign"], "abyss_sovereign")
-	return null
-
-func _make_encounter(ename: String, ehp: int, pool: Array[String],
-		etitle: String = "", estory: String = "", ebg: String = "",
-		epassives: Array[String] = [], eai_profile: String = "default",
-		eportrait: String = "") -> EnemyData:
-	var e := EnemyData.new()
-	e.enemy_name = ename
-	e.hp = ehp
-	e.deck = pool
-	e.title = etitle
-	e.story = estory
-	e.passives = epassives
-	e.ai_profile = eai_profile
-	if ebg != "":
-		e.background_path = ebg
-	if eportrait != "":
-		e.portrait_path = eportrait
-	return e
+	return EncounterTable.make_enemy(index)
 

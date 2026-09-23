@@ -1,0 +1,89 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+
+=== Echo of Abyss — Batch Balance Simulator ===
+Runs per combination: 100
+Seed: 7 (deterministic per-run)
+Fight filter: F15
+
+--- Act 4 ---
+Swarm      | SL+SA | F15 Abyss Sovereign        | Win  32.0% | Loss  68.0% | T  7.8 | HP  +147 | Champ 0.03 [f15_a]
+             Clog:0.1 | Crt:6.2 | DC:0.2(sovereigns_decree:17x/+2550) | VW:Beh0.00/Bas0.40 | BasL:c0/d0/b13/s25 | P2:69%@T5.4 | P1w/P1l/P2w/P2l:0/31/32/37
+Swarm      | IT+SA | F15 Abyss Sovereign        | Win  28.0% | Loss  72.0% | T  7.4 | HP  +112 | Champ 0.07 [f15_a]
+             Clog:0.2 | Crt:6.1 | DC:0.1(sovereigns_decree:12x/+1800) | VW:Beh0.00/Bas0.41 | BasL:c0/d0/b7/s31 | P2:61%@T5.4 | P1w/P1l/P2w/P2l:0/39/28/33
+Swarm      | MS+BC | F15 Abyss Sovereign        | Win  43.0% | Loss  57.0% | T  8.2 | HP  +450 | Champ 0.04 [f15_a]
+             Crt:5.8 | DC:0.1(sovereigns_decree:12x/+1800) | VW:Beh0.00/Bas0.43 | BasL:c0/d6/b18/s18 | P2:74%@T5.8 | P1w/P1l/P2w/P2l:0/26/43/31
+Swarm      | MS+DM | F15 Abyss Sovereign        | Win  33.0% | Loss  67.0% | T  7.4 | HP  +231 | Champ 0.03 [f15_a]
+             Crt:6.0 | DC:0.1(sovereigns_decree:13x/+1950) | VW:Beh0.00/Bas0.38 | BasL:c0/d0/b11/s27 | P2:61%@T5.7 | P1w/P1l/P2w/P2l:0/39/33/28
+Swarm      | BS+VL | F15 Abyss Sovereign        | Win  41.0% | Loss  59.0% | T  8.5 | HP  +339 | Champ 0.09 [f15_a]
+             Crt:6.7 | DC:0.1(sovereigns_decree:13x/+1950) | VW:Beh0.00/Bas0.41 | BasL:c0/d0/b20/s21 | P2:78%@T5.8 | P1w/P1l/P2w/P2l:0/22/41/37
+Swarm      | SL+DM | F15 Abyss Sovereign        | Win  25.0% | Loss  75.0% | T  7.2 | HP   +54 | Champ 0.03 [f15_a]
+             Crt:6.0 | DC:0.1(sovereigns_decree:12x/+1800) | VW:Beh0.00/Bas0.41 | BasL:c0/d0/b11/s28 | P2:57%@T5.3 | P1w/P1l/P2w/P2l:0/43/25/32
+Voidbolt   | SL+SA | F15 Abyss Sovereign        | Win  27.0% | Loss  73.0% | T  9.7 | HP  +238 | Champ 0.00 [f15_a]
+             Clog:0.3 | Plg:1.8/0.1 | VB:1.9x/4185dmg | Imp:388 | Crt:5.4 | DC:0.0(sovereigns_decree:4x/+600) | VW:Beh0.00/Bas0.31 | BasL:c0/d0/b0/s20 | P2:96%@T5.7 | P1w/P1l/P2w/P2l:0/4/27/69
+Voidbolt   | IT+SA | F15 Abyss Sovereign        | Win  34.0% | Loss  66.0% | T  9.6 | HP  +255 | Champ 0.00 [f15_a]
+             Clog:0.5 | Plg:1.5/0.2 | VB:1.9x/3988dmg | Imp:517 | Crt:4.9 | DC:0.1(sovereigns_decree:5x/+750) | VW:Beh0.00/Bas0.27 | BasL:c0/d0/b0/s17 | P2:92%@T5.9 | P1w/P1l/P2w/P2l:0/8/34/58
+Voidbolt   | MS+BC | F15 Abyss Sovereign        | Win  33.0% | Loss  67.0% | T  9.7 | HP  +426 | Champ 0.00 [f15_a]
+             Clog:0.2 | Plg:1.3/0.1 | VB:1.9x/4161dmg | Imp:362 | Crt:4.2 | DC:0.0(sovereigns_decree:2x/+300) | VW:Beh0.00/Bas0.21 | BasL:c0/d2/b2/s14 | P2:93%@T5.6 | P1w/P1l/P2w/P2l:0/7/33/60
+Voidbolt   | MS+DM | F15 Abyss Sovereign        | Win  17.0% | Loss  83.0% | T  8.7 | HP   +30 | Champ 0.00 [f15_a]
+             Clog:0.3 | Plg:1.3/0.1 | VB:1.9x/3930dmg | Imp:353 | Crt:5.2 | DC:0.1(sovereigns_decree:9x/+1350) | VW:Beh0.00/Bas0.24 | BasL:c0/d3/b0/s14 | P2:91%@T5.7 | P1w/P1l/P2w/P2l:0/9/17/74
+Voidbolt   | BS+VL | F15 Abyss Sovereign        | Win  26.0% | Loss  74.0% | T  9.8 | HP   +95 | Champ 0.00 [f15_a]
+             Clog:0.2 | Plg:1.6/0.2 | VB:1.9x/4149dmg | Imp:368 | Crt:5.8 | DC:0.1(sovereigns_decree:8x/+1200) | VW:Beh0.00/Bas0.27 | BasL:c0/d1/b0/s15 | P2:94%@T6.1 | P1w/P1l/P2w/P2l:0/6/26/68
+Voidbolt   | SL+DM | F15 Abyss Sovereign        | Win  14.0% | Loss  86.0% | T  9.4 | HP   -14 | Champ 0.00 [f15_a]
+             Clog:0.2 | Plg:1.8/0.2 | VB:1.9x/4137dmg | Imp:381 | Crt:5.1 | DC:0.1(sovereigns_decree:5x/+750) | VW:Beh0.00/Bas0.28 | BasL:c0/d0/b0/s18 | P2:96%@T5.6 | P1w/P1l/P2w/P2l:0/4/14/82
+DeathCircle | SL+SA | F15 Abyss Sovereign        | Win  21.0% | Loss  79.0% | T  9.1 | HP  +165 | Champ 0.00 [f15_a]
+             PRit:2.0 | Clog:0.6 | Crt:6.5 | DC:0.2(sovereigns_decree:22x/+3300) | VW:Beh0.00/Bas0.29 | BasL:c0/d2/b10/s16 | P2:85%@T5.9 | P1w/P1l/P2w/P2l:0/15/21/64
+DeathCircle | IT+SA | F15 Abyss Sovereign        | Win  18.0% | Loss  82.0% | T  8.5 | HP   +99 | Champ 0.00 [f15_a]
+             PRit:1.8 | Clog:0.4 | Crt:6.2 | DC:0.2(sovereigns_decree:20x/+3000) | VW:Beh0.00/Bas0.28 | BasL:c0/d1/b10/s12 | P2:82%@T5.9 | P1w/P1l/P2w/P2l:0/18/18/64
+DeathCircle | MS+BC | F15 Abyss Sovereign        | Win  21.0% | Loss  79.0% | T  8.9 | HP   +90 | Champ 0.00 [f15_a]
+             PRit:1.8 | Clog:0.4 | Crt:5.7 | DC:0.1(sovereigns_decree:14x/+2100) | VW:Beh0.00/Bas0.23 | BasL:c0/d5/b4/s12 | P2:87%@T5.8 | P1w/P1l/P2w/P2l:0/13/21/66
+DeathCircle | MS+DM | F15 Abyss Sovereign        | Win  11.0% | Loss  88.0% | T  8.6 | HP   -52 | Champ 0.00 [f15_a]
+             PRit:1.7 | Clog:0.3 | Crt:6.0 | DC:0.2(sovereigns_decree:17x/+2550) | VW:Beh0.00/Bas0.24 | BasL:c0/d1/b8/s13 | P2:75%@T5.7 | P1w/P1l/P2w/P2l:0/25/11/63
+DeathCircle | BS+VL | F15 Abyss Sovereign        | Win  18.0% | Loss  82.0% | T  9.3 | HP   +22 | Champ 0.00 [f15_a]
+             PRit:1.8 | Clog:0.4 | Crt:6.9 | DC:0.2(sovereigns_decree:17x/+2550) | VW:Beh0.00/Bas0.26 | BasL:c0/d4/b8/s13 | P2:84%@T6.1 | P1w/P1l/P2w/P2l:0/16/18/66
+DeathCircle | SL+DM | F15 Abyss Sovereign        | Win  11.0% | Loss  89.0% | T  8.1 | HP    +8 | Champ 0.00 [f15_a]
+             PRit:1.9 | Clog:0.5 | Crt:5.9 | DC:0.2(sovereigns_decree:18x/+2700) | VW:Beh0.00/Bas0.27 | BasL:c0/d2/b8/s14 | P2:77%@T5.7 | P1w/P1l/P2w/P2l:0/23/11/66
+S.Flesh    | SL+SA | F15 Abyss Sovereign        | Win  29.0% | Loss  69.0% | T  9.8 | HP  +361 | Champ 0.00 [f15_a]
+             Clog:0.3 | Crt:5.2 | DC:0.1(sovereigns_decree:11x/+1650) | VW:Beh0.00/Bas0.46 | BasL:c0/d0/b32/s14 | P2:75%@T6.3 | P1w/P1l/P2w/P2l:0/25/29/44
+S.Flesh    | IT+SA | F15 Abyss Sovereign        | Win  29.0% | Loss  71.0% | T  8.0 | HP  +209 | Champ 0.00 [f15_a]
+             Clog:0.3 | Crt:5.0 | DC:0.1(sovereigns_decree:13x/+1950) | VW:Beh0.00/Bas0.44 | BasL:c0/d0/b23/s21 | P2:52%@T6.7 | P1w/P1l/P2w/P2l:0/48/29/23
+S.Flesh    | MS+BC | F15 Abyss Sovereign        | Win  40.0% | Loss  60.0% | T 10.1 | HP  +674 | Champ 0.00 [f15_a]
+             Clog:0.1 | Crt:5.2 | DC:0.0(sovereigns_decree:2x/+300) | VW:Beh0.00/Bas0.47 | BasL:c0/d2/b28/s17 | P2:88%@T6.0 | P1w/P1l/P2w/P2l:0/12/40/48
+S.Flesh    | MS+DM | F15 Abyss Sovereign        | Win  17.0% | Loss  83.0% | T  8.1 | HP   +37 | Champ 0.00 [f15_a]
+             Clog:0.3 | Crt:5.3 | DC:0.1(sovereigns_decree:8x/+1200) | VW:Beh0.00/Bas0.51 | BasL:c0/d0/b33/s18 | P2:64%@T6.1 | P1w/P1l/P2w/P2l:0/36/17/47
+S.Flesh    | BS+VL | F15 Abyss Sovereign        | Win  33.0% | Loss  67.0% | T  9.8 | HP  +313 | Champ 0.00 [f15_a]
+             Clog:0.3 | Crt:5.8 | DC:0.1(sovereigns_decree:9x/+1350) | VW:Beh0.00/Bas0.59 | BasL:c0/d1/b37/s21 | P2:82%@T6.5 | P1w/P1l/P2w/P2l:0/18/33/49
+S.Flesh    | SL+DM | F15 Abyss Sovereign        | Win  30.0% | Loss  69.0% | T  8.8 | HP  +370 | Champ 0.00 [f15_a]
+             Clog:0.1 | Crt:5.0 | DC:0.0(sovereigns_decree:4x/+600) | VW:Beh0.00/Bas0.40 | BasL:c0/d0/b26/s14 | P2:73%@T6.0 | P1w/P1l/P2w/P2l:0/27/30/42
+S.Forge    | SL+SA | F15 Abyss Sovereign        | Win   1.0% | Loss  99.0% | T  6.0 | HP  -268 | Champ 0.00 [f15_a]
+             Clog:0.3 | Crt:5.0 | DC:0.1(sovereigns_decree:12x/+1800) | VW:Beh0.00/Bas0.43 | BasL:c0/d0/b6/s37 | P2:17%@T7.2 | P1w/P1l/P2w/P2l:0/83/1/16
+S.Forge    | IT+SA | F15 Abyss Sovereign        | Win   0.0% | Loss 100.0% | T  6.0 | HP  -276 | Champ 0.00 [f15_a]
+             Clog:0.5 | Crt:4.8 | DC:0.1(sovereigns_decree:14x/+2100) | VW:Beh0.00/Bas0.39 | BasL:c0/d0/b7/s32 | P2:19%@T7.4 | P1w/P1l/P2w/P2l:0/81/0/19
+S.Forge    | MS+BC | F15 Abyss Sovereign        | Win   6.0% | Loss  94.0% | T  7.1 | HP  -170 | Champ 0.00 [f15_a]
+             Clog:0.5 | Crt:5.1 | DC:0.1(sovereigns_decree:11x/+1650) | VW:Beh0.00/Bas0.43 | BasL:c0/d3/b14/s26 | P2:38%@T7.0 | P1w/P1l/P2w/P2l:0/62/6/32
+S.Forge    | MS+DM | F15 Abyss Sovereign        | Win   3.0% | Loss  97.0% | T  5.5 | HP  -267 | Champ 0.00 [f15_a]
+             Clog:0.3 | Crt:4.4 | DC:0.1(sovereigns_decree:10x/+1500) | VW:Beh0.00/Bas0.32 | BasL:c0/d0/b1/s31 | P2:14%@T7.0 | P1w/P1l/P2w/P2l:0/86/3/11
+S.Forge    | BS+VL | F15 Abyss Sovereign        | Win   4.0% | Loss  96.0% | T  7.3 | HP  -216 | Champ 0.00 [f15_a]
+             Clog:0.5 | Crt:6.4 | DC:0.2(sovereigns_decree:21x/+3150) | VW:Beh0.00/Bas0.46 | BasL:c0/d0/b14/s32 | P2:35%@T7.4 | P1w/P1l/P2w/P2l:0/65/4/31
+S.Forge    | SL+DM | F15 Abyss Sovereign        | Win   2.0% | Loss  98.0% | T  5.5 | HP  -280 | Champ 0.00 [f15_a]
+             Clog:0.3 | Crt:4.6 | DC:0.1(sovereigns_decree:8x/+1200) | VW:Beh0.00/Bas0.35 | BasL:c0/d1/b1/s33 | P2:15%@T7.3 | P1w/P1l/P2w/P2l:0/85/2/13
+S.Corr     | SL+SA | F15 Abyss Sovereign        | Win   7.0% | Loss  93.0% | T  6.3 | HP  -170 | Champ 0.00 [f15_a]
+             Clog:1.1 | Crt:4.8 | DC:0.3(sovereigns_decree:27x/+4050) | VW:Beh0.00/Bas0.31 | BasL:c0/d5/b8/s17 | P2:31%@T6.8 | P1w/P1l/P2w/P2l:0/69/7/24
+S.Corr     | IT+SA | F15 Abyss Sovereign        | Win   6.0% | Loss  94.0% | T  6.3 | HP  -166 | Champ 0.00 [f15_a]
+             Clog:1.1 | Crt:4.8 | DC:0.3(sovereigns_decree:26x/+3900) | VW:Beh0.00/Bas0.35 | BasL:c0/d7/b8/s19 | P2:31%@T6.6 | P1w/P1l/P2w/P2l:0/69/6/25
+S.Corr     | MS+BC | F15 Abyss Sovereign        | Win  18.0% | Loss  82.0% | T  7.5 | HP   +54 | Champ 0.00 [f15_a]
+             Clog:0.9 | Crt:5.0 | DC:0.2(sovereigns_decree:17x/+2550) | VW:Beh0.00/Bas0.36 | BasL:c0/d7/b15/s14 | P2:59%@T6.2 | P1w/P1l/P2w/P2l:0/41/18/41
+S.Corr     | MS+DM | F15 Abyss Sovereign        | Win   3.0% | Loss  97.0% | T  5.7 | HP  -214 | Champ 0.00 [f15_a]
+             Clog:0.5 | Crt:4.5 | DC:0.1(sovereigns_decree:13x/+1950) | VW:Beh0.00/Bas0.33 | BasL:c0/d4/b5/s24 | P2:24%@T6.0 | P1w/P1l/P2w/P2l:0/76/3/21
+S.Corr     | BS+VL | F15 Abyss Sovereign        | Win   4.0% | Loss  96.0% | T  7.4 | HP  -196 | Champ 0.00 [f15_a]
+             Clog:0.8 | Crt:6.1 | DC:0.2(sovereigns_decree:23x/+3450) | VW:Beh0.00/Bas0.33 | BasL:c0/d7/b13/s13 | P2:51%@T6.5 | P1w/P1l/P2w/P2l:0/49/4/47
+S.Corr     | SL+DM | F15 Abyss Sovereign        | Win   5.0% | Loss  95.0% | T  5.5 | HP  -171 | Champ 0.00 [f15_a]
+             Clog:0.8 | Crt:4.2 | DC:0.1(sovereigns_decree:12x/+1800) | VW:Beh0.00/Bas0.28 | BasL:c0/d9/b2/s17 | P2:20%@T6.2 | P1w/P1l/P2w/P2l:0/80/5/15
+
+Done.
+WARNING: 36000 RIDs of type "CanvasItem" were leaked.
+     at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2692)
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2641)
+ERROR: 34 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

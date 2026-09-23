@@ -31,6 +31,7 @@ static func run_all() -> void:
 	_end_turn_growth_applies_next_turn()
 	_turn_start_expires_temp_buffs()
 	_growth_curves_match_the_ported_sim_curves()
+	_encounter_table_is_the_one_source()
 	await _profile_play_pays_once()
 	await _agent_spark_fuel_is_credited()
 
@@ -646,3 +647,23 @@ static func _agent_spark_fuel_is_credited() -> void:
 	TestHarness.assert_false(await agent.commit_play_spell(inst2), "no fuel consumed → refused (the profile owns fuel)")
 	TestHarness.assert_true(state.enemy_board.has(keep), "still untouched")
 	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Encounter data (plan 2A.7)
+# ---------------------------------------------------------------------------
+
+static func _encounter_table_is_the_one_source() -> void:
+	if not TestHarness.begin_test("encounters / every enemy profile maps to an encounter; live builds from the table"):
+		return
+	for id: String in ProfileRegistry.ENEMY.keys():
+		if id in ["default", "scored", "abyss_sovereign_p2"]:
+			continue  # no encounter of their own (P2 passives come from the phase transition)
+		TestHarness.assert_false(EncounterTable.entry_for_profile(id).is_empty(), "profile %s has an encounter" % id)
+	for e: Dictionary in EncounterTable.ENCOUNTERS:
+		var built: EnemyData = GameManager._build_encounter(e["index"])
+		TestHarness.assert_true(built != null and built.hp == e["hp"] and built.ai_profile == e["ai_profile"],
+			"F%d built from the table" % e["index"])
+		TestHarness.assert_eq(EncounterTable.passives_for_profile(e["ai_profile"]), built.passives,
+			"F%d sim passives = live passives" % e["index"])
+	TestHarness.assert_true("champion_abyss_sovereign" in EncounterTable.passives_for_profile("abyss_sovereign"),
+		"F15 sim now has the Sovereign champion passive")
