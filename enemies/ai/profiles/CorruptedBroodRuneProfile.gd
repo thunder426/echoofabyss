@@ -93,7 +93,7 @@ func _count_board_feral_imps() -> int:
 	return count
 
 func _minion_has_tag(m: MinionInstance, tag: String) -> bool:
-	return agent.scene != null and agent.scene._minion_has_tag(m, tag)
+	return agent.scene != null and agent.state._minion_has_tag(m, tag)
 
 ## Check if flux siphon would help: have mana to spare AND a minion in hand
 ## that costs more essence than we currently have.
@@ -142,11 +142,7 @@ func _pick_sac_target() -> MinionInstance:
 
 ## Check if a specific rune is already active.
 func _has_active_rune(rune_id: String) -> bool:
-	if agent.scene == null:
-		return false
-	var traps: Variant = agent.scene.get("enemy_active_traps")
-	if traps == null:
-		traps = agent.scene.get("active_traps")
+	var traps: Variant = agent.state.traps_of(agent.side)
 	if traps == null:
 		return false
 	for t in (traps as Array):
@@ -164,7 +160,6 @@ func _play_spell_by_id(spell_id: String) -> void:
 		var cost: int = agent.effective_spell_cost(inst.card_data as SpellCardData)
 		if cost > agent.mana:
 			continue
-		agent.mana -= cost
 		var target = pick_spell_target(inst.card_data as SpellCardData)
 		if not await agent.commit_play_spell(inst, target):
 			return
@@ -178,9 +173,8 @@ func _play_trap_by_id(trap_id: String) -> void:
 		if inst.card_data.id != trap_id:
 			continue
 		var trap_cost: int = inst.effective_cost()
-		if trap_cost > agent.mana:
+		if trap_cost > agent.mana or not agent.can_place_trap(inst.card_data as TrapCardData):
 			continue
-		agent.mana -= trap_cost
 		if not await agent.commit_play_trap(inst):
 			return
 		return

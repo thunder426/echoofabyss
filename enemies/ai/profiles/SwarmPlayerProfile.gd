@@ -99,7 +99,6 @@ func _play_dark_empowerment() -> void:
 					best = m
 		if best == null:
 			return  # no Demon on board — don't cast
-		agent.mana -= agent.effective_spell_cost(spell_inst.card_data as SpellCardData)
 		if not await agent.commit_play_spell(spell_inst, best):
 			return
 		cast = true
@@ -219,8 +218,6 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return  # board full
-			agent.essence -= ess_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -242,7 +239,6 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 				continue
 			if not can_cast_spell(spell):
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true

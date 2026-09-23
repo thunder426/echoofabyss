@@ -36,6 +36,7 @@ func _f1_enemy_turn_completes() -> void:
 	_check(scene.state.player_hp > 0, "F1: player hp > 0")
 	_check(tm.player_hand.size() == 4, "F1: opening hand is 4 cards (got %d)" % tm.player_hand.size())
 	_check(tm.is_player_turn, "F1: player acts first")
+	var e_grave_before: int = scene.state.enemy_graveyard.size()
 	scene._do_end_turn("essence")
 	var t0: int = Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS:
@@ -53,6 +54,10 @@ func _f1_enemy_turn_completes() -> void:
 		"F1: Essence pick applied on turn 2 (%d/%d)" % [st.player_essence_max, st.player_mana_max])
 	_check(st.enemy_essence_max == 1 and st.enemy_mana_max == 1,
 		"F1: enemy at 1/1 after its first turn (%d/%d)" % [st.enemy_essence_max, st.enemy_mana_max])
+	# Plan 2A.5: profiles no longer deduct costs — EnemyAI.commit_* pays them.
+	var played: int = st.enemy_graveyard.size() - e_grave_before
+	_check(played == 0 or st.enemy_essence + st.enemy_mana < 2,
+		"F1: the enemy paid for its %d play(s) (left %dE/%dM)" % [played, st.enemy_essence, st.enemy_mana])
 	await _teardown(scene)
 
 ## F13: Void Ritualist Prime's champion counter (bug B1 — crashed live on every

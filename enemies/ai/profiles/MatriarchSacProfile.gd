@@ -107,7 +107,6 @@ func _play_spell_by_id(spell_id: String) -> void:
 		var cost: int = agent.effective_spell_cost(inst.card_data as SpellCardData)
 		if cost > agent.mana:
 			continue
-		agent.mana -= cost
 		var target = pick_spell_target(inst.card_data as SpellCardData)
 		if not await agent.commit_play_spell(inst, target):
 			return

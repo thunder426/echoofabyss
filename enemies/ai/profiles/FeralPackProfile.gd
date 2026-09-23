@@ -34,7 +34,6 @@ func attack_phase() -> void:
 	if _should_cast_pack_frenzy():
 		var pf := _find_pack_frenzy()
 		if pf:
-			agent.mana -= agent.effective_spell_cost(pf.card_data as SpellCardData)
 			if not await agent.commit_play_spell(pf, null):
 				return
 	await super.attack_phase()
@@ -149,4 +148,4 @@ func _find_pack_frenzy() -> CardInstance:
 	return null
 
 func _is_feral_imp(m: MinionInstance) -> bool:
-	return agent.scene != null and agent.scene._minion_has_tag(m, "feral_imp")
+	return agent.scene != null and agent.state._minion_has_tag(m, "feral_imp")

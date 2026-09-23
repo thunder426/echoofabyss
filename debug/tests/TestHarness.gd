@@ -87,11 +87,6 @@ static func build_state(opts: Dictionary = {}) -> SimState:
 		e_deck_typed.append(str(id))
 
 	state.setup(p_deck_typed, e_deck_typed, opts.get("player_hp", 3000), opts.get("enemy_hp", 2000))
-	# Wire SimEnemyAgent so handlers that reach through state.enemy_ai (hand
-	# add, cost discounts, _draw_cards) have something to call. CombatSim.run
-	# does this during normal combat; tests need it explicitly.
-	var e_agent := SimEnemyAgent.new()
-	e_agent.setup(state)
 	var ts := SimTriggerSetup.new()
 	ts.setup(state)
 	return state
@@ -372,3 +367,9 @@ static func _repr(value) -> String:
 	if value == null:
 		return "null"
 	return str(value)
+
+## A StateAgent for `side` of `state` (the sim's agent — plan 2A.5).
+static func agent_for(state: SimState, side: String) -> StateAgent:
+	var agent := StateAgent.new()
+	agent.setup(state, side)
+	return agent

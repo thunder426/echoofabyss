@@ -38,7 +38,7 @@ const _BRANCH_DISPLAY: Dictionary = {
 # ---------------------------------------------------------------------------
 # Player AI profiles
 # ---------------------------------------------------------------------------
-const _PLAYER_PROFILES: Array = [
+const _PLAYER_PROFILE_OPTIONS: Array = [
 	{"id": "default",    "name": "Aggro / Swarm"},
 	{"id": "spell_burn", "name": "Spell Burn"},
 	{"id": "rune_tempo", "name": "Rune Tempo"},
@@ -310,8 +310,8 @@ func _build_profile_section(parent: Control) -> void:
 	row.add_theme_constant_override("separation", 6)
 	vbox.add_child(row)
 
-	for i in _PLAYER_PROFILES.size():
-		var profile: Dictionary = _PLAYER_PROFILES[i]
+	for i in _PLAYER_PROFILE_OPTIONS.size():
+		var profile: Dictionary = _PLAYER_PROFILE_OPTIONS[i]
 		var btn := _flat_button(profile.name)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.pressed.connect(_select_profile.bind(i))
@@ -474,7 +474,7 @@ func _select_fight(idx: int) -> void:
 	_rebuild_relic_dropdown()
 
 func _select_profile(idx: int) -> void:
-	_player_profile_id = (_PLAYER_PROFILES[idx] as Dictionary).id as String
+	_player_profile_id = (_PLAYER_PROFILE_OPTIONS[idx] as Dictionary).id as String
 	for i in _profile_buttons.size():
 		_style_button(_profile_buttons[i], i == idx)
 
@@ -568,8 +568,8 @@ func _on_run_pressed() -> void:
 
 	_log.append_text("\n")
 	var hero_name: String = hero.hero_name if hero != null else _selected_hero_id
-	var profile_name: String = (_PLAYER_PROFILES[0] as Dictionary).name as String
-	for p in _PLAYER_PROFILES:
+	var profile_name: String = (_PLAYER_PROFILE_OPTIONS[0] as Dictionary).name as String
+	for p in _PLAYER_PROFILE_OPTIONS:
 		if (p as Dictionary).id == _player_profile_id:
 			profile_name = (p as Dictionary).name as String
 	var deck_name: String = _deck_dropdown.get_item_text(sel_idx)

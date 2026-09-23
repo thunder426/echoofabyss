@@ -1,0 +1,209 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+
+=== Echo of Abyss — Batch Balance Simulator ===
+Runs per combination: 200
+Seed: 7 (deterministic per-run)
+Acts: [2]
+
+--- Act 2 ---
+Swarm      | SL   | F4 Abyss Cultist Patrol   | Win  81.5% | Loss  18.5% | T  5.9 | HP +1557 | Champ 0.28 [f4_a]
+             Det:0.9 | Clog:0.2
+Swarm      | IT   | F4 Abyss Cultist Patrol   | Win  72.0% | Loss  28.0% | T  6.0 | HP +1265 | Champ 0.32 [f4_a]
+             Det:0.9 | Clog:0.3
+Swarm      | MS   | F4 Abyss Cultist Patrol   | Win  78.5% | Loss  21.5% | T  6.1 | HP +1448 | Champ 0.28 [f4_a]
+             Det:1.0 | Clog:0.2
+Swarm      | BS   | F4 Abyss Cultist Patrol   | Win  81.5% | Loss  18.5% | T  6.3 | HP +1436 | Champ 0.33 [f4_a]
+             Det:1.1 | Clog:0.2
+Swarm      | SL   | F4 Abyss Cultist Patrol   | Win  91.5% | Loss   8.5% | T  6.0 | HP +2098 | Champ 0.38 [f4_b]
+             Det:1.7
+Swarm      | IT   | F4 Abyss Cultist Patrol   | Win  84.5% | Loss  15.5% | T  6.3 | HP +1862 | Champ 0.43 [f4_b]
+             Det:1.8
+Swarm      | MS   | F4 Abyss Cultist Patrol   | Win  84.0% | Loss  16.0% | T  6.3 | HP +1890 | Champ 0.46 [f4_b]
+             Det:2.0
+Swarm      | BS   | F4 Abyss Cultist Patrol   | Win  84.5% | Loss  15.5% | T  6.6 | HP +1894 | Champ 0.47 [f4_b]
+             Det:2.0
+Swarm      | SL   | F5 Void Ritualist         | Win  90.5% | Loss   9.5% | T  6.3 | HP +2223 | Champ 0.37 [f5_a]
+             Rit:0.4
+Swarm      | IT   | F5 Void Ritualist         | Win  87.0% | Loss  13.0% | T  6.6 | HP +2069 | Champ 0.38 [f5_a]
+             Rit:0.5
+Swarm      | MS   | F5 Void Ritualist         | Win  88.5% | Loss  11.5% | T  6.6 | HP +2099 | Champ 0.42 [f5_a]
+             Rit:0.5
+Swarm      | BS   | F5 Void Ritualist         | Win  87.5% | Loss  12.5% | T  6.8 | HP +2058 | Champ 0.40 [f5_a]
+             Rit:0.5
+Swarm      | SL   | F6 Corrupted Handler      | Win  92.5% | Loss   7.5% | T  7.9 | HP +2077 | Champ 0.86 [f6_a]
+             Aura:315 | Clog:0.9
+Swarm      | IT   | F6 Corrupted Handler      | Win  83.5% | Loss  16.5% | T  8.7 | HP +1911 | Champ 0.86 [f6_a]
+             Aura:251 | Clog:1.2
+Swarm      | MS   | F6 Corrupted Handler      | Win  91.5% | Loss   8.5% | T  8.1 | HP +2112 | Champ 0.86 [f6_a]
+             Aura:311 | Clog:1.1
+Swarm      | BS   | F6 Corrupted Handler      | Win  90.5% | Loss   9.5% | T  8.4 | HP +2083 | Champ 0.86 [f6_a]
+             Aura:308 | Clog:1.1
+Voidbolt   | SL   | F4 Abyss Cultist Patrol   | Win  93.5% | Loss   6.5% | T  6.5 | HP +1471 | Champ 0.49 [f4_a]
+             Det:1.1 | Clog:0.6 | Plg:1.5/0.1 | VB:1.6x/2780dmg | Imp:326
+Voidbolt   | IT   | F4 Abyss Cultist Patrol   | Win  84.0% | Loss  16.0% | T  6.6 | HP +1149 | Champ 0.54 [f4_a]
+             Det:1.2 | Clog:0.5 | Plg:1.3/0.1 | VB:1.5x/2522dmg | Imp:383
+Voidbolt   | MS   | F4 Abyss Cultist Patrol   | Win  89.5% | Loss  10.5% | T  6.4 | HP +1414 | Champ 0.39 [f4_a]
+             Det:1.1 | Clog:0.6 | Plg:1.3/0.2 | VB:1.6x/2750dmg | Imp:280
+Voidbolt   | BS   | F4 Abyss Cultist Patrol   | Win  89.5% | Loss  10.5% | T  6.8 | HP +1118 | Champ 0.46 [f4_a]
+             Det:1.2 | Clog:0.5 | Plg:1.4/0.1 | VB:1.5x/2739dmg | Imp:296
+Voidbolt   | SL   | F4 Abyss Cultist Patrol   | Win  96.0% | Loss   4.0% | T  6.5 | HP +1600 | Champ 0.27 [f4_b]
+             Det:1.7 | Clog:0.4 | Plg:1.6/0.1 | VB:1.7x/2881dmg | Imp:326
+Voidbolt   | IT   | F4 Abyss Cultist Patrol   | Win  90.5% | Loss   9.5% | T  6.7 | HP +1333 | Champ 0.33 [f4_b]
+             Det:1.8 | Clog:0.3 | Plg:1.4/0.1 | VB:1.5x/2629dmg | Imp:386
+Voidbolt   | MS   | F4 Abyss Cultist Patrol   | Win  94.5% | Loss   5.5% | T  6.5 | HP +1598 | Champ 0.18 [f4_b]
+             Det:1.6 | Clog:0.3 | Plg:1.4/0.1 | VB:1.6x/2865dmg | Imp:288
+Voidbolt   | BS   | F4 Abyss Cultist Patrol   | Win  95.5% | Loss   4.5% | T  7.0 | HP +1297 | Champ 0.23 [f4_b]
+             Det:1.8 | Clog:0.3 | Plg:1.4/0.1 | VB:1.6x/2816dmg | Imp:294
+Voidbolt   | SL   | F5 Void Ritualist         | Win  86.5% | Loss  13.5% | T  6.3 | HP +1669 | Champ 0.44 [f5_a]
+             Rit:0.5 | Plg:1.5/0.1 | VB:1.6x/2737dmg | Imp:332
+Voidbolt   | IT   | F5 Void Ritualist         | Win  77.5% | Loss  22.5% | T  6.4 | HP +1292 | Champ 0.41 [f5_a]
+             Rit:0.5 | Plg:1.3/0.0 | VB:1.5x/2508dmg | Imp:388
+Voidbolt   | MS   | F5 Void Ritualist         | Win  82.5% | Loss  17.5% | T  6.4 | HP +1510 | Champ 0.43 [f5_a]
+             Rit:0.5 | Plg:1.2/0.1 | VB:1.6x/2904dmg | Imp:296
+Voidbolt   | BS   | F5 Void Ritualist         | Win  88.5% | Loss  11.5% | T  6.9 | HP +1238 | Champ 0.45 [f5_a]
+             Rit:0.6 | Plg:1.4/0.1 | VB:1.6x/2872dmg | Imp:306
+Voidbolt   | SL   | F6 Corrupted Handler      | Win  78.0% | Loss  22.0% | T  7.5 | HP +1149 | Champ 0.84 [f6_a]
+             Aura:342 | Clog:1.4 | Plg:1.8/0.4 | VB:1.9x/3821dmg | Imp:360
+Voidbolt   | IT   | F6 Corrupted Handler      | Win  71.5% | Loss  28.5% | T  7.8 | HP +1010 | Champ 0.84 [f6_a]
+             Aura:334 | Clog:1.8 | Plg:1.6/0.4 | VB:1.8x/3598dmg | Imp:436
+Voidbolt   | MS   | F6 Corrupted Handler      | Win  69.5% | Loss  30.5% | T  7.5 | HP  +960 | Champ 0.85 [f6_a]
+             Aura:370 | Clog:1.7 | Plg:1.5/0.2 | VB:1.8x/3763dmg | Imp:332
+Voidbolt   | BS   | F6 Corrupted Handler      | Win  79.5% | Loss  20.5% | T  8.1 | HP  +931 | Champ 0.84 [f6_a]
+             Aura:318 | Clog:1.6 | Plg:1.6/0.3 | VB:1.9x/3911dmg | Imp:346
+DeathCircle | SL   | F4 Abyss Cultist Patrol   | Win  86.0% | Loss  14.0% | T  5.8 | HP +1824 | Champ 0.40 [f4_a]
+             Det:1.1 | PRit:1.4 | Clog:0.3
+DeathCircle | IT   | F4 Abyss Cultist Patrol   | Win  79.5% | Loss  20.5% | T  6.0 | HP +1681 | Champ 0.42 [f4_a]
+             Det:1.1 | PRit:1.2 | Clog:0.2
+DeathCircle | MS   | F4 Abyss Cultist Patrol   | Win  82.0% | Loss  18.0% | T  6.2 | HP +1638 | Champ 0.45 [f4_a]
+             Det:1.3 | PRit:1.6 | Clog:0.2
+DeathCircle | BS   | F4 Abyss Cultist Patrol   | Win  74.5% | Loss  25.5% | T  6.5 | HP +1470 | Champ 0.49 [f4_a]
+             Det:1.4 | PRit:1.5 | Clog:0.2
+DeathCircle | SL   | F4 Abyss Cultist Patrol   | Win  73.5% | Loss  26.5% | T  6.3 | HP +1444 | Champ 0.62 [f4_b]
+             Det:2.1 | PRit:1.6 | Clog:0.1
+DeathCircle | IT   | F4 Abyss Cultist Patrol   | Win  66.0% | Loss  34.0% | T  6.6 | HP +1263 | Champ 0.64 [f4_b]
+             Det:2.2 | PRit:1.6 | Clog:0.1
+DeathCircle | MS   | F4 Abyss Cultist Patrol   | Win  56.0% | Loss  44.0% | T  6.6 | HP +1018 | Champ 0.68 [f4_b]
+             Det:2.3 | PRit:1.8 | Clog:0.2
+DeathCircle | BS   | F4 Abyss Cultist Patrol   | Win  55.0% | Loss  45.0% | T  7.2 | HP  +938 | Champ 0.69 [f4_b]
+             Det:2.5 | PRit:1.8 | Clog:0.2
+DeathCircle | SL   | F5 Void Ritualist         | Win  75.0% | Loss  25.0% | T  6.3 | HP +1900 | Champ 0.35 [f5_a]
+             Rit:0.5 | PRit:1.4
+DeathCircle | IT   | F5 Void Ritualist         | Win  70.0% | Loss  30.0% | T  6.7 | HP +1756 | Champ 0.41 [f5_a]
+             Rit:0.5 | PRit:1.4
+DeathCircle | MS   | F5 Void Ritualist         | Win  67.5% | Loss  32.5% | T  6.9 | HP +1594 | Champ 0.43 [f5_a]
+             Rit:0.6 | PRit:1.7
+DeathCircle | BS   | F5 Void Ritualist         | Win  60.0% | Loss  40.0% | T  7.5 | HP +1434 | Champ 0.52 [f5_a]
+             Rit:0.7 | PRit:1.7
+DeathCircle | SL   | F6 Corrupted Handler      | Win  78.5% | Loss  21.5% | T  7.7 | HP +1570 | Champ 0.86 [f6_a]
+             PRit:1.7 | Aura:306 | Clog:1.6
+DeathCircle | IT   | F6 Corrupted Handler      | Win  71.0% | Loss  29.0% | T  8.2 | HP +1456 | Champ 0.86 [f6_a]
+             PRit:1.7 | Aura:319 | Clog:1.8
+DeathCircle | MS   | F6 Corrupted Handler      | Win  75.5% | Loss  24.5% | T  7.9 | HP +1542 | Champ 0.85 [f6_a]
+             PRit:1.8 | Aura:324 | Clog:1.6
+DeathCircle | BS   | F6 Corrupted Handler      | Win  68.5% | Loss  31.5% | T  8.7 | HP +1319 | Champ 0.88 [f6_a]
+             PRit:1.8 | Aura:327 | Clog:1.7
+S.Flesh    | SL   | F4 Abyss Cultist Patrol   | Win  69.5% | Loss  30.5% | T  5.9 | HP +1168 | Champ 0.24 [f4_a]
+             Det:0.8 | Clog:0.5
+S.Flesh    | IT   | F4 Abyss Cultist Patrol   | Win  53.0% | Loss  47.0% | T  6.3 | HP  +780 | Champ 0.33 [f4_a]
+             Det:1.2 | Clog:0.6
+S.Flesh    | MS   | F4 Abyss Cultist Patrol   | Win  66.5% | Loss  33.5% | T  6.0 | HP +1141 | Champ 0.25 [f4_a]
+             Det:1.0 | Clog:0.4
+S.Flesh    | BS   | F4 Abyss Cultist Patrol   | Win  68.0% | Loss  32.0% | T  6.3 | HP +1093 | Champ 0.28 [f4_a]
+             Det:1.1 | Clog:0.3
+S.Flesh    | SL   | F4 Abyss Cultist Patrol   | Win  74.5% | Loss  25.5% | T  6.4 | HP +1556 | Champ 0.36 [f4_b]
+             Det:2.0
+S.Flesh    | IT   | F4 Abyss Cultist Patrol   | Win  55.5% | Loss  44.5% | T  6.9 | HP +1049 | Champ 0.52 [f4_b]
+             Det:2.2 | Clog:0.2
+S.Flesh    | MS   | F4 Abyss Cultist Patrol   | Win  61.5% | Loss  38.5% | T  6.7 | HP +1280 | Champ 0.47 [f4_b]
+             Det:2.2
+S.Flesh    | BS   | F4 Abyss Cultist Patrol   | Win  68.5% | Loss  31.5% | T  7.1 | HP +1283 | Champ 0.48 [f4_b]
+             Det:2.3
+S.Flesh    | SL   | F5 Void Ritualist         | Win  60.5% | Loss  39.5% | T  7.1 | HP +1230 | Champ 0.38 [f5_a]
+             Rit:0.6
+S.Flesh    | IT   | F5 Void Ritualist         | Win  43.0% | Loss  57.0% | T  7.5 | HP  +775 | Champ 0.47 [f5_a]
+             Rit:0.8
+S.Flesh    | MS   | F5 Void Ritualist         | Win  57.5% | Loss  42.5% | T  7.1 | HP +1180 | Champ 0.42 [f5_a]
+             Rit:0.6
+S.Flesh    | BS   | F5 Void Ritualist         | Win  61.0% | Loss  39.0% | T  7.6 | HP +1168 | Champ 0.44 [f5_a]
+             Rit:0.6
+S.Flesh    | SL   | F6 Corrupted Handler      | Win  50.0% | Loss  50.0% | T  9.5 | HP +1012 | Champ 0.91 [f6_a]
+             Aura:252 | Clog:2.4
+S.Flesh    | IT   | F6 Corrupted Handler      | Win  36.5% | Loss  63.5% | T 10.3 | HP  +710 | Champ 0.95 [f6_a]
+             Aura:233 | Clog:2.6
+S.Flesh    | MS   | F6 Corrupted Handler      | Win  45.5% | Loss  54.5% | T  9.8 | HP  +908 | Champ 0.91 [f6_a]
+             Aura:269 | Clog:2.2
+S.Flesh    | BS   | F6 Corrupted Handler      | Win  46.0% | Loss  54.0% | T 10.4 | HP  +888 | Champ 0.93 [f6_a]
+             Aura:284 | Clog:2.2
+S.Forge    | SL   | F4 Abyss Cultist Patrol   | Win  22.0% | Loss  78.0% | T  6.4 | HP  +123 | Champ 0.42 [f4_a]
+             Det:1.1 | Clog:0.9
+S.Forge    | IT   | F4 Abyss Cultist Patrol   | Win  19.0% | Loss  81.0% | T  6.4 | HP  +107 | Champ 0.41 [f4_a]
+             Det:1.1 | Clog:0.9
+S.Forge    | MS   | F4 Abyss Cultist Patrol   | Win  23.0% | Loss  77.0% | T  6.5 | HP  +155 | Champ 0.44 [f4_a]
+             Det:1.1 | Clog:0.8
+S.Forge    | BS   | F4 Abyss Cultist Patrol   | Win  29.0% | Loss  71.0% | T  7.1 | HP  +140 | Champ 0.53 [f4_a]
+             Det:1.5 | Clog:0.7
+S.Forge    | SL   | F4 Abyss Cultist Patrol   | Win  23.5% | Loss  76.5% | T  7.2 | HP  +226 | Champ 0.69 [f4_b]
+             Det:2.5 | Clog:0.3
+S.Forge    | IT   | F4 Abyss Cultist Patrol   | Win  24.0% | Loss  76.0% | T  7.0 | HP  +212 | Champ 0.71 [f4_b]
+             Det:2.4 | Clog:0.3
+S.Forge    | MS   | F4 Abyss Cultist Patrol   | Win  23.0% | Loss  77.0% | T  7.1 | HP  +226 | Champ 0.68 [f4_b]
+             Det:2.5 | Clog:0.2
+S.Forge    | BS   | F4 Abyss Cultist Patrol   | Win  24.5% | Loss  75.5% | T  7.9 | HP  +196 | Champ 0.75 [f4_b]
+             Det:2.7 | Clog:0.2
+S.Forge    | SL   | F5 Void Ritualist         | Win   7.0% | Loss  93.0% | T  6.9 | HP   -35 | Champ 0.42 [f5_a]
+             Rit:0.6
+S.Forge    | IT   | F5 Void Ritualist         | Win   9.0% | Loss  91.0% | T  6.7 | HP    +2 | Champ 0.40 [f5_a]
+             Rit:0.5
+S.Forge    | MS   | F5 Void Ritualist         | Win   9.0% | Loss  91.0% | T  6.8 | HP   +15 | Champ 0.41 [f5_a]
+             Rit:0.5
+S.Forge    | BS   | F5 Void Ritualist         | Win  14.0% | Loss  86.0% | T  7.5 | HP   +54 | Champ 0.44 [f5_a]
+             Rit:0.7
+S.Forge    | SL   | F6 Corrupted Handler      | Win  38.5% | Loss  61.5% | T 11.3 | HP  +724 | Champ 0.95 [f6_a]
+             Aura:247 | Clog:1.5
+S.Forge    | IT   | F6 Corrupted Handler      | Win  35.5% | Loss  64.5% | T 11.6 | HP  +655 | Champ 0.95 [f6_a]
+             Aura:239 | Clog:1.6
+S.Forge    | MS   | F6 Corrupted Handler      | Win  33.5% | Loss  66.5% | T 11.5 | HP  +629 | Champ 0.95 [f6_a]
+             Aura:250 | Clog:1.7
+S.Forge    | BS   | F6 Corrupted Handler      | Win  30.5% | Loss  69.5% | T 12.4 | HP  +543 | Champ 0.95 [f6_a]
+             Aura:257 | Clog:1.5
+S.Corr     | SL   | F4 Abyss Cultist Patrol   | Win  86.5% | Loss  13.5% | T  5.3 | HP +1810 | Champ 0.32 [f4_a]
+             Det:0.8 | Clog:1.3
+S.Corr     | IT   | F4 Abyss Cultist Patrol   | Win  84.5% | Loss  15.5% | T  5.2 | HP +1770 | Champ 0.32 [f4_a]
+             Det:0.8 | Clog:1.5
+S.Corr     | MS   | F4 Abyss Cultist Patrol   | Win  81.0% | Loss  19.0% | T  5.3 | HP +1736 | Champ 0.33 [f4_a]
+             Det:0.8 | Clog:1.3
+S.Corr     | BS   | F4 Abyss Cultist Patrol   | Win  83.0% | Loss  17.0% | T  5.4 | HP +1700 | Champ 0.34 [f4_a]
+             Det:0.9 | Clog:1.3
+S.Corr     | SL   | F4 Abyss Cultist Patrol   | Win  73.0% | Loss  27.0% | T  5.9 | HP +1534 | Champ 0.67 [f4_b]
+             Det:1.9 | Clog:1.4
+S.Corr     | IT   | F4 Abyss Cultist Patrol   | Win  71.0% | Loss  29.0% | T  5.8 | HP +1505 | Champ 0.66 [f4_b]
+             Det:1.9 | Clog:1.3
+S.Corr     | MS   | F4 Abyss Cultist Patrol   | Win  61.0% | Loss  39.0% | T  5.9 | HP +1268 | Champ 0.71 [f4_b]
+             Det:1.9 | Clog:1.1
+S.Corr     | BS   | F4 Abyss Cultist Patrol   | Win  65.5% | Loss  34.5% | T  6.3 | HP +1289 | Champ 0.72 [f4_b]
+             Det:2.0 | Clog:1.2
+S.Corr     | SL   | F5 Void Ritualist         | Win  20.0% | Loss  80.0% | T  6.8 | HP  +167 | Champ 0.41 [f5_a]
+             Rit:0.6 | Clog:0.3
+S.Corr     | IT   | F5 Void Ritualist         | Win  27.5% | Loss  72.5% | T  6.8 | HP  +298 | Champ 0.39 [f5_a]
+             Rit:0.5 | Clog:0.5
+S.Corr     | MS   | F5 Void Ritualist         | Win  23.5% | Loss  76.5% | T  6.8 | HP  +274 | Champ 0.45 [f5_a]
+             Rit:0.6 | Clog:0.4
+S.Corr     | BS   | F5 Void Ritualist         | Win  32.5% | Loss  67.5% | T  7.5 | HP  +316 | Champ 0.45 [f5_a]
+             Rit:0.7 | Clog:0.6
+S.Corr     | SL   | F6 Corrupted Handler      | Win  28.5% | Loss  71.5% | T  9.4 | HP  +584 | Champ 0.90 [f6_a]
+             Aura:234 | Clog:3.1
+S.Corr     | IT   | F6 Corrupted Handler      | Win  25.5% | Loss  74.5% | T  9.6 | HP  +492 | Champ 0.89 [f6_a]
+             Aura:252 | Clog:3.3
+S.Corr     | MS   | F6 Corrupted Handler      | Win  23.0% | Loss  77.0% | T  9.6 | HP  +420 | Champ 0.91 [f6_a]
+             Aura:265 | Clog:3.2
+S.Corr     | BS   | F6 Corrupted Handler      | Win  20.5% | Loss  79.5% | T 10.5 | HP  +371 | Champ 0.91 [f6_a]
+             Aura:266 | Clog:3.2
+
+Done.
+WARNING: 192000 RIDs of type "CanvasItem" were leaked.
+     at: _free_rids (servers/rendering/renderer_canvas_cull.cpp:2692)
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2641)
+ERROR: 33 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

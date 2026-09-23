@@ -13,42 +13,6 @@
 class_name CombatSim
 extends RefCounted
 
-# ---------------------------------------------------------------------------
-# Profile registry — mirrors EnemyAI._PROFILES
-# ---------------------------------------------------------------------------
-
-const _ENEMY_PROFILES: Dictionary = {
-	"default":              preload("res://enemies/ai/profiles/DefaultProfile.gd"),
-	"feral_pack":           preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
-	"feral_pack_screech":   preload("res://enemies/ai/profiles/FeralPackScreechProfile.gd"),
-	"corrupted_brood":      preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
-	"corrupted_brood_aggro": preload("res://enemies/ai/profiles/CorruptedBroodAggroProfile.gd"),
-	"corrupted_brood_rune": preload("res://enemies/ai/profiles/CorruptedBroodRuneProfile.gd"),
-	"matriarch":            preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
-	"matriarch_aggro":      preload("res://enemies/ai/profiles/MatriarchAggroProfile.gd"),
-	"matriarch_sac":        preload("res://enemies/ai/profiles/MatriarchSacProfile.gd"),
-	"cultist_patrol":       preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
-	"cultist_patrol_tempo": preload("res://enemies/ai/profiles/CultistPatrolTempoProfile.gd"),
-	"void_ritualist":       preload("res://enemies/ai/profiles/VoidRitualistProfile.gd"),
-	"corrupted_handler":    preload("res://enemies/ai/profiles/CorruptedHandlerProfile.gd"),
-	"rift_stalker":         preload("res://enemies/ai/profiles/RiftStalkerProfile.gd"),
-	"void_aberration":      preload("res://enemies/ai/profiles/VoidAberrationProfile.gd"),
-	"void_herald":          preload("res://enemies/ai/profiles/VoidHeraldProfile.gd"),
-	# Act 4 — Void Castle
-	"void_scout":           preload("res://enemies/ai/profiles/VoidScoutProfile.gd"),
-	"void_warband":         preload("res://enemies/ai/profiles/VoidWarbandProfile.gd"),
-	"void_captain":         preload("res://enemies/ai/profiles/VoidCaptainProfile.gd"),
-	"void_ritualist_prime": preload("res://enemies/ai/profiles/VoidRitualistPrimeProfile.gd"),
-	"void_champion":        preload("res://enemies/ai/profiles/VoidChampionProfile.gd"),
-	"abyss_sovereign":      preload("res://enemies/ai/profiles/AbyssSovereignProfile.gd"),
-	"abyss_sovereign_p2":   preload("res://enemies/ai/profiles/AbyssSovereignPhase2Profile.gd"),
-	# Scored variants
-	"scored":               preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
-	"scored_feral_pack":    preload("res://enemies/ai/profiles/ScoredFeralPackProfile.gd"),
-	"scored_corrupted_brood": preload("res://enemies/ai/profiles/ScoredCorruptedBroodProfile.gd"),
-	"scored_matriarch":     preload("res://enemies/ai/profiles/ScoredMatriarchProfile.gd"),
-}
-
 ## Passive IDs active for each enemy profile — mirrors EnemyData.passives in the live game.
 const _ENEMY_PASSIVES: Dictionary = {
 	"feral_pack":           ["pack_instinct", "champion_rogue_imp_pack"],
@@ -81,16 +45,6 @@ const _ENEMY_PASSIVES: Dictionary = {
 	"scored_matriarch":     ["ancient_frenzy", "champion_imp_matriarch"],
 }
 
-const _PLAYER_PROFILES: Dictionary = {
-	"default":    preload("res://enemies/ai/profiles/DefaultPlayerProfile.gd"),
-	"swarm":      preload("res://enemies/ai/profiles/SwarmPlayerProfile.gd"),
-	"spell_burn": preload("res://enemies/ai/profiles/SpellBurnPlayerProfile.gd"),
-	"rune_tempo": preload("res://enemies/ai/profiles/RuneTempoPlayerProfile.gd"),
-	"scored":     preload("res://enemies/ai/profiles/ScoredDefaultProfile.gd"),
-	"seris":      preload("res://enemies/ai/profiles/SerisPlayerProfile.gd"),
-	"fleshcraft": preload("res://enemies/ai/profiles/FleshcraftPlayerProfile.gd"),
-	"korrath":    preload("res://enemies/ai/profiles/KorrathPlayerProfile.gd"),
-}
 
 ## Maximum turns before declaring a draw — prevents infinite loops.
 const MAX_TURNS := 60
@@ -151,24 +105,20 @@ func run(
 	state.setup(player_deck_ids, enemy_deck_ids, player_hp, enemy_hp)
 	state.enemy_hp_max = enemy_hp
 
-	# Build agents
-	var p_agent := SimPlayerAgent.new()
-	p_agent.setup(state)
+	# One StateAgent per side — every action is a state command (plan 2A.5).
+	var p_agent := StateAgent.new()
+	p_agent.setup(state, "player")
+	var e_agent := StateAgent.new()
+	e_agent.setup(state, "enemy")
 
-	var e_agent := SimEnemyAgent.new()
-	e_agent.setup(state)  # also sets state.enemy_ai = e_agent
-
-	# Wire TriggerManager — must happen after agents are set up (enemy_ai duck-type ready)
 	var trigger_setup := SimTriggerSetup.new()
 	trigger_setup.setup(state)
 
 	# Build profiles
-	var p_profile_script = _PLAYER_PROFILES.get(player_profile_id, _PLAYER_PROFILES["default"])
-	var p_profile: CombatProfile = p_profile_script.new()
+	var p_profile: CombatProfile = ProfileRegistry.make("player", player_profile_id)
 	p_profile.setup(p_agent)
 
-	var e_profile_script = _ENEMY_PROFILES.get(enemy_profile_id, _ENEMY_PROFILES["default"])
-	var e_profile: CombatProfile = e_profile_script.new()
+	var e_profile: CombatProfile = ProfileRegistry.make("enemy", enemy_profile_id)
 	e_profile.setup(e_agent)
 	# Store on state so the F15 phase-transition can swap it mid-run.
 	state._e_profile = e_profile
@@ -645,7 +595,6 @@ static func _count_clogged_slots(state: SimState) -> int:
 ## a new enemy CombatProfile by id. Bound to the current sim's e_agent + state.
 func _make_profile_factory(e_agent: Object, state: SimState) -> Callable:
 	return func(profile_id: String) -> CombatProfile:
-		var script = _ENEMY_PROFILES.get(profile_id, _ENEMY_PROFILES["default"])
-		var p: CombatProfile = script.new()
+		var p: CombatProfile = ProfileRegistry.make("enemy", profile_id)
 		p.setup(e_agent)
 		return p

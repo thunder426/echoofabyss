@@ -2448,14 +2448,14 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 		why = "slot_occupied"
 	var cost: Dictionary = {}
 	if why.is_empty():
-		cost = _plan_cost(side, inst, extra)
+		cost = plan_cost(side, inst, extra)
 		why = cost.get("why", "")
 	if not why.is_empty():
 		return CommandResult.refused(why)
 	_log_command("play_minion", side, inst, slot_index, target, extra)
 	var mc := inst.card_data as MinionCardData
 	var fp_discount: int = _peek_fiendish_pact_discount(mc) if side == "player" else 0
-	_pay_planned_cost(side, cost)
+	pay_planned_cost(side, cost)
 	if fp_discount > 0:
 		_log("  Fiendish Pact: %s costs %d less Essence." % [mc.card_name, fp_discount], 1)  # PLAYER
 		_consume_fiendish_pact_discount()
@@ -2514,13 +2514,13 @@ func cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dict
 		why = _check_spell_target(inst.card_data as SpellCardData, target)
 	var cost: Dictionary = {}
 	if why.is_empty():
-		cost = _plan_cost(side, inst, extra)
+		cost = plan_cost(side, inst, extra)
 		why = cost.get("why", "")
 	if not why.is_empty():
 		return CommandResult.refused(why)
 	_log_command("play_spell", side, inst, -1, target, extra)
 	var spell := inst.card_data as SpellCardData
-	_pay_planned_cost(side, cost)
+	pay_planned_cost(side, cost)
 	remove_from_hand(side, inst)
 	_log(("You cast: %s" if side == "player" else "Enemy casts: %s") % spell.card_name,
 			1 if side == "player" else 2)  # PLAYER / ENEMY
@@ -2543,6 +2543,7 @@ func cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dict
 		return CommandResult.accepted("cancelled")
 	var cast_data: Dictionary = extra.duplicate()
 	cast_data.erase("spark_fuel")
+	cast_data.erase("sparks_prepaid")
 	if side == "enemy":
 		cast_enemy_spell(spell, target, cast_data)
 	elif target is String and target == "enemy_hero":
@@ -2557,23 +2558,18 @@ func cmd_play_trap(side: String, inst: CardInstance) -> CommandResult:
 	var why: String = _check_card_play(side, inst)
 	if why.is_empty() and not (inst.card_data is TrapCardData):
 		why = "wrong_card_type"
+	if why.is_empty():
+		why = trap_placement_refusal(side, inst.card_data as TrapCardData)
 	var traps: Array[TrapCardData] = traps_of(side)
-	if why.is_empty() and traps.size() >= TRAP_SLOTS_MAX:
-		why = "trap_slots_full"
-	if why.is_empty() and not (inst.card_data as TrapCardData).is_rune:
-		for existing: TrapCardData in traps:
-			if not existing.is_rune and existing.id == inst.card_data.id:
-				why = "duplicate_trap"
-				break
 	var cost: Dictionary = {}
 	if why.is_empty():
-		cost = _plan_cost(side, inst, {})
+		cost = plan_cost(side, inst, {})
 		why = cost.get("why", "")
 	if not why.is_empty():
 		return CommandResult.refused(why)
 	_log_command("play_trap", side, inst, -1, null, {})
 	var trap := inst.card_data as TrapCardData
-	_pay_planned_cost(side, cost)
+	pay_planned_cost(side, cost)
 	remove_from_hand(side, inst)
 	if side == "player":
 		_log(("You place rune: %s" if trap.is_rune else "You set trap: %s") % trap.card_name, 1)  # PLAYER
@@ -2606,13 +2602,13 @@ func cmd_play_environment(side: String, inst: CardInstance) -> CommandResult:
 		why = "wrong_card_type"
 	var cost: Dictionary = {}
 	if why.is_empty():
-		cost = _plan_cost(side, inst, {})
+		cost = plan_cost(side, inst, {})
 		why = cost.get("why", "")
 	if not why.is_empty():
 		return CommandResult.refused(why)
 	_log_command("play_environment", side, inst, -1, null, {})
 	var env := inst.card_data as EnvironmentCardData
-	_pay_planned_cost(side, cost)
+	pay_planned_cost(side, cost)
 	remove_from_hand(side, inst)
 	_log(("You play environment: %s" if side == "player" else "Enemy plays environment: %s") % env.card_name,
 			1 if side == "player" else 2)  # PLAYER / ENEMY
@@ -2763,6 +2759,18 @@ func cmd_end_turn(side: String, growth: String = "") -> CommandResult:
 
 # -- Command helpers ---------------------------------------------------------
 
+## "" if `side` may set `trap` now, else why not: all TRAP_SLOTS_MAX slots
+## taken, or the same non-rune trap already set.
+func trap_placement_refusal(side: String, trap: TrapCardData) -> String:
+	var traps: Array[TrapCardData] = traps_of(side)
+	if traps.size() >= TRAP_SLOTS_MAX:
+		return "trap_slots_full"
+	if not trap.is_rune:
+		for existing: TrapCardData in traps:
+			if not existing.is_rune and existing.id == trap.id:
+				return "duplicate_trap"
+	return ""
+
 ## "" when `side` may act now, else the refusal reason.
 func _check_can_act(side: String) -> String:
 	if not winner.is_empty() or _combat_ended:
@@ -2777,9 +2785,11 @@ func _check_card_play(side: String, inst: CardInstance) -> String:
 		why = "not_in_hand"
 	return why
 
-func _check_spell_target(spell: SpellCardData, target) -> String:
+## A null target is allowed even for targeted spells: SINGLE_CHOSEN steps fall
+## back to a random legal target (the AI path). A minion target must be on a board.
+func _check_spell_target(_spell: SpellCardData, target) -> String:
 	if target == null:
-		return "no_target" if spell.requires_target else ""
+		return ""
 	if target is MinionInstance:
 		return "" if (player_board.has(target) or enemy_board.has(target)) else "no_target"
 	return ""
@@ -2837,11 +2847,13 @@ func spark_cost_of(side: String, card: CardData) -> int:
 	return cost
 
 ## Work out how `side` pays for `inst`, without paying. Returns {why} on
-## failure, else {essence, mana, sparks, fuel, auto_sparks}. Spark fuel comes
-## from extra.spark_fuel (caller's pick; any shortfall is paid in Mana under
-## the enemy mana_for_spark passive) or, when absent, the engine's pick
-## (pay_sparks). The Dark Mirror relic discount is applied as pay_card_cost will.
-func _plan_cost(side: String, inst: CardInstance, extra: Dictionary) -> Dictionary:
+## failure, else {essence, mana, sparks, fuel, auto_sparks}. The spark cost is
+## met by, in order: extra.spark_fuel (minions to consume now), else
+## extra.sparks_prepaid (spark value the caller already consumed as fuel — the
+## AI agents' contract), else the engine's own pick (pay_sparks). Any shortfall
+## is paid in Mana under the enemy mana_for_spark passive, else refused. The
+## Dark Mirror relic discount is applied as pay_card_cost will.
+func plan_cost(side: String, inst: CardInstance, extra: Dictionary) -> Dictionary:
 	var base: Vector2i = card_cost(side, inst)
 	var sparks: int = spark_cost_of(side, inst.card_data)
 	var fuel: Array[MinionInstance] = []
@@ -2861,6 +2873,13 @@ func _plan_cost(side: String, inst: CardInstance, extra: Dictionary) -> Dictiona
 					extra_mana = sparks - fuel_value
 				else:
 					return {why = "sparks"}
+		elif extra.has("sparks_prepaid"):
+			var prepaid: int = extra["sparks_prepaid"]
+			if prepaid < sparks:
+				if side == "enemy" and "mana_for_spark" in _active_enemy_passives:
+					extra_mana = sparks - prepaid
+				else:
+					return {why = "sparks"}
 		elif can_afford_sparks(side, sparks):
 			auto_sparks = true
 		else:
@@ -2874,8 +2893,8 @@ func _plan_cost(side: String, inst: CardInstance, extra: Dictionary) -> Dictiona
 		return {why = "cost"}
 	return {essence = base.x, mana = base.y + extra_mana, sparks = sparks, fuel = fuel, auto_sparks = auto_sparks}
 
-## Pay a cost planned by _plan_cost: spark fuel first, then Essence / Mana.
-func _pay_planned_cost(side: String, cost: Dictionary) -> void:
+## Pay a cost planned by plan_cost: spark fuel first, then Essence / Mana.
+func pay_planned_cost(side: String, cost: Dictionary) -> void:
 	if cost.get("auto_sparks", false):
 		pay_sparks(side, cost["sparks"])
 	else:

@@ -3353,7 +3353,7 @@ static func _sim_enemy_agent_sees_essence_discounts() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["corrupted_death"]})
 	if not TestHarness.begin_test("sim enemy agent / minion cost applies essence discounts + aura", state):
 		return
-	var agent: SimEnemyAgent = state.enemy_ai
+	var agent: StateAgent = TestHarness.agent_for(state, "enemy")
 	var vti: MinionCardData = CardDatabase.get_card("void_touched_imp") as MinionCardData
 	TestHarness.assert_eq(agent.effective_minion_essence_cost(vti), maxi(0, vti.essence_cost - 1),
 			"corrupted_death: Void-Touched Imp costs 1 less")

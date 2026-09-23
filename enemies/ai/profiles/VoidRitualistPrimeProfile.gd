@@ -66,7 +66,7 @@ func _play_spark_spells() -> void:
 			if inst.card_data.void_spark_cost <= 0:
 				continue
 			# Skip Rift Collapse when opponent has no minions (wasted cast).
-			if inst.card_data.id == "rift_collapse" and agent.scene._opponent_board("enemy").is_empty():
+			if inst.card_data.id == "rift_collapse" and agent.state._opponent_board("enemy").is_empty():
 				continue
 			spark_hand.append(inst)
 		spark_hand.sort_custom(func(a: CardInstance, b: CardInstance) -> bool:
@@ -83,7 +83,6 @@ func _play_spark_spells() -> void:
 					continue
 				await _pay_sparks_smart(plan, DeckType.AGGRO)
 				if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true
@@ -108,7 +107,6 @@ func _play_spells_pass() -> void:
 				continue
 			if not can_cast_spell(spell):
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true

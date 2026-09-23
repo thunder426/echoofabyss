@@ -114,7 +114,7 @@ These are separate `Node`/class objects, each instantiated once per combat. They
 | `combat/board/MinionInstance.gd` | Per-board-slot RefCounted (HP, ATK, buffs, attack count, states EXHAUSTED/SWIFT/NORMAL). All stat changes go through `BuffSystem`. `card_data` is never mutated. |
 | `combat/board/BuffSystem.gd` | Static helpers for apply/remove/query buffs. Lazy-inits a buff signal bus. Reads buff entries off `MinionInstance.buffs`. |
 | `combat/board/BuffEntry.gd` | Single buff (type, value, source, expiry). |
-| `combat/board/EnemyAI.gd` | Runs the enemy turn. Plays cards, attacks; awaits CombatScene gating signals. Profile registry maps profile-id strings → `EnemyAIProfile` subclass. Signals: `ai_turn_finished`, `minion_summoned`, `enemy_spell_cast`, `enemy_about_to_attack`, `enemy_attacking_hero`, `trap_placed`, `environment_placed`. |
+| `combat/board/EnemyAI.gd` | Runs the live enemy turn (until Phase 3.4). Plays cards (its `commit_*` pay the cost through `state.plan_cost` — profiles no longer deduct), attacks; awaits CombatScene gating signals. Builds its profile from `ProfileRegistry` and is the enemy's `growth_hooks` entry. Signals: `ai_turn_finished`, `minion_summoned`, `enemy_spell_cast`, `enemy_about_to_attack`, `enemy_attacking_hero`, `trap_placed`, `environment_placed`. |
 | `combat/board/CombatInputHandler.gd` | Player input: card selection, target picking, placement, attack routing. Keeps CombatScene.gd lean. |
 | `combat/board/CombatUI.gd` | "X mutated → refresh Y" subscriber layer. Listens to `CombatState` / `CombatManager` / `TurnManager` / `BuffSystem` signals and pushes changes into hero panels, pip bar, combat log, trap display, slots. The migration target for what used to be inline UI refresh on CombatScene. |
 | `combat/board/BoardSlot.gd` | One minion position (visual). Signals: `slot_clicked_empty`, `slot_clicked_occupied`. |
@@ -237,9 +237,11 @@ Per-copy runtime wrapper:
 
 | Layer | File | Role |
 |---|---|---|
-| Live executor | `combat/board/EnemyAI.gd` | Coroutine that runs the enemy turn. Reads decisions from a profile. |
-| Sim executor | `sim/SimEnemyAgent.gd`, `sim/SimPlayerAgent.gd` | Same role for headless sim. |
-| Base profile | `enemies/ai/EnemyAIProfile.gd`, `enemies/ai/CombatProfile.gd` | Subclass interface. Override `decide_next_action()` → `ACTION_PLAY_CARD` / `ACTION_ATTACK` / `ACTION_END_TURN`. |
+| Agent interface | `enemies/ai/CombatAgent.gd` | What a profile acts through: boards/hand/resources, typed `state`, `side`, `commit_play_*`, `do_attack_*`, `consume_minion`, `hero_skill`, `can_place_trap`, cost queries. Profiles only check affordability — the engine pays; spark fuel a profile consumes is credited to its next play (`sparks_prepaid`). |
+| Sim / test agent | `enemies/ai/StateAgent.gd` (+ `Pacer.gd`) | One side of a CombatState: every action is a `state.cmd_*`, then `pacer.after_action`. Both sim sides run on it. |
+| Live agent | `enemies/ai/EnemyAgent.gd` → `combat/board/EnemyAI.gd` | The live enemy (animation-gated executor) until Phase 3.4 moves it onto StateAgent + a LivePacer. |
+| Profile registry | `enemies/ai/ProfileRegistry.gd` | The one id → profile table, by side (`make(side, id)`); EnemyAI and CombatSim both use it. |
+| Base profile | `enemies/ai/CombatProfile.gd` | `play_phase()` / `attack_phase()`, `grow_resources(state, side, turn)` (resource curve, run from `begin_turn`), targeting helpers. |
 | Scoring helpers | `enemies/ai/ScoringWeights.gd`, `enemies/ai/ScoredCombatProfile.gd`, `enemies/ai/BoardEvaluator.gd` | Weighted-random decision support. |
 | Player sim profiles | `enemies/ai/profiles/*PlayerProfile.gd` | Player decks for balance sims (Default, Fleshcraft, Seris, SpellBurn, Swarm, RuneTempo). |
 | Encounter profiles | `enemies/ai/profiles/*Profile.gd` | One per encounter family: Feral Pack, Matriarch, Corrupted Brood, Void faction (Aberration, Captain, Champion, Herald, Ritualist, Scout, Warband), Cultist Patrol, Rift Stalker, Corrupted Handler, etc. |
@@ -252,9 +254,8 @@ Used for balance testing — no UI, no scene tree, no animations.
 
 | File | Role |
 |---|---|
-| `sim/CombatSim.gd` | Entry point. `run(deck, profile_id, …)` → win/loss + diagnostic counters. |
+| `sim/CombatSim.gd` | Entry point. `run(deck, profile_id, …)` → win/loss + diagnostic counters. Builds a `StateAgent` + `ProfileRegistry` profile per side, installs their `grow_resources` as `growth_hooks`, and loops `start_combat` → phases → `cmd_end_turn` / `end_turn` / `begin_turn`. |
 | `sim/SimState.gd` | Extends `CombatState`: setup, the enemy-profile references CombatSim swaps at the F15 transition, BuffSystem bus bridge. No gameplay rules (lint L5). |
-| `sim/SimPlayerAgent.gd`, `sim/SimEnemyAgent.gd` | Per-side action runners. Use the same `CombatProfile` subclasses as live combat. |
 | `sim/SimTriggerSetup.gd` | Creates the TriggerManager + handlers and the BuffSystem bus bridge, then delegates every registration (trap routes first — `CombatState.TRAP_ROUTES` — then always-on, talents, passives) to `CombatSetup.setup()`, exactly as live does. |
 
 Determinism: every gameplay random draws from `CombatState.rng` (seeded by `CombatSim.run(…, rng_seed)` in sim and `CombatScene._ready` in live — lint L2). `CombatSim.run` returns `seed` + `digest` so any run replays exactly.

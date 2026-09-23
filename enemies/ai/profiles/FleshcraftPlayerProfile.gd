@@ -86,7 +86,7 @@ func _maybe_fiendish_pact() -> void:
 	if pact_cost > agent.mana:
 		return
 	# If pending already set, don't re-cast (can't stack).
-	if agent.sim != null and int(agent.sim.get("_fiendish_pact_pending")) > 0:
+	if agent.state._fiendish_pact_pending > 0:
 		return
 
 	# Collect Demons in hand.
@@ -112,7 +112,6 @@ func _maybe_fiendish_pact() -> void:
 	# these Demons since they're 0-mana, but keep honest for future decks).
 	# Pact-locked bodies gain net play iff affordable_with_pact > affordable_now.
 	if affordable_with_pact > affordable_now:
-		agent.mana -= pact_cost
 		if not await agent.commit_play_spell(pact_inst, null):
 			return
 
@@ -187,7 +186,7 @@ func pick_on_play_target(mc: MinionCardData):
 ## Skip anything already bigger than 300/300 (downgrade = loss). Returns null
 ## if no worthwhile target — the Fiend still plays normally.
 func _pick_grafting_ritual_target() -> MinionInstance:
-	if agent.sim == null or not agent.sim._has_talent("grafting_ritual"):
+	if not agent.state._has_talent("grafting_ritual"):
 		return null
 	var best: MinionInstance = null
 	var best_value: int = 9999

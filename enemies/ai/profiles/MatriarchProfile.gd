@@ -65,7 +65,7 @@ func _should_cast_pack_frenzy() -> bool:
 func _has_ancient_frenzy() -> bool:
 	if agent.scene == null:
 		return false
-	var passives = agent.scene.get("_active_enemy_passives")
+	var passives: Array[String] = agent.state._active_enemy_passives
 	if passives == null:
 		return false
 	return "ancient_frenzy" in (passives as Array)

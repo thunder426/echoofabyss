@@ -22,9 +22,6 @@ var _e_profile_factory: Callable = Callable()
 ## AI profile id currently driving the enemy (sim mirror of EnemyAI.ai_profile).
 var enemy_ai_profile: String = ""
 
-## The enemy's sim agent (set by SimEnemyAgent.setup).
-var enemy_ai: SimEnemyAgent
-
 ## Print every combat-log line (DebugSingleSim).
 var debug_log_enabled: bool = false
 

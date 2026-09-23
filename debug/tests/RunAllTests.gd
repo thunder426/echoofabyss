@@ -27,7 +27,7 @@ func _ready() -> void:
 	DamageTypeTestsScript.run_all()
 	CardEffectTestsScript.run_all()
 	TriggerHandlerTestsScript.run_all()
-	CommandTestsScript.run_all()
+	await CommandTestsScript.run_all()
 	await ScenarioTestsScript.run_all()
 
 	print("\n=== %s ===" % TestHarnessScript.summary())

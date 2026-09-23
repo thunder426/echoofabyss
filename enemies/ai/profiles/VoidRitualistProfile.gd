@@ -95,8 +95,6 @@ func _play_one_human() -> bool:
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= ess_cost
-		agent.mana    -= mc.mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true
@@ -125,15 +123,13 @@ func _play_one_feral_imp() -> bool:
 		var slots_needed: int = 1  # just the imp itself
 		if _ritual_ready():
 			# Ritual: imp dies (frees 1), Demon Ascendant needs 1, Champion needs 1 (first time)
-			var champion_summoned: bool = agent.scene != null and agent.scene.get("_champion_vr_summoned") == true
+			var champion_summoned: bool = agent.state._champion_vr_summoned
 			slots_needed = 3 if not champion_summoned else 2  # imp + demon + champion, or imp + demon
 		if agent.empty_slot_count() < slots_needed:
 			return false
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= ess_cost
-		agent.mana    -= mc.mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true
@@ -141,11 +137,7 @@ func _play_one_feral_imp() -> bool:
 
 ## Returns true if both blood_rune and dominion_rune are in enemy active traps.
 func _ritual_ready() -> bool:
-	if agent.scene == null:
-		return false
-	var traps: Variant = agent.scene.get("enemy_active_traps")
-	if traps == null:
-		traps = agent.scene.get("active_traps")
+	var traps: Variant = agent.state.traps_of(agent.side)
 	if traps == null or not (traps is Array):
 		return false
 	var has_blood := false

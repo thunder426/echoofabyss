@@ -156,9 +156,8 @@ func _plague_prevents_lethal() -> bool:
 			if m.card_data is MinionCardData and "feral_imp" in (m.card_data as MinionCardData).minion_tags:
 				surviving_feral += 1
 	# Add frenzy potential for survivors
-	if surviving_feral > 0 and agent.scene:
-		var ai = agent.scene.get("enemy_ai")
-		if ai and ai.mana >= 2:
+	if surviving_feral > 0:
+		if agent.state.mana_of(agent.state._opponent_of(agent.side)) >= 2:
 			surviving_atk += surviving_feral * 250
 	return surviving_atk < agent.friendly_hp
 
@@ -177,10 +176,7 @@ func _estimate_enemy_burst() -> int:
 				total_atk += m.effective_atk()  # count them as attackers too
 	# If enemy could cast Pack Frenzy (2M with ancient_frenzy, 3M without), add +250 per feral imp
 	if feral_count > 0 and agent.scene:
-		var enemy_mana: int = 0
-		var ai = agent.scene.get("enemy_ai")
-		if ai:
-			enemy_mana = ai.mana if "mana" in ai else 0
+		var enemy_mana: int = agent.state.mana_of(agent.state._opponent_of(agent.side))
 		# Pack Frenzy costs 3M (2M with ancient_frenzy discount)
 		if enemy_mana >= 2:
 			total_atk += feral_count * 250
@@ -201,12 +197,9 @@ func _should_place_smoke_veil() -> bool:
 		if inst.card_data is TrapCardData and inst.card_data.id == "smoke_veil":
 			if inst.effective_cost() <= agent.mana:
 				# Don't place if a non-rune trap is already active
-				if agent.scene:
-					var traps = agent.scene.get("active_traps")
-					if traps is Array:
-						for t in traps:
-							if t is TrapCardData and not (t as TrapCardData).is_rune:
-								return false
+				for t: TrapCardData in agent.state.traps_of(agent.side):
+					if not t.is_rune:
+						return false
 				return true
 	return false
 
@@ -380,14 +373,12 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return  # board full
-			agent.essence -= mc.essence_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			# Track Void Imp on-play damage (100 per imp, fired via DAMAGE_HERO effect step)
 			if mc.id == "void_imp" and agent.scene:
-				var prev: int = (agent.scene.get("_void_imp_dmg") as int) if agent.scene.get("_void_imp_dmg") != null else 0
-				agent.scene.set("_void_imp_dmg", prev + 100)
+				var prev: int = agent.state._void_imp_dmg
+				agent.state._void_imp_dmg = prev + 100
 			placed = true
 			break
 
@@ -408,22 +399,21 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 				continue
 			if not can_cast_spell(spell):
 				continue
-			agent.mana -= cost
 			# Track abyssal_plague: count board before/after to measure kills
 			var pre_board := agent.opponent_board.size() if spell.id == "abyssal_plague" else 0
 			# Set dmg source label BEFORE resolving so _on_hero_damaged picks it up
 			if agent.scene and spell.id == "void_bolt":
-				var casts: int = (agent.scene.get("_void_bolt_spell_casts") as int) if agent.scene.get("_void_bolt_spell_casts") != null else 0
-				agent.scene.set("_void_bolt_spell_casts", casts + 1)
-				agent.scene.set("_pending_dmg_source", "void_bolt_spell")
+				var casts: int = agent.state._void_bolt_spell_casts
+				agent.state._void_bolt_spell_casts = casts + 1
+				agent.state._pending_dmg_source = "void_bolt_spell"
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			if agent.scene and spell.id == "abyssal_plague":
 				var kills: int = pre_board - agent.opponent_board.size()
-				var fires: int = (agent.scene.get("_abyssal_plague_fires") as int) if agent.scene.get("_abyssal_plague_fires") != null else 0
-				agent.scene.set("_abyssal_plague_fires", fires + 1)
-				var total_kills: int = (agent.scene.get("_abyssal_plague_kills") as int) if agent.scene.get("_abyssal_plague_kills") != null else 0
-				agent.scene.set("_abyssal_plague_kills", total_kills + kills)
+				var fires: int = agent.state._abyssal_plague_fires
+				agent.state._abyssal_plague_fires = fires + 1
+				var total_kills: int = agent.state._abyssal_plague_kills
+				agent.state._abyssal_plague_kills = total_kills + kills
 			cast = true
 			break
 
@@ -439,9 +429,8 @@ func _play_traps_by_id(ids: Array[String]) -> void:
 			if not (trap.id in ids):
 				continue
 			var trap_cost: int = inst.effective_cost()
-			if trap_cost > agent.mana:
+			if trap_cost > agent.mana or not agent.can_place_trap(trap):
 				continue
-			agent.mana -= trap_cost
 			if not await agent.commit_play_trap(inst):
 				return
 			placed = true

@@ -3,40 +3,11 @@
 ## CombatScene calls run_turn() when the enemy turn starts.
 ## The AI plays cards from a real shuffled deck, then attacks, then emits ai_turn_finished.
 ##
-## All decision logic lives in EnemyAIProfile subclasses (enemies/ai/profiles/).
+## All decision logic lives in CombatProfile subclasses (enemies/ai/profiles/,
+## built from ProfileRegistry).
 ## This file owns game state, signals, and public action helpers that profiles call.
 class_name EnemyAI
 extends Node
-
-# ---------------------------------------------------------------------------
-# Profile registry
-# ---------------------------------------------------------------------------
-
-const _PROFILES: Dictionary = {
-	"default":         preload("res://enemies/ai/profiles/DefaultProfile.gd"),
-	"feral_pack":      preload("res://enemies/ai/profiles/FeralPackProfile.gd"),
-	"feral_pack_screech": preload("res://enemies/ai/profiles/FeralPackScreechProfile.gd"),
-	"matriarch":       preload("res://enemies/ai/profiles/MatriarchProfile.gd"),
-	"corrupted_brood": preload("res://enemies/ai/profiles/CorruptedBroodProfile.gd"),
-	"corrupted_brood_aggro": preload("res://enemies/ai/profiles/CorruptedBroodAggroProfile.gd"),
-	"matriarch_aggro":      preload("res://enemies/ai/profiles/MatriarchAggroProfile.gd"),
-	"matriarch_sac":        preload("res://enemies/ai/profiles/MatriarchSacProfile.gd"),
-	"corrupted_brood_rune": preload("res://enemies/ai/profiles/CorruptedBroodRuneProfile.gd"),
-	"cultist_patrol":  preload("res://enemies/ai/profiles/CultistPatrolProfile.gd"),
-	"cultist_patrol_tempo": preload("res://enemies/ai/profiles/CultistPatrolTempoProfile.gd"),
-	"void_ritualist":    preload("res://enemies/ai/profiles/VoidRitualistProfile.gd"),
-	"corrupted_handler": preload("res://enemies/ai/profiles/CorruptedHandlerProfile.gd"),
-	"rift_stalker":      preload("res://enemies/ai/profiles/RiftStalkerProfile.gd"),
-	"void_aberration":   preload("res://enemies/ai/profiles/VoidAberrationProfile.gd"),
-	"void_herald":       preload("res://enemies/ai/profiles/VoidHeraldProfile.gd"),
-	"void_scout":          preload("res://enemies/ai/profiles/VoidScoutProfile.gd"),
-	"void_warband":        preload("res://enemies/ai/profiles/VoidWarbandProfile.gd"),
-	"void_captain":        preload("res://enemies/ai/profiles/VoidCaptainProfile.gd"),
-	"void_ritualist_prime": preload("res://enemies/ai/profiles/VoidRitualistPrimeProfile.gd"),
-	"void_champion":       preload("res://enemies/ai/profiles/VoidChampionProfile.gd"),
-	"abyss_sovereign":     preload("res://enemies/ai/profiles/AbyssSovereignProfile.gd"),
-	"abyss_sovereign_p2":  preload("res://enemies/ai/profiles/AbyssSovereignPhase2Profile.gd"),
-}
 
 var _active_profile: CombatProfile = null
 
@@ -244,8 +215,7 @@ func run_turn() -> void:
 # ---------------------------------------------------------------------------
 
 func _setup_profile() -> void:
-	var profile_script = _PROFILES.get(ai_profile, _PROFILES["default"])
-	_active_profile = profile_script.new()
+	_active_profile = ProfileRegistry.make("enemy", ai_profile)
 	var agent := EnemyAgent.new()
 	agent.setup(self)
 	_active_profile.setup(agent)
@@ -338,16 +308,28 @@ func player_has_rune_or_environment() -> bool:
 
 ## Effective mana cost of a spell after penalty and discounts.
 func effective_spell_cost(spell: SpellCardData) -> int:
-	return max(0, spell.cost + spell_cost_penalty + spell_cost_aura - (spell_cost_discounts.get(spell.id, 0) as int))
+	return state.spell_cost("enemy", spell)
 
 # ---------------------------------------------------------------------------
 # Public helpers — async actions for profiles
 # ---------------------------------------------------------------------------
 
-## Place a minion on the board (slot already found, resources already deducted).
+## Pay for a card the profile is about to play, as the state commands do
+## (plan 2A.5 — profiles no longer deduct). `sparks_prepaid`: spark fuel the
+## profile already consumed. False (nothing paid) if the engine says it can't.
+func _pay_for(inst: CardInstance, sparks_prepaid: int) -> bool:
+	var cost: Dictionary = state.plan_cost("enemy", inst, {sparks_prepaid = sparks_prepaid})
+	if not (cost.get("why", "") as String).is_empty():
+		return false
+	state.pay_planned_cost("enemy", cost)
+	return true
+
+## Place a minion on the board (slot already found; this pays the cost).
 ## chosen_target: player minion chosen by the profile for the on-play effect, if any.
-## Returns false if the scene tree is gone.
-func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
+## Returns false if it can't be paid for or the scene tree is gone.
+func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = null, sparks_prepaid: int = 0) -> bool:
+	if not _pay_for(inst, sparks_prepaid):
+		return false
 	var mc := inst.card_data as MinionCardData
 	var instance := MinionInstance.create(mc, "enemy")
 	instance.card_instance = inst
@@ -370,10 +352,12 @@ func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 		await scene.on_play_vfx_done
 	return is_inside_tree()
 
-## Cast a spell (resources already deducted).
+## Cast a spell (this pays the cost).
 ## chosen_target: non-minion target (TrapCardData / EnvironmentCardData) chosen by the profile.
-## Returns false if the scene tree is gone.
-func commit_spell_cast(inst: CardInstance, chosen_target = null) -> bool:
+## Returns false if it can't be paid for or the scene tree is gone.
+func commit_spell_cast(inst: CardInstance, chosen_target = null, sparks_prepaid: int = 0) -> bool:
+	if not _pay_for(inst, sparks_prepaid):
+		return false
 	var spell := inst.card_data as SpellCardData
 	hand.erase(inst)
 	_send_to_graveyard(inst)
@@ -395,9 +379,11 @@ func commit_spell_cast(inst: CardInstance, chosen_target = null) -> bool:
 	await get_tree().create_timer(ACTION_DELAY).timeout
 	return is_inside_tree()
 
-## Place a trap or rune (resources already deducted).
-## Returns false if the scene tree is gone.
+## Place a trap or rune (this pays the cost).
+## Returns false if it can't be paid for or the scene tree is gone.
 func commit_play_trap(inst: CardInstance) -> bool:
+	if not _pay_for(inst, 0):
+		return false
 	var trap := inst.card_data as TrapCardData
 	hand.erase(inst)
 	_send_to_graveyard(inst)
@@ -413,9 +399,11 @@ func commit_play_trap(inst: CardInstance) -> bool:
 		await scene.on_play_vfx_done
 	return is_inside_tree()
 
-## Play an environment card (resources already deducted).
-## Returns false if the scene tree is gone.
+## Play an environment card (this pays the cost).
+## Returns false if it can't be paid for or the scene tree is gone.
 func commit_play_environment(inst: CardInstance) -> bool:
+	if not _pay_for(inst, 0):
+		return false
 	var env := inst.card_data as EnvironmentCardData
 	hand.erase(inst)
 	_send_to_graveyard(inst)

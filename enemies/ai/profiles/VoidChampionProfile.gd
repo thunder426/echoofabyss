@@ -98,7 +98,6 @@ func _try_breach_if_enables_combo() -> bool:
 		if body_mana + shortfall > mana_after:
 			continue
 		# Combo viable — cast Breach.
-		agent.mana -= breach_cost
 		if not await agent.commit_play_spell(breach_inst, null):
 			return false
 		return true
@@ -116,8 +115,6 @@ func _play_simple_minion(id: String) -> bool:
 	var slot: BoardSlot = agent.find_empty_slot()
 	if slot == null:
 		return false
-	agent.essence -= mc.essence_cost
-	agent.mana -= mana_cost
 	if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 		return false
 	return true
@@ -169,8 +166,6 @@ func _play_one_regular_body() -> bool:
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= mc.essence_cost
-		agent.mana -= mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true
@@ -203,8 +198,6 @@ func _play_big_body(id: String) -> bool:
 			if not plan.is_empty():
 				await _pay_sparks_smart(plan, DeckType.AGGRO)
 				if not agent.is_alive(): return false
-	agent.essence -= mc.essence_cost
-	agent.mana -= body_mana + shortfall
 	if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 		return false
 	return true
@@ -216,7 +209,7 @@ func _find_in_hand(id: String) -> CardInstance:
 	return null
 
 func _has_mana_for_spark() -> bool:
-	var passives = agent.scene.get("_active_enemy_passives")
+	var passives: Array[String] = agent.state._active_enemy_passives
 	return passives != null and "mana_for_spark" in passives
 
 # ---------------------------------------------------------------------------
@@ -251,8 +244,6 @@ func _play_regular_minions() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true

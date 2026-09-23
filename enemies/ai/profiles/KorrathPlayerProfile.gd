@@ -105,8 +105,6 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= ess_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -127,7 +125,6 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 				continue
 			if not can_cast_spell(spell):
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true

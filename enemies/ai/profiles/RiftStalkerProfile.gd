@@ -219,15 +219,11 @@ func _try_rift_collapse_aoe() -> void:
 	if not agent.friendly_board.has(fuel):
 		return  # Spark died during attack — can't consume
 	agent.consume_minion(fuel)
-	agent.mana -= agent.effective_spell_cost(spell)
 	# Track kills
 	var pre_count: int = agent.opponent_board.size()
-	if agent.scene.get("_rift_collapse_casts") != null:
-		agent.scene._rift_collapse_casts += 1
+	agent.state._rift_collapse_casts += 1
 	await agent.commit_play_spell(collapse_inst, pick_spell_target(spell))
-	if agent.scene.get("_rift_collapse_kills") != null:
-		var killed: int = pre_count - agent.opponent_board.size()
-		agent.scene._rift_collapse_kills += killed
+	agent.state._rift_collapse_kills += pre_count - agent.opponent_board.size()
 
 func _get_spell_rules() -> Dictionary:
 	return {}
@@ -261,8 +257,8 @@ func _empty_slot_count() -> int:
 	return agent.empty_slot_count()
 
 func _should_reserve_champion_slot() -> bool:
-	var spark_dmg: int = agent.scene.get("_champion_rs_spark_dmg") if agent.scene.get("_champion_rs_spark_dmg") != null else 0
-	var summoned: bool = agent.scene.get("_champion_rs_summoned") if agent.scene.get("_champion_rs_summoned") != null else false
+	var spark_dmg: int = agent.state._champion_rs_spark_dmg
+	var summoned: bool = agent.state._champion_rs_summoned
 	if summoned:
 		return false  # Champion already on board
 	return spark_dmg >= int(_CHAMPION_DMG_THRESHOLD * _CHAMPION_RESERVE_RATIO)
@@ -343,7 +339,7 @@ func _sort_by_play_priority(a: CardInstance, b: CardInstance) -> bool:
 
 ## Play regular (non-spark-cost) minions with board awareness.
 func _play_regular_minions() -> void:
-	var _dbg: bool = agent.scene.get("debug_log_enabled") if agent.scene.get("debug_log_enabled") != null else false
+	var _dbg: bool = agent.state.debug_log_enabled
 	var placed := true
 	while placed:
 		placed = false
@@ -382,8 +378,6 @@ func _play_regular_minions() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -414,7 +408,6 @@ func _play_spark_spells() -> void:
 			if plan.is_empty(): return
 			await _pay_sparks_smart(plan, DeckType.TEMPO)
 			if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(best, pick_spell_target(spell)):
 				return
 			cast = true
@@ -446,8 +439,6 @@ func _play_spark_minions() -> void:
 			if plan.is_empty(): return
 			await _pay_sparks_smart(plan, DeckType.TEMPO)
 			if not agent.is_alive(): return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= agent.effective_minion_mana_cost(mc)
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true

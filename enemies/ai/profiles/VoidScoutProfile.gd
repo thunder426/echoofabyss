@@ -48,7 +48,7 @@ func _get_spell_rules() -> Dictionary:
 
 ## Cast Void Wind when opponent has any rune.
 func _try_void_wind() -> void:
-	var opponent_traps: Array = agent.scene.state.traps_of("player")
+	var opponent_traps: Array = agent.state.traps_of("player")
 	if opponent_traps.is_empty():
 		return
 	var has_rune := false
@@ -64,7 +64,6 @@ func _try_void_wind() -> void:
 		var spell := inst.card_data as SpellCardData
 		if agent.effective_spell_cost(spell) > agent.mana:
 			continue
-		agent.mana -= agent.effective_spell_cost(spell)
 		await agent.commit_play_spell(inst, null)
 		return
 
@@ -177,7 +176,6 @@ func _play_heralds() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= ess_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -186,7 +184,7 @@ func _play_heralds() -> void:
 ## Play spark-cost spells — only when opponent has 2+ minions (AoE value).
 ## Consumes cheapest non-crit fuel to preserve crit-buffed minions.
 func _play_spark_spells() -> void:
-	if agent.scene._opponent_board("enemy").size() < 2:
+	if agent.state._opponent_board("enemy").size() < 2:
 		return
 	var cast := true
 	while cast:
@@ -205,9 +203,8 @@ func _play_spark_spells() -> void:
 				continue
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive(): return
-			# mana_for_spark passive (F14): pay extra Mana for any spark shortfall.
-			var extra_mana := _mana_for_spark_shortfall(sc)
-			agent.mana -= agent.effective_spell_cost(spell) + extra_mana
+			# mana_for_spark passive (F14): the engine charges Mana for any spark
+			# shortfall left after the fuel above.
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true
@@ -244,8 +241,6 @@ func _play_spark_minions() -> void:
 				if not plan.is_empty():
 					await _pay_sparks_smart(plan, DeckType.AGGRO)
 					if not agent.is_alive(): return
-			agent.essence -= ess_cost
-			agent.mana -= body_mana + shortfall
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -295,8 +290,6 @@ func _play_regular_minions() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= ess_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true

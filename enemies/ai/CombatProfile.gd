@@ -346,7 +346,7 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 		"has_3_feral_imps":
 			var imp_count := 0
 			for m in agent.friendly_board:
-				if agent.scene and agent.scene._minion_has_tag(m, "feral_imp"):
+				if agent.scene and agent.state._minion_has_tag(m, "feral_imp"):
 					imp_count += 1
 			return imp_count >= 3
 		"always":
@@ -538,7 +538,6 @@ func _play_spells_relief_pass() -> void:
 			# If spell requires a target but none is available, skip
 			if spell.requires_target and target == null:
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, target):
 				return
 			cast = true
@@ -547,18 +546,12 @@ func _play_spells_relief_pass() -> void:
 ## How many board slots to keep free for champion/ritual summons.
 ## Override in profiles that need space for triggered summons.
 func _reserved_slots() -> int:
-	if agent.scene == null:
-		return 0
 	# Default: reserve 1 slot if champion hasn't been summoned yet
-	var champion_summoned: Variant = agent.scene.get("_champion_summon_count")
-	if champion_summoned != null and (champion_summoned as int) > 0:
+	if agent.state._champion_summon_count > 0:
 		return 0
 	# Check if this encounter even has a champion passive
-	var passives: Variant = agent.scene.get("_active_enemy_passives")
-	if passives == null:
-		return 0
-	for p in (passives as Array):
-		if (p as String).begins_with("champion_"):
+	for p: String in agent.state._active_enemy_passives:
+		if p.begins_with("champion_"):
 			return 1
 	return 0
 
@@ -590,8 +583,6 @@ func _play_minions_pass() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= ess_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -614,7 +605,6 @@ func _play_spells_pass() -> void:
 				continue
 			if not can_cast_spell(spell):
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true
@@ -630,20 +620,17 @@ func _play_traps_pass() -> void:
 		for inst in agent.hand.duplicate():
 			if inst.card_data is EnvironmentCardData:
 				var env := inst.card_data as EnvironmentCardData
-				# Don't replace an environment that's already active — would waste it
-				var scene: Object = agent.scene
-				if scene != null and scene.get("active_environment") != null:
+				# Don't replace our own active environment — would waste it
+				if agent.state.environment_of(agent.side) != null:
 					continue
 				if env.cost <= agent.mana:
-					agent.mana -= env.cost
 					if not await agent.commit_play_environment(inst):
 						return
 					placed = true
 					break
 			elif inst.card_data is TrapCardData:
 				var trap_cost: int = inst.effective_cost()
-				if trap_cost <= agent.mana:
-					agent.mana -= trap_cost
+				if trap_cost <= agent.mana and agent.can_place_trap(inst.card_data as TrapCardData):
 					if not await agent.commit_play_trap(inst):
 						return
 					placed = true
@@ -790,7 +777,6 @@ func _play_lethal_spells() -> void:
 							or (pass_type == "damage" and is_damage_spell and not is_buff_spell)
 			if not should_cast:
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 
@@ -892,7 +878,7 @@ func _pick_threat_reduction_target(attacker: MinionInstance) -> MinionInstance:
 func _pick_best_friendly_with_tag(tag: String) -> MinionInstance:
 	var best: MinionInstance = null
 	for m: MinionInstance in agent.friendly_board:
-		if agent.scene != null and agent.scene._minion_has_tag(m, tag):
+		if agent.scene != null and agent.state._minion_has_tag(m, tag):
 			if best == null or m.effective_atk() > best.effective_atk():
 				best = m
 	return best
@@ -935,17 +921,18 @@ func _pick_default_minion_target(mc: MinionCardData) -> MinionInstance:
 			best = m
 	return best
 
+## The opponent's rune, else their environment, else another of their traps.
 func _pick_default_trap_env_target():
-	var s = agent.scene
-	if s == null:
-		return null
-	var runes: Array = s.active_traps.filter(func(t) -> bool: return (t as TrapCardData).is_rune)
+	var st: CombatState = agent.state
+	var opp: String = st._opponent_of(agent.side)
+	var traps: Array[TrapCardData] = st.traps_of(opp)
+	var runes: Array = traps.filter(func(t) -> bool: return (t as TrapCardData).is_rune)
 	if not runes.is_empty():
-		return s.state.rng_pick(runes)
-	if s.active_environment != null:
-		return s.active_environment
-	if not s.active_traps.is_empty():
-		return s.state.rng_pick(s.active_traps)
+		return st.rng_pick(runes)
+	if st.environment_of(opp) != null:
+		return st.environment_of(opp)
+	if not traps.is_empty():
+		return st.rng_pick(traps)
 	return null
 
 # ---------------------------------------------------------------------------
@@ -964,14 +951,14 @@ func _effective_spark_cost(card: CardData) -> int:
 	if base <= 0:
 		return 0
 	# Void Herald champion aura: all spark costs become 0
-	var vh_alive: bool = agent.scene.get("_champion_vh_summoned") if agent.scene.get("_champion_vh_summoned") != null else false
+	var vh_alive: bool = agent.state._champion_vh_summoned
 	if vh_alive:
 		# Check champion is actually on the board
 		for m: MinionInstance in agent.friendly_board:
 			if m.card_data.id == "champion_void_herald":
 				return 0
 	var cost: int = base
-	var passives = agent.scene.get("_active_enemy_passives")
+	var passives: Array[String] = agent.state._active_enemy_passives
 	# ritualist_spark_free (F13 Void Ritualist Prime): all spark costs become 0 for spells.
 	if passives != null and "ritualist_spark_free" in passives and card is SpellCardData:
 		return 0
@@ -1011,7 +998,7 @@ func _mana_for_spark_shortfall(spark_cost: int) -> int:
 	var available: int = _available_sparks()
 	if available >= spark_cost:
 		return 0
-	var passives = agent.scene.get("_active_enemy_passives")
+	var passives: Array[String] = agent.state._active_enemy_passives
 	if passives != null and "mana_for_spark" in passives:
 		return spark_cost - available
 	return 0  # Caller will fail the spark check separately
@@ -1021,7 +1008,7 @@ func _mana_for_spark_shortfall(spark_cost: int) -> int:
 func _available_sparks() -> int:
 	var total := 0
 	for m: MinionInstance in agent.friendly_board:
-		total += m.effective_spark_value(agent.scene.state)
+		total += m.effective_spark_value(agent.state)
 	return total
 
 ## True if the board has enough spark fuel to pay the given cost.
@@ -1042,13 +1029,13 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 	# Gather all eligible fuel (effective spark_value > 0 and not bigger than cost)
 	var eligible: Array[MinionInstance] = []
 	for m: MinionInstance in agent.friendly_board:
-		var sv: int = m.effective_spark_value(agent.scene.state)
+		var sv: int = m.effective_spark_value(agent.state)
 		if sv > 0 and sv <= cost:
 			eligible.append(m)
 
 	# Sort by spark_value descending (pick biggest first = fewest bodies consumed)
 	eligible.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
+		return a.effective_spark_value(agent.state) > b.effective_spark_value(agent.state))
 
 	var plan: Array[MinionInstance] = []
 	var remaining := cost
@@ -1057,12 +1044,12 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 		if remaining <= 0:
 			break
 		plan.append(m)
-		remaining -= m.effective_spark_value(agent.scene.state)
+		remaining -= m.effective_spark_value(agent.state)
 
 	if remaining > 0:
 		# mana_for_spark passive: shortfall is paid in extra Mana, not fuel.
 		# Return whatever plan we have — caller reads _mana_for_spark_shortfall to pay extra.
-		var passives = agent.scene.get("_active_enemy_passives")
+		var passives: Array[String] = agent.state._active_enemy_passives
 		if passives != null and "mana_for_spark" in passives:
 			return plan
 		return []  # Can't afford
@@ -1177,7 +1164,7 @@ func _spell_can_kill(spell: SpellCardData, target: MinionInstance) -> bool:
 				estimated = step.amount * board.size()
 			"void_marks":
 				if agent.scene != null:
-					estimated = step.amount * agent.scene.enemy_void_marks
+					estimated = step.amount * agent.state.enemy_void_marks
 		if estimated >= target.current_health:
 			return true
 	return false

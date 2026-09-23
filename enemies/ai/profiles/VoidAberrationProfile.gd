@@ -78,7 +78,7 @@ func _empty_slot_count() -> int:
 
 ## Cast Void Wind only when opponent has a Void Rune — destroys trap + heals 500 HP.
 func _try_void_wind() -> void:
-	var opponent_traps: Array = agent.scene.state.traps_of("player")
+	var opponent_traps: Array = agent.state.traps_of("player")
 	if opponent_traps.is_empty():
 		return
 	# Only cast against Void Runes specifically
@@ -97,7 +97,6 @@ func _try_void_wind() -> void:
 		var spell := inst.card_data as SpellCardData
 		if agent.effective_spell_cost(spell) > agent.mana:
 			continue
-		agent.mana -= agent.effective_spell_cost(spell)
 		await agent.commit_play_spell(inst, null)
 		return
 
@@ -125,8 +124,6 @@ func _play_regular_minions() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -157,7 +154,6 @@ func _play_spark_spells() -> void:
 			if plan.is_empty(): return
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(best, pick_spell_target(spell)):
 				return
 			cast = true
@@ -188,8 +184,6 @@ func _play_spark_minions() -> void:
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive():
 				return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= agent.effective_minion_mana_cost(mc)
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true

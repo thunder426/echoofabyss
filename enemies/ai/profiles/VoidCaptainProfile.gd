@@ -87,7 +87,6 @@ func _play_thrones_command() -> void:
 				continue
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive(): return
-		agent.mana -= agent.effective_spell_cost(spell)
 		if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 			return
 		return
@@ -97,7 +96,7 @@ func _play_thrones_command() -> void:
 # ---------------------------------------------------------------------------
 
 func _play_spark_spells_aoe() -> void:
-	if agent.scene._opponent_board("enemy").size() < 2:
+	if agent.state._opponent_board("enemy").size() < 2:
 		return
 	var cast := true
 	while cast:
@@ -118,7 +117,6 @@ func _play_spark_spells_aoe() -> void:
 				continue
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true
@@ -148,8 +146,6 @@ func _play_spark_minion_by_id(target_id: String) -> bool:
 		await _pay_sparks_smart(plan, DeckType.AGGRO)
 		if not agent.is_alive():
 			return false
-		agent.essence -= mc.essence_cost
-		agent.mana    -= agent.effective_minion_mana_cost(mc)
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true

@@ -79,11 +79,9 @@ func play_phase() -> void:
 ## Note: player profiles (unlike enemy profiles) don't reserve slots for champions,
 ## so we don't need to call the parent implementation here.
 func _reserved_slots() -> int:
-	if agent.sim == null:
+	if not agent.state._has_talent("soul_forge"):
 		return 0
-	if not agent.sim._has_talent("soul_forge"):
-		return 0
-	var flesh: int = int(agent.sim.get("player_flesh"))
+	var flesh: int = agent.state.player_flesh
 	if flesh < 3:
 		return 0
 	# Only reserve if a slot is actually free — otherwise we'd force-cap the minion pass to 0.
@@ -105,12 +103,10 @@ func _get_spell_rules() -> Dictionary:
 ## Under Corrupt Flesh talent, Corruption adds ATK instead of subtracting,
 ## so buffing the biggest Demon maximises damage and feeds Corrupt Detonation.
 func _maybe_corrupt_flesh() -> void:
-	var sim: SimState = agent.sim
-	if sim == null:
+	var st: CombatState = agent.state
+	if not st._has_talent("corrupt_flesh"):
 		return
-	if not sim._has_talent("corrupt_flesh"):
-		return
-	if sim.player_flesh < 1 or sim._seris_corrupt_used_this_turn:
+	if st.player_flesh < 1 or st._seris_corrupt_used_this_turn:
 		return
 	var best: MinionInstance = null
 	for m in agent.friendly_board:
@@ -120,19 +116,16 @@ func _maybe_corrupt_flesh() -> void:
 			best = m
 	if best == null:
 		return
-	sim._seris_corrupt_apply(best)
+	agent.hero_skill("seris_corrupt", best)
 
 ## Greedy Soul Forge — summon Grafted Fiends while we can afford 3 Flesh and
 ## have board space. Multiple presses per turn are allowed (design does not
 ## cap it). Stops on first failure (board full / no flesh).
 func _maybe_soul_forge_loop() -> void:
-	var sim: SimState = agent.sim
-	if sim == null or not sim.has_method("_soul_forge_activate"):
-		return
-	if not sim._has_talent("soul_forge"):
+	if not agent.state._has_talent("soul_forge"):
 		return
 	var guard := 5  # hard stop — should never loop this many times in practice
-	while guard > 0 and sim._soul_forge_activate():
+	while guard > 0 and agent.hero_skill("soul_forge"):
 		guard -= 1
 
 # ---------------------------------------------------------------------------
@@ -181,8 +174,6 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= ess_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -203,7 +194,6 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 				continue
 			if not can_cast_spell(spell):
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true

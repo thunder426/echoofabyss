@@ -2,11 +2,15 @@
 ## Perspective-agnostic interface between a CombatProfile and the underlying game state.
 ## "Friendly" = the side this agent controls.  "Opponent" = the other side.
 ##
-## Subclass this to wrap a concrete game state (EnemyAI node, SimState, etc.).
+## Subclasses: StateAgent (a side of a CombatState, via state commands — sim
+## and tests) and EnemyAgent (the live EnemyAI node, until Phase 3.4).
 ## All default method implementations are no-ops or sensible defaults so that the
 ## base class compiles cleanly; override what you need.
 class_name CombatAgent
 extends RefCounted
+
+## The side this agent plays ("player" / "enemy").
+var side: String = "player"
 
 # ---------------------------------------------------------------------------
 # Boards / hand / resources — backed by virtual getters/setters
@@ -38,6 +42,10 @@ var mana: int:
 ## Typed as Object so both Node (real game) and RefCounted (SimState) work.
 var scene: Object:
 	get: return _get_scene()
+
+## The combat state — read gameplay fields through this (typed).
+var state: CombatState:
+	get: return _get_state()
 
 
 ## Friendly hero HP — used for lethal-threat checks.
@@ -74,22 +82,23 @@ func empty_slot_count() -> int:
 # Actions — return false if the action could not complete or env is gone
 # ---------------------------------------------------------------------------
 
-## Place a minion on a slot (slot already found, resources already deducted).
+## Place a minion on a slot (slot already found). The engine pays the cost —
+## profiles only check affordability; spark fuel they consume first is credited.
 ## inst is the CardInstance being played from hand.
 func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
 	return false
 
-## Cast a spell (resources already deducted).
+## Cast a spell. extra: pre-resolved cast choices (e.g. rally_race).
 ## inst is the CardInstance being played from hand.
-func commit_play_spell(inst: CardInstance, chosen_target = null) -> bool:
+func commit_play_spell(inst: CardInstance, chosen_target = null, extra: Dictionary = {}) -> bool:
 	return false
 
-## Place a trap or rune (resources already deducted).
+## Place a trap or rune.
 ## inst is the CardInstance being played from hand.
 func commit_play_trap(inst: CardInstance) -> bool:
 	return false
 
-## Play an environment card (resources already deducted).
+## Play an environment card.
 ## inst is the CardInstance being played from hand.
 func commit_play_environment(inst: CardInstance) -> bool:
 	return false
@@ -106,6 +115,11 @@ func do_attack_hero(attacker: MinionInstance) -> bool:
 ## Used for spark consumption (Void Spirits sacrificed as fuel).
 func consume_minion(_minion: MinionInstance) -> void:
 	pass
+
+## Use a hero activated ability ("seris_corrupt" with a friendly target,
+## "soul_forge"). Returns true if it fired.
+func hero_skill(_skill_id: String, _target = null) -> bool:
+	return false
 
 # ---------------------------------------------------------------------------
 # Utilities — default implementations shared by all agents
@@ -170,6 +184,11 @@ func _minion_essence_cost_aura() -> int:
 func effective_minion_mana_cost(mc: MinionCardData) -> int:
 	return mc.mana_cost
 
+## True if the engine would let this side set `trap` now (a free trap slot and
+## no copy of the same non-rune trap already set).
+func can_place_trap(trap: TrapCardData) -> bool:
+	return state != null and state.trap_placement_refusal(side, trap).is_empty()
+
 ## Returns true if the opponent has an active Rune or Environment card.
 func opponent_has_rune_or_environment() -> bool:
 	return false
@@ -186,5 +205,6 @@ func _set_essence(_v: int) -> void: pass
 func _get_mana() -> int: return 0
 func _set_mana(_v: int) -> void: pass
 func _get_scene() -> Object: return null
+func _get_state() -> CombatState: return null
 func _get_friendly_hp() -> int: return 0
 func _get_opponent_hp() -> int: return 0

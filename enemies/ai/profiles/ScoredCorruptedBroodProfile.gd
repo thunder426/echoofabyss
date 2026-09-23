@@ -25,10 +25,9 @@ func attack_phase() -> void:
 	if pf != null and agent.effective_spell_cost(pf.card_data as SpellCardData) <= agent.mana:
 		var imp_count := 0
 		for m in agent.friendly_board:
-			if agent.scene != null and agent.scene._minion_has_tag(m, "feral_imp"):
+			if agent.scene != null and agent.state._minion_has_tag(m, "feral_imp"):
 				imp_count += 1
 		if imp_count >= _FERAL_IMP_THRESHOLD:
-			agent.mana -= agent.effective_spell_cost(pf.card_data as SpellCardData)
 			if not await agent.commit_play_spell(pf, null):
 				return
 	# Original CombatProfile attack logic

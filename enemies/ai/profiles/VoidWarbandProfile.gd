@@ -79,7 +79,6 @@ func _play_void_lance() -> void:
 			var target: MinionInstance = _pick_lance_target()
 			if target == null:
 				return
-			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(inst, target):
 				return
 			cast = true
@@ -87,10 +86,7 @@ func _play_void_lance() -> void:
 
 ## Returns current turn number (works for both live scene and sim).
 func _current_turn() -> int:
-	var scene := agent.scene
-	if scene == null:
-		return 1
-	return (scene.state as CombatState).turn_number
+	return agent.state.turn_number
 
 ## Override spark payment execution. Crit-Spirit pre-attack rule:
 ##   - If VW board has at least 1 empty slot, crit-Spirit attacks first (crit fires
@@ -325,18 +321,18 @@ func _simulate_plan(cost: int, exclude: Dictionary) -> Array[MinionInstance]:
 	for m: MinionInstance in agent.friendly_board:
 		if exclude.has(m.get_instance_id()):
 			continue
-		var sv: int = m.effective_spark_value(agent.scene.state)
+		var sv: int = m.effective_spark_value(agent.state)
 		if sv > 0 and sv <= cost and not m.has_critical_strike():
 			pool.append(m)
 	pool.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
+		return a.effective_spark_value(agent.state) > b.effective_spark_value(agent.state))
 	var plan: Array[MinionInstance] = []
 	var remaining := cost
 	for m: MinionInstance in pool:
 		if remaining <= 0:
 			break
 		plan.append(m)
-		remaining -= m.effective_spark_value(agent.scene.state)
+		remaining -= m.effective_spark_value(agent.state)
 	if remaining > 0:
 		return []  # unaffordable, don't reserve
 	return plan
@@ -369,7 +365,6 @@ func _play_spirit_surge() -> void:
 			return
 		if not _should_cast_spirit_surge():
 			return
-		agent.mana -= agent.effective_spell_cost(spell)
 		if not await agent.commit_play_spell(inst, null):
 			return
 		return
@@ -419,8 +414,6 @@ func _play_cheap_minions() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -451,7 +444,6 @@ func _play_heralds() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -477,18 +469,9 @@ func _play_spark_minion_by_id(target_id: String) -> bool:
 		await _pay_sparks_smart(plan, DeckType.AGGRO)
 		if not agent.is_alive():
 			return false
-		agent.essence -= mc.essence_cost
-		agent.mana    -= agent.effective_minion_mana_cost(mc)
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
-		# Track F11 spark minion plays
-		if target_id == "void_behemoth":
-			var b: int = agent.scene.get("_vw_behemoth_plays") if agent.scene.get("_vw_behemoth_plays") != null else 0
-			agent.scene.set("_vw_behemoth_plays", b + 1)
-		elif target_id == "bastion_colossus":
-			var c: int = agent.scene.get("_vw_bastion_plays") if agent.scene.get("_vw_bastion_plays") != null else 0
-			agent.scene.set("_vw_bastion_plays", c + 1)
-		return true
+		return true  # _vw_*_plays are counted by cmd_play_minion
 	return false
 
 ## Play spark-cost spells (Rift Collapse, Void Lance, Void Pulse). Uses non-crit fuel.
@@ -512,7 +495,6 @@ func _play_spark_spells() -> void:
 				continue
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(inst, target):
 				return
 			cast = true
@@ -538,18 +520,18 @@ func _plan_spark_payment_warband(cost: int, _is_lance: bool = false) -> Array[Mi
 	for m: MinionInstance in agent.friendly_board:
 		if _is_spark_consumer(m):
 			continue
-		var sv: int = m.effective_spark_value(agent.scene.state)
+		var sv: int = m.effective_spark_value(agent.state)
 		if sv > 0 and sv <= cost and not m.has_critical_strike():
 			no_crit.append(m)
 	no_crit.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
+		return a.effective_spark_value(agent.state) > b.effective_spark_value(agent.state))
 	var plan: Array[MinionInstance] = []
 	var remaining := cost
 	for m: MinionInstance in no_crit:
 		if remaining <= 0:
 			break
 		plan.append(m)
-		remaining -= m.effective_spark_value(agent.scene.state)
+		remaining -= m.effective_spark_value(agent.state)
 	if remaining <= 0:
 		return plan
 	# Fall back to any fuel, but still exclude spark consumers
@@ -557,18 +539,18 @@ func _plan_spark_payment_warband(cost: int, _is_lance: bool = false) -> Array[Mi
 	for m: MinionInstance in agent.friendly_board:
 		if _is_spark_consumer(m):
 			continue
-		var sv: int = m.effective_spark_value(agent.scene.state)
+		var sv: int = m.effective_spark_value(agent.state)
 		if sv > 0 and sv <= cost:
 			fallback.append(m)
 	fallback.sort_custom(func(a: MinionInstance, b: MinionInstance) -> bool:
-		return a.effective_spark_value(agent.scene.state) > b.effective_spark_value(agent.scene.state))
+		return a.effective_spark_value(agent.state) > b.effective_spark_value(agent.state))
 	var plan2: Array[MinionInstance] = []
 	var remaining2 := cost
 	for m: MinionInstance in fallback:
 		if remaining2 <= 0:
 			break
 		plan2.append(m)
-		remaining2 -= m.effective_spark_value(agent.scene.state)
+		remaining2 -= m.effective_spark_value(agent.state)
 	if remaining2 <= 0:
 		return plan2
 	return []  # Can't afford without consuming spark consumers — don't cast

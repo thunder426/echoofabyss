@@ -18,7 +18,6 @@ func play_phase() -> void:
 				var cost: int = agent.effective_spell_cost(spell)
 				if cost > agent.mana:
 					continue
-				agent.mana -= cost
 				if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 					return
 				made_a_play = true
@@ -31,8 +30,6 @@ func play_phase() -> void:
 				var slot: BoardSlot = agent.find_empty_slot()
 				if slot == null:
 					return  # board full — stop all play
-				agent.essence -= mc.essence_cost
-				agent.mana    -= mana_cost
 				if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 					return
 				made_a_play = true

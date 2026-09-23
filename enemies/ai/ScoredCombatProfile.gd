@@ -168,8 +168,7 @@ func _score_play_environment(inst: CardInstance, env: EnvironmentCardData, w: Sc
 	if env.cost > agent.mana:
 		return -1.0
 	# Don't replace an existing environment (wasteful)
-	var scene: Object = agent.scene
-	if scene != null and scene.get("active_environment") != null:
+	if agent.state.environment_of(agent.side) != null:
 		return -1.0
 	# Passive + ritual value
 	var passive_value: float = BoardEvaluator.estimate_effect_steps_value(
@@ -306,21 +305,18 @@ func _execute_play(inst: CardInstance) -> bool:
 	var card: CardData = inst.card_data
 	if card is MinionCardData:
 		var mc := card as MinionCardData
-		agent.essence -= mc.essence_cost
-		agent.mana -= mc.mana_cost
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return true  # Board filled between scoring and execution
 		return await agent.commit_play_minion(inst, slot, pick_on_play_target(mc))
 	elif card is SpellCardData:
 		var spell := card as SpellCardData
-		agent.mana -= agent.effective_spell_cost(spell)
 		return await agent.commit_play_spell(inst, pick_spell_target(spell))
 	elif card is TrapCardData:
-		agent.mana -= inst.effective_cost()
+		if not agent.can_place_trap(card as TrapCardData):
+			return true  # slots filled between scoring and execution
 		return await agent.commit_play_trap(inst)
 	elif card is EnvironmentCardData:
-		agent.mana -= (card as EnvironmentCardData).cost
 		return await agent.commit_play_environment(inst)
 	return true
 

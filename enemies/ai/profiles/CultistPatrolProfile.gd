@@ -95,8 +95,6 @@ func _play_one_minion_by_type(play_imps: bool) -> bool:
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= mc.essence_cost
-		agent.mana    -= mc.mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true

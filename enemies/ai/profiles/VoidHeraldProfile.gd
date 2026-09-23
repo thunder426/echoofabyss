@@ -57,7 +57,7 @@ func _get_spell_rules() -> Dictionary:
 
 ## Cast Void Wind only when opponent has a Void Rune.
 func _try_void_wind() -> void:
-	var opponent_traps: Array = agent.scene.state.traps_of("player")
+	var opponent_traps: Array = agent.state.traps_of("player")
 	if opponent_traps.is_empty():
 		return
 	var has_void_rune := false
@@ -74,7 +74,6 @@ func _try_void_wind() -> void:
 		var spell := inst.card_data as SpellCardData
 		if agent.effective_spell_cost(spell) > agent.mana:
 			continue
-		agent.mana -= agent.effective_spell_cost(spell)
 		await agent.commit_play_spell(inst, null)
 		return
 
@@ -163,7 +162,6 @@ func _try_rift_lord_combo() -> void:
 	var slot1: BoardSlot = agent.find_empty_slot()
 	if slot1 == null:
 		return
-	agent.essence -= tender_essence
 	if not await agent.commit_play_minion(tender_inst, slot1, null):
 		return
 	if not agent.is_alive():
@@ -197,7 +195,6 @@ func _try_surge_rl_combo() -> void:
 	if _empty_slot_count() < 2:
 		return
 	# Execute: Surge first (summons spark), then RL (consumes sparks)
-	agent.mana -= surge_cost
 	if not await agent.commit_play_spell(surge_inst, null):
 		return
 	if not agent.is_alive():
@@ -226,7 +223,6 @@ func _try_surge_pulse_combo() -> void:
 	if _empty_slot_count() < 1:
 		return
 	# Play Surge first — tutors a spark-cost card + summons a spark
-	agent.mana -= surge_cost
 	if not await agent.commit_play_spell(surge_inst, null):
 		return
 	if not agent.is_alive():
@@ -240,7 +236,6 @@ func _try_surge_pulse_combo() -> void:
 		await _pay_sparks_smart(plan, DeckType.AGGRO)
 		if not agent.is_alive():
 			return
-	agent.mana -= pulse_cost
 	await agent.commit_play_spell(pulse_inst, null)
 
 ## Play spark-cost spells. Aggressive — cast whenever affordable.
@@ -269,14 +264,13 @@ func _play_spark_spells() -> void:
 				if plan.is_empty(): return
 				await _pay_sparks_smart(plan, DeckType.AGGRO)
 				if not agent.is_alive(): return
-			agent.mana -= agent.effective_spell_cost(spell)
 			if not await agent.commit_play_spell(best, pick_spell_target(spell)):
 				return
 			cast = true
 
 ## Play a specific spark-cost minion by ID.
 func _play_spark_minion_by_id(target_id: String) -> bool:
-	var _dbg: bool = agent.scene.get("debug_log_enabled") if agent.scene.get("debug_log_enabled") != null else false
+	var _dbg: bool = agent.state.debug_log_enabled
 	for inst in agent.hand.duplicate():
 		if not (inst.card_data is MinionCardData):
 			continue
@@ -304,8 +298,6 @@ func _play_spark_minion_by_id(target_id: String) -> bool:
 			await _pay_sparks_smart(plan, DeckType.AGGRO)
 			if not agent.is_alive():
 				return false
-		agent.essence -= mc.essence_cost
-		agent.mana    -= agent.effective_minion_mana_cost(mc)
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true
@@ -336,8 +328,6 @@ func _play_regular_minions() -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -357,5 +347,5 @@ func _has_rift_lord_in_hand() -> bool:
 	return false
 
 func _scene_has(field: String) -> bool:
-	var val = agent.scene.get(field)
+	var val = agent.state.get(field)
 	return val != null and val == true

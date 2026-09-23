@@ -78,7 +78,10 @@ func attack_phase() -> void:
 			continue  # corrupted sparks preserved for transfer
 		if agent.opponent_board.is_empty():
 			break
-		var target := _pick_target_skip_corrupted_sparks(minion)
+		# A Guard up must be the target (the engine refuses anything else).
+		var p1_guards: Array[MinionInstance] = CombatManager.get_taunt_minions(agent.opponent_board)
+		var target: MinionInstance = _pick_best_guard(minion, p1_guards) if not p1_guards.is_empty() \
+				else _pick_target_skip_corrupted_sparks(minion)
 		if target != null:
 			if not await agent.do_attack_minion(minion, target):
 				if not agent.is_alive(): return
@@ -167,8 +170,6 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= ess_cost
-			agent.mana    -= mc.mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -192,8 +193,6 @@ func _play_one_human() -> bool:
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= ess_cost
-		agent.mana    -= mc.mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true
@@ -223,8 +222,6 @@ func _play_one_feral_imp() -> bool:
 		var slot: BoardSlot = agent.find_empty_slot()
 		if slot == null:
 			return false
-		agent.essence -= ess_cost
-		agent.mana    -= mc.mana_cost
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 			return false
 		return true

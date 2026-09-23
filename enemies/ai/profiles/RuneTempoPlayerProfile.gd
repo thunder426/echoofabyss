@@ -132,12 +132,10 @@ func _play_environment_pass() -> void:
 		if not (inst.card_data is EnvironmentCardData):
 			continue
 		var env := inst.card_data as EnvironmentCardData
-		var scene: Object = agent.scene
-		if scene != null and scene.get("active_environment") != null:
+		if agent.state.environment_of(agent.side) != null:
 			return  # already have one — don't replace
 		if env.cost > agent.mana:
 			continue
-		agent.mana -= env.cost
 		if not await agent.commit_play_environment(inst):
 			return
 
@@ -158,8 +156,6 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var slot: BoardSlot = agent.find_empty_slot()
 			if slot == null:
 				return
-			agent.essence -= mc.essence_cost
-			agent.mana    -= mana_cost
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			placed = true
@@ -181,7 +177,6 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 				continue
 			if not can_cast_spell(spell):
 				continue
-			agent.mana -= cost
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
 			cast = true
@@ -203,7 +198,7 @@ func _play_traps_by_id(ids: Array[String]) -> void:
 			if not (trap.id in ids):
 				continue
 			var trap_cost: int = inst.effective_cost()
-			if trap_cost > agent.mana:
+			if trap_cost > agent.mana or not agent.can_place_trap(trap):
 				continue
 			# Before completing a ritual, make sure there is board space for the summon.
 			if _would_complete_ritual(trap) and agent.find_empty_slot() == null:
@@ -212,7 +207,6 @@ func _play_traps_by_id(ids: Array[String]) -> void:
 				# Re-check: if still no slot, skip this rune for now
 				if agent.find_empty_slot() == null:
 					continue
-			agent.mana -= trap_cost
 			if not await agent.commit_play_trap(inst):
 				return
 			placed = true
@@ -269,23 +263,20 @@ func _has_cheap_token_on_board() -> bool:
 func _would_complete_ritual(trap: TrapCardData) -> bool:
 	if not trap.is_rune:
 		return false
-	var scene: Object = agent.scene
-	if scene == null:
-		return false
-	var env = scene.get("active_environment")
-	if env == null or not (env is EnvironmentCardData):
+	var env: EnvironmentCardData = agent.state.environment_of(agent.side)
+	if env == null:
 		return false
 	var env_data := env as EnvironmentCardData
 	if env_data.rituals.is_empty():
 		return false
 	# Simulate adding this rune to the current rune set and check satisfaction
-	var current_runes: Array = scene.active_traps.filter(
+	var current_runes: Array = agent.state.traps_of(agent.side).filter(
 		func(t: TrapCardData) -> bool: return t.is_rune)
 	# Build a list including the new rune
 	var simulated: Array = current_runes.duplicate()
 	simulated.append(trap)
 	for ritual in env_data.rituals:
-		if scene._runes_satisfy(simulated, ritual.required_runes):
+		if agent.state._runes_satisfy(simulated, ritual.required_runes):
 			return true
 	return false
 
@@ -303,7 +294,6 @@ func _free_slot_for_ritual() -> void:
 		if cost <= agent.mana:
 			var target: MinionInstance = _pick_worst_friendly()
 			if target != null:
-				agent.mana -= cost
 				await agent.commit_play_spell(sac_inst, target)
 				return
 

@@ -31,6 +31,8 @@ static func run_all() -> void:
 	_end_turn_growth_applies_next_turn()
 	_turn_start_expires_temp_buffs()
 	_growth_curves_match_the_ported_sim_curves()
+	await _profile_play_pays_once()
+	await _agent_spark_fuel_is_credited()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -590,11 +592,8 @@ static func _growth_curves_match_the_ported_sim_curves() -> void:
 		if not TestHarness.begin_test("growth / %s %s curve, turns 1-10" % [side, id], state):
 			state.teardown()
 			continue
-		var table: Dictionary = CombatSim._ENEMY_PROFILES if side == "enemy" else CombatSim._PLAYER_PROFILES
-		var prof: CombatProfile = table[id].new()
-		var agent := SimPlayerAgent.new()
-		agent.setup(state)
-		prof.setup(state.enemy_ai if side == "enemy" else agent)
+		var prof: CombatProfile = ProfileRegistry.make(side, id)
+		prof.setup(TestHarness.agent_for(state, side))
 		state.enemy_hand.clear()
 		state.player_hand.clear()
 		state.start_combat()  # both sides 1/1
@@ -605,3 +604,45 @@ static func _growth_curves_match_the_ported_sim_curves() -> void:
 			got.append(state.mana_max_of(side))
 		TestHarness.assert_eq(got, expected, "curve")
 		state.teardown()
+
+# ---------------------------------------------------------------------------
+# Agents (plan 2A.5) — profiles no longer pay; the commands do, exactly once.
+# ---------------------------------------------------------------------------
+
+static func _profile_play_pays_once() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("agents / a profile-driven play pays the card cost exactly once", state):
+		return
+	state.player_hand.clear()
+	var hound := _hand_card(state, "player", "shadow_hound")
+	_set_res(state, "player", 3, 0)
+	var prof: CombatProfile = ProfileRegistry.make("player", "default")
+	prof.setup(TestHarness.agent_for(state, "player"))
+	await prof.play_phase()
+	TestHarness.assert_true(state.player_board.size() == 1 and state.player_board[0].card_instance == hound, "hound played")
+	TestHarness.assert_eq(state.player_essence, 1, "3 - 2 Essence: paid once")
+	state.teardown()
+
+static func _agent_spark_fuel_is_credited() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("agents / spark fuel a profile consumed is credited to its next play", state):
+		return
+	_enemy_turn(state)
+	var agent := TestHarness.agent_for(state, "enemy")
+	var w1 := TestHarness.spawn_enemy(state, "void_wisp")
+	var w2 := TestHarness.spawn_enemy(state, "void_wisp")
+	var keep := TestHarness.spawn_enemy(state, "void_wisp")
+	var spell := TestHarness.make_test_spell([], "_agent_spark_spell", 1)
+	spell.void_spark_cost = 2
+	var inst := state.add_to_hand("enemy", spell)
+	_set_res(state, "enemy", 0, 1)
+	agent.consume_minion(w1)
+	agent.consume_minion(w2)
+	TestHarness.assert_true(await agent.commit_play_spell(inst), "played on the consumed fuel")
+	TestHarness.assert_true(state.enemy_board.has(keep), "no extra fuel taken")
+	TestHarness.assert_eq(state.enemy_mana, 0, "only the Mana cost paid")
+	var inst2 := state.add_to_hand("enemy", spell)
+	_set_res(state, "enemy", 0, 1)
+	TestHarness.assert_false(await agent.commit_play_spell(inst2), "no fuel consumed → refused (the profile owns fuel)")
+	TestHarness.assert_true(state.enemy_board.has(keep), "still untouched")
+	state.teardown()
