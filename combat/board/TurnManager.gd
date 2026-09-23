@@ -55,6 +55,8 @@ var player_deck: Array[CardInstance] = []
 var player_hand: Array[CardInstance] = []
 var player_board: Array[MinionInstance] = []
 var enemy_board: Array[MinionInstance] = []
+## Deck shuffles use the engine RNG. Set by CombatScene._connect_turn_manager.
+var state: CombatState = null
 
 ## Unified graveyard — every card the player plays this combat is appended here
 ## (minions, spells, traps, runes, environments) at the moment it leaves the hand.
@@ -74,7 +76,7 @@ func start_combat(deck: Array[CardData]) -> void:
 	player_deck.clear()
 	for card in deck:
 		player_deck.append(CardInstance.create(card))
-	player_deck.shuffle()
+	state.rng_shuffle(player_deck)
 	player_hand.clear()
 	player_graveyard.clear()
 	turn_number = 0

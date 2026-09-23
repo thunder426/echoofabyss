@@ -650,6 +650,14 @@ func _ready() -> void:
 	# calls like ctx.scene._deal_void_bolt_damage / ._corrupt_minion / ._fire_ritual
 	# silently hit state's no-VFX versions and the visuals drop.
 	state._scene_facade = self
+	# Seed the engine RNG before anything shuffles (enemy deck in _setup_enemy_ai,
+	# player deck in turn_manager.start_combat). Same seed + same inputs = same fight.
+	var combat_seed: int = GameManager.next_combat_seed
+	if combat_seed < 0:
+		combat_seed = randi() & 0x7FFFFFFF  # lint: allow-rng (seed roll)
+	GameManager.next_combat_seed = -1
+	GameManager.combat_seed = combat_seed
+	state.seed_rng(combat_seed)
 	# Register VFX-rich _summon_token so EffectResolver SUMMON steps fired
 	# through state-created EffectContexts route into scene (sigils, champion
 	# entrance, etc.). Sim leaves this unset → state's pure logic path runs.
@@ -751,6 +759,7 @@ func _ready() -> void:
 	_pip_bar = PipBar.new()
 	_pip_bar.setup(self, ui_root, essence_label, mana_label)
 	large_preview.setup()
+	_log("Seed: %d" % state.rng_seed, CombatLog.LogType.TURN)
 	turn_manager.start_combat(deck)
 	_setup_triggers()
 	_setup_relics()
@@ -865,6 +874,7 @@ func _setup_enemy_ai() -> void:
 	enemy_ai.setup_deck(enemy_deck)
 
 func _connect_turn_manager() -> void:
+	turn_manager.state = state
 	turn_manager.turn_started.connect(_on_turn_started)
 	turn_manager.turn_ended.connect(_on_turn_ended)
 	turn_manager.resources_changed.connect(_on_resources_changed)
@@ -2216,7 +2226,7 @@ func _friendly_graveyard(owner: String) -> Array:
 func _find_random_minion(board: Array[MinionInstance]) -> MinionInstance:
 	if board.is_empty():
 		return null
-	return board[randi() % board.size()]
+	return state.rng_pick(board)
 
 ## Pick up to `count` DISTINCT random minions from `board` and return them
 ## as a target-list shape Array[Dictionary{kind: "minion", minion: ...}]
@@ -2226,7 +2236,7 @@ func _find_random_minion(board: Array[MinionInstance]) -> MinionInstance:
 ## that decision belongs to the caller.
 func _pick_random_minions(board: Array, count: int) -> Array:
 	var pool: Array = board.duplicate()
-	pool.shuffle()
+	state.rng_shuffle(pool)
 	var picks: int = mini(count, pool.size())
 	var out: Array = []
 	for i in picks:
@@ -2241,7 +2251,7 @@ func _find_random_corrupted_minion(board: Array[MinionInstance]) -> MinionInstan
 			corrupted.append(m)
 	if corrupted.is_empty():
 		return null
-	return corrupted[randi() % corrupted.size()]
+	return state.rng_pick(corrupted)
 
 # ---------------------------------------------------------------------------
 # Abyss Order — Sacrifice helpers

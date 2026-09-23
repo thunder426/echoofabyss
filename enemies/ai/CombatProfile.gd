@@ -947,11 +947,11 @@ func _pick_default_trap_env_target():
 		return null
 	var runes: Array = s.active_traps.filter(func(t) -> bool: return (t as TrapCardData).is_rune)
 	if not runes.is_empty():
-		return runes[randi() % runes.size()]
+		return s.state.rng_pick(runes)
 	if s.active_environment != null:
 		return s.active_environment
 	if not s.active_traps.is_empty():
-		return s.active_traps[randi() % s.active_traps.size()]
+		return s.state.rng_pick(s.active_traps)
 	return null
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,11 @@ rule set and the phase that introduces each rule.
       something on CombatState. CombatSetup registry "stats" keys must exist on
       CombatState (they are written with `state.set`).
 
+  L2  Gameplay randomness goes through the engine RNG (`state.rng_pick`,
+      `rng_shuffle`, `rng_range`, `rng_index`), never the global RNG, so a seed
+      reproduces a fight. Cosmetic VFX randomness is out of scope. A line may
+      opt out with the comment `# lint: allow-rng (<reason>)`.
+
 Usage:  python3 tools/lint/lint_engine.py [--quiet]
 Output: `<rule> <file>:<line>: <message>`; exit code = error count (capped 255).
 """
@@ -44,6 +49,18 @@ SCENE_FILES = [
     "combat/board/MinionInstance.gd",
 ]
 SETUP = "combat/events/CombatSetup.gd"
+
+# L2 scope: directories scanned recursively, plus single files.
+RNG_DIRS = ["combat/board", "combat/events", "sim", "enemies/ai"]
+RNG_FILES = [
+    "combat/effects/EffectResolver.gd",
+    "combat/effects/ConditionResolver.gd",
+    "combat/effects/TargetResolver.gd",
+    "combat/effects/HardcodedEffects.gd",
+    "relics/RelicEffects.gd",
+]
+RNG_RE = re.compile(r"(?<![\w.])(randi|randf|randi_range|randf_range|pick_random|shuffle)\(|\.(pick_random|shuffle)\(")
+RNG_ALLOW = "lint: allow-rng"
 
 # Object / Node / Node2D members reachable on CombatScene without a declaration.
 BUILTINS = {
@@ -186,7 +203,24 @@ class Linter:
             if depth <= 0 and ("}" in line or "{" in line):
                 in_stats = False
 
+    # -- L2 ------------------------------------------------------------------
+    def scan_rng(self) -> None:
+        files = list(RNG_FILES)
+        for d in RNG_DIRS:
+            for dirpath, _dirs, names in os.walk(os.path.join(ROOT, d)):
+                for n in sorted(names):
+                    if n.endswith(".gd"):
+                        files.append(os.path.relpath(os.path.join(dirpath, n), ROOT))
+        for rel in sorted(set(files)):
+            for i, raw in enumerate(read(rel), start=1):
+                if RNG_ALLOW in raw:
+                    continue
+                m = RNG_RE.search(strip_comment(raw))
+                if m:
+                    self.err("L2", rel, i, f"global RNG `{m.group(0)}` — use state.rng_* (engine RNG)")
+
     def run(self) -> int:
+        self.scan_rng()
         for rel in UNDERSCORE_SCENE_FILES:
             self.scan_file(rel, ["_scene"])
         for rel in SCENE_FILES:

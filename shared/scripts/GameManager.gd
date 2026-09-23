@@ -49,6 +49,11 @@ var last_boss_unlocks: Array[String] = []   # cards unlocked by the most recent 
 # --- Progression ---
 var run_node_index: int = 1           # which encounter the player is on (1-based)
 var current_enemy: EnemyData = null   # set before entering CombatScene
+## Engine RNG seed for the next combat. -1 = roll a fresh one; tests and replays
+## set it to reproduce a fight. CombatScene consumes it (resets to -1).
+var next_combat_seed: int = -1
+## Seed the current/last combat actually used — logged so a bug report carries it.
+var combat_seed: int = 0
 
 # --- Talents ---
 var talent_points: int = 0

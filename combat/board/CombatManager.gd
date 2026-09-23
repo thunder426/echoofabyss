@@ -429,7 +429,7 @@ func _post_crit(attacker: MinionInstance) -> void:
 					if m.current_health > 0:
 						targets.append(m)
 			targets.append("hero")  # hero is always a valid target
-			var pick: Variant = targets[randi() % targets.size()]
+			var pick: Variant = scene.state.rng_pick(targets)
 			if pick is MinionInstance:
 				var m_info := make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, attacker, "champion_void_captain")
 				apply_damage_to_minion(pick as MinionInstance, m_info)

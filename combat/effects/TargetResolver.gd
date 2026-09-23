@@ -25,8 +25,8 @@ static func resolve(step: EffectStep, ctx: EffectContext) -> Array:
 			return []
 		EffectStep.TargetScope.SINGLE_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM, EffectStep.TargetScope.FILTERED_RANDOM_FRIENDLY, EffectStep.TargetScope.SINGLE_RANDOM_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_OPPONENT_TRAP, EffectStep.TargetScope.SINGLE_RANDOM_ANY, EffectStep.TargetScope.SINGLE_RANDOM_BOTH_BOARDS:
 			if step.random_picks > 1:
-				return _random_n_distinct(pool, step.random_picks)
-			return _random_one(pool)
+				return _random_n_distinct(pool, step.random_picks, ctx.scene.state)
+			return _random_one(pool, ctx.scene.state)
 		_:
 			return pool
 
@@ -125,22 +125,22 @@ static func _passes_filter(filter: EffectStep.MinionFilter, target, ctx: EffectC
 # Helpers
 # ---------------------------------------------------------------------------
 
-static func _random_one(pool: Array) -> Array:
+static func _random_one(pool: Array, st: CombatState) -> Array:
 	if pool.is_empty():
 		return []
-	return [pool[randi() % pool.size()]]
+	return [st.rng_pick(pool)]
 
 ## Pick up to `n` distinct items from `pool` via partial Fisher-Yates. Caps at
 ## the pool size — never re-picks the same target. Used for cards like
 ## Runic Blast and Demon Ascendant that hit "N random" targets.
-static func _random_n_distinct(pool: Array, n: int) -> Array:
+static func _random_n_distinct(pool: Array, n: int, st: CombatState) -> Array:
 	if pool.is_empty() or n <= 0:
 		return []
 	var work: Array = pool.duplicate()
 	var take: int = mini(n, work.size())
 	var picked: Array = []
 	for i in take:
-		var j: int = i + randi() % (work.size() - i)
+		var j: int = i + st.rng_index(work.size() - i)
 		var tmp = work[i]
 		work[i] = work[j]
 		work[j] = tmp

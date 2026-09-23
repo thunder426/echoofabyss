@@ -109,7 +109,7 @@ func resolve(effect_id: String) -> bool:
 			if hand.is_empty():
 				_log("  Relic: Phantom Deck — hand empty, no copies.")
 				return true
-			hand.shuffle()
+			_scene.state.rng_shuffle(hand)
 			var added := 0
 			for inst in hand:
 				if added >= 2:
@@ -130,7 +130,7 @@ func resolve(effect_id: String) -> bool:
 ## active_traps + _apply_rune_aura; sim uses the same field + sim-specific rune-aura path.
 const _RELIC_RUNE_POOL: Array[String] = ["void_rune", "blood_rune", "dominion_rune", "shadow_rune"]
 func _relic_place_random_rune() -> void:
-	var rune_id: String = _RELIC_RUNE_POOL[randi() % _RELIC_RUNE_POOL.size()]
+	var rune_id: String = _scene.state.rng_pick(_RELIC_RUNE_POOL)
 	var rune_card: CardData = CardDatabase.get_card(rune_id)
 	if rune_card == null or not (rune_card is TrapCardData):
 		return
@@ -163,7 +163,7 @@ func _relic_damage_random_enemy(amount: int) -> void:
 		if (m as MinionInstance).current_health > 0:
 			pool.append(m)
 	pool.append("enemy_hero")
-	var pick = pool[randi() % pool.size()]
+	var pick: Variant = _scene.state.rng_pick(pool)
 	var info := CombatManager.make_damage_info(amount, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_random_zap")
 	if pick is MinionInstance:
 		if _scene.has_method("_spell_dmg"):

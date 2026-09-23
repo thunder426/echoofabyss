@@ -296,7 +296,7 @@ func on_summon_path_of_demons(ctx: EventContext) -> void:
 			func(m): return m != null and m.current_health > 0)
 		if pool.is_empty():
 			return
-		var target: MinionInstance = pool[randi() % pool.size()]
+		var target: MinionInstance = _scene.state.rng_pick(pool)
 		var info := CombatManager.make_damage_info(50, Enums.DamageSource.SPELL,
 				Enums.DamageSchool.NONE, summoned, "path_of_demons")
 		_scene.combat_manager.apply_damage_to_minion(target, info)
@@ -318,7 +318,7 @@ func on_summon_path_of_humans(ctx: EventContext) -> void:
 			func(m): return m != null and m.current_health > 0)
 		if pool.is_empty():
 			return
-		var target: MinionInstance = pool[randi() % pool.size()]
+		var target: MinionInstance = _scene.state.rng_pick(pool)
 		BuffSystem.apply(target, Enums.BuffType.ATK_BONUS, 50, "path_of_humans", false, false)
 		_scene._refresh_slot_for(target)
 
@@ -357,10 +357,10 @@ func on_rune_placed_grand_ritual_chaos(_ctx: EventContext) -> void:
 	_log("★ GRAND RITUAL: CHAOS — three runes shatter!", _LOG_PLAYER)
 
 	# ── Roll variance for each effect, then randomly pick one to Enhance (×3).
-	var burst_amount: int = randi_range(200, 400)
-	var sweep_amount: int = randi_range(100, 250)
-	var forge_amount: int = randi_range(200, 400)
-	var enhanced_idx: int = randi() % 3
+	var burst_amount: int = _scene.state.rng_range(200, 400)
+	var sweep_amount: int = _scene.state.rng_range(100, 250)
+	var forge_amount: int = _scene.state.rng_range(200, 400)
+	var enhanced_idx: int = _scene.state.rng_index(3)
 	if enhanced_idx == 0: burst_amount *= 3
 	elif enhanced_idx == 1: sweep_amount *= 3
 	else: forge_amount *= 3
@@ -371,7 +371,7 @@ func on_rune_placed_grand_ritual_chaos(_ctx: EventContext) -> void:
 	var enemy_pool: Array = (_scene.enemy_board as Array).filter(
 			func(m): return m != null and (m as MinionInstance).current_health > 0)
 	if not enemy_pool.is_empty():
-		var target: MinionInstance = enemy_pool[randi() % enemy_pool.size()]
+		var target: MinionInstance = _scene.state.rng_pick(enemy_pool)
 		var info := CombatManager.make_damage_info(burst_amount, Enums.DamageSource.SPELL,
 				Enums.DamageSchool.NONE, null, "grand_ritual_chaos")
 		_scene.combat_manager.apply_damage_to_minion(target, info)
@@ -392,7 +392,7 @@ func on_rune_placed_grand_ritual_chaos(_ctx: EventContext) -> void:
 	var friendly_pool: Array = (_scene.player_board as Array).filter(
 			func(m): return m != null and (m as MinionInstance).current_health > 0)
 	if not friendly_pool.is_empty():
-		var fwd: MinionInstance = friendly_pool[randi() % friendly_pool.size()]
+		var fwd: MinionInstance = _scene.state.rng_pick(friendly_pool)
 		BuffSystem.apply(fwd, Enums.BuffType.ATK_BONUS, forge_amount,
 				"grand_ritual_chaos", false, false)
 		_scene._refresh_slot_for(fwd)
@@ -933,7 +933,7 @@ func on_corruption_removed_detonation(ctx: EventContext) -> void:
 		if m.current_health > 0:
 			pool.append(m)
 	pool.append("enemy_hero")
-	var pick = pool[randi() % pool.size()]
+	var pick: Variant = _scene.state.rng_pick(pool)
 	_log("  Corrupt Detonation: %d damage to random enemy (%d stacks)." % [damage, stacks], _LOG_PLAYER)
 	if pick is MinionInstance:
 		var pick_info := CombatManager.make_damage_info(damage, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "corrupt_detonation")
@@ -1199,7 +1199,7 @@ func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
 			feral_imps.append(card)
 	if feral_imps.is_empty():
 		return
-	var chosen: CardData = feral_imps[randi() % feral_imps.size()]
+	var chosen: CardData = _scene.state.rng_pick(feral_imps)
 	_scene.enemy_ai.add_to_hand(chosen)
 	if _scene.has_method("_play_feral_reinforcement_vfx"):
 		_scene._play_feral_reinforcement_vfx(minion, chosen)
@@ -1213,7 +1213,7 @@ func on_enemy_summon_corrupt_authority_human(ctx: EventContext) -> void:
 		return
 	if _scene.player_board.is_empty():
 		return
-	var target: MinionInstance = _scene.player_board[randi() % _scene.player_board.size()]
+	var target: MinionInstance = _scene.state.rng_pick(_scene.player_board)
 	_scene._corrupt_minion(target)
 	_log("  Corrupt Authority: %s summoned → %s is Corrupted." % [minion.card_data.card_name, target.card_data.card_name], _LOG_ENEMY)
 
@@ -1296,7 +1296,7 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	# has fewer than 2 minions, fewer projectiles fire (no hero fallback,
 	# matches the player-side ritual).
 	var damage_pool: Array = (_scene.player_board as Array).duplicate()
-	damage_pool.shuffle()
+	_scene.state.rng_shuffle(damage_pool)
 	var damage_targets: Array = []
 	var damage_picks: int = mini(2, damage_pool.size())
 	for i in damage_picks:
@@ -1416,7 +1416,7 @@ func on_enemy_turn_end_void_unraveling(_ctx: EventContext) -> void:
 	if sparks.is_empty():
 		return
 	# Pick one random spark, corrupt it, transfer it
-	var spark: MinionInstance = sparks[randi() % sparks.size()]
+	var spark: MinionInstance = _scene.state.rng_pick(sparks)
 	if not BuffSystem.has_type(spark, Enums.BuffType.CORRUPTION):
 		_scene._corrupt_minion(spark)
 	_scene.state._spark_transfer_count += 1
@@ -1767,7 +1767,7 @@ func on_enemy_died_champion_vw(ctx: EventContext) -> void:
 		candidates.append(m)
 	if candidates.is_empty():
 		return
-	var target: MinionInstance = candidates[randi() % candidates.size()]
+	var target: MinionInstance = _scene.state.rng_pick(candidates)
 	BuffSystem.apply(target, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike", false, false)
 	_scene._refresh_slot_for(target)
 	if _scene.get("_vw_death_crit_grants") != null:
@@ -1931,7 +1931,7 @@ func on_enemy_turn_end_champion_vch_aura(_ctx: EventContext) -> void:
 func on_enemy_turn_void_might(_ctx: EventContext) -> void:
 	if _scene.enemy_board.is_empty():
 		return
-	var target: MinionInstance = _scene.enemy_board.pick_random()
+	var target: MinionInstance = _scene.state.rng_pick(_scene.enemy_board)
 	BuffSystem.apply(target, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike", false, false)
 	_scene._refresh_slot_for(target)
 	_log("  Void Might: %s gains Critical Strike." % target.card_data.card_name, _LOG_ENEMY)
@@ -2092,7 +2092,7 @@ func on_enemy_spell_dark_channeling(ctx: EventContext) -> void:
 			candidates.append(m)
 	if candidates.is_empty():
 		return
-	var donor: MinionInstance = candidates.pick_random()
+	var donor: MinionInstance = _scene.state.rng_pick(candidates)
 	BuffSystem.remove_one_source(donor, "critical_strike")
 	_scene._refresh_slot_for(donor)
 	_scene.set("_dark_channeling_active", true)

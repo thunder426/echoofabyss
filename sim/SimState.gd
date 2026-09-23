@@ -147,13 +147,13 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 		var card := _card_for("player", id)
 		if card:
 			player_deck.append(CardInstance.create(card))
-	player_deck.shuffle()
+	rng_shuffle(player_deck)
 
 	for id in e_deck_ids:
 		var card := _card_for("enemy", id)
 		if card:
 			enemy_deck.append(CardInstance.create(card))
-	enemy_deck.shuffle()
+	rng_shuffle(enemy_deck)
 
 	# Pre-allocate board slot placeholders (no scene tree — _ready never fires,
 	# _overlay stays null, so _refresh_visuals() returns early — safe to use)
@@ -517,7 +517,7 @@ func setup_enemy_deck(card_ids: Array[String]) -> void:
 		var card := _card_for("enemy", id)
 		if card:
 			enemy_deck.append(CardInstance.create(card))
-	enemy_deck.shuffle()
+	rng_shuffle(enemy_deck)
 	_draw_enemy(5)
 
 func _draw_enemy(count: int) -> void:
@@ -531,7 +531,7 @@ func _draw_enemy(count: int) -> void:
 		# Limited cards are NOT re-added (one-time draw per copy)
 		if inst.card_data.id not in enemy_limited_cards:
 			enemy_deck.append(CardInstance.create(inst.card_data))
-			enemy_deck.shuffle()
+			rng_shuffle(enemy_deck)
 
 # ---------------------------------------------------------------------------
 # Turn helpers — called by CombatSim

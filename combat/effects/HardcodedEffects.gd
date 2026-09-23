@@ -283,7 +283,7 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 
 func _brood_call(ctx: EffectContext) -> void:
 	var feral_ids: Array[String] = ["rabid_imp", "brood_imp", "imp_brawler", "void_touched_imp", "frenzied_imp", "matriarchs_broodling", "rogue_imp_elder"]
-	var pick := feral_ids[randi() % feral_ids.size()]
+	var pick: String = _scene.state.rng_pick(feral_ids)
 	# Play portal VFX fully before summoning (live scene only — sim skips).
 	if _scene.has_method("_play_brood_call_vfx"):
 		await _scene._play_brood_call_vfx(ctx.owner)

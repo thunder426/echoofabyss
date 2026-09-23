@@ -227,11 +227,44 @@ func _card_ctx(side: String) -> Dictionary:
 		"enemy_passives": enemy,
 	}
 
+# ---------------------------------------------------------------------------
+# Engine-owned RNG — every gameplay random goes through these so a seed
+# reproduces a fight (lint L2). Cosmetic VFX randomness stays on the global RNG.
+# Seeded by CombatSim.run (sim) and CombatScene._ready (live).
+# ---------------------------------------------------------------------------
+
+var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var rng_seed: int = 0
+
+func seed_rng(seed_value: int) -> void:
+	rng_seed = seed_value
+	rng.seed = seed_value
+
+## Uniform index in [0, size). Caller guarantees size > 0.
+func rng_index(size: int) -> int:
+	return rng.randi() % size
+
+## Uniform element of a non-empty array.
+func rng_pick(arr: Array) -> Variant:
+	return arr[rng.randi() % arr.size()]
+
+## In-place Fisher–Yates shuffle.
+func rng_shuffle(arr: Array) -> void:
+	for i in range(arr.size() - 1, 0, -1):
+		var j: int = rng.randi() % (i + 1)
+		var tmp: Variant = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp
+
+## Uniform int in [lo, hi].
+func rng_range(lo: int, hi: int) -> int:
+	return rng.randi_range(lo, hi)
+
 ## Random minion from a board array, or null if empty.
 func _find_random_minion(board: Array) -> MinionInstance:
 	if board.is_empty():
 		return null
-	return board[randi() % board.size()]
+	return rng_pick(board)
 
 # ---------------------------------------------------------------------------
 # Pure state mutators — no UI side effects.
@@ -641,7 +674,7 @@ func _grant_forged_demon_auras(forged: MinionInstance) -> void:
 		forged.aura_tags = _FORGED_DEMON_AURAS.duplicate()
 		_log("  Abyssal Forge: Forged Demon granted all three auras.", 1)  # PLAYER
 	else:
-		var roll: String = _FORGED_DEMON_AURAS[randi() % _FORGED_DEMON_AURAS.size()]
+		var roll: String = rng_pick(_FORGED_DEMON_AURAS)
 		forged.aura_tags = [roll]
 		_log("  Abyssal Forge: Forged Demon granted %s." % roll, 1)
 
@@ -1482,7 +1515,7 @@ var _corrupting_presence_active: bool = false
 var _path_of_corruption_active: bool = false
 
 ## Korrath B2 — five rune card IDs randomly placed by Runeforge Strike's
-## on-attack rune generation. Order is irrelevant; randomness comes from `randi()`.
+## on-attack rune generation. Order is irrelevant; randomness comes from `rng_pick()`.
 const KORRATH_RUNE_IDS: Array[String] = [
 	"void_rune", "blood_rune", "dominion_rune", "shadow_rune", "soul_rune",
 ]
@@ -1505,10 +1538,10 @@ func _korrath_place_random_rune() -> void:
 		var runes: Array = active_traps.filter(func(t): return (t as TrapCardData).is_rune)
 		if runes.is_empty():
 			return
-		var victim: TrapCardData = runes[randi() % runes.size()]
+		var victim: TrapCardData = rng_pick(runes)
 		_remove_rune_aura(victim, "player")
 		active_traps.erase(victim)
-	var rune_id: String = KORRATH_RUNE_IDS[randi() % KORRATH_RUNE_IDS.size()]
+	var rune_id: String = rng_pick(KORRATH_RUNE_IDS)
 	var rune: TrapCardData = CardDatabase.get_card(rune_id) as TrapCardData
 	if rune == null:
 		return
@@ -1529,7 +1562,7 @@ func _korrath_grant_absorbed_aura(rune_id: String) -> void:
 		func(m): return m != null and m.card_data != null and m.card_data.id == "abyssal_knight")
 	if knights.is_empty():
 		return
-	var knight: MinionInstance = knights[randi() % knights.size()]
+	var knight: MinionInstance = rng_pick(knights)
 	knight.aura_tags.append(rune_id)
 
 ## Total absorbed-rune-aura stacks across all friendly Abyssal Knights on board.

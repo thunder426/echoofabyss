@@ -123,9 +123,16 @@ func run(
 		dmg_log: bool = false,
 		debug: bool = false,
 		enemy_limited: Array[String] = [],
-		player_hero_id: String = "lord_vael") -> Dictionary:
+		player_hero_id: String = "lord_vael",
+		rng_seed: int = -1) -> Dictionary:
 
 	var state := SimState.new()
+	# Engine RNG — seeded before setup() shuffles the decks. A negative seed rolls
+	# a fresh one; either way it's returned as result["seed"] so any run can be
+	# reproduced by passing it back in.
+	if rng_seed < 0:
+		rng_seed = randi() & 0x7FFFFFFF  # lint: allow-rng (seed roll)
+	state.seed_rng(rng_seed)
 	state.dmg_log_enabled = dmg_log
 	if turn_snapshot_callback.is_valid():
 		state.turn_snapshot_callback = turn_snapshot_callback
@@ -278,6 +285,7 @@ func run(
 	var _seris_cf: int = state._debug_corrupt_flesh_fires
 	return {
 		"winner":       state.winner if not state.winner.is_empty() else "draw",
+		"seed":         rng_seed,
 		"turns":        turn,
 		"player_hp":    state.player_hp,
 		"enemy_hp":     state.enemy_hp,
@@ -402,12 +410,14 @@ func run_many(
 	var p2_losses := 0              # player losses after transition (died in P2)
 
 	for _i in count:
+		var run_seed: int = -1
 		if base_seed >= 0:
-			seed(base_seed + _i)
+			run_seed = base_seed + _i
+			seed(run_seed)  # also pin anything still on the global RNG
 		var r: Dictionary = await run(player_deck_ids, enemy_profile_id,
 				enemy_deck_ids, player_hp, enemy_hp, player_talents, player_profile_id,
 				player_hero_passives, player_relic_ids, relic_bonus_charges, false, false,
-				enemy_limited, player_hero_id)
+				enemy_limited, player_hero_id, run_seed)
 		match r["winner"]:
 			"player": wins   += 1
 			"enemy":  losses += 1

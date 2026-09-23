@@ -211,7 +211,7 @@ func setup_deck(card_ids: Array[String]) -> void:
 		var card: CardData = scene._card_for("enemy", id) if scene != null else CardDatabase.get_card(id)
 		if card:
 			_deck.append(CardInstance.create(card))
-	_deck.shuffle()
+	scene.state.rng_shuffle(_deck)
 	_draw_cards(5)
 
 ## Add a CardData directly to the enemy's hand (used by ON_PLAY effects).
@@ -311,7 +311,7 @@ func _draw_cards(count: int) -> void:
 		# Limited cards are NOT re-added (one-time draw per copy)
 		if inst.card_data.id not in _limited_cards:
 			_deck.append(CardInstance.create(inst.card_data))
-			_deck.shuffle()
+			scene.state.rng_shuffle(_deck)
 
 # ---------------------------------------------------------------------------
 # Public helpers — utilities for profiles
@@ -352,8 +352,8 @@ func pick_player_target() -> MinionInstance:
 		return null
 	var guards := CombatManager.get_taunt_minions(player_board)
 	if not guards.is_empty():
-		return guards[randi() % guards.size()]
-	return player_board[randi() % player_board.size()]
+		return scene.state.rng_pick(guards)
+	return scene.state.rng_pick(player_board)
 
 ## Returns the best target for a SWIFT minion (no guards present).
 ## Prefers killable targets (our ATK >= their HP), then highest ATK among those.
@@ -498,7 +498,7 @@ func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
 	# be directed at one of them, regardless of how the profile chose the target.
 	var guards := CombatManager.get_taunt_minions(player_board)
 	if not guards.is_empty() and not target.has_guard():
-		target = guards[randi() % guards.size()]
+		target = scene.state.rng_pick(guards)
 	enemy_about_to_attack.emit(attacker, target)
 	if attack_cancelled:
 		attack_cancelled = false
