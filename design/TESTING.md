@@ -18,8 +18,8 @@ Project-relative paths in the table below are clickable.
 
 | Tool | Purpose | Headless? | Asserts? | Time |
 |---|---|---|---|---|
-| [tools/run_checks.sh](#run_checkssh--the-refactor-gate) | **The gate**: import → engine lint → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR` | Yes | Yes | ~40s |
-| [Engine lint](#engine-lint--toolslintlint_enginepy) | Static checks: live-shell name drift (L1), global RNG in gameplay code (L2) | Yes (Python) | Yes | <1s |
+| [tools/run_checks.sh](#run_checkssh--the-refactor-gate) | **The gate**: import → engine lint → compile every script → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR` | Yes | Yes | ~40s |
+| [Engine lint](#engine-lint--toolslintlint_enginepy) | Static checks: live-shell name drift (L1), global RNG (L2), presentation seam (L3), duck typing (L4), duplicated gameplay bodies (L5) | Yes (Python) | Yes | <1s |
 | [LiveSmoke](#livesmoke--headless-combatscene) | Boots the real `CombatScene` headless and plays an enemy turn | Yes | Yes | ~8s |
 | [RunAllTests](#runalltests--layered-test-suite) | Layered correctness tests (4 layers, ~500 assertions) | Yes | Yes | ~10s |
 | [BalanceSimBatch](#balancesimbatch--full-balance-matrix) | Full balance matrix across acts/decks/relics | Yes | No (prints stats) | 5–15 min |
@@ -45,10 +45,14 @@ tools/run_checks.sh            # uses $GODOT, else `godot` on PATH, else /Applic
 
 Runs, in order: `godot --headless --import` (refreshes `.godot/global_script_class_cache.cfg`,
 which goes stale and makes CombatScene fail to parse), the engine lint,
-`RunAllTests`, then `LiveSmoke`. Exits non-zero on any lint error, test failure,
-or `SCRIPT ERROR` line in Godot's output (handler errors don't fail an assertion,
-they only print — this is how live-only crashes surface). Logs land in a temp
-dir printed on failure. Introduced by the live/sim unification refactor
+`tools/lint/load_all_scripts.gd` (compiles every `.gd` — tests only load the
+scripts they reach, so a parse error in UI or debug code would otherwise slip
+through), `RunAllTests`, then `LiveSmoke`. Exits non-zero on any lint error,
+compile failure, test failure, or `SCRIPT ERROR` line in Godot's output (handler
+errors don't fail an assertion, they only print — this is how live-only crashes
+surface). Each Godot run is killed after `RUN_CHECKS_TIMEOUT` seconds (default
+300) so a hung suite fails instead of wedging. Logs land in a temp dir printed
+on failure. Introduced by the live/sim unification refactor
 ([LIVE_SIM_UNIFICATION_PLAN.md](refactors/LIVE_SIM_UNIFICATION_PLAN.md)); every
 step of that refactor must leave it green.
 
@@ -56,8 +60,11 @@ step of that refactor must leave it green.
 
 | Rule | Fails on |
 |---|---|
-| L1 | Rules code (`CombatHandlers`, `HardcodedEffects`, `RelicEffects`, `EffectResolver`, `ConditionResolver`, `TargetResolver`, `CombatManager`, `MinionInstance`) reaching a name through the combat shell (`_scene.x`, `ctx.scene.x`, `.get/.set("x")`) that the **live** `CombatScene` doesn't declare. Such code works in tests (which run on `SimState`) and crashes or silently no-ops in the real game — write `_scene.state.x`. Also: `.state.x` must exist on `CombatState`; `CombatSetup` registry stat keys must exist on `CombatState`. Sim-only fallback branches are allow-listed in `tools/lint/l1_allow.txt` (to be emptied in Phase 1). |
+| L1 | Rules code (`CombatHandlers`, `HardcodedEffects`, `RelicEffects`, `EffectResolver`, `ConditionResolver`, `TargetResolver`, `CombatManager`, `MinionInstance`) reaching a name through the combat shell (`_scene.x`, `ctx.scene.x`, `.get/.set("x")`) that the **live** `CombatScene` doesn't declare. Such code works in tests (which run on `SimState`) and crashes or silently no-ops in the real game. Also: `.state.x` must exist on `CombatState`; `CombatSetup` registry stat keys must exist on `CombatState`. `tools/lint/l1_allow.txt` is empty and should stay that way. |
 | L2 | Global `randi/randf/shuffle/pick_random` in engine, rules, sim or AI code. Gameplay randomness goes through `state.rng_pick / rng_shuffle / rng_range / rng_index` so a seed reproduces a fight. Opt out per line with `# lint: allow-rng (<reason>)` (only the two seed rolls do). |
+| L3 | Presentation seam. In rules files the shell (`_scene.`, `ctx.scene.`, `scene.`) may be followed only by `state` or a `[facade]` name, and `presenter.` / `ctx.presenter.` only by a `[presenter]` name (also checked inside CombatState) — both lists in `tools/lint/presentation_allowlist.txt`, which the lint validates against the classes. |
+| L4 | Duck typing in rules files: `has_method(`, and `.get("x")` / `.set("x", …)` / `"x" in obj` on an object handle. Dictionary `.get("key")` is fine. |
+| L5 | A gameplay func defined on both CombatScene and SimState, or a SimState override of a CombatState func — one CombatState body per method. `--report-pairs` lists them. |
 
 ## LiveSmoke — headless CombatScene
 

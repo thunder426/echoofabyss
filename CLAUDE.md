@@ -47,4 +47,6 @@ Both run headless via `godot --headless --path . <scene>`.
 
 ## Adding New Trigger Handlers
 
-Register via `TriggerManager.register_handler(TriggerEvent.X, callable, priority)` inside `CombatSetup.gd` only — `SimTriggerSetup.gd` delegates talent/hero/enemy-passive registration to `CombatSetup.setup()`, and `SimState extends CombatState` so handlers using `_scene.player_board`, `_refresh_slot_for`, etc. work identically in sim. No duplicate registration needed.
+Register via `TriggerManager.register_handler(TriggerEvent.X, callable, priority)` inside `CombatSetup.gd` only — `SimTriggerSetup.gd` delegates talent/hero/enemy-passive registration to `CombatSetup.setup()`. No duplicate registration needed.
+
+In handler/effect bodies, read and write gameplay through the typed `state` (`state.player_board`, `state._refresh_slot_for(m)`, `ctx.state.draw_cards(...)`), call presentation only as `if presenter != null: presenter.x(...)` (names allow-listed in `tools/lint/presentation_allowlist.txt`), and never duck-type the shell (`has_method`, `.get("x")`). `tools/run_checks.sh` lints this (L1–L5).

@@ -69,11 +69,15 @@ MainMenu → HeroSelectScene → DeckBuilderScene → TalentSelectScene
 
 Combat is split across three orthogonal layers:
 
-1. **State (data only)** — `CombatState.gd`, RefCounted, no Node refs. Holds board, HP, traps, environments, buffs, relic flags, talent state. Emits **all gameplay signals** (hp_changed, minion_summoned, minion_died, damage_dealt, traps_changed, environment_changed, flesh_changed, forge_changed, void_marks_changed, combat_log, minion_stats_changed, spell_damage_dealt). Shared between live combat and sim.
-2. **Live shell** — `CombatScene.gd`, Node2D. Composes `CombatState`, owns UI nodes, handles input + animation/VFX gating. Forwards state fields via property getters/setters so handlers can write `scene.player_slots = …` and hit the same instance live or sim.
-3. **Headless shell** — `SimState.gd extends CombatState`. No Node tree. Used by `CombatSim.gd` to run full matches with no UI for balance testing.
+1. **State (rules + data)** — `CombatState.gd`, RefCounted, no Node refs. Holds board, HP, traps, environments, buffs, relic flags + `relic_runtime`, talent state, and both sides' turn counter, resources, decks, hands and graveyards (`hand_of/deck_of/graveyard_of/traps_of(side)`, `draw_cards`, `add_to_hand`, `pay_card_cost`, `pay_sparks`, …). Owns the CombatManager signal handlers (`_on_minion_vanished`, `_on_hero_damaged`, `_on_hero_healed`) and the `CombatHandlers` ref. Emits **all gameplay signals** (hp_changed, minion_summoned, minion_died, damage_dealt, resources_changed, card_drawn, card_generated, traps_changed, environment_changed, flesh_changed, forge_changed, void_marks_changed, combat_log, minion_stats_changed, spell_damage_dealt). Shared between live combat and sim.
+2. **Live shell** — `CombatScene.gd`, Node2D. Composes `CombatState` and is its `presenter`: owns UI nodes, input, animation/VFX gating, and the presenter hooks state calls (`_on_minion_vanished_visual`, `_on_hero_damaged_visual`, …). Still forwards many state fields via property getters (removed in Phase 4). `TurnManager` and `EnemyAI` are façades whose fields forward onto state.
+3. **Headless shell** — `SimState.gd extends CombatState`. No Node tree, `presenter == null`. Only setup, the sim turn engine and the BuffSystem bus bridge (≈200 lines). Used by `CombatSim.gd` to run full matches with no UI for balance testing.
 
-Handlers, effects, profiles, and the trigger system access combat through a duck-typed `_scene` reference. They never touch `CombatScene` UI nodes directly — see "Sim/CombatScene handler symmetry" feedback memory.
+Rules code (CombatHandlers, HardcodedEffects, RelicEffects, EffectResolver, Condition/TargetResolver, CombatManager) reaches combat three ways, and only these (lint L3/L4):
+
+- **`state.x` / `ctx.state.x`** — every gameplay read and write, typed `CombatState`.
+- **`presenter.x` / `ctx.presenter.x`** — presentation only, null in sim/tests, so always null-checked. Allowed names: `[presenter]` in `tools/lint/presentation_allowlist.txt`.
+- **the facade** (`_scene.x` / `ctx.scene.x`) — the `[facade]` names only: gameplay whose live body is still VFX-bound (Void Bolt projectile, corruption popup capture, ritual/sacrifice/summon animations). CombatScene's override in live, CombatState's body in sim. Phase 3.0 empties this list.
 
 ### Combat root — `CombatScene.gd`
 
@@ -105,7 +109,7 @@ These are separate `Node`/class objects, each instantiated once per combat. They
 
 | File | Responsibility |
 |---|---|
-| `combat/board/TurnManager.gd` | Turn cycle; resource refill/growth; draw cards (hand cap 10). Signals: `turn_started`, `turn_ended`, `resources_changed`, `card_drawn`, `card_generated`, `player_turn_cleanup`. |
+| `combat/board/TurnManager.gd` | Live turn cycle. Façade over CombatState's player side (resources, deck, hand, turn number forward onto state); relays state's player `resources_changed` / `card_drawn` / `card_generated`. Signals: `turn_started`, `turn_ended`, `resources_changed`, `card_drawn`, `card_generated`, `player_turn_cleanup`. |
 | `combat/board/CombatManager.gd` | Resolves attack math, simultaneous strike, hero damage/heal, shield. Signals: `attack_resolved`, `minion_vanished`, `hero_damaged`, `hero_healed`. No visuals. |
 | `combat/board/MinionInstance.gd` | Per-board-slot RefCounted (HP, ATK, buffs, attack count, states EXHAUSTED/SWIFT/NORMAL). All stat changes go through `BuffSystem`. `card_data` is never mutated. |
 | `combat/board/BuffSystem.gd` | Static helpers for apply/remove/query buffs. Lazy-inits a buff signal bus. Reads buff entries off `MinionInstance.buffs`. |
@@ -199,7 +203,7 @@ func _build_windup(duration: float) -> void: ...
 
 Specific VFX scripts (one per spell/buff/event) live flat in `combat/effects/`. The VFX quality bar (shader-based distortion, composed phases, damage synced to impact beat) is documented in the `feedback_vfx_quality.md` memory.
 
-Buff state mutation flow: EffectResolver's `BUFF_ATK` / `BUFF_HP` cases call `_scene._request_buff_apply(...)` which queues intents into `_pending_buff_requests`. `_flush_buff_requests` (deferred) spawns `BuffApplyVFX` with the intents; the VFX calls `BuffSystem.apply` at its chevron beat so state mutation is visibly aligned with the value tween. Sim falls through to immediate `BuffSystem.apply` via the `vfx_controller != null` guard.
+Buff state mutation flow: EffectResolver's `BUFF_ATK` / `BUFF_HP` cases call `ctx.presenter._request_buff_apply(...)` which queues intents into `_pending_buff_requests`. `_flush_buff_requests` (deferred) spawns `BuffApplyVFX` with the intents; the VFX calls `BuffSystem.apply` at its chevron beat so state mutation is visibly aligned with the value tween. Sim (`presenter == null`) applies immediately. Phase 3.0 moves the mutation back into the engine.
 
 Shaders sit alongside as `.gdshader` files: `plague_cloud`, `plague_flood`, `crescent_shockwave`, `sonic_wave`, `casting_glyph_glow`, `corruption_bloom`, `card_summon_wave`, `void_execution_wipe`, `void_netter_net_mask`, `blessing_shaft`.
 
@@ -247,10 +251,10 @@ Used for balance testing — no UI, no scene tree, no animations.
 | File | Role |
 |---|---|
 | `sim/CombatSim.gd` | Entry point. `run(deck, profile_id, …)` → win/loss + diagnostic counters. |
-| `sim/SimState.gd` | Extends `CombatState`. Pure data. |
-| `sim/SimTurnManager.gd` | Extends `TurnManager`. Direct property mutations instead of node-bound signals where the live one needs nodes. |
+| `sim/SimState.gd` | Extends `CombatState`: setup, the sim turn engine (`begin/end_*_turn`, replaced by the shared engine in 2A.3), BuffSystem bus bridge. No gameplay rules (lint L5). |
+| `sim/SimTurnManager.gd` | Façade over CombatState's player side (deleted in 2A.3). |
 | `sim/SimPlayerAgent.gd`, `sim/SimEnemyAgent.gd` | Per-side action runners. Use the same `CombatProfile` subclasses as live combat. |
-| `sim/SimTriggerSetup.gd` | Sim's `CombatSetup` analogue. Mirror of live registration. |
+| `sim/SimTriggerSetup.gd` | Creates the TriggerManager + handlers, registers sim trap routing, then delegates everything else to `CombatSetup.setup()`. |
 
 Determinism: every gameplay random draws from `CombatState.rng` (seeded by `CombatSim.run(…, rng_seed)` in sim and `CombatScene._ready` in live — lint L2). `CombatSim.run` returns `seed` + `digest` so any run replays exactly.
 
@@ -318,7 +322,8 @@ Talents implement effects by registering handlers in `CombatSetup` / `SimTrigger
 | `debug/tests/RunAllTests.gd` | Aggregate test runner. |
 | `debug/tests/{CardEffect,DamageType,TriggerHandler,Scenario}Tests.gd` | Test suites. |
 | `debug/tests/LiveSmokeTests.gd` + `LiveSmoke.tscn` | Headless boot of the live `CombatScene` (the only live-shell test). |
-| `tools/run_checks.sh` | The gate: import → `tools/lint/lint_engine.py` → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR`. |
+| `tools/run_checks.sh` | The gate: import → `tools/lint/lint_engine.py` (L1–L5) → `tools/lint/load_all_scripts.gd` (every script compiles) → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR`; per-run timeout `RUN_CHECKS_TIMEOUT` (300 s). |
+| `tools/lint/presentation_allowlist.txt` | The `[presenter]` / `[facade]` names rules code may call off-state (lint L3). |
 
 ## Key enums
 
@@ -333,14 +338,14 @@ These rules are the load-bearing invariants of the codebase. Breaking them tends
 1. **State / shell separation.** Game data lives on `CombatState`. `CombatScene` is the live shell with UI; `SimState` is the headless shell. Never put gameplay data on the scene; never let handlers reach into UI nodes.
 2. **Symmetric handlers.** Every trigger handler uses `ctx.owner` and `_opponent_of()` — never hardcoded `"player"` / `"enemy"`. Future-proofs for PvP.
 3. **Symmetric effects.** Every card effect must work for either side as owner.
-4. **Sim parity.** Handlers and effects call wrapper methods on `_scene`, not direct UI nodes. SimState has no UI; direct access spams 19k errors and chokes the balance sim.
+4. **Sim parity.** Rules code mutates only `state`; presentation goes through a null-checked `presenter` (null in sim). A gameplay method has one body, on CombatState — never a CombatScene/SimState pair (lint L5).
 5. **Declarative first.** New cards use `effect_steps` (`EffectStep` resources). Add to `HardcodedEffects.gd` only when imperative logic is unavoidable.
 6. **Damage tagging is opt-in.** Set `damage_school` only when the card has deliberate flavor. `NONE` is correct for generic spells. Talents retag at the call site.
 7. **Animation gating via signals.** EnemyAI and consecutive actions await the four CombatScene gating signals (`enemy_summon_reveal_done`, `enemy_spell_cast_done`, `on_play_vfx_done`, `death_anims_done`) so VFX never overlap.
 8. **Type from untyped collections.** Always `var x: Type = arr[i]`, never `var x := arr[i]`. GDScript's `:=` from an untyped Array/Dictionary infers `Variant` and causes silent errors.
-9. **Trigger registration mirroring.** When you add a handler in `CombatSetup.gd`, mirror it in `SimTriggerSetup.gd`. They must stay in sync.
+9. **Trigger registration in one place.** Register handlers in `CombatSetup.gd` only — both shells call `CombatSetup.setup()`. (Trap routing is still registered per shell until 2A.2.)
 10. **Card data lives in CardDatabase.gd.** Single source of truth. Never duplicate card stats elsewhere.
-11. **Rules code reaches data through `.state`.** In handlers/effects, gameplay fields and CombatState methods are `_scene.state.x` / `ctx.scene.state.x`, never `_scene.x` unless CombatScene declares `x`. Tests run on SimState (which *is* a CombatState), so a missing forwarder only breaks live. Lint L1 enforces it.
+11. **Rules code reaches data through a typed `state`.** In handlers/effects, gameplay is `state.x` / `ctx.state.x`; the shell is touched only for `[facade]` names, and never by string (`has_method`, `.get("x")`, `"x" in obj`). Tests run on SimState (which *is* a CombatState), so shell access that only CombatScene lacks breaks live alone. Lint L1/L3/L4 enforce it.
 12. **Engine-owned RNG.** Gameplay randomness uses `state.rng_pick / rng_shuffle / rng_range / rng_index`, never global `randi()/shuffle()/pick_random()`. VFX may use the global RNG. Lint L2 enforces it.
 
-The live/sim unification refactor ([LIVE_SIM_UNIFICATION_PLAN.md](../refactors/LIVE_SIM_UNIFICATION_PLAN.md)) will retire invariants 4, 7 and 9 as SimState/forwarding go away.
+The live/sim unification refactor ([LIVE_SIM_UNIFICATION_PLAN.md](../refactors/LIVE_SIM_UNIFICATION_PLAN.md)) is through Phase 1; Phase 2A moves sim onto engine commands and a shared turn engine, and later phases retire invariant 7 and the `[facade]` list.

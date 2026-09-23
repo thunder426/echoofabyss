@@ -29,7 +29,7 @@ rule set and the phase that introduces each rule.
       state, enemy_ai / turn_manager aliases, event contexts). Dictionary
       `.get("key")` is fine.
 
-  L5  (`--report-pairs`, plan 1.4) One implementation per gameplay method: no
+  L5  (plan 1.4) One implementation per gameplay method: no
       func defined on both CombatScene and SimState, and no SimState override of
       a CombatState func. Allowed exceptions live in tools/lint/l5_allow.txt.
 
@@ -70,8 +70,8 @@ SCENE_FILES = [
 SETUP = "combat/events/CombatSetup.gd"
 RULES_FILES = UNDERSCORE_SCENE_FILES + SCENE_FILES
 
-# Rules counted toward the exit code (L3/L4 since plan step 1.2; L5 via --report-pairs).
-ENFORCED = {"L1", "L2", "L3", "L4"}
+# Rules counted toward the exit code (L3/L4 since plan step 1.2, L5 since 1.6).
+ENFORCED = {"L1", "L2", "L3", "L4", "L5"}
 
 # L3: handles that resolve to the combat shell / facade, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
@@ -348,8 +348,6 @@ class Linter:
 def main() -> int:
     quiet = "--quiet" in sys.argv
     show_all = "--all" in sys.argv
-    if "--report-pairs" in sys.argv:
-        ENFORCED.add("L5")
     linter = Linter()
     count = linter.run()
     pending: dict[str, int] = {}

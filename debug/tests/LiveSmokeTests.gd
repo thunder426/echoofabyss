@@ -21,6 +21,7 @@ func _ready() -> void:
 	BaseVfx.time_scale = 0.05
 	await _f1_enemy_turn_completes()
 	await _f13_vrp_champion_progress()
+	await _live_rules_paths()
 	print("LiveSmoke: %s (%d failed)" % ["OK" if _fails == 0 else "FAILED", _fails])
 	get_tree().quit(_fails)
 
@@ -68,6 +69,41 @@ func _f13_vrp_champion_progress() -> void:
 	_check(champions == 1, "F13: exactly one champion on board (got %d)" % champions)
 	await _teardown(scene)
 
+## The shared CombatState handlers driving the live presenter (plan 1.4):
+## token summons both sides, a lethal minion attack (_on_minion_vanished →
+## death animation + on-death deferral), hero damage and a clamped heal
+## (_on_hero_damaged_visual / _on_hero_healed_visual). run_checks.sh fails on
+## any SCRIPT ERROR these paths print.
+func _live_rules_paths() -> void:
+	var scene: Node = await _launch(1, "swarm")
+	var st: CombatState = scene.state
+	st._summon_token("void_imp", "player")
+	st._summon_token("shadow_hound", "enemy")
+	var attacker: MinionInstance = st.player_board.back() if not st.player_board.is_empty() else null
+	var defender: MinionInstance = st.enemy_board.back() if not st.enemy_board.is_empty() else null
+	_check(attacker != null and defender != null, "live: tokens summoned on both boards")
+	if attacker == null or defender == null:
+		await _teardown(scene)
+		return
+	var t0: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS and (attacker.slot_index < 0 or defender.slot_index < 0):
+		await get_tree().process_frame
+	defender.current_health = 1
+	scene.combat_manager.resolve_minion_attack(attacker, defender)
+	await _drain(scene)
+	_check(not st.enemy_board.has(defender), "live: lethal attack removed the defender")
+	var enemy_before: int = st.enemy_hp
+	scene.combat_manager.apply_hero_damage("enemy",
+			CombatManager.make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE))
+	_check(st.enemy_hp == enemy_before - 100, "live: enemy hero took 100 (%d → %d)" % [enemy_before, st.enemy_hp])
+	scene.combat_manager.apply_hero_damage("player",
+			CombatManager.make_damage_info(300, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE))
+	st._on_hero_healed("player", 1000)
+	_check(st.player_hp == st.player_hp_max, "live: heal clamps at max HP (%d / %d)" % [st.player_hp, st.player_hp_max])
+	await _drain(scene)
+	print("LiveSmoke: live rules paths completed")
+	await _teardown(scene)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -82,6 +118,14 @@ func _launch(encounter: int, deck_preset: String) -> Node:
 	for i in 5:
 		await get_tree().process_frame
 	return scene
+
+## Wait for the scene's in-flight VFX / death animations to finish.
+func _drain(scene: Node) -> void:
+	var t0: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS:
+		await get_tree().process_frame
+		if not scene._on_play_vfx_active and scene._active_death_anims == 0:
+			break
 
 ## Free the scene only once its coroutines (hand draw stagger, VFX, death anims)
 ## have drained — freeing or detaching it mid-await makes them call get_tree()
