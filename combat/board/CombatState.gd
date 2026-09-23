@@ -89,25 +89,22 @@ signal spell_damage_dealt(target: MinionInstance, damage: int, school: int)
 ## directly for animation timing; this signal is for logic listeners.
 signal minion_died(side: String, minion: MinionInstance, slot_index: int)
 
-## Scene facade for `EffectContext.scene`. CombatScene assigns itself here in
-## _ready so EffectResolver and HardcodedEffects can route ctx.scene calls
-## through scene's VFX-enriched wrappers (_deal_void_bolt_damage projectile,
-## _corrupt_minion VFX, _fire_ritual rune-fire VFX, etc.). Sim leaves this null
-## and `_get_scene_facade()` falls back to `self` — SimState extends CombatState
-## and acts as its own scene facade (no VFX, just data).
-##
-## Why this exists: P4B inverted spell flow moved `cast_player_targeted_spell`
-## from CombatScene to CombatState. The old code built EffectContext with
-## `EffectContext.make(self, ...)` where self was CombatScene; the new state
-## version's `self` is the bare data layer with no VFX wrappers. Without this
-## facade, ctx.scene.X calls hit state's no-VFX versions and visuals silently
-## drop (Void Bolt projectile, Void Rune fire, Corruption apply, etc.).
-var _scene_facade: Object = null
+## Presentation seam (LIVE_SIM_UNIFICATION_PLAN.md 1.1). Live combat sets this
+## to the CombatScene in _ready; sim and tests leave it null. Rules code reads
+## and writes gameplay data on the state and calls presentation only through
+## `presenter`, null-checked — the names it may call are listed in
+## tools/lint/presentation_allowlist.txt ([presenter]) and checked by lint L3.
+var presenter: Object = null
 
-## Returns the scene facade for EffectContext construction. Live combat returns
-## CombatScene (set via `_scene_facade`); sim falls through to self (SimState).
+## Facade for `EffectContext.scene` and for the [facade] names in
+## tools/lint/presentation_allowlist.txt: gameplay whose live version is still
+## VFX-bound (Void Bolt projectile before damage, corruption popup capture,
+## ritual VFX, sacrifice / token-summon animations). Returns the presenter in
+## live and the state itself in sim/tests (SimState extends CombatState), so
+## the same call resolves to CombatScene's VFX-rich override live and the pure
+## body here otherwise. Phase 3.0 makes those bodies synchronous and this goes.
 func _get_scene_facade() -> Object:
-	return _scene_facade if _scene_facade != null else self
+	return presenter if presenter != null else self
 
 ## Logging convenience — handlers, effects, and combat code call `state._log(msg)`
 ## without needing a scene reference or knowing whether a UI exists. Signal

@@ -3,7 +3,7 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-- ["040"](040-live-sim-unification-phase-0.md) — Live/sim unification — Phase 0 (foundations + hotfixes) (combat, started 2026-09-23)
+- ["041"](041-live-sim-unification-phase-1.md) — Live/sim unification — Phase 1 (rules code addresses state) (combat, started 2026-09-23)
 
 ## Backlog
 - ["010"](010-korrath-art-pass.md) — Korrath art pass — portraits, passive/talent icons, card art (art)
@@ -19,6 +19,7 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
 
 ## Done
+- ["040"](040-live-sim-unification-phase-0.md) — Live/sim unification — Phase 0 (foundations + hotfixes) (combat, 2026-09-23 → 2026-09-23)
 - ["039"](039-live-sim-unification-refactor-plan.md) — Live/sim unification refactor plan (design/refactors) (combat, 2026-09-22 → 2026-09-22)
 - ["007"](007-hero-armour-and-armour-break.md) — Hero Armour and Armour Break — extend Korrath stats to player/enemy heroes (combat, 2026-05-29 → 2026-05-29)
 - ["009"](009-korrath-rewards-shop-wiring.md) — Korrath rewards and shop pool wiring (meta, 2026-05-29 → 2026-05-29)

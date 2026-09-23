@@ -1,0 +1,67 @@
+# Presentation seam allow-list (LIVE_SIM_UNIFICATION_PLAN.md 1.1, lint L3).
+#
+# Rules code (CombatHandlers, HardcodedEffects, RelicEffects, EffectResolver,
+# ConditionResolver, TargetResolver, CombatManager) reaches gameplay data only
+# through a typed CombatState. It may touch the combat shell in two other ways,
+# and only with the names listed here.
+#
+# [presenter] — presentation only. Called on `presenter` / `ctx.presenter`,
+#   which is null in sim and tests, so every call is null-checked. Must be
+#   declared on CombatScene. Nothing here may change gameplay state.
+#
+# [facade] — gameplay whose live body is still VFX-bound (awaits a projectile,
+#   defers into a popup drain, plays a summon animation). Called on the facade
+#   (`_fx`, `ctx.scene`, `scene`), which is the CombatScene in live and the
+#   CombatState in sim, so the call reaches the scene's VFX-rich override live
+#   and the pure body otherwise. Must be a `func` on BOTH CombatScene and
+#   CombatState. Phase 3.0 (de-async) empties this section.
+#
+# One name per line; `#` starts a comment.
+
+[presenter]
+# Slot / board visuals
+_find_slot_for                    # BoardSlot lookup for VFX anchoring; null-checked
+_play_corruption_apply_visual
+_play_corruption_detonations
+_play_void_netter_on_play_vfx
+_play_brood_call_vfx
+_play_champion_acp_aura_pulse
+_play_feral_reinforcement_vfx
+_play_frenzied_imp_vfx
+_play_grafted_butcher_vfx
+_play_pack_frenzy_vfx
+_play_ritual_sacrifice_sequence
+_spawn_atk_chevron
+_spawn_pack_chain_vfx_for_new_imp
+_spawn_pack_instinct_buff_vfx     # holds the ATK label at the pre-buff value, then pulses
+_spawn_presence_aura_buff_vfx
+_spawn_void_imp_claw_vfx_at
+_pulse_lifedrain_icon
+_on_minion_siphon_healed
+_flash_trap_slot_for
+# Buff application animation (S3 — the BuffApplyVFX applies the buff at its beat;
+# Phase 3.0 moves the mutation back into the engine)
+_request_buff_apply
+_silent_buff_apply
+# HUD
+_update_champion_progress
+_on_champion_killed
+_update_counter_warning
+_refresh_hand_spell_costs
+hand_display
+vfx_controller
+# Animation gates awaited by async rules code (deleted in Phase 3.3)
+is_inside_tree
+death_anims_done
+_active_death_anims
+_pending_on_death_vfx
+
+[facade]
+_apply_void_mark                  # + VoidMarkApplyVFX on the enemy panel
+_corrupt_minion                   # deferred into the spell-popup drain while a spell is captured (B13)
+_deal_void_bolt_damage            # awaits the projectile's impact before damage
+_deal_enemy_void_bolt_damage      # awaits the projectile's impact before damage
+_fire_ritual                      # awaits rune-placement + ritual VFX before resolving
+_sacrifice_minion                 # death animation + hand glow refresh
+_summon_token                     # sigil summon animation
+_summon_token_at_slot             # sigil summon animation

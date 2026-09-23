@@ -1163,20 +1163,14 @@ func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 		_scene._spawn_pack_chain_vfx_for_new_imp(ctx.minion, "enemy")
 	# ATK-increase popup on every imp that gained ATK this tick (only on summon —
 	# death events should silently lose the buff without drawing attention).
-	# The buff is ALREADY applied (game state uses new ATK immediately), but we
-	# hold the visual ATK label at the OLD value and let the VFX helper flip it
-	# in sync with the chain animation.
+	# The buff is ALREADY applied (game state uses new ATK immediately); the VFX
+	# helper holds the visual ATK label at the OLD value and flips it in sync
+	# with the chain animation.
 	if is_summon and _scene.has_method("_spawn_pack_instinct_buff_vfx"):
 		for m in feral_imps:
 			var old_atk: int = int(pre_atk.get(m, m.effective_atk()))
-			var new_atk: int = m.effective_atk()
-			if new_atk > old_atk:
-				# Override the atk label text back to the old value so it doesn't
-				# update instantly — _spawn_pack_instinct_buff_vfx flips it later.
-				var slot: BoardSlot = _scene._find_slot_for(m)
-				if slot != null and slot._atk_label != null:
-					slot._atk_label.text = str(old_atk)
-				_scene._spawn_pack_instinct_buff_vfx(m, new_atk - old_atk)
+			if m.effective_atk() > old_atk:
+				_scene._spawn_pack_instinct_buff_vfx(m, old_atk)
 
 ## Human Imp Caller — shared Act 2 passive
 ## When a human is summoned: add a random feral imp to the enemy's hand.

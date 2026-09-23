@@ -644,12 +644,12 @@ func _ready() -> void:
 	trigger_manager = TriggerManager.new()
 	_hardcoded = HardcodedEffects.new()
 	_hardcoded.setup(self)
-	# Point the state's scene facade at this CombatScene so every EffectContext
-	# state builds (cast_player_targeted_spell, _check_and_fire_traps, env
-	# rituals, etc.) carries `ctx.scene = scene`. Without this, EffectResolver
+	# This scene is the state's presenter. Every EffectContext the state builds
+	# (cast_player_targeted_spell, _check_and_fire_traps, env rituals, etc.)
+	# carries `ctx.scene = scene` via state._get_scene_facade(), so VFX-bound
 	# calls like ctx.scene._deal_void_bolt_damage / ._corrupt_minion / ._fire_ritual
-	# silently hit state's no-VFX versions and the visuals drop.
-	state._scene_facade = self
+	# reach the scene's VFX-rich overrides instead of state's bare bodies.
+	state.presenter = self
 	# Seed the engine RNG before anything shuffles (enemy deck in _setup_enemy_ai,
 	# player deck in turn_manager.start_combat). Same seed + same inputs = same fight.
 	var combat_seed: int = GameManager.next_combat_seed
@@ -1978,9 +1978,13 @@ func _on_buff_vfx_finished() -> void:
 ## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
 ## procedural chevron to the right of it, both timed to coincide with the chain
 ## VFX so the player reads "chains link → ATK jumps up" as one beat.
-## The caller (on_board_changed_pack_instinct) has already reverted the ATK
-## label's text to the old value; this method updates it to the new value.
-func _spawn_pack_instinct_buff_vfx(minion: MinionInstance, _delta_atk: int) -> void:
+## The buff is already applied in state; the ATK label is held at `old_atk`
+## (synchronously, before the first await) and flipped to the new value in
+## sync with the pulse.
+func _spawn_pack_instinct_buff_vfx(minion: MinionInstance, old_atk: int) -> void:
+	var held_slot: BoardSlot = _find_slot_for(minion)
+	if held_slot != null and held_slot._atk_label != null:
+		held_slot._atk_label.text = str(old_atk)
 	# Defer so it lands in the same visual beat as the chain animation
 	await get_tree().create_timer(0.45).timeout
 	if not is_inside_tree():

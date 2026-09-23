@@ -17,8 +17,23 @@ rule set and the phase that introduces each rule.
       reproduces a fight. Cosmetic VFX randomness is out of scope. A line may
       opt out with the comment `# lint: allow-rng (<reason>)`.
 
-Usage:  python3 tools/lint/lint_engine.py [--quiet]
-Output: `<rule> <file>:<line>: <message>`; exit code = error count (capped 255).
+  L3  Presentation seam (plan 1.1). In rules files a shell handle (`_scene.`,
+      `scene.`, `ctx.scene.`, `_fx.`) may only be followed by `state` or a
+      [facade] name, and `presenter.` / `ctx.presenter.` only by a [presenter]
+      name, from tools/lint/presentation_allowlist.txt. [facade] names must be
+      a func on both CombatScene and CombatState; [presenter] names must exist
+      on CombatScene.
+
+  L4  No duck typing in rules files: `has_method(` anywhere, and
+      `.get("x")` / `.set("x", …)` on an object handle (shell, presenter,
+      state, enemy_ai / turn_manager aliases, event contexts). Dictionary
+      `.get("key")` is fine.
+
+Rules not yet enforced (see ENFORCED) are still computed; `--all` prints them,
+but they do not count toward the exit code.
+
+Usage:  python3 tools/lint/lint_engine.py [--quiet] [--all]
+Output: `<rule> <file>:<line>: <message>`; exit code = enforced error count (capped 255).
 """
 from __future__ import annotations
 
@@ -49,6 +64,18 @@ SCENE_FILES = [
     "combat/board/MinionInstance.gd",
 ]
 SETUP = "combat/events/CombatSetup.gd"
+RULES_FILES = UNDERSCORE_SCENE_FILES + SCENE_FILES
+
+# Rules counted toward the exit code. L3/L4 are enforced from plan step 1.2.
+ENFORCED = {"L1", "L2"}
+
+# L3: handles that resolve to the combat shell / facade, and to the presenter.
+SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
+PRESENTER_HANDLES = ["ctx.presenter", "presenter"]
+# L4: receivers that are objects, never Dictionaries, in rules code.
+OBJECT_HANDLES = SHELL_HANDLES + PRESENTER_HANDLES + [
+    "ctx.state", "state", "enemy_ai", "ai", "turn_manager", "tm", "ctx", "event_ctx", "ectx",
+]
 
 # L2 scope: directories scanned recursively, plus single files.
 RNG_DIRS = ["combat/board", "combat/events", "sim", "enemies/ai"]
@@ -127,12 +154,37 @@ def strip_comment(line: str) -> str:
     return "".join(out)
 
 
+def load_sections(name: str) -> dict[str, list[tuple[int, str]]]:
+    """`[section]` headers followed by one name per line (`#` comments)."""
+    out: dict[str, list[tuple[int, str]]] = {}
+    current = ""
+    for i, raw in enumerate(open(os.path.join(LINT_DIR, name), encoding="utf-8"), start=1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            out.setdefault(current, [])
+        else:
+            out.setdefault(current, []).append((i, line))
+    return out
+
+
+def declared_funcs(rel: str) -> set[str]:
+    return {m.group(1) for line in read(rel)
+            if (m := re.match(r"^(?:static\s+)?func\s+(\w+)", line))}
+
+
 class Linter:
     def __init__(self) -> None:
         self.scene = declared(SCENE) | BUILTINS
         self.state = declared(STATE)
         self.sim = declared(SIM_STATE)
         self.allow = load_allow("l1_allow.txt")
+        sections = load_sections("presentation_allowlist.txt")
+        self.presenter_names = {n for _, n in sections.get("presenter", [])}
+        self.facade_names = {n for _, n in sections.get("facade", [])}
+        self._allowlist_sections = sections
         self.errors: list[str] = []
 
     def err(self, rule: str, rel: str, lineno: int, msg: str) -> None:
@@ -203,6 +255,41 @@ class Linter:
             if depth <= 0 and ("}" in line or "{" in line):
                 in_stats = False
 
+    # -- L3 / L4 --------------------------------------------------------------
+    def check_allowlist(self) -> None:
+        rel = "tools/lint/presentation_allowlist.txt"
+        scene_funcs, state_funcs = declared_funcs(SCENE), declared_funcs(STATE)
+        for lineno, name in self._allowlist_sections.get("presenter", []):
+            if name not in self.scene:
+                self.err("L3", rel, lineno, f"[presenter] {name} is not declared on CombatScene")
+        for lineno, name in self._allowlist_sections.get("facade", []):
+            if name not in scene_funcs or name not in state_funcs:
+                self.err("L3", rel, lineno,
+                         f"[facade] {name} must be a func on both CombatScene and CombatState")
+
+    def scan_seam(self, rel: str) -> None:
+        shell = "|".join(re.escape(h) for h in SHELL_HANDLES)
+        pres = "|".join(re.escape(h) for h in PRESENTER_HANDLES)
+        objs = "|".join(re.escape(h) for h in OBJECT_HANDLES)
+        shell_re = re.compile(rf"(?<![\w.])(?:{shell})\.(\w+)")
+        pres_re = re.compile(rf"(?<![\w.])(?:{pres})\.(\w+)")
+        duck_re = re.compile(rf"(?<![\w.])(?:{objs})\.(?:get|set)\(\s*\"(\w+)\"")
+        for i, raw in enumerate(read(rel), start=1):
+            line = strip_comment(raw)
+            for m in shell_re.finditer(line):
+                name = m.group(1)
+                if name in ("state", "get", "set", "has_method") or name in self.facade_names:
+                    continue
+                self.err("L3", rel, i, f"shell.{name} — use state.{name} (gameplay), "
+                         f"presenter.{name} (presentation, null-checked) or add it to [facade]")
+            for m in pres_re.finditer(line):
+                if m.group(1) not in self.presenter_names:
+                    self.err("L3", rel, i, f"presenter.{m.group(1)} is not in [presenter]")
+            if "has_method(" in line:
+                self.err("L4", rel, i, "has_method( — duck typing; call a typed member")
+            for m in duck_re.finditer(line):
+                self.err("L4", rel, i, f'.get/.set("{m.group(1)}") on an object — use the typed member')
+
     # -- L2 ------------------------------------------------------------------
     def scan_rng(self) -> None:
         files = list(RNG_FILES)
@@ -226,17 +313,31 @@ class Linter:
         for rel in SCENE_FILES:
             self.scan_file(rel, ["ctx.scene", "scene"])
         self.scan_setup_stats()
-        return len(self.errors)
+        self.check_allowlist()
+        for rel in RULES_FILES:
+            self.scan_seam(rel)
+        return sum(1 for e in self.errors if e.split(" ", 1)[0] in ENFORCED)
 
 
 def main() -> int:
     quiet = "--quiet" in sys.argv
+    show_all = "--all" in sys.argv
     linter = Linter()
     count = linter.run()
-    if not quiet:
-        for e in linter.errors:
-            print(e)
-    print(f"lint_engine: {count} error{'s' if count != 1 else ''}")
+    pending: dict[str, int] = {}
+    for e in linter.errors:
+        rule = e.split(" ", 1)[0]
+        if rule in ENFORCED:
+            if not quiet:
+                print(e)
+        else:
+            pending[rule] = pending.get(rule, 0) + 1
+            if show_all:
+                print(e)
+    tail = ""
+    if pending:
+        tail = " (not yet enforced: " + ", ".join(f"{r} {n}" for r, n in sorted(pending.items())) + ")"
+    print(f"lint_engine: {count} error{'s' if count != 1 else ''}{tail}")
     return min(count, 255)
 
 
