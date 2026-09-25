@@ -9,12 +9,10 @@
 #   which is null in sim and tests, so every call is null-checked. Must be
 #   declared on CombatScene. Nothing here may change gameplay state.
 #
-# [facade] — gameplay whose live body is still VFX-bound (awaits a projectile,
-#   defers into a popup drain, plays a summon animation). Called on the facade
-#   (`_fx`, `ctx.scene`, `scene`), which is the CombatScene in live and the
-#   CombatState in sim, so the call reaches the scene's VFX-rich override live
-#   and the pure body otherwise. Must be a `func` on BOTH CombatScene and
-#   CombatState. Phase 3.0 (de-async) empties this section.
+# [facade] — empty since Phase 3.0 (every gameplay method has its one body on
+#   CombatState). Kept so a rules-code `_scene.x` / `ctx.scene.x` call stays a
+#   lint error unless a name is deliberately added back here; such a name must
+#   be a `func` on BOTH CombatScene and CombatState.
 #
 # One name per line; `#` starts a comment.
 

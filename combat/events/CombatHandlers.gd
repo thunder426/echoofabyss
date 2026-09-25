@@ -1198,7 +1198,13 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 	if targets.is_empty():
 		return
 
-	var on_impact := func(m: MinionInstance, stacks: int) -> void:
+	# The detonation VFX (live only) starts first, anchored on the slots; the
+	# stacks are consumed and the damage lands now (plan 3.0).
+	if presenter != null:
+		presenter._play_corruption_detonations(targets)
+	for t in targets:
+		var m: MinionInstance = t["minion"]
+		var stacks: int = t["stacks"]
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		state._refresh_slot_for(m)
 		# Route through _spell_dmg so the spell_damage_dealt signal fires and the
@@ -1209,12 +1215,6 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 		_log("  Corrupt Authority: %s had %d stack(s) → consumed, dealt %d damage." % [m.card_data.card_name, stacks, 100 * stacks], _LOG_ENEMY)
 		# Track consumed stacks toward Abyss Cultist Patrol champion
 		on_champion_acp_track_stacks(stacks)
-
-	if presenter != null:
-		presenter._play_corruption_detonations(targets, on_impact)
-	else:
-		for t in targets:
-			on_impact.call(t["minion"], t["stacks"])
 
 ## Ritual Sacrifice — encounter 5 (Void Ritualist)
 ## When a feral imp is summoned and enemy has Blood Rune + Dominion Rune active:

@@ -79,7 +79,7 @@ Rules code (CombatHandlers, HardcodedEffects, RelicEffects, EffectResolver, Cond
 
 - **`state.x` / `ctx.state.x`** — every gameplay read and write, typed `CombatState`.
 - **`presenter.x` / `ctx.presenter.x`** — presentation only, null in sim/tests, so always null-checked. Allowed names: `[presenter]` in `tools/lint/presentation_allowlist.txt`.
-- **the facade** (`_scene.x` / `ctx.scene.x`) — the `[facade]` names only: gameplay whose live body is still VFX-bound (Void Bolt projectile, corruption popup capture, ritual/sacrifice/summon animations). CombatScene's override in live, CombatState's body in sim. Phase 3.0 empties this list.
+- **the facade** (`_scene.x` / `ctx.scene.x`) — retired in Phase 3.0: the `[facade]` list is empty, every gameplay method has its one body on CombatState, and a rules-code `_scene.x` call is a lint error unless a name is added back.
 
 ### Combat root — `CombatScene.gd`
 
@@ -161,7 +161,7 @@ When adding a new card, prefer declarative `effect_steps`. Add to HardcodedEffec
 
 Every passive, relic, talent, trap, and on-play hook registers as a handler on `TriggerManager` with an event type and priority. Same code and the same registrations run live and in sim: both shells call `CombatSetup.setup()`, which registers the trap routes first, then the always-on handlers, then the registry-driven talents / passives. Equal priorities dispatch in registration order (ordered insert); `debug/tests/snapshots/handler_order.txt` pins the full order.
 
-**Traps** spring through `CombatState.TRAP_ROUTES` → `_fire_traps_for(owner, trigger, minion)`: exact trigger match (no mirroring), skipped while the side's traps are blocked, consumed before resolving, the player's friendly-death route only on the enemy's turn. Live hands the resolutions to `presenter.play_trap_reveals` (each resolves at its card animation's impact — B12 until Phase 3.0); sim and tests resolve inline.
+**Traps** spring through `CombatState.TRAP_ROUTES` → `_fire_traps_for(owner, trigger, minion)`: exact trigger match (no mirroring), skipped while the side's traps are blocked, consumed before resolving, the player's friendly-death route only on the enemy's turn. Each trap resolves inline on both shells right after the presenter starts its card animation (`play_trap_reveals`, reveal only) — B12 fixed in Phase 3.0.
 
 | File | Role |
 |---|---|
@@ -208,7 +208,7 @@ func _build_windup(duration: float) -> void: ...
 
 Specific VFX scripts (one per spell/buff/event) live flat in `combat/effects/`. The VFX quality bar (shader-based distortion, composed phases, damage synced to impact beat) is documented in the `feedback_vfx_quality.md` memory.
 
-Buff state mutation flow: EffectResolver's `BUFF_ATK` / `BUFF_HP` cases call `ctx.presenter._request_buff_apply(...)` which queues intents into `_pending_buff_requests`. `_flush_buff_requests` (deferred) spawns `BuffApplyVFX` with the intents; the VFX calls `BuffSystem.apply` at its chevron beat so state mutation is visibly aligned with the value tween. Sim (`presenter == null`) applies immediately. Phase 3.0 moves the mutation back into the engine.
+Buff flow (Phase 3.0): EffectResolver's `BUFF_ATK` / `BUFF_HP` cases apply through `BuffSystem` at once on both shells, then hand the presenter a pre-buff snapshot (`ctx.presenter._show_buff_apply(minion, source_tag, atk_before, hp_before)`). The scene merges requests per minion + source, holds the slot labels at the pre-buff values (`BoardSlot.hold_stats`) and spawns one `BuffApplyVFX` per bucket with `set_stat_snapshot`; the VFX tweens pre → live at its pulse beat and owns no mutation.
 
 Shaders sit alongside as `.gdshader` files: `plague_cloud`, `plague_flood`, `crescent_shockwave`, `sonic_wave`, `casting_glyph_glow`, `corruption_bloom`, `card_summon_wave`, `void_execution_wipe`, `void_netter_net_mask`, `blessing_shaft`.
 
@@ -353,4 +353,4 @@ These rules are the load-bearing invariants of the codebase. Breaking them tends
 11. **Rules code reaches data through a typed `state`.** In handlers/effects, gameplay is `state.x` / `ctx.state.x`; the shell is touched only for `[facade]` names, and never by string (`has_method`, `.get("x")`, `"x" in obj`). Tests run on SimState (which *is* a CombatState), so shell access that only CombatScene lacks breaks live alone. Lint L1/L3/L4 enforce it.
 12. **Engine-owned RNG.** Gameplay randomness uses `state.rng_pick / rng_shuffle / rng_range / rng_index`, never global `randi()/shuffle()/pick_random()`. VFX may use the global RNG. Lint L2 enforces it.
 
-The live/sim unification refactor ([LIVE_SIM_UNIFICATION_PLAN.md](../refactors/LIVE_SIM_UNIFICATION_PLAN.md)) is through Phase 2A (sim on engine commands; shared turn engine, trap routing, growth hook and relic activation) — the plan's checkpoint comes next; later phases retire invariant 7 and the `[facade]` list and move live input onto commands.
+The live/sim unification refactor ([LIVE_SIM_UNIFICATION_PLAN.md](../refactors/LIVE_SIM_UNIFICATION_PLAN.md)) is through Phase 3.0 (3.1a: engine-owned `SlotState`s; 3.0: every gameplay mutation synchronous inside the engine — on-death, buffs, corruption, Void Bolt, traps, sacrifice, token summons, rituals — with the `[facade]` list retired and the VFX bridge presentation-only). Next: 3.1 (`CombatEvent` journal), 3.2 (`ViewState` + `CombatPresenter`, which restores the animation ordering the fire-and-forget hooks lost), 3.3 (gates), 3.4 (live input and the enemy turn onto commands, retiring invariant 7).

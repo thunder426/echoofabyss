@@ -139,8 +139,9 @@ func play_champion_acp_aura_pulse() -> void:
 ## awaits the full animation before the next enemy action.
 ##
 ## targets: Array of Dictionary { "minion": MinionInstance, "stacks": int }.
-## on_impact: Callable(minion: MinionInstance, stacks: int) -> void.
-func play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
+## Presentation only (plan 3.0): the handler consumes the stacks and deals the
+## damage right after starting this.
+func play_corruption_detonations(targets: Array) -> void:
 	if _scene == null or vfx_controller == null:
 		return
 	var spawnable: Array = []
@@ -148,9 +149,7 @@ func play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
 		var m: MinionInstance = t["minion"]
 		var stacks: int = t["stacks"]
 		var slot: BoardSlot = _scene._find_slot_for(m)
-		if slot == null:
-			on_impact.call(m, stacks)
-		else:
+		if slot != null:
 			spawnable.append({"minion": m, "stacks": stacks, "slot": slot})
 	if spawnable.is_empty():
 		return
@@ -165,9 +164,6 @@ func play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
 		var slot: BoardSlot = s["slot"]
 		slot.freeze_visuals = true
 		var vfx := CorruptionDetonationVFX.create(slot, stacks)
-		vfx.impact_hit.connect(func(_i: int) -> void:
-			on_impact.call(m, stacks)
-		, CONNECT_ONE_SHOT)
 		vfx.finished.connect(func() -> void:
 			if is_instance_valid(slot):
 				slot.freeze_visuals = false

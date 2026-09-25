@@ -1962,9 +1962,9 @@ func _play_champion_acp_aura_pulse() -> void:
 	if vfx_bridge != null:
 		vfx_bridge.play_champion_acp_aura_pulse()
 
-func _play_corruption_detonations(targets: Array, on_impact: Callable) -> void:
+func _play_corruption_detonations(targets: Array) -> void:
 	if vfx_bridge != null:
-		vfx_bridge.play_corruption_detonations(targets, on_impact)
+		vfx_bridge.play_corruption_detonations(targets)
 
 func _play_feral_reinforcement_vfx(source: MinionInstance, imp_card: CardData) -> void:
 	if vfx_bridge != null:
@@ -3706,27 +3706,16 @@ func _play_void_netter_on_play_vfx(source_minion: MinionInstance, target: Minion
 	var vfx := VoidNetterVFX.create(source_slot, target_slot, apply_damage)
 	vfx_controller.spawn(vfx)
 
-func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstance, feral_count: int, apply_damage: Callable) -> void:
+func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstance, feral_count: int) -> void:
 	if source_minion == null or target == null or vfx_controller == null:
-		if apply_damage.is_valid():
-			apply_damage.call()
 		return
 	var source_slot: BoardSlot = _find_slot_for(source_minion)
 	var target_slot: BoardSlot = _find_slot_for(target)
 	if source_slot == null or target_slot == null:
-		if apply_damage.is_valid():
-			apply_damage.call()
 		return
 	var source_pos: Vector2 = source_slot.get_global_rect().get_center()
 	var target_pos: Vector2 = target_slot.get_global_rect().get_center()
 	var vfx := FrenziedImpHurlVFX.create(source_pos, target_pos, feral_count, target_slot, target_slot)
-	var fired: Array[bool] = [false]
-	vfx.impact_hit.connect(func(_idx: int) -> void:
-		if fired[0]:
-			return
-		fired[0] = true
-		if apply_damage.is_valid():
-			apply_damage.call())
 	_on_play_vfx_active = true
 	vfx_controller.spawn(vfx)
 	await vfx.finished

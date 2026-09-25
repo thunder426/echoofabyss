@@ -111,9 +111,9 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 		sac_center = sac_slot.global_position + sac_slot.size * 0.5
 	SacrificeSystem.sacrifice(state, sac, "grafted_butcher")
 	_log("  Grafted Butcher: sacrificed %s — 200 AoE to all %s minions." % [sac.card_data.card_name, state._opponent_of(ctx.owner)], ls)
-	# Play the VFX (skip in sim) and sync the AoE damage with its impact beat.
+	# The graft + cleaver VFX (live only) plays fire-and-forget; the AoE lands now (plan 3.0).
 	if presenter != null:
-		await presenter._play_grafted_butcher_vfx(ctx.source, sac_center, ctx.owner)
+		presenter._play_grafted_butcher_vfx(ctx.source, sac_center, ctx.owner)
 	# Grafted Butcher is a minion ON-PLAY effect — MINION-source per design rule.
 	# Attacker is the butcher itself (ctx.source) for attribution.
 	var gb_info := CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, ctx.source, "grafted_butcher")
@@ -270,27 +270,21 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 		_log("  Frenzied Imp: no target.", _log_side(ctx.owner))
 		return
 	_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _log_side(ctx.owner))
-	var target_ref: MinionInstance = frenzied_target
-	var src_ref: MinionInstance = ctx.source
-	var apply_damage := func() -> void:
-		if target_ref == null or not is_instance_valid(target_ref) or target_ref.current_health <= 0:
-			return
-		# Minion-emitted effect → MINION source, NONE school (per design rule:
-		# only piercing_void talent retags Void minion damage; default is NONE).
-		state._spell_dmg(target_ref, dmg,
-				CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, src_ref, "frenzied_imp"))
-	# Live scene plays VFX (with impact-synced damage). Sim skips and applies immediately.
+	# The hurl VFX (live only) starts first so it anchors on the target's slot;
+	# the damage lands now (plan 3.0).
 	if presenter != null:
-		await presenter._play_frenzied_imp_vfx(ctx.source, frenzied_target, feral_count, apply_damage)
-	else:
-		apply_damage.call()
+		presenter._play_frenzied_imp_vfx(ctx.source, frenzied_target, feral_count)
+	# Minion-emitted effect → MINION source, NONE school (per design rule:
+	# only piercing_void talent retags Void minion damage; default is NONE).
+	state._spell_dmg(frenzied_target, dmg,
+			CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, ctx.source, "frenzied_imp"))
 
 func _brood_call(ctx: EffectContext) -> void:
 	var feral_ids: Array[String] = ["rabid_imp", "brood_imp", "imp_brawler", "void_touched_imp", "frenzied_imp", "matriarchs_broodling", "rogue_imp_elder"]
 	var pick: String = state.rng_pick(feral_ids)
-	# Play portal VFX fully before summoning (live scene only — sim skips).
+	# The portal VFX (live only) plays fire-and-forget; the summon lands now (plan 3.0).
 	if presenter != null:
-		await presenter._play_brood_call_vfx(ctx.owner)
+		presenter._play_brood_call_vfx(ctx.owner)
 	state._summon_token(pick, ctx.owner)
 	_log("  Brood Call: summoned %s." % pick, _log_side(ctx.owner))
 
@@ -309,10 +303,10 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 			if slot != null:
 				target_slots.append(slot)
 
-	# Play the warcry and await impact before applying buffs — ATK pop lands
-	# synced to the first imp's ignition burst. VFX owns the full buff visual.
+	# The warcry VFX (live only) starts first and owns the full buff visual;
+	# the buffs land now (plan 3.0).
 	if not target_slots.is_empty() and presenter != null:
-		await presenter._play_pack_frenzy_vfx(ctx.owner, target_slots, ancient_active)
+		presenter._play_pack_frenzy_vfx(ctx.owner, target_slots, ancient_active)
 
 	for m in targets:
 		BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 250, "pack_frenzy", true)
