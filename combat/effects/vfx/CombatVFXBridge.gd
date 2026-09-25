@@ -154,9 +154,7 @@ func play_corruption_detonations(targets: Array) -> void:
 	if spawnable.is_empty():
 		return
 
-	_scene._on_play_vfx_active = true
 	var remaining_ref: Array = [spawnable.size()]
-	var scene := _scene
 
 	for s in spawnable:
 		var m: MinionInstance = s["minion"]
@@ -169,12 +167,13 @@ func play_corruption_detonations(targets: Array) -> void:
 				slot.freeze_visuals = false
 				slot._refresh_visuals()
 			remaining_ref[0] -= 1
-			if remaining_ref[0] <= 0:
-				# Setter auto-emits on_play_vfx_done when count hits zero —
-				# avoids clobbering an outer gate-holder (e.g. ritual orchestrator).
-				scene._on_play_vfx_active = false
 		, CONNECT_ONE_SHOT)
 		vfx_controller.spawn(vfx)
+	# Awaitable: returns when every detonation has finished.
+	while remaining_ref[0] > 0:
+		if not is_inside_tree():
+			return
+		await get_tree().process_frame
 
 ## Feral Reinforcement (Act 2 passive) — radiant violet halo erupts from the
 ## summoned Human's slot, then a face-down card arcs toward the enemy hero
@@ -184,7 +183,7 @@ func play_corruption_detonations(targets: Array) -> void:
 ## next action (same pattern as Frenzied Imp Hurl).
 ##
 ## Visual implementation lives in FeralReinforcementVFX.gd; this wrapper
-## resolves the slot/panel refs and owns the AI gate.
+## resolves the slot/panel refs and is awaitable.
 func play_feral_reinforcement_vfx(source: MinionInstance, _imp_card: CardData) -> void:
 	if source == null or _scene == null or vfx_controller == null:
 		return
@@ -196,14 +195,9 @@ func play_feral_reinforcement_vfx(source: MinionInstance, _imp_card: CardData) -
 	if ui_root == null:
 		return
 
-	_scene._on_play_vfx_active = true
 	var vfx := FeralReinforcementVFX.create(slot, enemy_panel, ui_root, _scene)
-	var scene := _scene
-	vfx.finished.connect(func() -> void:
-		# Setter auto-emits on_play_vfx_done when count hits zero.
-		scene._on_play_vfx_active = false,
-		CONNECT_ONE_SHOT)
 	vfx_controller.spawn(vfx)
+	await vfx.finished
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Rune placement — generic VFX shared by every rune (player + enemy)
@@ -246,7 +240,6 @@ func play_rune_placement_vfx(trap: TrapCardData, owner: String) -> void:
 	var art: Texture2D = null
 	if trap.battlefield_art_path != "" and ResourceLoader.exists(trap.battlefield_art_path):
 		art = load(trap.battlefield_art_path)
-	_scene._on_play_vfx_active = true
 	var vfx := RunePlacementVFX.create(panel, trap.rune_glow_color, art)
 	var scene := _scene
 	var captured_owner := owner
@@ -254,9 +247,7 @@ func play_rune_placement_vfx(trap: TrapCardData, owner: String) -> void:
 	vfx.finished.connect(func() -> void:
 		var trap_env = scene.trap_env_display
 		if trap_env != null:
-			trap_env.reveal_slot_after_placement(captured_owner, captured_idx)
-		# Setter auto-emits on_play_vfx_done when count hits zero.
-		scene._on_play_vfx_active = false,
+			trap_env.reveal_slot_after_placement(captured_owner, captured_idx),
 		CONNECT_ONE_SHOT)
 	vfx_controller.spawn(vfx)
 	await vfx.finished
@@ -306,12 +297,6 @@ func play_brood_call_vfx(owner: String) -> void:
 	if target_slot == null:
 		return
 	var vfx := SummonSigilVFX.create(target_slot, SummonSigilVFX.Flavor.BROOD)
-	_scene._on_play_vfx_active = true
-	var scene := _scene
-	vfx.finished.connect(func() -> void:
-		# Setter auto-emits on_play_vfx_done when count hits zero.
-		scene._on_play_vfx_active = false,
-		CONNECT_ONE_SHOT)
 	vfx_controller.spawn(vfx)
 	await vfx.finished
 
@@ -419,8 +404,6 @@ func play_ritual_sacrifice_sequence(imp: MinionInstance,
 	if _scene == null or vfx_controller == null or imp == null or not is_instance_valid(imp):
 		return
 
-	# Block enemy AI / player input while the ritual plays out.
-	_scene._on_play_vfx_active = true
 	var scene := _scene
 
 	# ── Step 1: the imp's SacrificeVFX (dagger, sigil, drain, shatter) ─────
@@ -431,7 +414,6 @@ func play_ritual_sacrifice_sequence(imp: MinionInstance,
 			+ SacrificeVFX.DRAIN_DURATION + SacrificeVFX.SHATTER_DURATION
 	await scene.get_tree().create_timer(sacrifice_total).timeout
 	if not is_inside_tree() or not is_instance_valid(scene):
-		_clear_play_gate(scene)
 		return
 
 	# ── Step 2-4: Rune shine + travel + merge, then projectiles + beam ─────
@@ -464,10 +446,8 @@ func play_ritual_sacrifice_sequence(imp: MinionInstance,
 	await ritual_vfx.finished
 	while not tail_done_ref[0]:
 		if not is_inside_tree() or not is_instance_valid(scene):
-			_clear_play_gate(scene)
 			return
 		await scene.get_tree().create_timer(0.05).timeout
-	_clear_play_gate(scene)
 
 
 ## Fire the Demon Ascendant tail (presentation): 2 RitualProjectiles to the
@@ -595,12 +575,6 @@ func _load_battlefield_art(trap: TrapCardData) -> Texture2D:
 		return null
 	return load(trap.battlefield_art_path) as Texture2D
 
-func _clear_play_gate(scene: Node) -> void:
-	if scene != null and is_instance_valid(scene):
-		# Setter is ref-counted and auto-emits on_play_vfx_done when count
-		# hits zero — this releases the orchestrator's hold without clobbering
-		# any other concurrent gate-holders.
-		scene._on_play_vfx_active = false
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Champion summon entrance — banner + screen shake + gold flash + ripple
@@ -914,18 +888,11 @@ func fire_enemy_void_bolt_projectile(source_minion: MinionInstance = null) -> Vo
 ## caller (do not read slot.global_position here — slot may have just been
 ## reparented and layout recalculation is deferred).
 ##
-## Ticks scene's `_active_death_anims` counter and emits `death_anims_done`
-## when it drains to zero so end-turn / champion auto-summons can wait for
-## kills to finish animating.
+## Awaitable — the presenter plays one death at a time.
 func animate_minion_death(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
 	if _scene == null:
 		return
-	_scene._active_death_anims += 1
 	await _animate_minion_death_body(slot, pos, dead_minion)
-	_scene._active_death_anims -= 1
-	if _scene._active_death_anims <= 0:
-		_scene._active_death_anims = 0
-		_scene.death_anims_done.emit()
 
 func _animate_minion_death_body(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
 	if _scene == null:
@@ -1161,7 +1128,6 @@ func show_enemy_summon_reveal(card: CardData) -> void:
 	var ui_root: Node = _scene.get_node("UI")
 	if ui_root == null:
 		return
-	_scene._enemy_summon_reveal_active = true
 	var visual: CardVisual = preload("res://combat/ui/CardVisual.tscn").instantiate()
 	visual.apply_size_mode("combat_preview")
 	visual.mouse_filter  = Control.MOUSE_FILTER_IGNORE
@@ -1183,24 +1149,17 @@ func show_enemy_summon_reveal(card: CardData) -> void:
 	await t1.finished
 	if not is_inside_tree():
 		visual.queue_free()
-		_scene._enemy_summon_reveal_active = false
-		_scene.enemy_summon_reveal_done.emit()
 		return
 
 	await get_tree().create_timer(0.9).timeout
 	if not is_inside_tree():
 		visual.queue_free()
-		_scene._enemy_summon_reveal_active = false
-		_scene.enemy_summon_reveal_done.emit()
 		return
 
 	var t2 := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	t2.tween_property(visual, "modulate:a", 0.0, 0.22)
 	await t2.finished
 	visual.queue_free()
-	_scene._enemy_summon_reveal_active = false
-	# Do NOT emit enemy_summon_reveal_done here — scene's _enemy_summon_reveal_then_land
-	# emits it after the slot reveal so the AI never acts before the minion lands.
 
 ## Shared tail of every sigil-style summon: unfreeze the slot, fade the
 ## minion in, log, fire ON_*_MINION_SUMMONED. Pulled out so the three

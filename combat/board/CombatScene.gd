@@ -101,66 +101,6 @@ var restart_button: Button
 var combat_log := CombatLog.new()
 # _large_preview moved into LargePreview.gd (large_preview.visual)
 
-## True while an enemy summon card reveal is on screen — EnemyAI waits on this before its next action.
-var _enemy_summon_reveal_active: bool = false
-signal enemy_summon_reveal_done()
-
-## True while an enemy spell cast animation + VFX is on screen — EnemyAI waits on this before its next action
-## so consecutive enemy spells don't overlap their VFX.
-var _enemy_spell_cast_active: bool = false
-signal enemy_spell_cast_done()
-
-## True while a minion on-play VFX is playing (e.g. Frenzied Imp's hurl). EnemyAI
-## and consecutive actions await on_play_vfx_done before continuing so the full
-## visual plays out before the next card/attack.
-##
-## Ref-counted via _play_vfx_gate_count — direct writes to _on_play_vfx_active
-## are still supported for legacy callers, but they MUST set true→false in
-## pairs (one acquire, one release) or the count will drift out of sync. New
-## callers should prefer acquire_play_vfx_gate / release_play_vfx_gate so
-## overlapping VFX (BuffApplyVFX during a ritual orchestrator etc.) don't
-## clobber each other's gate state — release ONLY emits on_play_vfx_done
-## when the count drops to zero.
-var _play_vfx_gate_count: int = 0
-var _on_play_vfx_active: bool:
-	get: return _play_vfx_gate_count > 0
-	set(v):
-		# Bool-style writes are mapped to acquire/release so legacy sites
-		# keep working without code changes. true means "another gate-holder
-		# arrived"; false means "one holder finished". Multiple true writes
-		# stack like nested locks; multiple false writes drain the count.
-		if v:
-			_play_vfx_gate_count += 1
-		elif _play_vfx_gate_count > 0:
-			_play_vfx_gate_count -= 1
-			if _play_vfx_gate_count == 0:
-				on_play_vfx_done.emit()
-signal on_play_vfx_done()
-
-## Public acquire/release for new callers — explicit pair instead of relying
-## on the bool setter mapping. Symmetric: every acquire MUST be paired with
-## a release, even on early-exit paths.
-func acquire_play_vfx_gate() -> void:
-	_play_vfx_gate_count += 1
-
-func release_play_vfx_gate() -> void:
-	if _play_vfx_gate_count > 0:
-		_play_vfx_gate_count -= 1
-		if _play_vfx_gate_count == 0:
-			on_play_vfx_done.emit()
-
-## Count of death animations currently playing (_animate_minion_death in-flight).
-## EnemyAI and champion auto-summons await death_anims_done when this is > 0 so
-## player can parse what just died before the next action.
-var _active_death_anims: int = 0
-signal death_anims_done()
-
-## Generic gate registry for NEW VFX categories. The four signals/flags above
-## predate this and are awaited externally (EnemyAI). For any new gating need,
-## call `vfx_gate.begin("name")` / `end("name")` — `_do_end_turn` already
-## drains the gate so no edits to the await loop are required.
-var vfx_gate: VfxGate = VfxGate.new()
-
 ## Re-entrancy guard for _do_end_turn — set true while we're awaiting in-flight
 ## VFX and tearing down the turn. Prevents a second click from queuing another
 ## end_player_turn() while the first is still in progress.
@@ -1103,7 +1043,7 @@ func _on_enemy_slot_clicked(slot: BoardSlot, minion: MinionInstance) -> void:
 ## Player plays go through the engine commands (plan 3.4): the engine validates,
 ## pays and resolves; the presenter plays the journal. A refusal leaves the
 ## card in hand.
-func _try_play_spell(spell: SpellCardData) -> void:
+func _command_play_spell(spell: SpellCardData) -> void:
 	var inst: CardInstance = pending_play_card
 	pending_play_card = null
 	if hand_display:
@@ -1131,7 +1071,7 @@ func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void
 	if not r.ok:
 		_log("  %s: %s." % [spell.card_name, r.reason], _LogType.PLAYER)
 
-func _try_play_trap(trap: TrapCardData) -> void:
+func _command_play_trap(trap: TrapCardData) -> void:
 	var inst: CardInstance = pending_play_card
 	pending_play_card = null
 	if hand_display:
@@ -1145,7 +1085,7 @@ func _try_play_trap(trap: TrapCardData) -> void:
 		else:
 			_log("  %s: %s." % [trap.card_name, r.reason], _LogType.PLAYER)
 
-func _try_play_environment(env: EnvironmentCardData) -> void:
+func _command_play_environment(env: EnvironmentCardData) -> void:
 	var inst: CardInstance = pending_play_card
 	pending_play_card = null
 	if hand_display:
@@ -1158,7 +1098,7 @@ func _try_play_environment(env: EnvironmentCardData) -> void:
 
 ## Minion play with the card flight: the hand visual is popped and handed to
 ## the presenter, which flies it to the slot at MINION_PLAYED playback.
-func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
+func _command_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
 	if inst == null or slot == null:
 		return
 	var plan: Dictionary = state.plan_cost("player", inst, {})
@@ -1640,8 +1580,6 @@ func _flush_buff_requests() -> void:
 			"atk_before": atk_before, "hp_before": hp_before, "atk_d": atk_d, "hp_d": hp_d})
 	if to_spawn.is_empty():
 		return
-	# AI gating — block enemy AI until the LAST VFX in this batch finishes.
-	_on_play_vfx_active = true
 	_active_buff_vfx_count = to_spawn.size()
 	for s in to_spawn:
 		var prelude: Callable   = BuffVfxRegistry.build_prelude(s["src"], s["slot"], s["atk_d"], s["hp_d"])
@@ -1651,8 +1589,8 @@ func _flush_buff_requests() -> void:
 		vfx.finished.connect(_on_buff_vfx_finished, CONNECT_ONE_SHOT)
 		vfx_controller.spawn(vfx)
 
-## Called when each BuffApplyVFX completes. Releases the AI gate when the
-## last one in the batch finishes.
+## Called when each BuffApplyVFX completes; the presenter awaits
+## buff_vfx_batch_done when the last one in the batch finishes.
 var _active_buff_vfx_count: int = 0
 
 func _on_buff_vfx_finished() -> void:
@@ -1660,10 +1598,6 @@ func _on_buff_vfx_finished() -> void:
 	if _active_buff_vfx_count <= 0:
 		_active_buff_vfx_count = 0
 		buff_vfx_batch_done.emit()
-		# Setter handles the on_play_vfx_done emit when count hits zero — avoids
-		# clobbering an outer gate-holder (e.g. ritual_sacrifice orchestrator)
-		# that's still in flight while this BuffApplyVFX batch finishes.
-		_on_play_vfx_active = false
 
 ## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
 ## procedural chevron to the right of it, both timed to coincide with the chain
@@ -1777,7 +1711,7 @@ func _play_champion_acp_aura_pulse() -> void:
 
 func _play_corruption_detonations(targets: Array) -> void:
 	if vfx_bridge != null:
-		vfx_bridge.play_corruption_detonations(targets)
+		await vfx_bridge.play_corruption_detonations(targets)
 
 func _play_feral_reinforcement_vfx(source: MinionInstance, imp_card: CardData) -> void:
 	if vfx_bridge != null:
@@ -2586,43 +2520,6 @@ func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 	return state._runes_satisfy(runes, required)
 
 
-## Yield until the rune-placement chain (centered card preview → placement
-## VFX) has finished. Player rune placement queues a card preview tween via
-## _show_card_cast_anim BEFORE firing ON_RUNE_PLACED, then the preview's
-## tail callback spawns the actual RunePlacementVFX. So when _fire_ritual is
-## entered the placement VFX hasn't even been instantiated yet — the gate
-## (`_on_play_vfx_active`) is still false because RunePlacementVFX is the
-## one that sets it.
-##
-## Strategy: poll for the gate to flip ON within a reasonable window
-## (covers the ~1.07s card preview tween), then wait for it to flip off.
-## Times out if the gate never came on (e.g. ritual fired by some other
-## non-placement path), so we never deadlock.
-const _RITUAL_PLACEMENT_WAIT_TIMEOUT_SEC: float = 1.6  # > card preview (1.07s)
-
-func _wait_for_rune_placement_vfx() -> void:
-	# Phase 1: poll for the gate to come on (placement VFX has spawned and
-	# acquired _on_play_vfx_active = true). Bail after the timeout — if no
-	# placement is in flight, there's nothing to wait for.
-	var elapsed: float = 0.0
-	while not _on_play_vfx_active and elapsed < _RITUAL_PLACEMENT_WAIT_TIMEOUT_SEC:
-		await get_tree().process_frame
-		if not is_inside_tree():
-			return
-		elapsed += get_process_delta_time()
-
-	# Phase 2: gate is on (or timed out). If it's on, wait for the release.
-	# Loop in case multiple VFX are queued back-to-back.
-	while _on_play_vfx_active:
-		await on_play_vfx_done
-		if not is_inside_tree():
-			return
-
-
-
-
-
-
 ## Presenter hook — CombatState._fire_ritual, called before the runes are
 ## consumed: snapshot the rune panels + art now; the presenter runs the merge
 ## VFX on them at RITUAL_FIRED playback.
@@ -2657,20 +2554,15 @@ func _capture_ritual_visual(ritual: RitualData) -> Dictionary:
 		arts.append(art)
 	return {"slots": slots, "colors": colors, "arts": arts}
 
-## Play the generic RitualFiringVFX on a captured rune set. Waits for the
-## rune-placement chain first (ON_RUNE_PLACED fires synchronously inside the
-## trap play while the rune's RunePlacementVFX is still deferred) so the player
-## sees: place rune → halo lands → THEN the ritual ignites. Gates combat flow
-## while the merge plays out.
+## Play the generic RitualFiringVFX on a captured rune set (awaitable). The
+## presenter plays RUNE_PLACED (the halo) before RITUAL_FIRED, so the player
+## sees: place rune → halo lands → THEN the ritual ignites.
 func _run_ritual_visual(capture: Dictionary) -> void:
-	await _wait_for_rune_placement_vfx()
 	if not is_inside_tree() or vfx_controller == null:
 		return
 	var vfx := RitualFiringVFX.create(capture["slots"], capture["colors"], capture["arts"])
-	_on_play_vfx_active = true
 	vfx_controller.spawn(vfx)
 	await vfx.finished
-	_on_play_vfx_active = false
 	# Stop all glow tweens after consumption — prevents stale glow on repurposed slots
 	if trap_env_display != null:
 		for i in trap_slot_panels.size():
@@ -3209,11 +3101,8 @@ func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstanc
 	var source_pos: Vector2 = source_slot.get_global_rect().get_center()
 	var target_pos: Vector2 = target_slot.get_global_rect().get_center()
 	var vfx := FrenziedImpHurlVFX.create(source_pos, target_pos, feral_count, target_slot, target_slot)
-	_on_play_vfx_active = true
 	vfx_controller.spawn(vfx)
 	await vfx.finished
-	# Setter auto-emits on_play_vfx_done when count hits zero.
-	_on_play_vfx_active = false
 
 
 ## Death animation system delegated to vfx_bridge. Scene keeps thin wrappers

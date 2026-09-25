@@ -334,9 +334,7 @@ func _play_detonations(first: CombatEvent) -> void:
 			_consume(ev)
 		elif ev.kind != CombatEvent.Kind.LOG:
 			break
-	scene._play_corruption_detonations(targets)
-	if scene._on_play_vfx_active:
-		await scene.on_play_vfx_done
+	await scene._play_corruption_detonations(targets)
 
 
 ## Projectile to the hero; the hero's damage event (which follows) shows at impact.
@@ -367,9 +365,7 @@ func _play_trap_placed(ev: CombatEvent) -> void:
 	if not is_enemy:
 		await _cast_anim(trap, false)
 	if trap.is_rune and scene.vfx_bridge != null and is_inside_tree():
-		scene.vfx_bridge.play_rune_placement_vfx(trap, ev.side)
-		if scene._on_play_vfx_active:
-			await scene.on_play_vfx_done
+		await scene.vfx_bridge.play_rune_placement_vfx(trap, ev.side)
 
 
 ## Cast animation, then the spell's VFX; the spell's damage / corruption /

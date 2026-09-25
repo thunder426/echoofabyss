@@ -17,8 +17,7 @@
 ##                        when the phase ends, killing any tweens parented
 ##                        to it and leaving the card stuck on screen.
 ##
-## Spawn via VfxController.spawn(); blocking via _on_play_vfx_active gate
-## handled by the caller (CombatVFXBridge).
+## Spawn via VfxController.spawn(); the caller awaits `finished`.
 class_name FeralReinforcementVFX
 extends BaseVfx
 

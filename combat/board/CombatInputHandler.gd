@@ -88,9 +88,9 @@ func on_hand_card_selected(inst: CardInstance) -> void:
 	if inst.card_data is SpellCardData:
 		begin_spell_select(inst.card_data as SpellCardData)
 	elif inst.card_data is TrapCardData:
-		_scene._try_play_trap(inst.card_data as TrapCardData)
+		_scene._command_play_trap(inst.card_data as TrapCardData)
 	elif inst.card_data is EnvironmentCardData:
-		_scene._try_play_environment(inst.card_data as EnvironmentCardData)
+		_scene._command_play_environment(inst.card_data as EnvironmentCardData)
 	elif inst.card_data is MinionCardData:
 		begin_minion_select(inst.card_data as MinionCardData)
 
@@ -187,7 +187,7 @@ func begin_spell_select(spell: SpellCardData) -> void:
 		start_pip_blink_for_card(spell)  # ensure blink runs even if card wasn't hovered
 		_scene._highlight_spell_targets(spell)
 	else:
-		_scene._try_play_spell(spell)
+		_scene._command_play_spell(spell)
 
 ## Handle a minion card being selected from hand. Affordability + board-space
 ## checks, then highlight valid placement / target slots.
@@ -279,7 +279,7 @@ func on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 		_scene._awaiting_minion_target = false
 		_scene._hide_target_prompt()
 		_scene._clear_all_highlights()
-		_scene._try_play_minion_animated(inst_to_play, slot, on_play_target)
+		_scene._command_play_minion(inst_to_play, slot, on_play_target)
 
 ## Click on an occupied player slot. Resolves Seris Corrupt-Flesh targeting,
 ## targeted spell on a friendly minion, targeted minion-on-play, or attacker
