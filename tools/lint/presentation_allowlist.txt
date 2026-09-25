@@ -34,7 +34,10 @@ _play_feral_reinforcement_vfx
 _play_frenzied_imp_vfx
 _play_grafted_butcher_vfx
 _play_pack_frenzy_vfx
-_play_ritual_sacrifice_sequence
+_play_ritual_sacrifice_sequence   # presentation of the resolved enemy ritual
+_prepare_token_reveal             # CombatState._spawn_token_into_slot: freeze the node before an entrance animation
+_play_token_summon                # CombatState._spawn_token_into_slot: champion banner / sigil / plain show
+_on_ritual_firing                 # CombatState._fire_ritual: rune merge VFX (captured before consumption)
 _spawn_atk_chevron
 _spawn_pack_chain_vfx_for_new_imp
 _spawn_pack_instinct_buff_vfx     # holds the ATK label at the pre-buff value, then pulses
@@ -62,11 +65,5 @@ _refresh_hand_spell_costs
 hand_display
 vfx_controller
 # Animation gates awaited by async rules code (deleted in Phase 3.3)
-is_inside_tree
-death_anims_done
-_active_death_anims
 
 [facade]
-_fire_ritual                      # awaits rune-placement + ritual VFX before resolving
-_summon_token                     # sigil summon animation
-_summon_token_at_slot             # sigil summon animation

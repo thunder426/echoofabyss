@@ -648,7 +648,6 @@ func _ready() -> void:
 	# Register VFX-rich _summon_token so EffectResolver SUMMON steps fired
 	# through state-created EffectContexts route into scene (sigils, champion
 	# entrance, etc.). Sim leaves this unset → state's pure logic path runs.
-	state._summon_delegate = _summon_token
 	targeting = Targeting.new(self)
 	large_preview = LargePreview.new(self)
 	counter_warning = CounterWarning.new(self)
@@ -1971,30 +1970,19 @@ func _play_feral_reinforcement_vfx(source: MinionInstance, imp_card: CardData) -
 	if vfx_bridge != null:
 		await vfx_bridge.play_feral_reinforcement_vfx(source, imp_card)
 
-## Run the full Void Ritualist ritual_sacrifice sequence. CombatHandlers calls
-## this when scene-side VFX are available (live combat). The sim runs the
-## immediate-state path inline since it has no bridge.
+## Presenter hook — the Void Ritualist ritual_sacrifice sequence, presentation
+## only: the handler has already killed the imp, consumed the runes, dealt the
+## damage and summoned the demon (+ champion). Fire-and-forget.
 func _play_ritual_sacrifice_sequence(imp: MinionInstance,
 		blood_trap: TrapCardData, dominion_trap: TrapCardData,
 		blood_panel: Control, dominion_panel: Control,
-		targets: Array, damage: int,
-		summon_first_champion: bool,
-		on_kill_imp: Callable, on_remove_runes: Callable) -> void:
+		targets: Array, damage: int, demon: MinionInstance) -> void:
 	if vfx_bridge == null:
 		return
-	await vfx_bridge.play_ritual_sacrifice_sequence(imp,
+	vfx_bridge.play_ritual_sacrifice_sequence(imp,
 			blood_trap, dominion_trap, blood_panel, dominion_panel,
-			targets, damage, summon_first_champion,
-			on_kill_imp, on_remove_runes)
+			targets, damage, demon)
 
-## Champion summon entry point used by the ritual_sacrifice sequence — delegates
-## to the existing handler so champion progress + reveal + summon all run as
-## the original code path expected.
-func _on_ritual_sacrifice_summon_champion() -> void:
-	if _handlers == null:
-		return
-	if _handlers.has_method("on_ritual_sacrifice_champion_vr"):
-		_handlers.on_ritual_sacrifice_champion_vr()
 
 ## Return a random Corrupted enemy minion, or null if none exist.
 func _find_random_corrupted_enemy() -> MinionInstance:
@@ -2022,20 +2010,6 @@ func _peek_fiendish_pact_discount(mc: MinionCardData) -> int:
 func _friendly_slots(owner: String) -> Array:
 	return state._friendly_slots(owner)
 
-## Pick up to `count` DISTINCT random minions from `board` and return them
-## as a target-list shape Array[Dictionary{kind: "minion", minion: ...}]
-## ready to feed the ritual projectile bridge. Always picks distinct minions
-## (shuffle + slice). If `board` has fewer than `count` minions, returns
-## fewer entries — callers are expected to handle that. No hero fallback;
-## that decision belongs to the caller.
-func _pick_random_minions(board: Array, count: int) -> Array:
-	var pool: Array = board.duplicate()
-	state.rng_shuffle(pool)
-	var picks: int = mini(count, pool.size())
-	var out: Array = []
-	for i in picks:
-		out.append({"kind": "minion", "minion": pool[i]})
-	return out
 
 ## Return a random Corrupted minion from the given board array, or null if none exist.
 func _find_random_corrupted_minion(board: Array[MinionInstance]) -> MinionInstance:
@@ -2059,71 +2033,8 @@ func _find_random_corrupted_minion(board: Array[MinionInstance]) -> MinionInstan
 func _on_friendly_minion_died(_dead_minion: MinionInstance) -> void:
 	pass  # Handled by ON_PLAYER_MINION_DIED event handlers
 
-## Generic token summon used by EffectResolver. Summons card_id into the first empty slot for owner.
-## token_atk / token_hp / token_shield override the template defaults when non-zero.
-func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	for slot: SlotState in state._friendly_slots(owner):
-		if slot.is_empty():
-			_spawn_token_into_slot_vfx(card_id, owner, slot, token_atk, token_hp, token_shield)
-			return
 
-## Slot-pinned variant for adjacent-to-target summon steps (e.g. Rally the Ranks).
-## Silently fizzles if the slot is null, off-board, or already occupied — that's
-## the "up to 2" semantics. Mirrors CombatState._summon_token_at_slot but routes
-## through the VFX-rich spawn path so champion/sigil token animations still play.
-func _summon_token_at_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	if slot == null or not slot.is_empty():
-		return
-	_spawn_token_into_slot_vfx(card_id, owner, slot, token_atk, token_hp, token_shield)
 
-## Shared VFX-rich core: card lookup + stat overrides + place + emit + trigger fire,
-## with sigil/champion animations dispatched via CardVfxRegistry. Called by both
-## _summon_token (first-empty slot) and _summon_token_at_slot (caller-chosen slot).
-## Combat-time `_card_for` lookup so clan rules / overrides apply (Imp Vessel
-## on-death imps, Ritual Surge imps, Soul Forge Forged Demons land with talent
-## baselines instead of base stats).
-func _spawn_token_into_slot_vfx(card_id: String, owner: String, sslot: SlotState, token_atk: int, token_hp: int, token_shield: int) -> void:
-	var data := _card_for(owner, card_id) as MinionCardData
-	if data == null:
-		return
-	var slot: BoardSlot = slot_node(owner, sslot.index)
-	var board  := player_board if owner == "player" else enemy_board
-	var instance := MinionInstance.create(data, owner)
-	if token_atk    > 0:
-		instance.current_atk  = token_atk
-		instance.spawn_atk    = token_atk
-	if token_hp     > 0:
-		instance.current_health = token_hp
-		instance.spawn_health   = token_hp
-	if token_shield > 0:
-		instance.current_shield = token_shield
-		BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token", false, false)
-	board.append(instance)
-	# Engine occupancy at once; the node stays frozen on its empty look until
-	# the entrance animation (champion banner / sigil) reveals it.
-	if slot != null:
-		slot.freeze_visuals = true
-	sslot.place(instance)
-	state.minion_summoned.emit(owner, instance, sslot.index)
-	# Champion tokens get a dramatic entrance (fire-and-forget — reveals the minion after the banner)
-	if data.is_champion and vfx_bridge != null and slot != null:
-		vfx_bridge.champion_summon_sequence(data, instance, slot)
-		return
-	# Token-VFX dispatch lives in CardVfxRegistry. When a registered handler runs
-	# (sigil summons for spark/demon/brood_imp), the bridge reveals the minion AND
-	# fires ON_*_MINION_SUMMONED via _reveal_after_sigil — so we short-circuit
-	# the default path.
-	if slot != null and CardVfxRegistry.try_play_token_summon(vfx_bridge, card_id, instance, data, slot, owner):
-		return
-	if slot != null:
-		slot.freeze_visuals = false
-		slot.show_minion(instance)
-	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
-	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
-	var ctx   := EventContext.make(event, owner)
-	ctx.minion = instance
-	ctx.card   = data
-	trigger_manager.fire(ctx)
 
 ## Aura-source minions play a one-shot breathing halo on their own summon to
 ## advertise "I project an aura" without the noise of a persistent effect.
@@ -2160,11 +2071,11 @@ func _apply_test_config() -> void:
 
 	# Pre-summon player board minions
 	for id in TestConfig.player_board_cards:
-		_summon_token(id, "player")
+		state._summon_token(id, "player")
 
 	# Pre-summon enemy board minions
 	for id in TestConfig.enemy_board_cards:
-		_summon_token(id, "enemy")
+		state._summon_token(id, "enemy")
 
 	# Pre-place player traps
 	for id in TestConfig.player_traps:
@@ -2408,7 +2319,7 @@ func _pulse_lifedrain_icon(minion: MinionInstance) -> void:
 ## Summon a Void Spark Spirit token with the given ATK/HP into the first empty player slot.
 ## Used by Soul Rune aura (stats scale with rune stacks).
 func _summon_soul_rune_spirit(atk: int, hp: int) -> void:
-	_summon_token("void_spark", "player", atk, hp)
+	state._summon_token("void_spark", "player", atk, hp)
 
 ## True if at least one Imp Overseer is currently on the given owner's board.
 func _has_imp_overseer_on_board(owner: String = "player") -> bool:
@@ -3138,35 +3049,6 @@ func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 	return state._runes_satisfy(runes, required)
 
-## Delegated to CombatState — rune consumption + effect resolution. Scene
-## handles UI cleanup (rune-glow tweens) since traps_changed signal subscribers
-## don't know about glow state.
-##
-## Live combat plays the generic RitualFiringVFX before the state mutation so
-## the player sees the same "runes shine, lift off, spiral to center, merge"
-## beat the enemy ritual_sacrifice gets. The Demon Ascendant ritual gets a
-## fully custom flow (projectiles + summon beam) instead of falling through
-## to the generic EffectResolver path. Sim has no scene_facade and never
-## reaches this wrapper (handlers call state._fire_ritual via the facade
-## fallback), so sim retains the immediate-state path unchanged.
-func _fire_ritual(ritual: RitualData) -> void:
-	# ON_RUNE_PLACED fires synchronously inside _try_play_trap, but the rune's
-	# own RunePlacementVFX is deferred via _show_card_cast_anim's callback —
-	# so when this function is entered, the placement VFX hasn't started yet
-	# (or has just barely begun). Wait for it to complete before kicking off
-	# the ritual merge VFX so the player sees: place rune → halo lands → THEN
-	# ritual ignites, instead of the two animations overlapping.
-	await _wait_for_rune_placement_vfx()
-
-	if _is_demon_ascendant_ritual(ritual):
-		await _fire_demon_ascendant_player_ritual(ritual)
-	else:
-		await _play_player_ritual_vfx(ritual)
-		state._fire_ritual(ritual)
-	# Stop all glow tweens after consumption — prevents stale glow on repurposed slots
-	if trap_env_display != null:
-		for i in trap_slot_panels.size():
-			trap_env_display.stop_rune_glow(i)
 
 ## Yield until the rune-placement chain (centered card preview → placement
 ## VFX) has finished. Player rune placement queues a card preview tween via
@@ -3200,138 +3082,61 @@ func _wait_for_rune_placement_vfx() -> void:
 		if not is_inside_tree():
 			return
 
-## Recognise the Demon Ascendant ritual by name + required runes. Match by
-## name first (cheap), fall back to the rune set so a renamed ritual with
-## the same components still gets the projectile treatment.
-func _is_demon_ascendant_ritual(ritual: RitualData) -> bool:
-	if ritual == null:
-		return false
-	if ritual.ritual_name == "Demon Ascendant":
-		return true
-	var has_blood := false
-	var has_dominion := false
-	for r in ritual.required_runes:
-		if r == Enums.RuneType.BLOOD_RUNE:
-			has_blood = true
-		elif r == Enums.RuneType.DOMINION_RUNE:
-			has_dominion = true
-	return has_blood and has_dominion and ritual.required_runes.size() == 2
 
-## Player-side Demon Ascendant flow:
-##   1. Play RitualFiringVFX on the consumed runes.
-##   2. Remove the runes from active_traps + unregister auras (port from
-##      state._fire_ritual so live can run a custom step list afterwards).
-##   3. Pre-pick 2 random damage targets — random rolls happen here so the
-##      bridge tail just consumes the picks.
-##   4. Bridge fires 2 RitualProjectiles at targets + 1 beam at the player's
-##      empty slot. Damage applies on projectile impact, demon spawns at
-##      beam impact via summon_demon_with_sigil → VoidDemonSparkBurstVFX,
-##      and the tail awaits the FULL summon chain (sigil + burst + reveal)
-##      so the gate stays held until the demon has actually landed.
-##   5. Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge etc.)
-##      still respond.
-##
-## The whole flow holds _on_play_vfx_active for the entire duration so AI
-## and player actions can't slip in between the merge, tail, and demon
-## summon. _play_player_ritual_vfx normally toggles the gate itself; we
-## skip that by leaving the gate held externally and only releasing it
-## once everything (including ON_RITUAL_FIRED handlers) has run.
-func _fire_demon_ascendant_player_ritual(ritual: RitualData) -> void:
-	# Hold the gate continuously across the entire ritual. _play_player_ritual_vfx
-	# acquires/releases its own ref-counted gate, so this outer hold keeps the
-	# count >= 1 across the merge VFX and onward to the projectile/summon tail.
-	_on_play_vfx_active = true
 
-	# 1. Generic merge VFX. Inner acquire/release composes with the outer hold —
-	#    do NOT re-assert true after the await: the setter is ref-counted, and
-	#    every acquire must be matched by exactly one release.
-	await _play_player_ritual_vfx(ritual)
-	if not is_inside_tree():
-		_on_play_vfx_active = false
+
+## Presenter hook — CombatState._spawn_token_into_slot, before the slot is
+## taken: freeze the node on its empty look when an entrance animation
+## (champion banner / sigil) will reveal it.
+func _prepare_token_reveal(_instance: MinionInstance, data: MinionCardData, owner: String, slot_index: int) -> void:
+	var node: BoardSlot = slot_node(owner, slot_index)
+	if node == null or vfx_bridge == null:
 		return
+	if data.is_champion or CardVfxRegistry.has_token_summon(data.id):
+		node.freeze_visuals = true
 
-	# 2. Remove the consumed runes from data (mirrors state._fire_ritual's
-	#    consumption loop). We re-pick indices fresh because the player may
-	#    have placed/removed traps during the VFX await window.
+## Presenter hook — CombatState._spawn_token_into_slot, after the summon
+## triggers: champion banner, sigil reveal, or a plain show.
+func _play_token_summon(instance: MinionInstance, data: MinionCardData, slot_index: int) -> void:
+	var node: BoardSlot = slot_node(instance.owner, slot_index)
+	if node == null:
+		return
+	if vfx_bridge != null and data.is_champion:
+		vfx_bridge.champion_summon_sequence(data, instance, node)
+		return
+	if CardVfxRegistry.try_play_token_summon(vfx_bridge, data.id, instance, data, node, instance.owner):
+		return
+	node.freeze_visuals = false
+	node.show_minion(instance)
+
+## Presenter hook — CombatState._fire_ritual, called before the runes are
+## consumed: snapshot the rune panels + art now, then (after the rune-placement
+## VFX that may still be playing) run the merge VFX on them. Fire-and-forget.
+func _on_ritual_firing(ritual: RitualData) -> void:
+	var capture: Dictionary = _capture_ritual_visual(ritual)
+	if capture.is_empty():
+		return
+	_run_ritual_visual(capture)
+
+## Identify which player rune slots `ritual` consumes (mirroring
+## CombatState._fire_ritual's exact-then-wildcard pick order) and snapshot their
+## panels, glow colours and art. Empty when the VFX can't be anchored (no
+## bridge, panels not resolved, malformed ritual).
+func _capture_ritual_visual(ritual: RitualData) -> Dictionary:
+	if vfx_bridge == null or vfx_controller == null or ritual == null or trap_slot_panels.is_empty():
+		return {}
 	var consumed_indices: Array[int] = _pick_player_ritual_rune_indices(ritual)
 	if consumed_indices.size() < 2:
-		# Couldn't satisfy the ritual any more — bail without applying effects.
-		# Setter auto-emits on_play_vfx_done when count hits zero.
-		_on_play_vfx_active = false
-		return
-	consumed_indices.sort()
-	consumed_indices.reverse()
-	for i in consumed_indices:
-		var trap := active_traps[i] as TrapCardData
-		state._remove_rune_aura(trap)
-		active_traps.remove_at(i)
-	state.traps_changed.emit("player")
-	state._log("★ RITUAL — %s!" % ritual.ritual_name, 1)
-
-	# 3. Pre-pick up to 2 DISTINCT random enemy minions. Spec: "200 damage to
-	#    2 random enemy minions" — minions only (no hero fallback), and no
-	#    double-hit on the same minion. If the enemy board has 0 minions the
-	#    ritual lands no damage; with 1 minion it fires a single projectile.
-	var damage_targets: Array = _pick_random_minions(enemy_board, 2)
-
-	# 4. Projectile + beam tail. play_demon_ascendant_tail_for awaits the
-	#    full demon summon chain (sigil → spark burst → reveal trigger) so
-	#    the AI/player gate stays valid through every visual beat.
-	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var origin: Vector2 = vp_size * 0.5
-	if vfx_bridge != null:
-		await vfx_bridge.play_demon_ascendant_tail_for("player", origin, damage_targets, 200)
-	else:
-		# No bridge — apply damage + summon directly so gameplay still resolves.
-		for t in damage_targets:
-			var info := CombatManager.make_damage_info(200, Enums.DamageSource.SPELL,
-					Enums.DamageSchool.NONE, null, "ritual_sacrifice")
-			var kind: String = t.get("kind", "") as String
-			if kind == "hero":
-				combat_manager.apply_hero_damage("enemy", info)
-			elif kind == "minion":
-				var m: MinionInstance = t.get("minion") as MinionInstance
-				if m != null and is_instance_valid(m):
-					combat_manager.apply_damage_to_minion(m, info)
-		_summon_token("void_demon", "player", 500, 500)
-
-	# 5. Fire ON_RITUAL_FIRED so other handlers (ritual_surge, etc.) react.
-	#    Run this BEFORE clearing the gate so any reactive VFX those handlers
-	#    spawn don't race with the AI.
-	if trigger_manager != null:
-		var fired_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_FIRED, "player")
-		trigger_manager.fire(fired_ctx)
-
-	# Release the gate now that every visual + state change has resolved.
-	# Setter auto-emits on_play_vfx_done when count hits zero.
-	_on_play_vfx_active = false
-
-## Identify which player rune slots will be consumed by `ritual` (mirroring
-## CombatState._fire_ritual's exact-then-wildcard pick order) and play the
-## generic RitualFiringVFX on them. Returns when the VFX finishes so the
-## state mutation that follows lines up with the merge beat.
-##
-## Bails quietly if vfx_bridge is null (test harnesses without VFX), the trap
-## panels haven't been resolved yet, or the picked indices don't fit cleanly
-## (e.g. malformed ritual). In any of those cases the caller proceeds directly
-## to state._fire_ritual.
-func _play_player_ritual_vfx(ritual: RitualData) -> void:
-	if vfx_bridge == null or ritual == null:
-		return
-	if trap_slot_panels.is_empty():
-		return
-	var consumed_indices: Array[int] = _pick_player_ritual_rune_indices(ritual)
-	if consumed_indices.size() < 2:
-		return
+		return {}
 	var slots: Array = []
 	var colors: Array = []
 	var arts: Array = []
 	for i in consumed_indices:
 		if i < 0 or i >= trap_slot_panels.size() or i >= active_traps.size():
-			return
+			return {}
 		var panel: Panel = trap_slot_panels[i] as Panel
 		if panel == null or not panel.is_inside_tree():
-			return
+			return {}
 		var trap: TrapCardData = active_traps[i] as TrapCardData
 		slots.append(panel)
 		colors.append(trap.rune_glow_color)
@@ -3339,17 +3144,26 @@ func _play_player_ritual_vfx(ritual: RitualData) -> void:
 		if trap.battlefield_art_path != "" and ResourceLoader.exists(trap.battlefield_art_path):
 			art = load(trap.battlefield_art_path)
 		arts.append(art)
-	if vfx_controller == null:
+	return {"slots": slots, "colors": colors, "arts": arts}
+
+## Play the generic RitualFiringVFX on a captured rune set. Waits for the
+## rune-placement chain first (ON_RUNE_PLACED fires synchronously inside the
+## trap play while the rune's RunePlacementVFX is still deferred) so the player
+## sees: place rune → halo lands → THEN the ritual ignites. Gates combat flow
+## while the merge plays out.
+func _run_ritual_visual(capture: Dictionary) -> void:
+	await _wait_for_rune_placement_vfx()
+	if not is_inside_tree() or vfx_controller == null:
 		return
-	var vfx := RitualFiringVFX.create(slots, colors, arts)
-	# Gate combat flow so trigger fan-out / enemy AI / spell chains pause while
-	# the merge plays out — same pattern as other awaited scene VFX. Setter
-	# is ref-counted so this composes safely if a parent flow already holds
-	# the gate (e.g. _fire_demon_ascendant_player_ritual).
+	var vfx := RitualFiringVFX.create(capture["slots"], capture["colors"], capture["arts"])
 	_on_play_vfx_active = true
 	vfx_controller.spawn(vfx)
 	await vfx.finished
 	_on_play_vfx_active = false
+	# Stop all glow tweens after consumption — prevents stale glow on repurposed slots
+	if trap_env_display != null:
+		for i in trap_slot_panels.size():
+			trap_env_display.stop_rune_glow(i)
 
 ## Mirror of CombatState._fire_ritual's rune-pick algorithm — returns the
 ## indices into `active_traps` that will be consumed, in pick order. Kept
@@ -3984,7 +3798,9 @@ func _on_slot_changed(side: String, index: int) -> void:
 		if not node.freeze_visuals:
 			node.show_empty()
 		return
+	var was_frozen: bool = node.freeze_visuals
 	_flush_deferred_death_for(node)
+	node.freeze_visuals = was_frozen
 	node.show_minion(m)
 
 func _flush_deferred_death_for(node: BoardSlot) -> void:

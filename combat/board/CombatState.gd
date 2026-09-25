@@ -570,58 +570,34 @@ func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 		return
 	_hardcoded.resolve(id, ctx)
 
-## Optional VFX-aware summon delegate. Live combat assigns scene's VFX-rich
-## `_summon_token` here in CombatScene._ready so EffectResolver SUMMON steps
-## fired through state-created EffectContexts (e.g. cast_player_targeted_spell
-## resolving a spell with effect_steps that include SUMMON) still get the
-## proper sigil/champion VFX. Sim leaves it unset and falls through to pure
-## logic in `_summon_token` below.
-var _summon_delegate: Callable = Callable()
-
-## Generic token summon used by EffectResolver SUMMON steps and by sim profiles.
-## Routes through `_summon_delegate` when set (live combat with VFX); otherwise
-## runs the pure-logic path (sim, headless tests).
-func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	if _summon_delegate.is_valid():
-		_summon_delegate.call(card_id, owner, token_atk, token_hp, token_shield)
-		return
-	_summon_token_pure(card_id, owner, token_atk, token_hp, token_shield)
-
-## Pure-logic summon: find an empty slot, then delegate to _spawn_token_into_slot
-## for the actual placement + trigger fire. Sim calls this directly via inheritance;
-## live combat reaches it only when scene's VFX-rich `_summon_token` is unavailable.
-func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	var slots := player_slots if owner == "player" else enemy_slots
-	var slot: SlotState = null
-	for s in slots:
+## Generic token summon used by EffectResolver SUMMON steps, handlers, relics
+## and sim profiles: the first empty slot of `owner`. Returns the instance, or
+## null when the board is full or the card is unknown. One body for both
+## shells (plan 3.0); the presenter hooks in _spawn_token_into_slot play the
+## entrance animation.
+func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> MinionInstance:
+	for s: SlotState in _friendly_slots(owner):
 		if s.is_empty():
-			slot = s
-			break
-	if slot == null:
-		return  # board full
-	_spawn_token_into_slot(card_id, owner, slot, token_atk, token_hp, token_shield)
+			return _spawn_token_into_slot(card_id, owner, s, token_atk, token_hp, token_shield)
+	return null
 
 ## Slot-pinned variant: summon into a specific slot (e.g. Rally the Ranks's
-## adjacent-to-target placement). Silently fizzles if the slot is null, off-board,
-## or already occupied — that's the "up to 2" semantics the caller relies on.
-## Mirrors _summon_token_pure's pure-logic path; live combat overrides this via
-## CombatScene._summon_token_at_slot for VFX.
-func _summon_token_at_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+## adjacent-to-target placement). Silently fizzles (returns null) if the slot
+## is null, off-board, or already occupied — the "up to 2" semantics.
+func _summon_token_at_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> MinionInstance:
 	if slot == null or not slot.is_empty():
-		return
-	_spawn_token_into_slot(card_id, owner, slot, token_atk, token_hp, token_shield)
+		return null
+	return _spawn_token_into_slot(card_id, owner, slot, token_atk, token_hp, token_shield)
 
 ## Shared core: card lookup + stat overrides + place + emit + trigger fire.
-## Pure logic — no VFX or async. Called by both _summon_token_pure (first-empty
-## slot) and _summon_token_at_slot (specific slot). CombatScene's VFX-rich
-## variants do their own placement to drive sigil animations but follow the
-## same trigger contract.
-func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	# Combat-time lookup so clan rules / overrides apply to tokens summoned
-	# mid-fight in sim. Mirrors CombatScene._summon_token's _card_for migration.
+## Synchronous on both shells. The presenter freezes the slot node before the
+## placement when an entrance animation will reveal it (`_prepare_token_reveal`)
+## and plays that animation after the triggers (`_play_token_summon`).
+func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> MinionInstance:
+	# Combat-time lookup so clan rules / overrides apply to tokens summoned mid-fight.
 	var base := _card_for(owner, card_id)
 	if base == null or not (base is MinionCardData):
-		return
+		return null
 	var board := player_board if owner == "player" else enemy_board
 	var mc := (base as MinionCardData).duplicate() as MinionCardData
 	if token_atk > 0:    mc.atk        = token_atk
@@ -629,8 +605,11 @@ func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, tok
 	if token_shield > 0: mc.shield_max = token_shield
 	var instance := MinionInstance.create(mc, owner)
 	board.append(instance)
+	if presenter != null:
+		presenter._prepare_token_reveal(instance, mc, owner, slot.index)
 	slot.place(instance)
 	minion_summoned.emit(owner, instance, slot.index)
+	_log("  %s summoned!" % mc.card_name, 1)  # PLAYER
 	if trigger_manager != null:
 		var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" \
 			else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
@@ -638,6 +617,9 @@ func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, tok
 		ctx.minion = instance
 		ctx.card   = mc
 		trigger_manager.fire(ctx)
+	if presenter != null:
+		presenter._play_token_summon(instance, mc, slot.index)
+	return instance
 
 ## Apply spell damage to a single minion target. Adds _player_spell_damage_bonus
 ## (Void Amplification — scaled per friendly Demon Corruption stack at cast
@@ -868,6 +850,10 @@ func _is_minion_summoned_trigger(trigger: int) -> bool:
 ## instance is consumed at most once (tracked by index, removed in reverse).
 ## Emits `traps_changed` for "player" so live UI refreshes the slot panel.
 func _fire_ritual(ritual: RitualData) -> void:
+	# The presenter snapshots the rune panels now (before consumption) and
+	# plays the merge VFX fire-and-forget (plan 3.0).
+	if presenter != null:
+		presenter._on_ritual_firing(ritual)
 	_player_ritual_count += 1
 	var consumed_indices: Array[int] = []
 	for req in ritual.required_runes:

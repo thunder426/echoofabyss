@@ -177,7 +177,7 @@ func on_summon_swarm_discipline(ctx: EventContext) -> void:
 	_log("  Swarm Discipline: %s +100 HP (passive)." % ctx.card.card_name, _LOG_PLAYER)
 
 func on_ritual_fired_ritual_surge(_ctx: EventContext) -> void:
-	_scene._summon_token("void_imp", "player")
+	state._summon_token("void_imp", "player")
 	_log("  Ritual Surge: Void Imp summoned!", _LOG_PLAYER)
 
 ## piercing_void retag retired — Void Imp's on_play_effect_steps now declares
@@ -695,12 +695,12 @@ func on_player_minion_died_rune_warden(_ctx: EventContext) -> void:
 func on_grand_ritual(ritual: RitualData) -> void:
 	var runes: Array = state.active_traps.filter(func(t: TrapCardData): return t.is_rune)
 	if state._runes_satisfy(runes, ritual.required_runes):
-		_scene._fire_ritual(ritual)
+		state._fire_ritual(ritual)
 
 func on_env_ritual(ritual: RitualData) -> void:
 	var runes: Array = state.active_traps.filter(func(t: TrapCardData): return t.is_rune)
 	if state._runes_satisfy(runes, ritual.required_runes):
-		_scene._fire_ritual(ritual)
+		state._fire_ritual(ritual)
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_MINION_DIED
@@ -726,7 +726,7 @@ func _resolve_on_death(minion: MinionInstance) -> void:
 	for eff: Dictionary in minion.granted_on_death_effects:
 		var summon_id: String = eff.get("summon_id", "")
 		if not summon_id.is_empty():
-			_scene._summon_token(summon_id, minion.owner, 0, 0)
+			state._summon_token(summon_id, minion.owner, 0, 0)
 			_log("  %s dies — summons a %s." % [minion.card_data.card_name, summon_id], _LOG_ENEMY if minion.owner == "enemy" else _LOG_PLAYER)
 
 ## Shared handler — fires the killer's on_kill_effect_steps (declarative primitive on
@@ -1221,11 +1221,8 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 ## consume both runes + the feral imp, deal 200 damage to 2 random player targets,
 ## Special Summon a 500/500 Demon on the enemy board.
 ##
-## Live combat: delegates to the bridge orchestrator which plays the full
-## SacrificeVFX → rune-shine-and-merge → projectiles + beam → demon → champion
-## sequence with state changes synced to the visual beats.
-##
-## Sim: bridge isn't available, so the immediate-state path runs inline (no VFX).
+## Resolves inline on both shells (plan 3.0); live then plays the SacrificeVFX →
+## rune-shine-and-merge → projectiles + beam sequence as presentation.
 func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not _has_tag(minion, "feral_imp"):
@@ -1261,9 +1258,6 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	for i in damage_picks:
 		damage_targets.append({"kind": "minion", "minion": damage_pool[i]})
 
-	# Whether champion_void_ritualist will summon on this trigger (first ritual only).
-	var summon_first_champion: bool = not bool(state._champion_vr_summoned)
-
 	# Resolve trap panels for the ritual VFX (live only; sim has no panels).
 	var blood_panel: Control = null
 	var dominion_panel: Control = null
@@ -1274,54 +1268,28 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 		if dominion_idx >= 0 and dominion_idx < panels.size():
 			dominion_panel = panels[dominion_idx] as Control
 
-	# State-change callbacks — split so the imp dies during SacrificeVFX while
-	# the runes stay on their panels until they visually fly out during the
-	# RitualFiringVFX merge. Sim runs both back-to-back as before.
-	var st: CombatState = state
+	# Everything mutates inline (plan 3.0); the presenter then plays the
+	# sacrifice → rune merge → projectiles → beam sequence as presentation.
 	var imp := minion
-	var card_name: String = minion.card_data.card_name
-
-	var on_kill_imp := func() -> void:
-		# Consume the feral imp that triggered this. Runs early so the imp
-		# leaves the slot during SacrificeVFX's dagger beat, matching the
-		# visual death.
-		st.combat_manager.kill_minion(imp)
-		st._ritual_sacrifice_count += 1
-		st._ritual_invoke_times += 1
-		_log("  Ritual Sacrifice: runes consumed + %s sacrificed — Demon Ascendant!" % card_name, _LOG_ENEMY)
-
-	var on_remove_runes := func() -> void:
-		# Remove runes — unregister auras then erase (higher index first to
-		# preserve positions). enemy_traps was captured above but its size
-		# could have changed if other handlers fired in between; re-index by
-		# trap reference for safety. Runs after RitualFiringVFX completes,
-		# so the panels visually empty when the runes are already gone.
-		var live_traps: Array[TrapCardData] = st.enemy_active_traps
-		var b_idx: int = live_traps.find(blood_trap)
-		var d_idx: int = live_traps.find(dominion_trap)
-		if b_idx == -1 or d_idx == -1:
-			return
+	SacrificeSystem.emit(imp, "ritual_sacrifice")  # VFX bus: snapshot the imp's slot before the kill
+	state.combat_manager.kill_minion(imp)
+	state._ritual_sacrifice_count += 1
+	state._ritual_invoke_times += 1
+	_log("  Ritual Sacrifice: runes consumed + %s sacrificed — Demon Ascendant!" % minion.card_data.card_name, _LOG_ENEMY)
+	# Remove the runes — unregister auras then erase (higher index first so the
+	# lower index stays valid). Re-index by reference: other handlers may have
+	# changed enemy_traps since the snapshot above.
+	var live_traps: Array[TrapCardData] = state.enemy_active_traps
+	var b_idx: int = live_traps.find(blood_trap)
+	var d_idx: int = live_traps.find(dominion_trap)
+	if b_idx != -1 and d_idx != -1:
 		var hi: int = maxi(b_idx, d_idx)
 		var lo: int = mini(b_idx, d_idx)
-		st._remove_rune_aura(live_traps[hi] as TrapCardData, "enemy")
-		st._remove_rune_aura(live_traps[lo] as TrapCardData, "enemy")
+		state._remove_rune_aura(live_traps[hi] as TrapCardData, "enemy")
+		state._remove_rune_aura(live_traps[lo] as TrapCardData, "enemy")
 		live_traps.remove_at(hi)
 		live_traps.remove_at(lo)
-		st._update_enemy_trap_display()
-
-	# Live path — full VFX sequence with synced state changes.
-	if presenter != null and blood_panel != null and dominion_panel != null:
-		await presenter._play_ritual_sacrifice_sequence(
-				imp, blood_trap, dominion_trap,
-				blood_panel, dominion_panel,
-				damage_targets, 200,
-				summon_first_champion,
-				on_kill_imp, on_remove_runes)
-		return
-
-	# Sim / fallback path — run state changes + damage + summon + champion immediately.
-	on_kill_imp.call()
-	on_remove_runes.call()
+		state._update_enemy_trap_display()
 	for t in damage_targets:
 		var info := CombatManager.make_damage_info(200, Enums.DamageSource.SPELL,
 				Enums.DamageSchool.NONE, null, "ritual_sacrifice")
@@ -1333,9 +1301,12 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 			if m != null and is_instance_valid(m):
 				state.combat_manager.apply_damage_to_minion(m, info)
 	# Special Summon a 500/500 Demon
-	_scene._summon_token("void_demon", "enemy", 500, 500)
+	var demon: MinionInstance = state._summon_token("void_demon", "enemy", 500, 500)
 	# Trigger Void Ritualist champion on first ritual
 	on_ritual_sacrifice_champion_vr()
+	if presenter != null and blood_panel != null and dominion_panel != null:
+		presenter._play_ritual_sacrifice_sequence(imp, blood_trap, dominion_trap,
+				blood_panel, dominion_panel, damage_targets, 200, demon)
 
 ## Void Unraveling — encounter 6 (Corrupted Handler)
 ## When a human is summoned: summon a 100/100 Void Spark on the enemy board.
@@ -1346,7 +1317,7 @@ func on_enemy_summon_void_unraveling_human(ctx: EventContext) -> void:
 	if not (minion.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 		return
 	state._spark_spawned_count += 1
-	_scene._summon_token("void_spark", "enemy", 100, 100)
+	state._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Void Unraveling: %s summoned → a Void Spark arises!" % minion.card_data.card_name, _LOG_ENEMY)
 
 ## When a feral imp is summoned: consume 1 friendly Void Spark, grant +100/+100 to the imp.
@@ -1413,7 +1384,7 @@ func _transfer_to_player_board(m: MinionInstance) -> bool:
 func on_enemy_turn_void_rift(_ctx: EventContext) -> void:
 	if _champion_vh_is_alive():
 		return  # Void Herald aura suppresses spark generation
-	_scene._summon_token("void_spark", "enemy", 100, 100)
+	state._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Void Rift: a Void Spark materialises on the enemy board.", _LOG_ENEMY)
 
 ## Void Empowerment (Rift Stalker): all enemy Void Sparks enter as 200/200.
@@ -1677,7 +1648,7 @@ func on_spark_consumed_spirit_resonance(ctx: EventContext) -> void:
 		return
 	if not minion.has_critical_strike():
 		return
-	_scene._summon_token("void_spark", "enemy", 100, 100)
+	state._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Spirit Resonance: crit-Spirit consumed — a Void Spark manifests!", _LOG_ENEMY)
 
 func on_spark_consumed_champion_vw(ctx: EventContext) -> void:
@@ -1997,7 +1968,7 @@ func on_enemy_summon_spirit_conscription(ctx: EventContext) -> void:
 	if state._spirit_conscription_fired:
 		return
 	state._spirit_conscription_fired = true
-	_scene._summon_token("void_spark", "enemy", 100, 100)
+	state._summon_token("void_spark", "enemy", 100, 100)
 	_log("  Spirit Conscription: a Void Spark joins the enemy ranks.", _LOG_ENEMY)
 
 ## captain_orders (Fight 12 — Void Captain):
@@ -2146,7 +2117,7 @@ func on_enemy_died_champion_cb(ctx: EventContext) -> void:
 		return
 	# Champion died — summon void_touched_imp + deal 20% max HP
 	if minion.card_data.id == "champion_corrupted_broodlings":
-		_scene._summon_token("void_touched_imp", "enemy", 200, 300)
+		state._summon_token("void_touched_imp", "enemy", 200, 300)
 		_log("  Corrupted Broodlings champion falls — a Void-Touched Imp rises!", _LOG_ENEMY)
 		_on_enemy_champion_killed()
 		return
@@ -2323,9 +2294,8 @@ func _show_champion_progress(current: int, total: int) -> void:
 		presenter._update_champion_progress(current, total)
 
 func _summon_enemy_champion(card_id: String) -> void:
-	# Mark the champion summoned BEFORE any await — a second qualifying event
-	# during the death-anim wait (e.g. an AoE killing several minions) must see
-	# the flag and not queue a second champion.
+	# Mark the champion summoned first — a second qualifying event inside the
+	# summon (e.g. an AoE killing several minions) must see the flag.
 	var st: CombatState = state
 	match card_id:
 		"champion_rogue_imp_pack":       st._champion_rip_summoned = true
@@ -2344,14 +2314,7 @@ func _summon_enemy_champion(card_id: String) -> void:
 		"champion_void_champion":        st._champion_vch_summoned = true
 		"champion_abyss_sovereign":      st._champion_as_summoned = true
 	st._champion_summon_count += 1
-	# If a minion death animation is in flight (e.g. this summon was triggered by
-	# the 3rd enemy death), wait for it to finish so the champion banner doesn't
-	# overlap the on-death VFX of the minion that triggered it.
-	if presenter != null and presenter._active_death_anims > 0:
-		await presenter.death_anims_done
-		if not presenter.is_inside_tree():
-			return
-	_scene._summon_token(card_id, "enemy")
+	state._summon_token(card_id, "enemy")
 	_log("  ★ %s champion has arrived!" % CardDatabase.get_card(card_id).card_name, _LOG_ENEMY)
 	# Apply aura immediately for Rogue Imp Pack
 	if card_id == "champion_rogue_imp_pack":

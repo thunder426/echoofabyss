@@ -94,7 +94,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					var sl: SlotState = s as SlotState
 					if sl == null or not sl.is_empty():
 						continue
-					ctx.scene._summon_token_at_slot(step.card_id, ctx.owner, sl, step.token_atk, step.token_hp, step.token_shield)
+					ctx.state._summon_token_at_slot(step.card_id, ctx.owner, sl, step.token_atk, step.token_hp, step.token_shield)
 				return
 			if step.adjacent_to_target:
 				# Slot-pinned summon — pick the slot adjacent to ctx.chosen_target on
@@ -115,9 +115,9 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				if target_index < 0 or target_index >= slots.size():
 					return
 				var slot: SlotState = slots[target_index]
-				ctx.scene._summon_token_at_slot(step.card_id, ctx.owner, slot, step.token_atk, step.token_hp, step.token_shield)
+				ctx.state._summon_token_at_slot(step.card_id, ctx.owner, slot, step.token_atk, step.token_hp, step.token_shield)
 			else:
-				ctx.scene._summon_token(step.card_id, ctx.owner, step.token_atk, step.token_hp, step.token_shield)
+				ctx.state._summon_token(step.card_id, ctx.owner, step.token_atk, step.token_hp, step.token_shield)
 			return
 
 		EffectStep.EffectType.GRANT_MANA:

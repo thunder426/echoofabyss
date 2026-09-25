@@ -41,6 +41,11 @@ static func play_summon_aura_pulse(controller: VfxController, card: CardData, sl
 ## handler took over (bridge will place the minion + fire ON_*_MINION_SUMMONED
 ## itself via _reveal_after_sigil); false to fall through to the default
 ## "show_minion + fire trigger" path in the caller.
+## True when try_play_token_summon has an entrance animation for `card_id`
+## (the presenter freezes the slot node until that animation reveals it).
+static func has_token_summon(card_id: String) -> bool:
+	return card_id in ["void_spark", "void_demon", "brood_imp"]
+
 static func try_play_token_summon(vfx_bridge: CombatVFXBridge, card_id: String,
 		instance: MinionInstance, data: MinionCardData, slot: BoardSlot, owner: String) -> bool:
 	if vfx_bridge == null:

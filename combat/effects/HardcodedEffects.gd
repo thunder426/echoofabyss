@@ -251,7 +251,7 @@ func _soul_rune_death(ctx: EffectContext) -> void:
 		return
 	state._soul_rune_fires_this_turn = fires + 1
 	var mult: int = state._rune_aura_multiplier()
-	_scene._summon_token("void_spark", ctx.owner, 100 * mult, 100 * mult)
+	state._summon_token("void_spark", ctx.owner, 100 * mult, 100 * mult)
 	_log("  Soul Rune: Demon died — %d/%d Spirit summoned." % [100 * mult, 100 * mult], _LOG_TRAP)
 
 # ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@ func _brood_call(ctx: EffectContext) -> void:
 	# Play portal VFX fully before summoning (live scene only — sim skips).
 	if presenter != null:
 		await presenter._play_brood_call_vfx(ctx.owner)
-	_scene._summon_token(pick, ctx.owner)
+	state._summon_token(pick, ctx.owner)
 	_log("  Brood Call: summoned %s." % pick, _log_side(ctx.owner))
 
 func _pack_frenzy(ctx: EffectContext) -> void:
