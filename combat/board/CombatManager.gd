@@ -81,6 +81,7 @@ var last_post_armour_damage: int = 0
 func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -> void:
 	if scene != null:
 		state._last_attacker = attacker
+		state.emit_event(CombatEvent.Kind.ATTACK_STARTED, attacker.owner, {attacker = attacker, target = defender})
 	# Korrath — two-phase attack trigger. PRE fires before damage resolves so
 	# handlers that need to mutate the strike (corrupting_strike adds Corruption
 	# pre-hit, runeforge_strike places a rune) run in time. POST fires after the
@@ -162,6 +163,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) -> void:
 	if scene != null:
 		state._last_attacker = attacker
+		state.emit_event(CombatEvent.Kind.ATTACK_STARTED, attacker.owner, {attacker = attacker, target = "%s_hero" % target_owner})
 	# Korrath — same two-phase attack trigger as minion-vs-minion. Defender is a
 	# string sentinel ("enemy_hero" / "player_hero") so handlers branch on type.
 	var defender_sentinel := "%s_hero" % target_owner
@@ -265,6 +267,8 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 	if not _school_bypasses_armour(school):
 		damage = _apply_armour_math(minion, damage)
 	last_post_armour_damage = damage
+	var hp_before: int = minion.current_health
+	var shield_before: int = minion.current_shield
 	# Shield absorbs damage before HP
 	if minion.current_shield > 0:
 		var absorbed := mini(damage, minion.current_shield)
@@ -272,6 +276,13 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 		damage -= absorbed
 	if damage > 0:
 		minion.current_health -= damage
+	if scene != null:
+		state.emit_event(CombatEvent.Kind.DAMAGE_DEALT, minion.owner, {kind = "minion", minion = minion,
+				amount = last_post_armour_damage, absorbed = shield_before - minion.current_shield,
+				hp_before = hp_before, hp_after = minion.current_health, school = school,
+				source = info.get("source", Enums.DamageSource.SPELL), source_minion = info.get("attacker", null),
+				source_card = str(info.get("source_card", "")), is_crit = state._last_attack_was_crit})
+	if damage > 0:
 		if minion.current_health <= 0:
 			if minion.has_deathless():
 				BuffSystem.remove_type(minion, Enums.BuffType.GRANT_DEATHLESS)
@@ -404,6 +415,8 @@ func _siphon_self_heal(attacker: MinionInstance, damage_dealt: int) -> void:
 	var before := attacker.current_health
 	attacker.current_health = mini(attacker.current_health + heal, hp_cap)
 	var healed := attacker.current_health - before
+	if healed > 0 and scene != null:
+		state.emit_event(CombatEvent.Kind.MINION_HEALED, attacker.owner, {minion = attacker, amount = healed, hp_before = before, hp_after = attacker.current_health, siphon = true})
 	if healed > 0 and presenter != null:
 		presenter._on_minion_siphon_healed(attacker, healed)
 

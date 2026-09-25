@@ -96,6 +96,17 @@ signal minion_died(side: String, minion: MinionInstance, slot_index: int)
 ## tools/lint/presentation_allowlist.txt ([presenter]) and checked by lint L3.
 var presenter: Object = null
 
+## Ordered journal of gameplay events (plan 3.1). Every mutation appends one
+## through emit_event; the presenter (3.2) drains it one event at a time and
+## plays one animation per event against a lagging ViewState. Sim ignores it.
+var journal: Array[CombatEvent] = []
+
+func emit_event(kind: int, side: String, payload: Dictionary = {}) -> CombatEvent:
+	var ev := CombatEvent.make(kind, side, turn_number, payload)
+	ev.seq = journal.size()
+	journal.append(ev)
+	return ev
+
 ## Self-alias so `<shell>.state` works on every shell — CombatScene composes a
 ## CombatState, SimState and bare test states are one.
 var state: CombatState:
@@ -117,6 +128,7 @@ func _get_scene_facade() -> Object:
 ## sim has no subscriber so this is a no-op there.
 func _log(msg: String, log_type: int = 1) -> void:  # default = CombatLog.LogType.PLAYER
 	combat_log.emit(msg, log_type)
+	emit_event(CombatEvent.Kind.LOG, "", {msg = msg, log_type = log_type})
 
 ## Refresh a minion's slot visual. Handlers and effects call
 ## `ctx.scene._refresh_slot_for(m)`; the scene's facade calls this method,
@@ -125,6 +137,7 @@ func _log(msg: String, log_type: int = 1) -> void:  # default = CombatLog.LogTyp
 func _refresh_slot_for(minion: MinionInstance) -> void:
 	if minion != null:
 		minion_stats_changed.emit(minion)
+		emit_event(CombatEvent.Kind.MINION_STATS_CHANGED, minion.owner, {minion = minion, atk = minion.effective_atk(), hp = minion.current_health, shield = minion.current_shield})
 
 ## Trap/rune display refresh hook for a specific side ("player"/"enemy").
 ## Scene's `_update_trap_display_for(owner)` facade delegates here; subscribers
@@ -132,14 +145,15 @@ func _refresh_slot_for(minion: MinionInstance) -> void:
 ## (replaces the old SimState pass-stub).
 func _update_trap_display_for(owner: String) -> void:
 	traps_changed.emit(owner)
+	emit_event(CombatEvent.Kind.TRAPS_CHANGED, owner, {traps = traps_of(owner).duplicate()})
 
 ## Convenience: refresh the player-side trap display.
 func _update_trap_display() -> void:
-	traps_changed.emit("player")
+	_update_trap_display_for("player")
 
 ## Convenience: refresh the enemy-side trap display.
 func _update_enemy_trap_display() -> void:
-	traps_changed.emit("enemy")
+	_update_trap_display_for("enemy")
 
 ## Environment-card display refresh hook. Subscribers re-render the env panel.
 func _update_environment_display() -> void:
@@ -298,6 +312,7 @@ func add_hero_armour(side: String, amount: int) -> void:
 	var hero: HeroState = player_hero if side == "player" else enemy_hero
 	hero.add_armour(amount)
 	hero_armour_changed.emit(side, hero.armour)
+	emit_event(CombatEvent.Kind.ARMOUR_CHANGED, side, {value = hero.armour})
 
 ## Korrath — apply a buff/debuff entry to a hero. Wraps BuffSystem.apply (which
 ## duck-types on `buffs`) and emits hero_buff_changed so the panel-badge UI can
@@ -309,6 +324,7 @@ func apply_hero_buff(side: String, type: int, amount: int,
 	var hero: HeroState = player_hero if side == "player" else enemy_hero
 	BuffSystem.apply(hero, type, amount, source, is_temp, emit_vfx)
 	hero_buff_changed.emit(side)
+	emit_event(CombatEvent.Kind.HERO_BUFF_CHANGED, side, {})
 
 ## Remove rune aura handlers, auto-strip source_tag buffs declared in aura_effect_steps,
 ## then run any bespoke aura_on_remove_steps. Symmetric across scene/sim.
@@ -521,6 +537,7 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 ## EnvironmentCardData for Cyclone), which goes to ctx.chosen_object.
 func cast_player_targeted_spell(spell: SpellCardData, target, extra_cast_data: Dictionary = {}) -> void:
 	var minion_target: MinionInstance = target if target is MinionInstance else null
+	emit_event(CombatEvent.Kind.SPELL_CAST, "player", {spell = spell, target = target})
 	_pre_player_spell_cast(spell)
 	if not spell.effect_steps.is_empty():
 		var ctx := EffectContext.make(_get_scene_facade(), "player")
@@ -534,6 +551,7 @@ func cast_player_targeted_spell(spell: SpellCardData, target, extra_cast_data: D
 	else:
 		_resolve_spell_effect(spell.effect_id, minion_target)
 	_post_player_spell_cast(spell, minion_target)
+	emit_event(CombatEvent.Kind.SPELL_RESOLVED, "player", {spell = spell})
 
 ## Compose a player hero-targeted spell cast (the spell hits the enemy hero
 ## directly). Bypasses EffectResolver: damage is summed from DAMAGE_MINION
@@ -541,6 +559,7 @@ func cast_player_targeted_spell(spell: SpellCardData, target, extra_cast_data: D
 ## The first contributing step's damage_school wins. _post_player_spell_cast
 ## still runs so Void Resonance recast applies.
 func cast_player_hero_spell(spell: SpellCardData) -> void:
+	emit_event(CombatEvent.Kind.SPELL_CAST, "player", {spell = spell, target = "enemy_hero"})
 	_pre_player_spell_cast(spell)
 	var base_dmg: int = 0
 	var school: int = Enums.DamageSchool.NONE
@@ -561,6 +580,7 @@ func cast_player_hero_spell(spell: SpellCardData) -> void:
 	combat_manager.apply_hero_damage("enemy",
 			CombatManager.make_damage_info(total, Enums.DamageSource.SPELL, school, null, spell.id))
 	_post_player_spell_cast(spell, null)
+	emit_event(CombatEvent.Kind.SPELL_RESOLVED, "player", {spell = spell})
 
 ## Entry point for EffectResolver HARDCODED steps — delegates to the
 ## HardcodedEffects resolver. Both scene and sim assign _hardcoded in their
@@ -609,6 +629,8 @@ func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, tok
 		presenter._prepare_token_reveal(instance, mc, owner, slot.index)
 	slot.place(instance)
 	minion_summoned.emit(owner, instance, slot.index)
+	emit_event(CombatEvent.Kind.CHAMPION_SUMMONED if mc.is_champion else CombatEvent.Kind.TOKEN_SUMMONED, owner,
+			{minion = instance, card = mc, slot = slot.index})
 	_log("  %s summoned!" % mc.card_name, 1)  # PLAYER
 	if trigger_manager != null:
 		var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" \
@@ -883,8 +905,9 @@ func _fire_ritual(ritual: RitualData) -> void:
 		var trap := active_traps[i] as TrapCardData
 		_remove_rune_aura(trap)
 		active_traps.remove_at(i)
-	traps_changed.emit("player")
+	_update_trap_display_for("player")
 	_log("★ RITUAL — %s!" % ritual.ritual_name, 1)  # PLAYER
+	emit_event(CombatEvent.Kind.RITUAL_FIRED, "player", {ritual = ritual, consumed = consumed_indices})
 	var ritual_ctx := EffectContext.make(_get_scene_facade(), "player")
 	EffectResolver.run(ritual.effect_steps, ritual_ctx)
 	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
@@ -933,6 +956,7 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 	if sac_slot != null:
 		sac_slot.clear()
 	_log("  %s was sacrificed" % minion.card_data.card_name, 6)  # DEATH
+	emit_event(CombatEvent.Kind.MINION_SACRIFICED, minion.owner, {minion = minion, slot = sac_index})
 	if presenter != null:
 		presenter._on_minion_vanished_visual(minion, sac_index)
 
@@ -967,6 +991,7 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 	var base_source: String = _pending_dmg_source
 	if base_source.is_empty():
 		base_source = "void_rune" if from_rune else "void_bolt_spell"
+	emit_event(CombatEvent.Kind.VOID_BOLT, "player", {amount = total, source_minion = source_minion, from_rune = from_rune})
 	_pending_dmg_source = base_source
 	# Split log: base damage + mark bonus separately (sim diagnostic; live combat ignores).
 	if dmg_log_enabled:
@@ -988,6 +1013,7 @@ func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstanc
 	if presenter != null:
 		presenter._fire_enemy_void_bolt_projectile(source_minion)
 	_log("  Void Bolt: %d damage." % base_damage, 2)  # ENEMY
+	emit_event(CombatEvent.Kind.VOID_BOLT, "enemy", {amount = base_damage, source_minion = source_minion, from_rune = false})
 	var base_source: String = _pending_dmg_source
 	if base_source.is_empty():
 		base_source = "enemy_void_bolt"
@@ -1050,6 +1076,7 @@ func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInsta
 			traps.erase(trap)
 			_update_trap_display_for(owner)
 		trap_fired.emit(owner, trap, slot_idx)
+		emit_event(CombatEvent.Kind.TRAP_FIRED, owner, {trap = trap, slot = slot_idx})
 		# Reveal first (fire-and-forget card animation), then resolve inline
 		# (plan 3.0 / B12: the effect lands on the event that sprang it).
 		if presenter != null:
@@ -1063,6 +1090,7 @@ func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInsta
 ## The trigger ON_ENEMY_SPELL_CAST fires before this method (Null Seal can
 ## cancel via _spell_cancelled; caller short-circuits in that case).
 func cast_enemy_spell(spell: SpellCardData, chosen, extra_cast_data: Dictionary = {}) -> void:
+	emit_event(CombatEvent.Kind.SPELL_CAST, "enemy", {spell = spell, target = chosen})
 	if not spell.effect_steps.is_empty():
 		var ectx := EffectContext.make(_get_scene_facade(), "enemy")
 		ectx.source_card_id = spell.id
@@ -1074,6 +1102,7 @@ func cast_enemy_spell(spell: SpellCardData, chosen, extra_cast_data: Dictionary 
 		EffectResolver.run(spell.effect_steps, ectx)
 	elif not spell.effect_id.is_empty():
 		_resolve_spell_effect(spell.effect_id, null, "enemy")
+	emit_event(CombatEvent.Kind.SPELL_RESOLVED, "enemy", {spell = spell})
 
 ## Seris — Corrupt Flesh core application. Pure logic shared by the scene
 ## (called from _seris_corrupt_apply_target after a valid click) and sim
@@ -1138,6 +1167,7 @@ func _corrupt_minion(target: MinionInstance) -> void:
 	if _corrupting_presence_active and target.owner == "enemy":
 		BuffSystem.apply(target, Enums.BuffType.ARMOUR_BREAK, 100, "corrupting_presence", false, false)
 	_refresh_slot_for(target)
+	emit_event(CombatEvent.Kind.CORRUPTION_APPLIED, target.owner, {minion = target, stacks = BuffSystem.count_type(target, Enums.BuffType.CORRUPTION)})
 	if presenter != null:
 		presenter._show_corruption_applied(target)
 
@@ -1168,6 +1198,7 @@ func _heal_minion(minion: MinionInstance, amount: int) -> void:
 		return
 	var log_type: int = 1 if minion.owner == "player" else 2  # PLAYER / ENEMY
 	_log("  %s healed for %d HP" % [minion.card_data.card_name, healed], log_type)
+	emit_event(CombatEvent.Kind.MINION_HEALED, minion.owner, {minion = minion, amount = healed, hp_before = before, hp_after = minion.current_health})
 	_refresh_slot_for(minion)
 
 ## Restore a minion to its effective max HP (base + HP_BONUS buffs). No-op if
@@ -1247,6 +1278,7 @@ var player_hp: int:
 		var delta := v - player_hero.hp
 		player_hero.hp = v
 		hp_changed.emit("player", v, player_hero.hp_max, delta)
+		emit_event(CombatEvent.Kind.HERO_HP_CHANGED, "player", {hp = v, hp_max = player_hero.hp_max, delta = delta})
 
 var enemy_hp: int:
 	get: return enemy_hero.hp
@@ -1256,6 +1288,7 @@ var enemy_hp: int:
 		var delta := v - enemy_hero.hp
 		enemy_hero.hp = v
 		hp_changed.emit("enemy", v, enemy_hero.hp_max, delta)
+		emit_event(CombatEvent.Kind.HERO_HP_CHANGED, "enemy", {hp = v, hp_max = enemy_hero.hp_max, delta = delta})
 
 ## Player hero max HP — set by CombatScene._ready from GameManager.player_hp_max
 ## (varies with hero/talents). Sim sets this directly via SimState.setup() and
@@ -1323,6 +1356,7 @@ func _alloc_slots() -> void:
 
 func _on_slot_state_changed(slot: SlotState) -> void:
 	slot_changed.emit(slot.side, slot.index)
+	emit_event(CombatEvent.Kind.SLOT_CHANGED, slot.side, {slot = slot.index, minion = slot.minion})
 
 ## The slot at `index` on `side`, or null when off-board.
 func slot_of(side: String, index: int) -> SlotState:
@@ -1429,6 +1463,7 @@ func set_environment(side: String, env: EnvironmentCardData) -> void:
 		active_environment = env
 	else:
 		enemy_active_environment = env
+	emit_event(CombatEvent.Kind.ENVIRONMENT_CHANGED, side, {env = env})
 
 func essence_of(side: String) -> int:
 	return player_essence if side == "player" else enemy_essence
@@ -1456,6 +1491,7 @@ func set_mana(side: String, v: int) -> void:
 
 func emit_resources(side: String) -> void:
 	resources_changed.emit(side, essence_of(side), essence_max_of(side), mana_of(side), mana_max_of(side))
+	emit_event(CombatEvent.Kind.RESOURCES_CHANGED, side, {essence = essence_of(side), essence_max = essence_max_of(side), mana = mana_of(side), mana_max = mana_max_of(side)})
 
 ## Start-of-turn refill to the maxima. Does not emit (the turn flow emits once
 ## after drawing).
@@ -1566,6 +1602,7 @@ func draw_cards(side: String, count: int = 1) -> void:
 				continue  # burned
 			player_hand.append(drawn)
 			card_drawn.emit("player", drawn)
+			emit_event(CombatEvent.Kind.CARD_DRAWN, "player", {inst = drawn})
 			_fire_card_drawn(drawn)
 		else:
 			if enemy_hand.size() >= HAND_MAX or enemy_deck.is_empty():
@@ -1576,6 +1613,7 @@ func draw_cards(side: String, count: int = 1) -> void:
 				enemy_deck.append(CardInstance.create(inst.card_data))
 				rng_shuffle(enemy_deck)
 			card_drawn.emit("enemy", inst)
+			emit_event(CombatEvent.Kind.CARD_DRAWN, "enemy", {inst = inst})
 
 ## Put a card straight into `side`'s hand (a CardData gets a fresh instance).
 ## Silently burned when the hand is full. Player side emits card_generated and
@@ -1587,6 +1625,7 @@ func add_to_hand(side: String, card: Variant) -> CardInstance:
 		return null
 	hand.append(inst)
 	card_generated.emit(side, inst)
+	emit_event(CombatEvent.Kind.CARD_GENERATED, side, {inst = inst})
 	if side == "player":
 		_fire_card_drawn(inst)
 	return inst
@@ -1632,6 +1671,7 @@ var enemy_void_marks: int:
 			return
 		_enemy_void_marks_value = v
 		void_marks_changed.emit("enemy", v)
+		emit_event(CombatEvent.Kind.VOID_MARKS_CHANGED, "enemy", {value = v})
 
 # ---------------------------------------------------------------------------
 # Talent / hero state
@@ -1662,6 +1702,7 @@ var player_flesh: int:
 			return
 		_player_flesh_value = v
 		flesh_changed.emit(v, player_flesh_max)
+		emit_event(CombatEvent.Kind.FLESH_CHANGED, "player", {value = v, max = player_flesh_max})
 var player_flesh_max: int = 5
 
 ## Seris — Fiendish Pact pending Essence discount. Set by the Fiendish Pact spell,
@@ -1684,6 +1725,7 @@ var forge_counter: int:
 			return
 		_forge_counter_value = v
 		forge_changed.emit(v, forge_counter_threshold)
+		emit_event(CombatEvent.Kind.FORGE_CHANGED, "player", {value = v, threshold = forge_counter_threshold})
 var forge_counter_threshold: int = 3
 
 ## Seris — Active spell-damage bonus during a player spell cast (sum of
@@ -1992,6 +2034,7 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 	if dead_slot != null:
 		dead_slot.clear()
 	minion_died.emit(minion.owner, minion, dead_index)
+	emit_event(CombatEvent.Kind.MINION_DIED, minion.owner, {minion = minion, slot = dead_index, attacker = _last_attacker})
 	_log("  %s died" % minion.card_data.card_name, 6)  # DEATH
 	# On-death effects resolve inline in the death trigger (D3); the presenter
 	# plays the death animation and on-death icon before what follows.
@@ -2022,6 +2065,7 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 	var school: int = info.get("school", Enums.DamageSchool.NONE)
 	var is_crit: bool = _last_attack_was_crit
 	var outcome: String = ""
+	var hp_before: int = player_hp if target == "player" else enemy_hp
 	if target == "player":
 		if _relic_hero_immune:
 			_log("  Bone Shield absorbs %d damage!" % amount, 1)  # PLAYER
@@ -2059,6 +2103,13 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			else:
 				outcome = "lethal"
 				winner = "player"
+	emit_event(CombatEvent.Kind.DAMAGE_DEALT, target, {kind = "hero", amount = amount, hp_before = hp_before,
+			hp_after = player_hp if target == "player" else enemy_hp, school = school, is_crit = is_crit,
+			source_minion = info.get("attacker", null), source_card = str(info.get("source_card", ""))})
+	if outcome == "transition":
+		emit_event(CombatEvent.Kind.PHASE_TRANSITION, "enemy", {})
+	elif outcome == "lethal":
+		emit_event(CombatEvent.Kind.COMBAT_ENDED, target, {winner = winner})
 	if presenter != null:
 		presenter._on_hero_damaged_visual(target, amount, school, is_crit, outcome)
 
@@ -2072,6 +2123,7 @@ func _on_hero_healed(target: String, amount: int) -> void:
 		_log("  Enemy heals %d HP  (HP: %d)" % [amount, enemy_hp], 2)  # ENEMY
 	else:
 		return
+	emit_event(CombatEvent.Kind.HERO_HEALED, target, {amount = amount, hp = player_hp if target == "player" else enemy_hp})
 	if presenter != null:
 		presenter._on_hero_healed_visual(target, amount)
 
@@ -2141,6 +2193,7 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 		player_board.append(instance)
 		slot.place(instance)
 		minion_summoned.emit("player", instance, slot.index)
+		emit_event(CombatEvent.Kind.CHAMPION_SUMMONED, "player", {minion = instance, card = card, slot = slot.index, from_hand = from_hand})
 		if from_hand:
 			remove_from_hand("player", inst)
 			if presenter != null:
@@ -2218,6 +2271,7 @@ func pay_sparks(side: String, cost: int) -> bool:
 					slot.clear()
 					break
 			_log("  %s consumed as spark fuel." % m.card_data.card_name)
+			emit_event(CombatEvent.Kind.MINION_CONSUMED, side, {minion = m})
 		if trigger_manager != null:
 			var event := Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED if side == "player" \
 				else Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED
@@ -2369,6 +2423,7 @@ func begin_turn(side: String) -> void:
 		trigger_manager.fire(EventContext.make(
 				Enums.TriggerEvent.ON_PLAYER_TURN_START if side == "player" else Enums.TriggerEvent.ON_ENEMY_TURN_START, side))
 	turn_started.emit(side, turn_number)
+	emit_event(CombatEvent.Kind.TURN_STARTED, side, {turn = turn_number})
 
 ## End `side`'s turn: ON_*_TURN_END, then (unless combat ended) clear that
 ## turn's spell tax and the opponent's trap block.
@@ -2384,6 +2439,7 @@ func end_turn(side: String) -> void:
 			enemy_spell_cost_penalty = 0
 			_player_traps_blocked = false
 	turn_ended.emit(side)
+	emit_event(CombatEvent.Kind.TURN_ENDED, side, {})
 
 ## Record the player's end-of-turn growth pick: applied at their next turn
 ## start (D10), but recorded as the latest choice now (F15 Abyssal Mandate reads
@@ -2481,6 +2537,7 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 			remove_from_hand(side, inst)
 			return CommandResult.accepted("board_full")
 	remove_from_hand(side, inst)
+	emit_event(CombatEvent.Kind.CARD_PLAYED, side, {inst = inst, card = mc})
 	_log(("You play: %s" if side == "player" else "Enemy summons: %s") % mc.card_name,
 			1 if side == "player" else 2)  # PLAYER / ENEMY
 	if side == "enemy":
@@ -2491,6 +2548,7 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 	var instance := MinionInstance.create(mc, side)
 	instance.card_instance = inst
 	slot.place(instance)
+	emit_event(CombatEvent.Kind.MINION_PLAYED, side, {minion = instance, card = mc, slot = slot.index, inst = inst, target = target})
 	if side == "enemy":
 		enemy_play_target = target  # read (and cleared) by the ON_ENEMY_MINION_PLAYED handler
 	if trigger_manager != null:
@@ -2532,16 +2590,19 @@ func cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dict
 	var spell := inst.card_data as SpellCardData
 	pay_planned_cost(side, cost)
 	remove_from_hand(side, inst)
+	emit_event(CombatEvent.Kind.CARD_PLAYED, side, {inst = inst, card = spell})
 	_log(("You cast: %s" if side == "player" else "Enemy casts: %s") % spell.card_name,
 			1 if side == "player" else 2)  # PLAYER / ENEMY
 	# Phase Disruptor: the opponent countered this side's next spell.
 	if side == "player" and _player_spell_counter > 0:
 		_player_spell_counter -= 1
 		_log("  Spell countered!", 2)  # ENEMY
+		emit_event(CombatEvent.Kind.SPELL_COUNTERED, side, {spell = spell, reason = "countered"})
 		return CommandResult.accepted("countered")
 	if side == "enemy" and _enemy_spell_counter > 0:
 		_enemy_spell_counter -= 1
 		_log("  Spell countered!", 1)  # PLAYER
+		emit_event(CombatEvent.Kind.SPELL_COUNTERED, side, {spell = spell, reason = "countered"})
 		return CommandResult.accepted("countered")
 	if trigger_manager != null:
 		var cast_ctx := EventContext.make(
@@ -2550,6 +2611,7 @@ func cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dict
 		trigger_manager.fire(cast_ctx)
 	if _spell_cancelled:
 		_spell_cancelled = false
+		emit_event(CombatEvent.Kind.SPELL_COUNTERED, side, {spell = spell, reason = "cancelled"})
 		return CommandResult.accepted("cancelled")
 	var cast_data: Dictionary = extra.duplicate()
 	cast_data.erase("spark_fuel")
@@ -2581,11 +2643,13 @@ func cmd_play_trap(side: String, inst: CardInstance) -> CommandResult:
 	var trap := inst.card_data as TrapCardData
 	pay_planned_cost(side, cost)
 	remove_from_hand(side, inst)
+	emit_event(CombatEvent.Kind.CARD_PLAYED, side, {inst = inst, card = trap})
 	if side == "player":
 		_log(("You place rune: %s" if trap.is_rune else "You set trap: %s") % trap.card_name, 1)  # PLAYER
 	else:
 		_log("Enemy places rune: %s" % trap.card_name if trap.is_rune else "Enemy sets a trap.", 2)  # ENEMY
 	traps.append(trap)
+	emit_event(CombatEvent.Kind.RUNE_PLACED if trap.is_rune else CombatEvent.Kind.TRAP_PLACED, side, {trap = trap, slot = traps.size() - 1})
 	_update_trap_display_for(side)
 	if trigger_manager == null:
 		return CommandResult.accepted()
@@ -2620,6 +2684,7 @@ func cmd_play_environment(side: String, inst: CardInstance) -> CommandResult:
 	var env := inst.card_data as EnvironmentCardData
 	pay_planned_cost(side, cost)
 	remove_from_hand(side, inst)
+	emit_event(CombatEvent.Kind.CARD_PLAYED, side, {inst = inst, card = env})
 	_log(("You play environment: %s" if side == "player" else "Enemy plays environment: %s") % env.card_name,
 			1 if side == "player" else 2)  # PLAYER / ENEMY
 	var prev: EnvironmentCardData = environment_of(side)
@@ -2716,6 +2781,7 @@ func cmd_activate_relic(index: int, target = null) -> CommandResult:
 		return CommandResult.refused(why)
 	_log_command("activate_relic", "player", null, index, target, {})
 	var effect_id: String = relic_runtime.activate(index)
+	emit_event(CombatEvent.Kind.RELIC_ACTIVATED, "player", {index = index, effect_id = effect_id, target = target})
 	if effect_id == "relic_execute":
 		var info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "relic_blood_chalice")
 		if target is MinionInstance:
@@ -2751,6 +2817,7 @@ func cmd_hero_skill(side: String, skill_id: String, target = null) -> CommandRes
 	if not done:
 		return CommandResult.refused("unavailable")
 	_log_command("hero_skill", side, null, -1, target, {"skill": skill_id})
+	emit_event(CombatEvent.Kind.HERO_SKILL, side, {skill = skill_id, target = target})
 	return CommandResult.accepted()
 
 ## End `side`'s turn and begin the opponent's. `growth` ("essence" / "mana") is
@@ -2926,6 +2993,7 @@ func _consume_minion(side: String, minion: MinionInstance) -> void:
 			slot.clear()
 			break
 	_log("  %s consumed as spark fuel." % minion.card_data.card_name, 1 if side == "player" else 2)
+	emit_event(CombatEvent.Kind.MINION_CONSUMED, side, {minion = minion})
 	# Effective value so spirit_resonance-boosted Spirits still count.
 	if spark_val > 0 and trigger_manager != null:
 		var ctx := EventContext.make(

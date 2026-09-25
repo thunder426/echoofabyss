@@ -11,6 +11,8 @@ static func run_all() -> void:
 	_play_minion_player_pays_once()
 	_play_minion_event_order()
 	_slots_are_engine_slot_states()
+	_journal_buff_applied_before_after()
+	_journal_order_spell_kill_on_death_summon()
 	_play_minion_enemy_target_and_discount()
 	_play_minion_fiendish_pact()
 	_play_spell_cast_event_before_resolution()
@@ -139,6 +141,58 @@ static func _slots_are_engine_slot_states() -> void:
 	TestHarness.assert_true(state.player_slots[3].is_empty(), "slot freed on death")
 	TestHarness.assert_true(state.slot_for(m) == null, "slot_for null after death")
 	TestHarness.assert_eq(seen, ["player:3"], "slot_changed once on clear")
+	state.teardown()
+
+## Plan 3.1: BUFF_APPLIED carries the pre/post stats.
+static func _journal_buff_applied_before_after() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("journal / BUFF_APPLIED carries before and after", state):
+		return
+	var imp := TestHarness.spawn_friendly_at(state, "void_imp", 0)
+	var spell := TestHarness.make_test_spell([
+		{"type": "BUFF_ATK", "scope": "SINGLE_CHOSEN", "amount": 200, "permanent": true}], "_j_buff", 0)
+	var inst := state.add_to_hand("player", spell)
+	var atk_before: int = imp.effective_atk()
+	var start: int = state.journal.size()
+	TestHarness.assert_true(state.cmd_play_spell("player", inst, imp).ok, "cast")
+	var found: CombatEvent = null
+	for i in range(start, state.journal.size()):
+		var ev: CombatEvent = state.journal[i]
+		if ev.kind == CombatEvent.Kind.BUFF_APPLIED:
+			found = ev
+			break
+	TestHarness.assert_true(found != null, "BUFF_APPLIED journaled")
+	if found != null:
+		TestHarness.assert_eq(found.payload["minion"], imp, "minion")
+		TestHarness.assert_eq(found.payload["atk_before"], atk_before, "atk_before")
+		TestHarness.assert_eq(found.payload["atk_after"], atk_before + 200, "atk_after")
+		TestHarness.assert_eq(found.payload["hp_before"], found.payload["hp_after"], "hp unchanged")
+		TestHarness.assert_eq(found.side, "player", "side")
+		TestHarness.assert_eq(found.seq, state.journal.find(found), "seq is the journal index")
+	state.teardown()
+
+## Plan 3.1 / 3.5: a spell that kills a minion with an on-death summon journals
+## [SPELL_CAST, DAMAGE_DEALT, MINION_DIED, TOKEN_SUMMONED, SPELL_RESOLVED].
+static func _journal_order_spell_kill_on_death_summon() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("journal / order: cast, damage, death, on-death summon, resolved", state):
+		return
+	var victim := TestHarness.spawn_enemy_at(state, "void_imp", 0)
+	victim.granted_on_death_effects = [{"summon_id": "void_spark"}]
+	var spell := TestHarness.make_test_spell([
+		{"type": "DAMAGE_MINION", "scope": "SINGLE_CHOSEN", "amount": 900, "damage_school": "ARCANE"}], "_j_bolt", 0)
+	var inst := state.add_to_hand("player", spell)
+	var start: int = state.journal.size()
+	TestHarness.assert_true(state.cmd_play_spell("player", inst, victim).ok, "cast")
+	var watched: Array = [CombatEvent.Kind.SPELL_CAST, CombatEvent.Kind.DAMAGE_DEALT, CombatEvent.Kind.MINION_DIED,
+			CombatEvent.Kind.TOKEN_SUMMONED, CombatEvent.Kind.SPELL_RESOLVED]
+	var kinds: Array = []
+	for i in range(start, state.journal.size()):
+		var ev: CombatEvent = state.journal[i]
+		if ev.kind in watched:
+			kinds.append(ev.kind_name())
+	TestHarness.assert_eq(kinds, ["SPELL_CAST", "DAMAGE_DEALT", "MINION_DIED", "TOKEN_SUMMONED", "SPELL_RESOLVED"], "journal order")
+	TestHarness.assert_true(state.enemy_board.size() == 1 and state.enemy_board[0].card_data.id == "void_spark", "spark on the board")
 	state.teardown()
 
 static func _play_minion_event_order() -> void:

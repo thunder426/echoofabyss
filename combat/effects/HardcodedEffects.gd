@@ -172,6 +172,8 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 				var hp_before: int = m.current_health
 				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
 				state._refresh_slot_for(m)
+				state.emit_event(CombatEvent.Kind.BUFF_APPLIED, ctx.owner, {minion = m, source_tag = "dark_covenant",
+						atk_before = atk_before, atk_after = m.effective_atk(), hp_before = hp_before, hp_after = m.current_health, silent = false})
 				if presenter != null:
 					presenter._show_buff_apply(m, "dark_covenant", atk_before, hp_before)
 	if has_demon:
@@ -183,6 +185,8 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 					var atk_before_hp: int = m.effective_atk()
 					var hp_before_hp: int = m.current_health
 					BuffSystem.apply_hp_gain(m, 100, "dark_covenant")
+					state.emit_event(CombatEvent.Kind.BUFF_APPLIED, ctx.owner, {minion = m, source_tag = "dark_covenant",
+							atk_before = atk_before_hp, atk_after = m.effective_atk(), hp_before = hp_before_hp, hp_after = m.current_health, silent = false})
 					if presenter != null:
 						presenter._show_buff_apply(m, "dark_covenant", atk_before_hp, hp_before_hp)
 				state._refresh_slot_for(m)

@@ -478,6 +478,9 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			var hp_before: int = atk_m.current_health if atk_m != null else 0
 			BuffSystem.apply(target, buff_type, amount, tag_atk, false, not silent)
 			ctx.state._refresh_slot_for(target)
+			if atk_m != null:
+				ctx.state.emit_event(CombatEvent.Kind.BUFF_APPLIED, ctx.owner, {minion = atk_m, source_tag = tag_atk,
+						atk_before = atk_before, atk_after = atk_m.effective_atk(), hp_before = hp_before, hp_after = atk_m.current_health, silent = silent})
 			if atk_m != null and ctx.presenter != null and not silent:
 				ctx.presenter._show_buff_apply(atk_m, tag_atk, atk_before, hp_before)
 
@@ -489,6 +492,9 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			var hp_before_hp: int = hp_m.current_health if hp_m != null else 0
 			BuffSystem.apply_hp_gain(target, amount, tag_hp, not silent_hp)
 			ctx.state._refresh_slot_for(target)
+			if hp_m != null:
+				ctx.state.emit_event(CombatEvent.Kind.BUFF_APPLIED, ctx.owner, {minion = hp_m, source_tag = tag_hp,
+						atk_before = atk_before_hp, atk_after = hp_m.effective_atk(), hp_before = hp_before_hp, hp_after = hp_m.current_health, silent = silent_hp})
 			if hp_m != null and ctx.presenter != null and not silent_hp:
 				ctx.presenter._show_buff_apply(hp_m, tag_hp, atk_before_hp, hp_before_hp)
 

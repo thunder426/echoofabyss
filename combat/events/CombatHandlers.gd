@@ -1205,6 +1205,7 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 	for t in targets:
 		var m: MinionInstance = t["minion"]
 		var stacks: int = t["stacks"]
+		state.emit_event(CombatEvent.Kind.DETONATION, "enemy", {minion = m, stacks = stacks, damage = 100 * stacks})
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		state._refresh_slot_for(m)
 		# Route through _spell_dmg so the spell_damage_dealt signal fires and the
