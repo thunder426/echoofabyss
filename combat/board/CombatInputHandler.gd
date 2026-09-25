@@ -352,12 +352,9 @@ func on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if CombatManager.board_has_taunt(_scene.enemy_board) and not minion.has_guard():
 		return  # Invalid target
 	_scene._log("Your %s attacks enemy %s" % [_scene.selected_attacker.card_data.card_name, minion.card_data.card_name])
-	_scene._anim_pre_hp   = minion.current_health
-	_scene._anim_atk_slot = _scene._find_slot_for(_scene.selected_attacker)
-	_scene._anim_def_slot = _scene._find_slot_for(minion)
-	if _scene._anim_atk_slot: _scene._anim_atk_slot.freeze_visuals = true
-	if _scene._anim_def_slot: _scene._anim_def_slot.freeze_visuals = true
-	_scene.combat_manager.resolve_minion_attack(_scene.selected_attacker, minion)
+	var r: CommandResult = _scene.state.cmd_attack("player", _scene.selected_attacker, minion)
+	if not r.ok:
+		_scene._log("  Attack refused: %s." % r.reason, 1)  # PLAYER
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
 	_scene._enemy_hero_panel.show_attackable(false)
@@ -462,32 +459,15 @@ func on_enemy_hero_spell_input(event: InputEvent) -> void:
 	if _scene.pending_play_card == null or not _scene.pending_play_card.card_data is SpellCardData:
 		return
 	var spell := _scene.pending_play_card.card_data as SpellCardData
-	if not _scene._pay_card_cost(0, _scene._effective_spell_cost(spell)):
-		if _scene.hand_display:
-			_scene.hand_display.deselect_current()
-		return
-	_scene._log("You cast: %s → Enemy Hero" % spell.card_name)
-	_scene.turn_manager.remove_from_hand(_scene.pending_play_card)
-	if _scene.hand_display:
-		_scene.hand_display.remove_card(_scene.pending_play_card)
-		_scene.hand_display.deselect_current()
+	var inst: CardInstance = _scene.pending_play_card
 	_scene.pending_play_card = null
+	if _scene.hand_display:
+		_scene.hand_display.deselect_current()
 	_scene._clear_all_highlights()
-	# P4B: invert resolve-at-impact for hero-target spells. State mutation
-	# happens immediately; VFX plays purely visual.
-	var scene := _scene
-	_scene._show_card_cast_anim(spell, false, func() -> void:
-		scene._capturing_spell_popups = true
-		scene.state.cast_player_hero_spell(spell)
-		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-		spell_ctx.card = spell
-		if scene.trigger_manager != null:
-			scene.trigger_manager.fire(spell_ctx)
-		scene._capturing_spell_popups = false
-		var on_impact := func(_i: int) -> void: scene._drain_pending_spell_popups()
-		await scene.vfx_controller.play_spell(spell.id, "player", scene._enemy_status_panel, on_impact)
-		scene._drain_pending_spell_popups()
-	)
+	# The engine validates, pays and casts at the enemy hero; the presenter plays it.
+	var r: CommandResult = _scene.state.cmd_play_spell("player", inst, "enemy_hero")
+	if not r.ok:
+		_scene._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
 
 ## Global _input — F12 / C toggles cheat menu, ESC closes it, right-click cancels
 ## the current pending action (relic targeting → card targeting → attacker).
@@ -520,11 +500,9 @@ func handle_input(event: InputEvent) -> void:
 				_scene._enemy_hero_panel.show_attackable(false)
 			_scene.get_viewport().set_input_as_handled()
 
-## Click on the enemy hero button — resolve attack via the standard combat path.
-## Damage logic (crit / lifedrain / siphon / school tagging) lives in
-## resolve_minion_attack_hero. VFX is gated on the attacker's attack_damage_school:
-## VOID_BOLT-school attacks spawn the void bolt projectile (and damage syncs
-## with impact); other attacks play the normal lunge animation after damage.
+## Click on the enemy hero button — the attack goes through cmd_attack_hero;
+## the presenter plays the lunge (or the Void Bolt projectile for VOID_BOLT-
+## school attackers) with the hero's damage at the hit.
 func on_enemy_hero_button_pressed() -> void:
 	if _scene == null:
 		return
@@ -535,24 +513,11 @@ func on_enemy_hero_button_pressed() -> void:
 	if not _scene.selected_attacker.can_attack_hero():
 		return
 	var attacker: MinionInstance = _scene.selected_attacker
-	var atk_slot: BoardSlot = _scene._find_slot_for(attacker)
-	var school := Enums.DamageSchool.NONE
-	if attacker.card_data is MinionCardData:
-		school = (attacker.card_data as MinionCardData).attack_damage_school
-	# Clear selection state up-front so the click can't double-fire while we await VFX.
+	# Clear selection state up-front so the click can't double-fire.
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
-	if school == Enums.DamageSchool.VOID_BOLT:
-		# Void Bolt-flavored basic attack: the damage lands now (plan 3.0) and
-		# the projectile flies as presentation. resolve_minion_attack_hero tags
-		# the DamageInfo with VOID_BOLT via _attack_damage_info.
-		_scene._log("Your %s strikes Enemy Hero with a Void Bolt!" % attacker.card_data.card_name, 1)  # PLAYER
-		_scene._enemy_hero_panel.show_attackable(false)
-		_scene.combat_manager.resolve_minion_attack_hero(attacker, "enemy")
-		_scene._fire_void_bolt_projectile(attacker, false)
-	else:
-		_scene._log("Your %s attacks Enemy Hero" % attacker.card_data.card_name)
-		_scene.combat_manager.resolve_minion_attack_hero(attacker, "enemy")
-		if atk_slot and _scene._enemy_status_panel:
-			_scene._play_hero_attack_anim(atk_slot, _scene._enemy_status_panel, attacker)
 	_scene._enemy_hero_panel.show_attackable(false)
+	_scene._log("Your %s attacks Enemy Hero" % attacker.card_data.card_name)
+	var r: CommandResult = _scene.state.cmd_attack_hero("player", attacker)
+	if not r.ok:
+		_scene._log("  Attack refused: %s." % r.reason, 1)  # PLAYER

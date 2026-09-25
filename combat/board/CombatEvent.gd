@@ -24,6 +24,7 @@ enum Kind {
 	RITUAL_FIRED, VOID_BOLT, VOID_MARKS_CHANGED, CORRUPTION_APPLIED, DETONATION,
 	FLESH_CHANGED, FORGE_CHANGED, RELIC_ACTIVATED, HERO_SKILL, ATTACK_STARTED,
 	LOG, PHASE_TRANSITION, COMBAT_ENDED,
+	VFX,  # card-specific animation requested by rules code: payload.name + args
 }
 
 var seq: int = 0

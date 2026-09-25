@@ -130,39 +130,6 @@ func on_state_minion_stats_changed(minion: MinionInstance) -> void:
 	if node != null:
 		node._refresh_visuals()
 
-## Subscriber to CombatState.spell_damage_dealt — spawns the slot flash, damage
-## popup, and refreshes the slot so the HP label updates IN SYNC with the
-## floating "-N" number.
-##
-## Rule: floating damage number and HP-bar reduction display together. Every
-## damage path that emits spell_damage_dealt gets this for free; callers do
-## NOT need to call _refresh_slot_for separately for the HP label.
-##
-## When `_capturing_spell_popups` is set on scene (P4B inverted spell flow),
-## the popup AND the refresh are deferred together — drained at VFX impact_hit
-## via _drain_pending_spell_popups so the visual sync is preserved.
-func on_state_spell_damage_dealt(target: MinionInstance, damage: int, school: int = Enums.DamageSchool.NONE) -> void:
-	if _scene == null or target == null:
-		return
-	var slot: BoardSlot = _scene._find_slot_for(target)
-	if slot == null:
-		return
-	# spell_damage_dealt fires BEFORE state applies damage — current_health is
-	# still pre-damage. Snapshot pre/post values now so they're stable through
-	# any deferred drain.
-	var from_hp: int = target.current_health
-	var to_hp: int = maxi(from_hp - damage, 0)
-	if _scene._capturing_spell_popups:
-		_scene._pending_spell_popups.append({
-			slot = slot, damage = damage, minion = target, school = school,
-			from_hp = from_hp, to_hp = to_hp,
-		})
-		return
-	_scene._flash_slot(slot)
-	_scene._spawn_damage_popup(slot.get_global_rect().get_center(), damage, false, school)
-	# Anchor HP tween to the popup spawn moment — same call, guaranteed sync.
-	if slot.has_method("animate_hp_change"):
-		slot.animate_hp_change(from_hp, to_hp)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Display-refresh helpers with real logic. Trivial 1-line delegators

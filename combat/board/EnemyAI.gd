@@ -10,41 +10,23 @@ class_name EnemyAI
 extends Node
 
 var _active_profile: CombatProfile = null
+var _pacer: LivePacer = null
 
 # ---------------------------------------------------------------------------
 # Signals
 # ---------------------------------------------------------------------------
 
-## Emitted when the AI has finished all its actions for this turn.
-signal ai_turn_finished()
 
-## Emitted each time the AI summons a minion (lets CombatScene check traps).
-## slot is passed so CombatScene can reveal the minion on it after the card reveal.
-signal minion_summoned(minion: MinionInstance, slot: BoardSlot)
 
-## Emitted when the AI casts a spell (lets CombatScene resolve + check traps).
-signal enemy_spell_cast(spell: SpellCardData)
 
-## Emitted just before an enemy minion attacks another minion.
-signal enemy_about_to_attack(attacker: MinionInstance, target: MinionInstance)
 
-## Emitted just before an enemy minion attacks the player hero.
-signal enemy_attacking_hero(attacker: MinionInstance)
 
-## Emitted when the AI places a trap or rune (lets CombatScene update display + route triggers).
-signal trap_placed(trap: TrapCardData)
 
-## Emitted when the AI plays an environment card.
-signal environment_placed(env: EnvironmentCardData)
 
 # ---------------------------------------------------------------------------
 # References — set by CombatScene before run_turn()
 # ---------------------------------------------------------------------------
 
-var enemy_board: Array[MinionInstance]
-var player_board: Array[MinionInstance]
-var enemy_slots: Array[BoardSlot]
-var combat_manager: CombatManager
 
 ## AI behaviour profile ID.  Setting this resets the active profile object.
 var ai_profile: String = "default":
@@ -112,25 +94,13 @@ var attack_cancelled: bool:
 	get: return state.attack_cancelled
 	set(v): state.attack_cancelled = v
 
-## Chosen non-minion target for the spell currently being cast (trap or environment).
-## Set by commit_spell_cast before emitting; read by CombatScene to populate EffectContext.
-var spell_chosen_target = null
 
-## Chosen target for the on-play effect of the minion being summoned.
-## MinionInstance for minion targets, TrapCardData/EnvironmentCardData for trap/env targets.
-## Set by commit_minion_play before emitting; read (and cleared) by the
-## ON_ENEMY_MINION_PLAYED handler via state.enemy_play_target.
-var minion_play_chosen_target:
-	get: return state.enemy_play_target
-	set(v): state.enemy_play_target = v
 
 ## Active traps and runes placed by the enemy.
 var active_traps: Array[TrapCardData]:
 	get: return state.enemy_active_traps
 	set(v): state.enemy_active_traps = v
 
-## Slots claimed by a pending summon (reveal in progress) — excluded from find_empty_slot.
-var _pending_slots: Array[BoardSlot] = []
 
 ## Active environment card played by the enemy (mirrors the player's active_environment).
 var active_environment: EnvironmentCardData:
@@ -202,22 +172,28 @@ func run_turn() -> void:
 		_setup_profile()
 	await _active_profile.play_phase()
 	if not is_inside_tree(): return
-	# Brief pause between the play phase and attack phase so that Swift-minion
-	# summon animations fully settle before any attack animation begins.
-	await get_tree().create_timer(0.6).timeout
+	# Everything the play phase did is shown, plus a beat, before the attacks.
+	await _pacer.after_action("phase")
 	if not is_inside_tree(): return
 	await _active_profile.attack_phase()
 	if not is_inside_tree(): return
-	ai_turn_finished.emit()
+	await scene.presenter.pump_and_wait_idle()
+	if not is_inside_tree() or state._combat_ended or not state.winner.is_empty():
+		return
+	state.cmd_end_turn("enemy")
 
 # ---------------------------------------------------------------------------
 # Private — profile setup
 # ---------------------------------------------------------------------------
 
+## The live enemy is a StateAgent on the engine (plan 3.4): every action a
+## state command, paced by the presenter (LivePacer).
 func _setup_profile() -> void:
 	_active_profile = ProfileRegistry.make("enemy", ai_profile)
-	var agent := EnemyAgent.new()
-	agent.setup(self)
+	_pacer = LivePacer.new()
+	_pacer.setup(scene)
+	var agent := StateAgent.new()
+	agent.setup(state, "enemy", _pacer)
 	_active_profile.setup(agent)
 
 # ---------------------------------------------------------------------------
@@ -238,247 +214,3 @@ func grow_at_turn_start(side: String, turn: int) -> void:
 ## Draw count cards (see CombatState.draw_cards — the enemy deck never runs out).
 func _draw_cards(count: int) -> void:
 	state.draw_cards("enemy", count)
-
-# ---------------------------------------------------------------------------
-# Public helpers — utilities for profiles
-# ---------------------------------------------------------------------------
-
-## Remove an enemy minion from the board silently (no death triggers, no animation).
-## Used for Void Spirit consumption to pay spark costs.
-func consume_minion(minion: MinionInstance) -> void:
-	var spark_val: int = minion.effective_spark_value(state)
-	enemy_board.erase(minion)
-	var engine_slot: SlotState = state.slot_for(minion)
-	if engine_slot != null:
-		engine_slot.clear()
-	scene._log("  %s consumed as spark fuel." % minion.card_data.card_name, 1)
-	# Fire spark consumed event for passives (void_detonation, champion_vw, etc.)
-	# Use effective value so spirit_resonance-boosted Spirits still fire.
-	if spark_val > 0 and scene.trigger_manager:
-		var event := Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED if minion.owner == "enemy" \
-			else Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED
-		var ctx := EventContext.make(event, minion.owner)
-		ctx.minion = minion
-		ctx.damage = spark_val
-		scene.trigger_manager.fire(ctx)
-
-## Returns the first empty enemy board slot, or null if board is full.
-## Skips slots that are claimed by an in-progress summon reveal.
-func find_empty_slot() -> BoardSlot:
-	for slot in enemy_slots:
-		if slot.is_empty() and not (slot in _pending_slots):
-			return slot
-	return null
-
-## Returns a random guard, or a random player minion if no guards exist.
-## Returns null when the player board is empty.
-func pick_player_target() -> MinionInstance:
-	if player_board.is_empty():
-		return null
-	var guards := CombatManager.get_taunt_minions(player_board)
-	if not guards.is_empty():
-		return state.rng_pick(guards)
-	return state.rng_pick(player_board)
-
-## Returns the best target for a SWIFT minion (no guards present).
-## Prefers killable targets (our ATK >= their HP), then highest ATK among those.
-func pick_swift_target(attacker: MinionInstance) -> MinionInstance:
-	var killable: Array[MinionInstance] = []
-	for m in player_board:
-		if attacker.effective_atk() >= m.current_health:
-			killable.append(m)
-	var pool := killable if not killable.is_empty() else player_board
-	var best: MinionInstance = pool[0]
-	for m in pool:
-		if m.effective_atk() > best.effective_atk():
-			best = m
-	return best
-
-## Returns true if the player has at least one active Rune or Environment.
-func player_has_rune_or_environment() -> bool:
-	if scene == null:
-		return false
-	if scene.active_environment != null:
-		return true
-	for trap in scene.active_traps:
-		if (trap as TrapCardData).is_rune:
-			return true
-	return false
-
-## Effective mana cost of a spell after penalty and discounts.
-func effective_spell_cost(spell: SpellCardData) -> int:
-	return state.spell_cost("enemy", spell)
-
-# ---------------------------------------------------------------------------
-# Public helpers — async actions for profiles
-# ---------------------------------------------------------------------------
-
-## Pay for a card the profile is about to play, as the state commands do
-## (plan 2A.5 — profiles no longer deduct). `sparks_prepaid`: spark fuel the
-## profile already consumed. False (nothing paid) if the engine says it can't.
-func _pay_for(inst: CardInstance, sparks_prepaid: int) -> bool:
-	var cost: Dictionary = state.plan_cost("enemy", inst, {sparks_prepaid = sparks_prepaid})
-	if not (cost.get("why", "") as String).is_empty():
-		return false
-	state.pay_planned_cost("enemy", cost)
-	return true
-
-## Place a minion on the board (slot already found; this pays the cost).
-## chosen_target: player minion chosen by the profile for the on-play effect, if any.
-## Returns false if it can't be paid for or the scene tree is gone.
-func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = null, sparks_prepaid: int = 0) -> bool:
-	if not _pay_for(inst, sparks_prepaid):
-		return false
-	var mc := inst.card_data as MinionCardData
-	var instance := MinionInstance.create(mc, "enemy")
-	instance.card_instance = inst
-	enemy_board.append(instance)
-	_pending_slots.append(slot)  # reserve slot without touching its visual
-	# Engine occupancy now (plan 3.1a); the node stays on its empty look until
-	# the reveal lands it (CombatScene._enemy_summon_reveal_then_land).
-	slot.freeze_visuals = true
-	state.slot_of("enemy", slot.index).place(instance)
-	hand.erase(inst)
-	_send_to_graveyard(inst)
-	minion_play_chosen_target = chosen_target
-	minion_summoned.emit(instance, slot)
-	state.minion_summoned.emit("enemy", instance, slot.index)
-	if not is_inside_tree(): return false
-	await get_tree().create_timer(ACTION_DELAY).timeout
-	if not is_inside_tree(): return false
-	# Wait for the card reveal animation to finish before the next AI action
-	if scene != null and scene.get("_enemy_summon_reveal_active") == true:
-		await scene.enemy_summon_reveal_done
-	# Also wait for any on-play VFX (e.g. Frenzied Imp hurl) to finish so the
-	# full animation plays before the next enemy action.
-	if scene != null and scene.get("_on_play_vfx_active") == true:
-		await scene.on_play_vfx_done
-	return is_inside_tree()
-
-## Cast a spell (this pays the cost).
-## chosen_target: non-minion target (TrapCardData / EnvironmentCardData) chosen by the profile.
-## Returns false if it can't be paid for or the scene tree is gone.
-func commit_spell_cast(inst: CardInstance, chosen_target = null, sparks_prepaid: int = 0) -> bool:
-	if not _pay_for(inst, sparks_prepaid):
-		return false
-	var spell := inst.card_data as SpellCardData
-	hand.erase(inst)
-	_send_to_graveyard(inst)
-	spell_chosen_target = chosen_target
-	enemy_spell_cast.emit(spell)
-	if not is_inside_tree(): return false
-	# Wait for the card cast animation + VFX to finish before the next AI action
-	# so consecutive enemy spell VFX don't overlap.
-	if scene != null and scene.get("_enemy_spell_cast_active") == true:
-		await scene.enemy_spell_cast_done
-	if not is_inside_tree(): return false
-	# Buff spells (Dark Empowerment etc.) defer their state mutation to the
-	# BuffApplyVFX's chevron beat. That VFX flips _on_play_vfx_active and
-	# emits on_play_vfx_done when its full animation completes — wait so the
-	# buff fully resolves before the AI moves on.
-	if scene != null and scene.get("_on_play_vfx_active") == true:
-		await scene.on_play_vfx_done
-	if not is_inside_tree(): return false
-	await get_tree().create_timer(ACTION_DELAY).timeout
-	return is_inside_tree()
-
-## Place a trap or rune (this pays the cost).
-## Returns false if it can't be paid for or the scene tree is gone.
-func commit_play_trap(inst: CardInstance) -> bool:
-	if not _pay_for(inst, 0):
-		return false
-	var trap := inst.card_data as TrapCardData
-	hand.erase(inst)
-	_send_to_graveyard(inst)
-	active_traps.append(trap)
-	trap_placed.emit(trap)
-	if not is_inside_tree(): return false
-	await get_tree().create_timer(ACTION_DELAY).timeout
-	if not is_inside_tree(): return false
-	# Gate the AI on any reactive on-play VFX (rune placement halo, ritual
-	# triggers fired off ON_RUNE_PLACED, etc.) so the next AI action doesn't
-	# overlap. Same pattern as commit_minion_play / commit_spell_cast.
-	if scene != null and scene.get("_on_play_vfx_active") == true:
-		await scene.on_play_vfx_done
-	return is_inside_tree()
-
-## Play an environment card (this pays the cost).
-## Returns false if it can't be paid for or the scene tree is gone.
-func commit_play_environment(inst: CardInstance) -> bool:
-	if not _pay_for(inst, 0):
-		return false
-	var env := inst.card_data as EnvironmentCardData
-	hand.erase(inst)
-	_send_to_graveyard(inst)
-	# Tear down outgoing env's persistent aura with owner="enemy" so its
-	# on_replace_effect_steps strip enemy-side buffs (mirror of player path).
-	if active_environment != null and not active_environment.on_replace_effect_steps.is_empty():
-		var teardown_ctx := EffectContext.make(scene, "enemy")
-		EffectResolver.run(active_environment.on_replace_effect_steps, teardown_ctx)
-	active_environment = env
-	environment_placed.emit(env)
-	# Run on-enter and immediate passive effects with owner="enemy" so
-	# DAMAGE_HERO targets the player and _friendly_board() resolves to enemy.
-	if not env.on_enter_effect_steps.is_empty():
-		EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(scene, "enemy"))
-	if not env.passive_effect_steps.is_empty():
-		EffectResolver.run(env.passive_effect_steps, EffectContext.make(scene, "enemy"))
-	if not is_inside_tree(): return false
-	await get_tree().create_timer(ACTION_DELAY).timeout
-	if not is_inside_tree(): return false
-	# Gate on any reactive VFX from environment placement (e.g.
-	# ON_RITUAL_ENVIRONMENT_PLAYED handlers can fire rituals, which spawn VFX).
-	if scene != null and scene.get("_on_play_vfx_active") == true:
-		await scene.on_play_vfx_done
-	return is_inside_tree()
-
-## Execute a minion-vs-minion attack, handling cancel.
-## Returns false if the attack was skipped (cancelled / attacker died) or
-## the scene tree is gone — the profile should check is_inside_tree() to
-## distinguish the two cases.
-func do_attack_minion(attacker: MinionInstance, target: MinionInstance) -> bool:
-	# Enforce Guard: if the player board has any Guard minion, the attack must
-	# be directed at one of them, regardless of how the profile chose the target.
-	var guards := CombatManager.get_taunt_minions(player_board)
-	if not guards.is_empty() and not target.has_guard():
-		target = state.rng_pick(guards)
-	enemy_about_to_attack.emit(attacker, target)
-	if attack_cancelled:
-		attack_cancelled = false
-		return false
-	if not enemy_board.has(attacker):
-		return false
-	combat_manager.resolve_minion_attack(attacker, target)
-	if not is_inside_tree(): return false
-	await get_tree().create_timer(ACTION_DELAY).timeout
-	if not is_inside_tree(): return false
-	await _wait_for_death_vfx()
-	return is_inside_tree()
-
-## Execute a minion-vs-hero attack, handling cancel.
-## Returns false if the attack was skipped or the scene tree is gone.
-func do_attack_hero(attacker: MinionInstance) -> bool:
-	# Enforce Guard: cannot attack hero while any player Guard minion is alive.
-	if not CombatManager.get_taunt_minions(player_board).is_empty():
-		return false
-	enemy_attacking_hero.emit(attacker)
-	if attack_cancelled:
-		attack_cancelled = false
-		return false
-	if not enemy_board.has(attacker):
-		return false
-	combat_manager.resolve_minion_attack_hero(attacker, "player")
-	if not is_inside_tree(): return false
-	await get_tree().create_timer(ACTION_DELAY).timeout
-	if not is_inside_tree(): return false
-	await _wait_for_death_vfx()
-	return is_inside_tree()
-
-## Block until all in-flight minion-death animations finish so consecutive
-## enemy actions don't overlap death / on-death VFX.
-func _wait_for_death_vfx() -> void:
-	if scene == null:
-		return
-	var active: Variant = scene.get("_active_death_anims")
-	if active is int and (active as int) > 0:
-		await scene.death_anims_done

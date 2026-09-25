@@ -2,12 +2,14 @@
 #
 # Rules code (CombatHandlers, HardcodedEffects, RelicEffects, EffectResolver,
 # ConditionResolver, TargetResolver, CombatManager) reaches gameplay data only
-# through a typed CombatState. It may touch the combat shell in two other ways,
-# and only with the names listed here.
+# through a typed CombatState. Animation is never requested directly: every
+# gameplay mutation appends a CombatEvent to state.journal (card-specific VFX
+# as a VFX event) and CombatPresenter plays it. The shell may be touched in two
+# other ways, and only with the names listed here.
 #
-# [presenter] — presentation only. Called on `presenter` / `ctx.presenter`,
-#   which is null in sim and tests, so every call is null-checked. Must be
-#   declared on CombatScene. Nothing here may change gameplay state.
+# [presenter] — UI state only. Called on `presenter` / `ctx.presenter`, which is
+#   null in sim and tests, so every call is null-checked. Must be declared on
+#   CombatScene. Nothing here may change gameplay state or play an animation.
 #
 # [facade] — empty since Phase 3.0 (every gameplay method has its one body on
 #   CombatState). Kept so a rules-code `_scene.x` / `ctx.scene.x` call stays a
@@ -17,51 +19,14 @@
 # One name per line; `#` starts a comment.
 
 [presenter]
-# Slot / board visuals
-_find_slot_for                    # BoardSlot lookup for VFX anchoring; null-checked
-_play_corruption_apply_visual
-_show_corruption_applied          # CombatState._corrupt_minion hook (capture-aware splash)
-_show_void_mark_applied           # CombatState._apply_void_mark hook
-_fire_void_bolt_projectile        # CombatState._deal_void_bolt_damage hook (projectile only)
-_fire_enemy_void_bolt_projectile  # CombatState._deal_enemy_void_bolt_damage hook
-_play_corruption_detonations
-_play_void_netter_on_play_vfx
-_play_brood_call_vfx
-_play_champion_acp_aura_pulse
-_play_feral_reinforcement_vfx
-_play_frenzied_imp_vfx
-_play_grafted_butcher_vfx
-_play_pack_frenzy_vfx
-_play_ritual_sacrifice_sequence   # presentation of the resolved enemy ritual
-_prepare_token_reveal             # CombatState._spawn_token_into_slot: freeze the node before an entrance animation
-_play_token_summon                # CombatState._spawn_token_into_slot: champion banner / sigil / plain show
-_on_ritual_firing                 # CombatState._fire_ritual: rune merge VFX (captured before consumption)
-_spawn_atk_chevron
-_spawn_pack_chain_vfx_for_new_imp
-_spawn_pack_instinct_buff_vfx     # holds the ATK label at the pre-buff value, then pulses
-_spawn_presence_aura_buff_vfx
-_spawn_void_imp_claw_vfx_at
-_pulse_lifedrain_icon
-_on_minion_siphon_healed
-_flash_trap_slot_for
-enemy_trap_slot_panels            # ritual-sacrifice VFX anchors
-# CombatState hooks (plan 1.4) — animation / popup half of the shared handlers
-_on_minion_vanished_visual        # hand glows, spell costs, death animation (deferred mid-lunge)
-play_trap_reveals                 # trap card animation; the state resolves the trap inline
-_on_hero_damaged_visual           # flash / popup; lethal → defeat/victory, F15 transition
-_on_hero_healed_visual
-_on_card_left_hand                # hand-display removal without a play animation
-# Buff application animation (plan 3.0: the engine applies the buff at once;
-# the hook takes the pre-buff snapshot and BuffApplyVFX tweens the labels at its beat)
-_show_buff_apply
-_silent_buff_apply
-# HUD
-_update_champion_progress
-_on_champion_killed
-_update_counter_warning
+# UI state the rules code refreshes directly (no animation, no gameplay)
 _refresh_hand_spell_costs
 hand_display
-vfx_controller
-# Animation gates awaited by async rules code (deleted in Phase 3.3)
+_update_counter_warning
+_update_champion_progress
+_on_champion_killed
+_silent_buff_apply                # read by EffectResolver: presence-aura recompute journals silent buffs
+# Capture-before-mutation hook: the presenter plays it at RITUAL_FIRED
+_on_ritual_firing                 # snapshots the rune panels before CombatState._fire_ritual consumes them
 
 [facade]

@@ -170,7 +170,6 @@ func play_corruption_detonations(targets: Array) -> void:
 				slot._refresh_visuals()
 			remaining_ref[0] -= 1
 			if remaining_ref[0] <= 0:
-				scene._flush_deferred_deaths()
 				# Setter auto-emits on_play_vfx_done when count hits zero —
 				# avoids clobbering an outer gate-holder (e.g. ritual orchestrator).
 				scene._on_play_vfx_active = false
@@ -1019,26 +1018,6 @@ func minion_has_on_death(minion: MinionInstance) -> bool:
 		return true
 	return false
 
-## Fire death animations queued during freeze_visuals. Called by VfxController
-## (via scene's wrapper) after a damaging spell VFX finishes, and by
-## _restore_slot_from_lunge after a lunge completes. Captured positions are
-## used so the ghost lines up with the slot's original spot (not its
-## post-lunge location).
-func flush_deferred_deaths() -> void:
-	if _scene == null:
-		return
-	var queue: Array = _scene._deferred_death_slots
-	if queue.is_empty():
-		return
-	var pending := queue.duplicate()
-	queue.clear()
-	for entry in pending:
-		var slot: BoardSlot = entry.slot
-		# Slot visuals were held during the freeze — clear the art so the
-		# ghost rises from an empty slot.
-		if slot != null and slot.minion != null:
-			slot.show_empty()
-		animate_minion_death(slot, entry.pos, entry.get("minion"))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Card-cast presentation — preview, countered, enemy summon reveal

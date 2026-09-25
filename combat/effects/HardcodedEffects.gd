@@ -104,16 +104,10 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 	if sac == null or sac == ctx.source:
 		_log("  Grafted Butcher: no sacrifice target — fizzle.", ls)
 		return
-	# Capture the sac slot centre BEFORE kill — needed by the graft tendril VFX.
-	var sac_center: Vector2 = Vector2.ZERO
-	var sac_slot: Variant = presenter._find_slot_for(sac) if presenter != null else null
-	if sac_slot != null and is_instance_valid(sac_slot):
-		sac_center = sac_slot.global_position + sac_slot.size * 0.5
 	SacrificeSystem.sacrifice(state, sac, "grafted_butcher")
 	_log("  Grafted Butcher: sacrificed %s — 200 AoE to all %s minions." % [sac.card_data.card_name, state._opponent_of(ctx.owner)], ls)
-	# The graft + cleaver VFX (live only) plays fire-and-forget; the AoE lands now (plan 3.0).
-	if presenter != null:
-		presenter._play_grafted_butcher_vfx(ctx.source, sac_center, ctx.owner)
+	# The graft + cleaver VFX is a journal event; the AoE lands now (plan 3.0).
+	state.emit_event(CombatEvent.Kind.VFX, ctx.owner, {name = "grafted_butcher", butcher = ctx.source, sac = sac})
 	# Grafted Butcher is a minion ON-PLAY effect — MINION-source per design rule.
 	# Attacker is the butcher itself (ctx.source) for attribution.
 	var gb_info := CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, ctx.source, "grafted_butcher")
@@ -171,11 +165,9 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 				var atk_before: int = m.effective_atk()
 				var hp_before: int = m.current_health
 				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
-				state._refresh_slot_for(m)
 				state.emit_event(CombatEvent.Kind.BUFF_APPLIED, ctx.owner, {minion = m, source_tag = "dark_covenant",
 						atk_before = atk_before, atk_after = m.effective_atk(), hp_before = hp_before, hp_after = m.current_health, silent = false})
-				if presenter != null:
-					presenter._show_buff_apply(m, "dark_covenant", atk_before, hp_before)
+				state._refresh_slot_for(m)
 	if has_demon:
 		for m in board:
 			if (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
@@ -187,8 +179,6 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 					BuffSystem.apply_hp_gain(m, 100, "dark_covenant")
 					state.emit_event(CombatEvent.Kind.BUFF_APPLIED, ctx.owner, {minion = m, source_tag = "dark_covenant",
 							atk_before = atk_before_hp, atk_after = m.effective_atk(), hp_before = hp_before_hp, hp_after = m.current_health, silent = false})
-					if presenter != null:
-						presenter._show_buff_apply(m, "dark_covenant", atk_before_hp, hp_before_hp)
 				state._refresh_slot_for(m)
 	# Humans that lost the aura this tick (no demon present) may have current_health
 	# above their new (lower) effective max — clamp to prevent stale overshoot.
@@ -274,10 +264,8 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 		_log("  Frenzied Imp: no target.", _log_side(ctx.owner))
 		return
 	_log("  Frenzied Imp: %d damage to %s." % [dmg, frenzied_target.card_data.card_name], _log_side(ctx.owner))
-	# The hurl VFX (live only) starts first so it anchors on the target's slot;
-	# the damage lands now (plan 3.0).
-	if presenter != null:
-		presenter._play_frenzied_imp_vfx(ctx.source, frenzied_target, feral_count)
+	# The hurl VFX is a journal event; the damage lands now (plan 3.0).
+	state.emit_event(CombatEvent.Kind.VFX, ctx.owner, {name = "frenzied_imp", source = ctx.source, target = frenzied_target, count = feral_count})
 	# Minion-emitted effect → MINION source, NONE school (per design rule:
 	# only piercing_void talent retags Void minion damage; default is NONE).
 	state._spell_dmg(frenzied_target, dmg,
@@ -286,9 +274,8 @@ func _frenzied_imp_play(ctx: EffectContext) -> void:
 func _brood_call(ctx: EffectContext) -> void:
 	var feral_ids: Array[String] = ["rabid_imp", "brood_imp", "imp_brawler", "void_touched_imp", "frenzied_imp", "matriarchs_broodling", "rogue_imp_elder"]
 	var pick: String = state.rng_pick(feral_ids)
-	# The portal VFX (live only) plays fire-and-forget; the summon lands now (plan 3.0).
-	if presenter != null:
-		presenter._play_brood_call_vfx(ctx.owner)
+	# The portal VFX is a journal event; the summon lands now (plan 3.0).
+	state.emit_event(CombatEvent.Kind.VFX, ctx.owner, {name = "brood_call"})
 	state._summon_token(pick, ctx.owner)
 	_log("  Brood Call: summoned %s." % pick, _log_side(ctx.owner))
 
@@ -296,21 +283,15 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 	var feral_board: Array = state._friendly_board(ctx.owner).duplicate()
 	var ancient_active: bool = "ancient_frenzy" in (state._active_enemy_passives)
 
-	# Collect targets + their slots up front so the VFX can sweep from hero
-	# to each imp in a single synced wave.
 	var targets: Array = []
-	var target_slots: Array = []
 	for m in feral_board:
 		if state._minion_has_tag(m, "feral_imp"):
 			targets.append(m)
-			var slot: BoardSlot = presenter._find_slot_for(m) if presenter != null else null
-			if slot != null:
-				target_slots.append(slot)
 
-	# The warcry VFX (live only) starts first and owns the full buff visual;
-	# the buffs land now (plan 3.0).
-	if not target_slots.is_empty() and presenter != null:
-		presenter._play_pack_frenzy_vfx(ctx.owner, target_slots, ancient_active)
+	# The warcry VFX is a journal event that owns the full buff visual; the
+	# buffs land now (plan 3.0).
+	if not targets.is_empty():
+		state.emit_event(CombatEvent.Kind.VFX, ctx.owner, {name = "pack_frenzy", targets = targets.duplicate(), ancient = ancient_active})
 
 	for m in targets:
 		BuffSystem.apply(m, Enums.BuffType.TEMP_ATK, 250, "pack_frenzy", true)
@@ -319,10 +300,9 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 		if ancient_active:
 			BuffSystem.apply(m, Enums.BuffType.GRANT_LIFEDRAIN, 1, "pack_frenzy", true)
 		state._refresh_slot_for(m)
-		if presenter != null:
-			presenter._spawn_atk_chevron(m)
-		if ancient_active and presenter != null:
-			presenter._pulse_lifedrain_icon(m)
+		state.emit_event(CombatEvent.Kind.VFX, ctx.owner, {name = "atk_chevron", minion = m})
+		if ancient_active:
+			state.emit_event(CombatEvent.Kind.VFX, ctx.owner, {name = "lifedrain_pulse", minion = m})
 
 	var frenzy_msg := "  Pack Frenzy: all Feral Imps +250 ATK and SWIFT"
 	if ancient_active:

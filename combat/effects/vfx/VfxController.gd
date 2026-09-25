@@ -92,7 +92,6 @@ func _play_arcane_strike(_caster_side: String, target: Variant, resolve_damage: 
 	await vfx.finished
 	slot.freeze_visuals = false
 	slot._refresh_visuals()
-	_combat._flush_deferred_deaths()
 
 func _play_void_execution(caster_side: String, target: Variant, resolve_damage: Callable) -> void:
 	var target_pos: Vector2
@@ -168,7 +167,7 @@ func _play_abyssal_plague(caster_side: String, _target: Variant, _resolve_damage
 			return
 		var slot: BoardSlot = combat._find_slot_for(m)
 		if slot != null:
-			combat._drain_pending_spell_popup_for_slot(slot)
+			combat.presenter.play_captured_for_slot(slot)
 	var vfx := AbyssalPlagueVFX.create(caster_panel, caster_side, all_slots, occupied, per_minion_cb)
 	_vfx_layer.add_child(vfx)
 	await vfx.finished

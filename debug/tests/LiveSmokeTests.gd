@@ -47,6 +47,9 @@ func _f1_enemy_turn_completes() -> void:
 		"F1: enemy turn completed and turn 2 began (turn=%d, player_turn=%s)" % [tm.turn_number, tm.is_player_turn])
 	if tm.turn_number == 2:
 		print("LiveSmoke: enemy turn completed")
+	await scene.presenter.pump_and_wait_idle()
+	_check(scene.presenter.is_idle() and scene.presenter.cursor == scene.state.journal.size(),
+		"F1: presenter idle with the journal fully played (%d / %d)" % [scene.presenter.cursor, scene.state.journal.size()])
 	# Shared turn engine (plan 2A.3): the pick applies at the next turn start (D10);
 	# the enemy opens at 1/1 and doesn't grow on its first turn.
 	var st: CombatState = scene.state
@@ -166,11 +169,8 @@ func _launch(encounter: int, deck_preset: String) -> Node:
 
 ## Wait for the scene's in-flight VFX / death animations to finish.
 func _drain(scene: Node) -> void:
-	var t0: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS:
-		await get_tree().process_frame
-		if not scene._on_play_vfx_active and scene._active_death_anims == 0:
-			break
+	await scene.presenter.pump_and_wait_idle()
+	_check(scene.presenter.cursor == scene.state.journal.size(), "presenter played the whole journal")
 
 ## Free the scene only once its coroutines (hand draw stagger, VFX, death anims)
 ## have drained — freeing or detaching it mid-await makes them call get_tree()
@@ -178,8 +178,7 @@ func _drain(scene: Node) -> void:
 func _teardown(scene: Node) -> void:
 	var t0: int = Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS:
-		var busy: bool = scene.hand_display._draw_playing or scene._on_play_vfx_active \
-				or scene._active_death_anims > 0
+		var busy: bool = scene.hand_display._draw_playing or not scene.presenter.is_idle()
 		if not busy:
 			break
 		await get_tree().process_frame

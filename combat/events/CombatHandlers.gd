@@ -965,10 +965,10 @@ func on_player_minion_played_effect(ctx: EventContext) -> void:
 	var _show_claw: bool = (_card_has_tag(mc, "base_void_imp") and not state._has_talent("piercing_void")) or _card_has_tag(mc, "senior_void_imp")
 	if _show_claw:
 		_spawn_void_imp_claw_vfx(minion, "player")
+	# Void Netter: the net VFX is a journal event; the 200 damage is the card's
+	# on-play step below on both shells (live used to deal it at the VFX impact).
 	if mc.id == "void_netter" and ctx.target is MinionInstance:
-		if presenter != null:
-			presenter._play_void_netter_on_play_vfx(minion, ctx.target, "player")
-			return
+		state.emit_event(CombatEvent.Kind.VFX, "player", {name = "void_netter", source = minion, target = ctx.target})
 	if not mc.on_play_effect_steps.is_empty():
 		var ectx           := EffectContext.make(_scene, "player")
 		ectx.source        = minion
@@ -991,9 +991,7 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 	if _card_has_tag(mc, "base_void_imp") or _card_has_tag(mc, "senior_void_imp"):
 		_spawn_void_imp_claw_vfx(minion, "enemy")
 	if mc.id == "void_netter" and chosen is MinionInstance:
-		if presenter != null:
-			presenter._play_void_netter_on_play_vfx(minion, chosen, "enemy")
-			return
+		state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "void_netter", source = minion, target = chosen})
 	if not mc.on_play_effect_steps.is_empty():
 		var ectx                         := EffectContext.make(_scene, "enemy")
 		ectx.source                      = minion
@@ -1091,8 +1089,8 @@ func _refresh_presence_auras_for_side(side: String, leaving: MinionInstance) -> 
 		var post_hp_cap: int = m.card_data.health + BuffSystem.sum_type(m, Enums.BuffType.HP_BONUS)
 		var hp_delta: int = post_hp_cap - int(pre_hp_cap.get(m, 0))
 		state._refresh_slot_for(m)
-		if (atk_delta != 0 or hp_delta != 0) and presenter != null:
-			presenter._spawn_presence_aura_buff_vfx(m, atk_delta, hp_delta)
+		if atk_delta != 0 or hp_delta != 0:
+			state.emit_event(CombatEvent.Kind.VFX, m.owner, {name = "presence_aura", minion = m, atk_delta = atk_delta, hp_delta = hp_delta})
 
 ## Extract source_tag from a step that may be either a Dictionary or an EffectStep.
 func _step_source_tag(step) -> String:
@@ -1128,7 +1126,7 @@ func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 			and ctx.minion != null \
 			and state._minion_has_tag(ctx.minion, "feral_imp") \
 			and presenter != null:
-		presenter._spawn_pack_chain_vfx_for_new_imp(ctx.minion, "enemy")
+		state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "pack_chain", minion = ctx.minion})
 	# ATK-increase popup on every imp that gained ATK this tick (only on summon —
 	# death events should silently lose the buff without drawing attention).
 	# The buff is ALREADY applied (game state uses new ATK immediately); the VFX
@@ -1138,7 +1136,7 @@ func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 		for m in feral_imps:
 			var old_atk: int = int(pre_atk.get(m, m.effective_atk()))
 			if m.effective_atk() > old_atk:
-				presenter._spawn_pack_instinct_buff_vfx(m, old_atk)
+				state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "pack_instinct", minion = m, old_atk = old_atk})
 
 ## Human Imp Caller — shared Act 2 passive
 ## When a human is summoned: add a random feral imp to the enemy's hand.
@@ -1163,8 +1161,7 @@ func on_enemy_summon_feral_reinforcement(ctx: EventContext) -> void:
 		return
 	var chosen: CardData = state.rng_pick(feral_imps)
 	state.add_to_hand("enemy", chosen)
-	if presenter != null:
-		presenter._play_feral_reinforcement_vfx(minion, chosen)
+	state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "feral_reinforcement", source = minion, card = chosen})
 	_log("  Feral Reinforcement: %s summoned → enemy draws %s." % [minion.card_data.card_name, chosen.card_name], _LOG_ENEMY)
 
 ## Corrupt Authority — encounter 3 (Abyss Cultist Patrol)
@@ -1198,10 +1195,8 @@ func on_enemy_summon_corrupt_authority_imp(ctx: EventContext) -> void:
 	if targets.is_empty():
 		return
 
-	# The detonation VFX (live only) starts first, anchored on the slots; the
-	# stacks are consumed and the damage lands now (plan 3.0).
-	if presenter != null:
-		presenter._play_corruption_detonations(targets)
+	# Each DETONATION event carries the VFX; the stacks are consumed and the
+	# damage lands now (plan 3.0).
 	for t in targets:
 		var m: MinionInstance = t["minion"]
 		var stacks: int = t["stacks"]
@@ -1259,16 +1254,6 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	for i in damage_picks:
 		damage_targets.append({"kind": "minion", "minion": damage_pool[i]})
 
-	# Resolve trap panels for the ritual VFX (live only; sim has no panels).
-	var blood_panel: Control = null
-	var dominion_panel: Control = null
-	if presenter != null:
-		var panels: Array = presenter.enemy_trap_slot_panels
-		if blood_idx >= 0 and blood_idx < panels.size():
-			blood_panel = panels[blood_idx] as Control
-		if dominion_idx >= 0 and dominion_idx < panels.size():
-			dominion_panel = panels[dominion_idx] as Control
-
 	# Everything mutates inline (plan 3.0); the presenter then plays the
 	# sacrifice → rune merge → projectiles → beam sequence as presentation.
 	var imp := minion
@@ -1305,9 +1290,9 @@ func on_enemy_summon_ritual_sacrifice(ctx: EventContext) -> void:
 	var demon: MinionInstance = state._summon_token("void_demon", "enemy", 500, 500)
 	# Trigger Void Ritualist champion on first ritual
 	on_ritual_sacrifice_champion_vr()
-	if presenter != null and blood_panel != null and dominion_panel != null:
-		presenter._play_ritual_sacrifice_sequence(imp, blood_trap, dominion_trap,
-				blood_panel, dominion_panel, damage_targets, 200, demon)
+	state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "ritual_sacrifice", imp = imp, blood_trap = blood_trap,
+			dominion_trap = dominion_trap, blood_idx = blood_idx, dominion_idx = dominion_idx,
+			targets = damage_targets, damage = 200, demon = demon})
 
 ## Void Unraveling — encounter 6 (Corrupted Handler)
 ## When a human is summoned: summon a 100/100 Void Spark on the enemy board.
@@ -1371,6 +1356,7 @@ func _transfer_to_player_board(m: MinionInstance) -> bool:
 	state.enemy_board.erase(m)
 	m.owner = "player"
 	state.player_board.append(m)
+	state.emit_event(CombatEvent.Kind.MINION_SUMMONED, "player", {minion = m, slot = target_slot.index})
 	target_slot.place(m)
 	state.minion_summoned.emit("player", m, target_slot.index)
 	state._refresh_slot_for(m)
@@ -2201,25 +2187,18 @@ func on_enemy_summon_champion_acp_corrupt(_ctx: EventContext) -> void:
 	if targets.is_empty():
 		return
 
-	var on_impact := func(m: MinionInstance, stacks: int) -> void:
+	# Pulse the champion's aura — plays alongside the detonations' charge-up.
+	state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "champion_acp_aura_pulse"})
+	for t in targets:
+		var m: MinionInstance = t["minion"]
+		var stacks: int = t["stacks"]
+		state.emit_event(CombatEvent.Kind.DETONATION, "enemy", {minion = m, stacks = stacks, damage = 100 * stacks})
 		BuffSystem.remove_type(m, Enums.BuffType.CORRUPTION)
 		state._refresh_slot_for(m)
-		# Route through _spell_dmg so the spell_damage_dealt signal fires and the
-		# floating damage number / slot flash spawns. apply_damage_to_minion alone
-		# applies the HP change but does NOT emit the popup signal.
+		# Route through _spell_dmg so the damage event / popup fires.
 		var info := CombatManager.make_damage_info(100 * stacks, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cultist_patrol_aura")
 		state._spell_dmg(m, 100 * stacks, info)
 		_log("  Cultist Patrol aura: instant detonation — %s takes %d damage!" % [m.card_data.card_name, 100 * stacks], _LOG_ENEMY)
-
-	# Pulse the champion's aura — fires in parallel with the detonation's charge-up.
-	if presenter != null:
-		presenter._play_champion_acp_aura_pulse()
-
-	if presenter != null:
-		presenter._play_corruption_detonations(targets, on_impact)
-	else:
-		for t in targets:
-			on_impact.call(t["minion"], t["stacks"])
 
 func on_enemy_died_champion_acp(ctx: EventContext) -> void:
 	var minion := ctx.minion
@@ -2362,14 +2341,7 @@ func _count_void_imps(board: Array[MinionInstance]) -> int:
 ## Spawn shadow claw VFX over the opponent's hero panel.
 ## owner_side: "player" means the imp belongs to the player → claw hits enemy panel.
 func _spawn_void_imp_claw_vfx(minion: MinionInstance, owner_side: String) -> void:
-	if presenter == null:
-		return
-	# Source position: the minion's slot view (presentation lookup).
-	var source_pos := Vector2.ZERO
-	var slot_view: Control = presenter._find_slot_for(minion)
-	if slot_view != null:
-		source_pos = slot_view.global_position + slot_view.size / 2.0
-	presenter._spawn_void_imp_claw_vfx_at(source_pos, owner_side)
+	state.emit_event(CombatEvent.Kind.VFX, owner_side, {name = "void_imp_claw", minion = minion})
 
 
 ## Pack Frenzy card text is "+250 ATK and SWIFT this turn" — so the ATK buff

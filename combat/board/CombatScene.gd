@@ -17,6 +17,12 @@ const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
 # the same shape. See design/refactors/COMBAT_STATE_MANIFEST.md.
 # ---------------------------------------------------------------------------
 var state: CombatState = CombatState.new()
+## Plays the journal (plan 3.2): one animation per event, lagging ViewState, UI refresh.
+var presenter: CombatPresenter = null
+## The rune panels captured by _on_ritual_firing, consumed at RITUAL_FIRED playback.
+var _pending_ritual_capture: Dictionary = {}
+## Emitted by _on_buff_vfx_finished when the last BuffApplyVFX of a batch ends.
+signal buff_vfx_batch_done()
 
 ## Forwarded to state.turn_manager (untyped Object) so CombatState methods
 ## (e.g. _on_flesh_spent → Flesh Bond draw) hit the same instance live + sim.
@@ -260,14 +266,7 @@ var enemy_hp: int:
 # Currently selected attacker (if player clicked one of their minions)
 var selected_attacker: MinionInstance = null
 
-# Attack animation — captured BEFORE resolve_minion_attack so death doesn't erase them
-var _anim_pre_hp:   int       = 0
-var _anim_atk_slot: BoardSlot = null
-var _anim_def_slot: BoardSlot = null
 
-# Death animations deferred until after lunge freeze_visuals is released.
-# Each entry is {slot: BoardSlot, pos: Vector2, minion: MinionInstance} — position captured when slot is still in-place.
-var _deferred_death_slots: Array = []
 
 # Card the player is currently trying to play (dragged or clicked from hand)
 var pending_play_card: CardInstance = null
@@ -637,6 +636,10 @@ func _ready() -> void:
 	# calls like ctx.scene._deal_void_bolt_damage / ._corrupt_minion / ._fire_ritual
 	# reach the scene's VFX-rich overrides instead of state's bare bodies.
 	state.presenter = self
+	presenter = CombatPresenter.new()
+	presenter.name = "Presenter"
+	add_child(presenter)
+	presenter.setup(self, state)
 	# Seed the engine RNG before anything shuffles (enemy deck in _setup_enemy_ai,
 	# player deck in turn_manager.start_combat). Same seed + same inputs = same fight.
 	var combat_seed: int = GameManager.next_combat_seed
@@ -660,21 +663,8 @@ func _ready() -> void:
 	_connect_board_slots()
 	_connect_combat_manager()
 	_connect_ui()
-	# Connect state signal subscribers BEFORE the initial display refresh calls
-	# below — those calls emit traps_changed / environment_changed and would be
-	# lost otherwise. Subscribers null-check the UI nodes they touch (hero
-	# panels, pip bar) so connecting before those exist is safe.
-	state.hp_changed.connect(_on_state_hp_changed)
-	state.void_marks_changed.connect(_on_state_void_marks_changed)
-	state.hero_armour_changed.connect(_on_state_hero_armour_changed)
-	state.hero_buff_changed.connect(_on_state_hero_buff_changed)
-	state.spell_damage_dealt.connect(_on_state_spell_damage_dealt)
-	state.combat_log.connect(_on_state_combat_log)
-	state.minion_stats_changed.connect(_on_state_minion_stats_changed)
-	state.flesh_changed.connect(_on_state_flesh_changed)
-	state.forge_changed.connect(_on_state_forge_changed)
-	state.traps_changed.connect(_on_state_traps_changed)
-	state.environment_changed.connect(_on_state_environment_changed)
+	# UI refresh is driven by the presenter as it plays the journal (plan 3.2);
+	# the initial display refresh calls below journal their events.
 	_update_environment_display()
 	_update_trap_display()
 	_update_enemy_trap_display()
@@ -837,17 +827,6 @@ func _find_nodes() -> void:
 # ---------------------------------------------------------------------------
 
 func _setup_enemy_ai() -> void:
-	enemy_ai.enemy_board   = enemy_board
-	enemy_ai.player_board  = player_board
-	enemy_ai.enemy_slots   = enemy_slots
-	enemy_ai.combat_manager = combat_manager
-	enemy_ai.ai_turn_finished.connect(turn_manager.end_enemy_turn)
-	enemy_ai.minion_summoned.connect(_on_enemy_minion_summoned)
-	enemy_ai.enemy_spell_cast.connect(_on_enemy_spell_cast)
-	enemy_ai.enemy_about_to_attack.connect(_on_enemy_about_to_attack)
-	enemy_ai.enemy_attacking_hero.connect(_on_enemy_attacking_hero)
-	enemy_ai.trap_placed.connect(_on_enemy_trap_placed)
-	enemy_ai.environment_placed.connect(_on_enemy_environment_placed)
 	# Load the enemy's deck and profile from the current encounter
 	var enemy_deck: Array[String] = []
 	if GameManager.current_enemy != null:
@@ -865,9 +844,6 @@ func _connect_turn_manager() -> void:
 	turn_manager.state = state
 	turn_manager.turn_started.connect(_on_turn_started)
 	turn_manager.turn_ended.connect(_on_turn_ended)
-	turn_manager.resources_changed.connect(_on_resources_changed)
-	turn_manager.card_drawn.connect(_on_card_drawn)
-	turn_manager.card_generated.connect(_on_card_generated)
 
 func _connect_board_slots() -> void:
 	for i in player_slots.size():
@@ -886,8 +862,6 @@ func _connect_board_slots() -> void:
 
 func _connect_combat_manager() -> void:
 	combat_manager.scene = self
-	state.slot_changed.connect(_on_slot_changed)
-	combat_manager.attack_resolved.connect(_on_attack_resolved)
 	combat_manager.minion_vanished.connect(state._on_minion_vanished)
 	combat_manager.hero_damaged.connect(state._on_hero_damaged)
 	combat_manager.hero_healed.connect(state._on_hero_healed)
@@ -950,19 +924,16 @@ func _on_turn_started(is_player_turn: bool) -> void:
 		turn_label.text = "Turn %d  |  Deck: %d" % [turn_manager.turn_number, turn_manager.player_deck.size()]
 	if deck_count_label:
 		deck_count_label.text = "%d cards" % turn_manager.player_deck.size()
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
-	# Safety sweep: remove any dead minions still visually on the board.
-	# This catches edge cases where minion_vanished fired but the slot wasn't properly cleared.
-	_sweep_dead_minions()
-	# Refresh all slot visuals — clears Exhausted badges and any stale occupied states
-	for slot in player_slots + enemy_slots:
-		slot._refresh_visuals()
 	if is_player_turn:
 		_refresh_hand_spell_costs()
 		if _relic_bar:
 			_relic_bar.refresh()
 		return
 	if _combat_ended:
+		return
+	# The enemy acts only once everything the player did has been shown.
+	await presenter.pump_and_wait_idle()
+	if not is_inside_tree() or _combat_ended:
 		return
 	await get_tree().create_timer(0.4).timeout
 	if not is_inside_tree() or _combat_ended:
@@ -976,26 +947,12 @@ func _on_turn_ended(_is_player_turn: bool) -> void:
 	selected_attacker = null
 	pending_play_card = null
 
-## Resource pip / label refresh delegated to combat_ui.
-func _on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
-	if combat_ui != null:
-		combat_ui.on_resources_changed(essence, essence_max, mana, mana_max)
 
 func _refresh_end_turn_mode() -> void:
 	if combat_ui != null:
 		combat_ui.refresh_end_turn_mode()
 
-## Hand display only — ON_PLAYER_CARD_DRAWN is fired by CombatState.draw_cards /
-## add_to_hand right after these signals.
-func _on_card_drawn(inst: CardInstance) -> void:
-	if hand_display:
-		hand_display.add_card(inst)
-		# Don't refresh playability immediately — the shimmer animation sets modulate
-		# and _refresh_playable_state is called at the end of the tween
 
-func _on_card_generated(inst: CardInstance) -> void:
-	if hand_display:
-		hand_display.add_card_generated(inst)
 
 func _on_card_anim_finished() -> void:
 	if combat_ui != null:
@@ -1024,18 +981,8 @@ func _do_end_turn(growth: String = "") -> void:
 	# Record the growth pick now; the state applies it when the player's next
 	# turn begins (D10).
 	state.choose_player_growth(growth)
-	# Drain any in-flight on-play VFX or death animations before relinquishing
-	# the turn. Spell VFX no longer gates here — P4B mutates state before the
-	# spell's projectile flight, so kills land regardless of when end-turn
-	# fires. Loop because resolving one VFX can start the next. vfx_gate
-	# covers any future gate types registered without touching this loop.
-	while _on_play_vfx_active or _active_death_anims > 0 or vfx_gate.is_any_active():
-		if _on_play_vfx_active:
-			await on_play_vfx_done
-		if _active_death_anims > 0:
-			await death_anims_done
-		if vfx_gate.is_any_active():
-			await vfx_gate.idle
+	# Everything the player did is shown before the turn passes.
+	await presenter.pump_and_wait_idle()
 	# Combat may have ended while we were awaiting (lethal spell on enemy hero).
 	if _combat_ended:
 		_end_turn_in_progress = false
@@ -1094,144 +1041,8 @@ func _on_hand_card_deselected() -> void:
 # Spell / Trap / Environment play
 # ---------------------------------------------------------------------------
 
-func _try_play_spell(spell: SpellCardData) -> void:
-	if not state.can_afford_sparks("player", spell.void_spark_cost):
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	if spell.void_spark_cost > 0:
-		state.pay_sparks("player", spell.void_spark_cost)
-	if not _pay_card_cost(0, _effective_spell_cost(spell)):
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	_log("You cast: %s" % spell.card_name)
-	turn_manager.remove_from_hand(pending_play_card)
-	if hand_display:
-		hand_display.remove_card(pending_play_card)
-		hand_display.deselect_current()
-	pending_play_card = null
-	# Phase Disruptor counter: enemy counters player spell
-	if _player_spell_counter > 0:
-		_player_spell_counter -= 1
-		_log("  Spell countered!", _LogType.ENEMY)
-		_show_spell_countered_anim(spell)
-		_update_counter_warning()
-		return
-	# P4B: invert resolve-at-impact for AoE / untargeted spells. Freeze every
-	# enemy minion slot so the wave can play over still-visible minions before
-	# their death animations fire. State mutates immediately; popups capture
-	# and drain at vfx.impact_hit (or, for plague-style VFX that ignores
-	# resolve_damage, at the safety drain after VfxController returns). After
-	# VFX finishes, unfreeze slots + flush deferred deaths so kills animate.
-	_show_card_cast_anim(spell, false, func() -> void:
-		var frozen_slots: Array[BoardSlot] = []
-		for s in enemy_slots:
-			if s.minion != null:
-				s.freeze_visuals = true
-				frozen_slots.append(s)
-		_capturing_spell_popups = true
-		state.cast_player_targeted_spell(spell, null)
-		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-		spell_ctx.card = spell
-		trigger_manager.fire(spell_ctx)
-		_capturing_spell_popups = false
-		var on_impact := func(_i: int) -> void: _drain_pending_spell_popups()
-		await vfx_controller.play_spell(spell.id, "player", null, on_impact)
-		_drain_pending_spell_popups()
-		# Unfreeze any slots we froze; refresh + flush so death animations play.
-		for s in frozen_slots:
-			if is_instance_valid(s):
-				s.freeze_visuals = false
-				s._refresh_visuals()
-		_flush_deferred_deaths()
-	)
 
-func _try_play_trap(trap: TrapCardData) -> void:
-	if active_traps.size() >= trap_slot_panels.size():
-		_log("Trap slots are full.", _LogType.PLAYER)
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	# Non-rune traps: only one of each type allowed on the board
-	if not trap.is_rune:
-		for existing in active_traps:
-			if not existing.is_rune and existing.id == trap.id:
-				_log("You already have %s set." % trap.card_name, _LogType.PLAYER)
-				if hand_display:
-					hand_display.deselect_current()
-				pending_play_card = null
-				return
-	if not _pay_card_cost(0, pending_play_card.effective_cost()):
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	if trap.is_rune:
-		_log("You place rune: %s" % trap.card_name)
-	else:
-		_log("You set trap: %s" % trap.card_name)
-	active_traps.append(trap)
-	_update_trap_display()
-	# Hide the rune slot immediately so the slot reads as empty during the
-	# card preview and the placement VFX. play_rune_placement_vfx fades the
-	# art back in once the VFX finishes.
-	if trap.is_rune:
-		vfx_bridge.hide_rune_slot_for_placement(trap, "player")
-	turn_manager.remove_from_hand(pending_play_card)
-	if hand_display:
-		hand_display.remove_card(pending_play_card)
-		hand_display.deselect_current()
-	pending_play_card = null
-	# Show card preview (traps have no immediate effects — they fire on trigger).
-	# For runes, defer the placement VFX into the post-preview callback so the
-	# halo isn't covered by the centered card preview while it animates.
-	if trap.is_rune:
-		_show_card_cast_anim(trap, false, func() -> void:
-			vfx_bridge.play_rune_placement_vfx(trap, "player"))
-	else:
-		_show_card_cast_anim(trap, false, func() -> void: pass)
-	# Fire placement event
-	var place_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_TRAP_PLACED, "player")
-	place_ctx.card = trap
-	trigger_manager.fire(place_ctx)
-	# Runes: register persistent aura handlers, then fire ON_RUNE_PLACED for ritual checks.
-	# These fire immediately (not gated on the preview/VFX) so ritual triggers
-	# resolve in the same frame as the placement.
-	if trap.is_rune:
-		_apply_rune_aura(trap)
-		var rune_ctx := EventContext.make(Enums.TriggerEvent.ON_RUNE_PLACED, "player")
-		rune_ctx.card = trap
-		trigger_manager.fire(rune_ctx)
 
-func _try_play_environment(env: EnvironmentCardData) -> void:
-	if not _pay_card_cost(0, env.cost):
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	_log("You play environment: %s" % env.card_name)
-	# Tear down previous environment's handlers and stat buffs before replacing
-	if active_environment != null:
-		_unregister_env_rituals()
-		state._unregister_env_aura(active_environment)
-	active_environment = env
-	state._register_env_rituals(env)
-	_update_environment_display()
-	turn_manager.remove_from_hand(pending_play_card)
-	if hand_display:
-		hand_display.remove_card(pending_play_card)
-		hand_display.deselect_current()
-	pending_play_card = null
-	# Show card preview; fire on-enter effects and ritual checks on impact
-	_show_card_cast_anim(env, false, func() -> void:
-		if not env.rituals.is_empty():
-			var env_ctx := EventContext.make(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED, "player")
-			env_ctx.card = env
-			trigger_manager.fire(env_ctx)
-		if not env.on_enter_effect_steps.is_empty():
-			EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(self, "player"))
-		if not env.passive_effect_steps.is_empty():
-			EffectResolver.run(env.passive_effect_steps, EffectContext.make(self, "player"))
-	)
 
 func _update_environment_display() -> void:
 	state._update_environment_display()
@@ -1288,60 +1099,87 @@ func _on_enemy_slot_clicked(slot: BoardSlot, minion: MinionInstance) -> void:
 # Minion play
 # ---------------------------------------------------------------------------
 
-## Player minion play with card flight — the engine slot is taken at once (the
-## node stays frozen on its empty look during the flight); triggers still fire
-## at landing until Phase 3.4 routes this through cmd_play_minion.
-## Called without await so input is never blocked.
+
+## Player plays go through the engine commands (plan 3.4): the engine validates,
+## pays and resolves; the presenter plays the journal. A refusal leaves the
+## card in hand.
+func _try_play_spell(spell: SpellCardData) -> void:
+	var inst: CardInstance = pending_play_card
+	pending_play_card = null
+	if hand_display:
+		hand_display.deselect_current()
+	if inst == null:
+		return
+	var r: CommandResult = state.cmd_play_spell("player", inst, null)
+	if not r.ok:
+		_log("  %s: %s." % [spell.card_name, r.reason], _LogType.PLAYER)
+
+## Targeted spell on a minion. Cast-time choices (Rally the Ranks's race pick)
+## are resolved before the command so the engine gets the committed choice.
+func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void:
+	var inst: CardInstance = pending_play_card
+	if inst == null or target == null:
+		return
+	var extra_cast_data: Dictionary = await _resolve_spell_extra_cast_data(spell, target)
+	if not is_inside_tree():
+		return
+	pending_play_card = null
+	if hand_display:
+		hand_display.deselect_current()
+	_clear_all_highlights()
+	var r: CommandResult = state.cmd_play_spell("player", inst, target, extra_cast_data)
+	if not r.ok:
+		_log("  %s: %s." % [spell.card_name, r.reason], _LogType.PLAYER)
+
+func _try_play_trap(trap: TrapCardData) -> void:
+	var inst: CardInstance = pending_play_card
+	pending_play_card = null
+	if hand_display:
+		hand_display.deselect_current()
+	if inst == null:
+		return
+	var r: CommandResult = state.cmd_play_trap("player", inst)
+	if not r.ok:
+		if r.reason == "trap_slots_full":
+			_log("Trap slots are full.", _LogType.PLAYER)
+		else:
+			_log("  %s: %s." % [trap.card_name, r.reason], _LogType.PLAYER)
+
+func _try_play_environment(env: EnvironmentCardData) -> void:
+	var inst: CardInstance = pending_play_card
+	pending_play_card = null
+	if hand_display:
+		hand_display.deselect_current()
+	if inst == null:
+		return
+	var r: CommandResult = state.cmd_play_environment("player", inst)
+	if not r.ok:
+		_log("  %s: %s." % [env.card_name, r.reason], _LogType.PLAYER)
+
+## Minion play with the card flight: the hand visual is popped and handed to
+## the presenter, which flies it to the slot at MINION_PLAYED playback.
 func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
-	if not slot.is_empty():
+	if inst == null or slot == null:
+		return
+	var plan: Dictionary = state.plan_cost("player", inst, {})
+	var why: String = plan.get("why", "")
+	if not why.is_empty() or not state.slot_of("player", slot.index).is_empty():
+		if hand_display:
+			hand_display.deselect_current()
 		return
 	var card := inst.card_data as MinionCardData
-	if not state.can_afford_sparks("player", card.void_spark_cost):
-		return
-	if card.void_spark_cost > 0:
-		state.pay_sparks("player", card.void_spark_cost)
-	# piercing_void talent's +1 Mana on Void Imp now baked into card.mana_cost
-	# via talent_overrides — no runtime conditional needed.
-	var fp_discount := _peek_fiendish_pact_discount(card)
-	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost)):
-		return
-	if fp_discount > 0:
-		_log("  Fiendish Pact: %s costs %d less Essence." % [card.card_name, fp_discount], _LogType.PLAYER)
-		state._consume_fiendish_pact_discount()
-	_log("You play: %s" % card.card_name)
-	var instance := MinionInstance.create(card, "player")
-	instance.card_instance = inst
-	# Engine occupancy now; the view reveals the minion at landing.
-	slot.freeze_visuals = true
-	state.slot_of("player", slot.index).place(instance)
-
-	# Capture hand index BEFORE popping (pop removes the visual from the list)
-	var hand_index := hand_display.get_index_for(card) if hand_display else 0
-	var flying_visual: CardVisual = null
-	if hand_display:
-		flying_visual = hand_display.pop_selected_for_animation()
-	turn_manager.remove_from_hand(inst)
-	_refresh_hand_spell_costs()
-
-	var total_cost: int = card.essence_cost + card.mana_cost
-	var is_champion: bool = card.is_champion
-	var on_landing := func() -> void:
-		slot.freeze_visuals = false
-		slot.show_minion(instance)  # switches slot from empty→occupied view at landing
-		var play_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
-		play_ctx.minion = instance
-		play_ctx.card   = card
-		play_ctx.target = on_play_target
-		trigger_manager.fire(play_ctx)
-		player_board.append(instance)
-		state.minion_summoned.emit("player", instance, slot.index)
-		var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-		summon_ctx.minion = instance
-		summon_ctx.card   = card
-		trigger_manager.fire(summon_ctx)
-		_maybe_spawn_aura_pulse(card, slot)
-		_refresh_hand_spell_costs()
-	_animate_card_to_slot(flying_visual, slot, hand_index, total_cost, is_champion, on_landing)
+	var hand_index: int = hand_display.get_index_for(card) if hand_display else 0
+	var visual: CardVisual = hand_display.pop_selected_for_animation() if hand_display else null
+	if visual != null:
+		presenter.register_flight(inst, visual, hand_index)
+	var r: CommandResult = state.cmd_play_minion("player", inst, slot.index, on_play_target)
+	if not r.ok:
+		var flight: Dictionary = presenter.take_flight(inst)
+		if not flight.is_empty():
+			(flight["visual"] as CardVisual).queue_free()
+			if hand_display:
+				hand_display.add_card(inst)
+		_log("  %s: %s." % [card.card_name, r.reason], _LogType.PLAYER)
 
 ## Async arc-flight + landing animation.
 ## Empty slot stays visible throughout flight; slot switches to minion view at landing.
@@ -1641,11 +1479,9 @@ func _on_corruption_removed(target: Object, stacks: int) -> void:
 ## SacrificeVFX. Plain deaths (combat, fatigue) never reach here — they go
 ## through combat_manager.kill_minion directly without emitting.
 func _connect_sacrifice_signal() -> void:
-	var bus: Object = SacrificeSystem.bus()
-	if bus == null:
-		return
-	if not bus.is_connected("sacrifice_occurred", _on_sacrifice_occurred):
-		bus.connect("sacrifice_occurred", _on_sacrifice_occurred)
+	# The presenter plays SacrificeVFX at MINION_SACRIFICED playback (plan 3.2);
+	# the SacrificeSystem bus is no longer subscribed.
+	pass
 
 ## Minions currently mid-sacrifice — maps instance_id → delay in seconds
 ## that _animate_minion_death should wait before starting its ghost rise.
@@ -1734,19 +1570,6 @@ func _schedule_sacrifice_unfreeze(slot: BoardSlot, delay: float) -> void:
 	# _refresh_visuals hides it behind visible=false but modulate persists.
 	if art != null and is_instance_valid(art):
 		art.modulate.a = 1.0
-	# Trim the ghost-rise delay by the time we've already spent (visible
-	# duration + fade), since _animate_minion_death_body awaits the
-	# remaining time before starting the ghost rise.
-	var elapsed: float = delay + fade_t
-	for entry in _deferred_death_slots:
-		if entry.get("slot") == slot:
-			var dead_m: MinionInstance = entry.get("minion")
-			if dead_m != null:
-				var id: int = dead_m.get_instance_id()
-				if _pending_sacrifice_ghost_delay.has(id):
-					var remaining: float = float(_pending_sacrifice_ghost_delay[id]) - elapsed
-					_pending_sacrifice_ghost_delay[id] = maxf(remaining, 0.0)
-	_flush_deferred_deaths()
 
 ## Pending buff VFX to spawn — keyed by (minion, source_tag) so:
 ##   • Multiple steps from the same source on the same minion coalesce into
@@ -1836,6 +1659,7 @@ func _on_buff_vfx_finished() -> void:
 	_active_buff_vfx_count -= 1
 	if _active_buff_vfx_count <= 0:
 		_active_buff_vfx_count = 0
+		buff_vfx_batch_done.emit()
 		# Setter handles the on_play_vfx_done emit when count hits zero — avoids
 		# clobbering an outer gate-holder (e.g. ritual_sacrifice orchestrator)
 		# that's still in flight while this BuffApplyVFX batch finishes.
@@ -1926,17 +1750,6 @@ func _pack_chain_anchor(from: BoardSlot, toward: BoardSlot) -> Vector2:
 # ---------------------------------------------------------------------------
 
 
-## Presenter hook — CombatState._corrupt_minion (the stack is already applied).
-## While a player spell is captured the splash waits for the wave / impact
-## drain so corruption "lands" with the wave instead of at cast time.
-func _show_corruption_applied(minion: MinionInstance) -> void:
-	var slot: BoardSlot = _find_slot_for(minion)
-	if slot == null:
-		return
-	if _capturing_spell_popups:
-		_pending_corruption_apply.append({"slot": slot})
-		return
-	_play_corruption_apply_visual(slot)
 
 ## Presenter hook — CombatState._apply_void_mark: the mark VFX on the enemy panel.
 func _show_void_mark_applied() -> void:
@@ -2561,118 +2374,23 @@ func _pay_card_cost(essence_cost: int, mana_cost: int) -> bool:
 # Combat manager events
 # ---------------------------------------------------------------------------
 
-func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> void:
-	var damage: int = combat_manager.last_attack_damage
-	var counter: int = combat_manager.last_counter_damage
-	var damage_hp_delta: int = combat_manager.last_attack_hp_delta
-	var counter_hp_delta: int = combat_manager.last_counter_hp_delta
-	var is_crit: bool = _last_attack_was_crit
-	_anim_pre_hp = 0
-	var a := _anim_atk_slot
-	var d := _anim_def_slot
-	_anim_atk_slot = null
-	_anim_def_slot = null
-	if a and d:
-		# Refresh happens inside _play_attack_anim after the lunge completes
-		_play_attack_anim(a, d, damage, attacker, defender, is_crit, counter, damage_hp_delta, counter_hp_delta)
-	else:
-		_refresh_slot_for(attacker)
-		_refresh_slot_for(defender)
-	# ON_ENEMY_ATTACK traps fire BEFORE the attack (in _on_enemy_about_to_attack /
-	# _on_enemy_attacking_hero) so they can cancel it via Smoke Veil, deal damage
-	# first via Hidden Ambush, etc.
 
-## Presenter hook — CombatState._on_minion_vanished (after the death triggers).
-## Hand glows / spell costs refresh, then the death animation — deferred while
-## the slot is frozen mid-lunge; its position is captured now, while the slot
-## is still in its original container.
-func _on_minion_vanished_visual(minion: MinionInstance, slot_index: int) -> void:
-	var dead_slot: BoardSlot = slot_node(minion.owner, slot_index)
-	if minion.owner == "player" and hand_display:
-		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
-	_refresh_hand_spell_costs()
-	if dead_slot:
-		if dead_slot.freeze_visuals:
-			_deferred_death_slots.append({slot = dead_slot, pos = dead_slot.global_position, minion = minion})
-		else:
-			_animate_minion_death(dead_slot, dead_slot.global_position, minion)
 
 ## Presenter hook — CombatState._on_minion_vanished (before the death triggers).
 ## Minions with an on-death icon VFX resolve their on-death effects after the
 ## icon plays; CombatHandlers.on_minion_died_death_effect skips the ones queued here.
 
-## Subscriber to CombatState.hp_changed — refreshes the appropriate hero panel
-## whenever HP mutates. Lets us drop scattered `_hero_panel.update(...)` calls
-## sprinkled through damage/heal paths; the signal does it for free.
-## Note: enemy_void_marks and enemy_ai aren't HP-related, so the existing
-## _enemy_hero_panel.update(...) calls on those paths still need to stay until
-## void_marks_changed has its own signal.
-## State-signal subscribers delegated to combat_ui. Scene's wrappers preserve
-## the signal-connection target so the wiring in _connect_ui doesn't change.
-func _on_state_hp_changed(side: String, new_hp: int, mx: int, delta: int) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_hp_changed(side, new_hp, mx, delta)
 
-func _on_state_void_marks_changed(side: String, value: int) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_void_marks_changed(side, value)
 
-func _on_state_hero_armour_changed(side: String, value: int) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_hero_armour_changed(side, value)
 
-func _on_state_hero_buff_changed(side: String) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_hero_buff_changed(side)
 
-func _on_state_combat_log(msg: String, log_type: int) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_combat_log(msg, log_type)
 
-func _on_state_flesh_changed(value: int, max_value: int) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_flesh_changed(value, max_value)
 
-func _on_state_forge_changed(value: int, threshold: int) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_forge_changed(value, threshold)
 
-func _on_state_traps_changed(side: String) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_traps_changed(side)
 
-func _on_state_environment_changed(env: EnvironmentCardData) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_environment_changed(env)
 
-## Presenter hook — CombatState._on_hero_damaged. `outcome` is "lethal" (the
-## killing blow: flash, then the defeat/victory flow), "transition" (F15 P1 → P2:
-## flash, refresh the panel, then force-end the player turn next frame) or "".
-## Non-lethal popups queue while a spell's popups are being captured.
-func _on_hero_damaged_visual(target: String, amount: int, school: int, is_crit: bool, outcome: String) -> void:
-	if outcome == "transition":
-		_flash_hero(target, amount, Callable(), school, is_crit)
-		_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
-		call_deferred("_force_end_player_turn_for_phase_transition")
-	elif outcome == "lethal":
-		_flash_hero(target, amount, _on_defeat if target == "player" else _on_victory, school, is_crit)
-	elif _capturing_spell_popups:
-		_pending_hero_popups.append({kind = "damage", target = target, amount = amount, school = school, is_crit = is_crit})
-	else:
-		_flash_hero(target, amount, Callable(), school, is_crit)
 
-## Presenter hook — CombatState._on_hero_healed.
-func _on_hero_healed_visual(target: String, amount: int) -> void:
-	if _capturing_spell_popups:
-		_pending_hero_popups.append({kind = "heal", target = target, amount = amount})
-	else:
-		_flash_hero_heal(target, amount)
 
-## Presenter hook — a card left the hand without a play animation (champion
-## auto-summon from hand).
-func _on_card_left_hand(inst: CardInstance) -> void:
-	if hand_display:
-		hand_display.remove_card(inst)
 
 # ---------------------------------------------------------------------------
 # Targeted spell helpers
@@ -2725,57 +2443,6 @@ func _highlight_spell_targets(spell: SpellCardData) -> void:
 func _is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 	return targeting.is_valid_spell_target(minion, target_type)
 
-## Spend mana, resolve the effect on the target, then remove the card
-func _apply_targeted_spell(spell: SpellCardData, target: MinionInstance) -> void:
-	if not _pay_card_cost(0, _effective_spell_cost(spell)):
-		if hand_display:
-			hand_display.deselect_current()
-		return
-	_log("You cast: %s → %s" % [spell.card_name, target.card_data.card_name])
-	turn_manager.remove_from_hand(pending_play_card)
-	if hand_display:
-		hand_display.remove_card(pending_play_card)
-		hand_display.deselect_current()
-	pending_play_card = null
-	_clear_all_highlights()
-	var captured_target: MinionInstance = target
-	# Cast-time runtime parameters (e.g. Rally the Ranks's dual-tag race pick) are
-	# resolved BEFORE the cast animation, so the player picks first and the VFX
-	# then plays for the committed choice. _resolve_spell_extra_cast_data returns
-	# {} for spells with no runtime params or no decision needed (single-tag
-	# target). The dict is forwarded into state.cast_player_targeted_spell.
-	var extra_cast_data: Dictionary = await _resolve_spell_extra_cast_data(spell, captured_target)
-	_show_card_cast_anim(spell, false, func() -> void:
-		# P4B: invert the resolve-at-impact pattern. Freeze the target slot BEFORE
-		# mutating state so _on_minion_vanished sees freeze_visuals=true and defers
-		# the death animation (slot.minion stays set, slot visual stays). Capture
-		# popups so they sync with VFX impact instead of firing at mutation time.
-		# Then mutate state immediately — kills land before any await.
-		var target_slot: BoardSlot = _find_slot_for(captured_target)
-		if target_slot != null:
-			target_slot.freeze_visuals = true
-		_capturing_spell_popups = true
-		state.cast_player_targeted_spell(spell, captured_target, extra_cast_data)
-		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-		spell_ctx.card = spell
-		trigger_manager.fire(spell_ctx)
-		_capturing_spell_popups = false
-		# Drain queued popups at vfx.impact_hit so they appear when projectile lands.
-		var on_impact := func(_i: int) -> void: _drain_pending_spell_popups()
-		await vfx_controller.play_spell(spell.id, "player", captured_target, on_impact)
-		# Unfreeze + refresh the target slot. Without this, buff effects (e.g. Dark
-		# Empowerment's BUFF_ATK / BUFF_HP) mutate state but the slot's ATK/HP
-		# labels don't repaint until something else unfreezes (e.g. the minion
-		# attacking next turn). Mirrors the unfreeze step in `_try_play_spell`.
-		# Skip sacrifice-locked slots — _schedule_sacrifice_unfreeze owns the
-		# unfreeze timing for those (waits for the dagger to land + drain to
-		# play before clearing the art).
-		if target_slot != null and is_instance_valid(target_slot) \
-				and not _sacrifice_locked_slots.has(target_slot):
-			target_slot.freeze_visuals = false
-			target_slot._refresh_visuals()
-			_flush_deferred_deaths()
-	)
 
 ## Resolve cast-time runtime parameters for spells that need a choice the
 ## EffectResolver can't make on its own (e.g. Rally the Ranks's race pick when
@@ -2861,14 +2528,6 @@ func play_trap_reveals(owner: String, reveals: Array) -> void:
 func _flash_trap_slot_for(owner: String, slot_idx: int) -> void:
 	trap_env_display.flash_slot(owner, slot_idx)
 
-## Called by EnemyAI's minion_summoned signal.
-## the slot reveal and triggers are deferred until after the reveal animation.
-func _on_enemy_minion_summoned(minion: MinionInstance, slot: BoardSlot) -> void:
-	_log("Enemy summons: %s" % minion.card_data.card_name, _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
-	_enemy_summon_reveal_then_land(minion, slot,
-		minion.card_data.essence_cost + minion.card_data.mana_cost,
-		minion.card_data.is_champion)
 
 ## Punch + ripple for an enemy minion landing — no flight, just impact on the slot.
 func _animate_enemy_landing(slot: BoardSlot, total_cost: int, is_champion: bool) -> void:
@@ -2883,53 +2542,6 @@ func _animate_enemy_landing(slot: BoardSlot, total_cost: int, is_champion: bool)
 	slot.pivot_offset = Vector2.ZERO
 	_spawn_slot_ripple(slot, total_cost, is_champion)
 
-## Sequences reveal → show_minion → triggers → punch+ripple for an enemy summon.
-## Empty placeholder stays visible during the reveal; minion appears only after it.
-func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, total_cost: int, is_champion: bool) -> void:
-	await _show_enemy_summon_reveal(minion.card_data)
-	if not is_inside_tree():
-		enemy_summon_reveal_done.emit()  # unblock commit_minion_play
-		return
-	# Clear the pending reservation and visually place the minion BEFORE emitting
-	# enemy_summon_reveal_done, so the AI never acts while slot.minion is still null.
-	if enemy_ai:
-		enemy_ai._pending_slots.erase(slot)
-	if slot:
-		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
-		slot.freeze_visuals = false
-		slot.show_minion(minion)
-	if not is_inside_tree():
-		enemy_summon_reveal_done.emit()
-		return
-	if slot:
-		# Play the landing punch + ripple, then await it BEFORE firing
-		# ON_ENEMY_MINION_SUMMONED. Otherwise reactive VFX (e.g. Corrupt
-		# Authority detonations) start while the imp is still mid-punch and
-		# look like they fire before the imp arrives.
-		await _animate_enemy_landing(slot, total_cost, is_champion)
-		if not is_inside_tree():
-			enemy_summon_reveal_done.emit()
-			return
-		# Per-card reveal extras (e.g. Corrupted Death passive on Void-Touched
-		# Imp) live in CardVfxRegistry — passive gating handled there.
-		CardVfxRegistry.play_enemy_summon_reveal_extra(vfx_controller, minion, slot, _active_enemy_passives)
-	# ON_PLAY effects resolved by CombatHandlers.on_enemy_minion_played_effect (registered in _setup_triggers).
-	# Fire triggers BEFORE emitting enemy_summon_reveal_done so any reactive
-	# handler that sets _on_play_vfx_active = true (e.g. corruption detonation)
-	# does so before EnemyAI checks the flag and decides whether to await
-	# on_play_vfx_done. Otherwise AI would race past the reactive VFX.
-	# ON_ENEMY_MINION_PLAYED fires only for hand plays — gates on-play battlecries
-	# so token summons (Brood Call → Frenzied Imp) don't retrigger them.
-	var played_ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_PLAYED, "enemy")
-	played_ctx.minion = minion
-	played_ctx.card   = minion.card_data
-	trigger_manager.fire(played_ctx)
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
-	ctx.minion = minion
-	ctx.card = minion.card_data
-	trigger_manager.fire(ctx)
-	_maybe_spawn_aura_pulse(minion.card_data, slot)
-	enemy_summon_reveal_done.emit()
 
 ## Centre-screen card reveal when an enemy summons a minion.
 ## Delegated to vfx_bridge — big-card reveal of an enemy summon.
@@ -2937,84 +2549,8 @@ func _show_enemy_summon_reveal(card: CardData) -> void:
 	if vfx_bridge != null:
 		await vfx_bridge.show_enemy_summon_reveal(card)
 
-## Called by EnemyAI's enemy_spell_cast signal.
-func _on_enemy_spell_cast(spell: SpellCardData) -> void:
-	_enemy_spell_cast_active = true
-	_log("Enemy casts: %s" % spell.card_name, _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
-	# Phase Disruptor counter: player counters enemy spell
-	if _enemy_spell_counter > 0:
-		_enemy_spell_counter -= 1
-		_log("  Spell countered!", _LogType.PLAYER)
-		_show_spell_countered_anim(spell)
-		_enemy_spell_cast_active = false
-		enemy_spell_cast_done.emit()
-		return
-	# Fire ON_ENEMY_SPELL_CAST BEFORE resolving so Null Seal can set _spell_cancelled.
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
-	ctx.card = spell
-	trigger_manager.fire(ctx)
-	var was_cancelled := _spell_cancelled
-	_spell_cancelled = false
-	if was_cancelled:
-		_enemy_spell_cast_active = false
-		enemy_spell_cast_done.emit()
-		return
-	# Capture chosen target before animation; dispatch to the correct EffectContext field by type.
-	var chosen = enemy_ai.spell_chosen_target
-	enemy_ai.spell_chosen_target = null
-	# P4B: invert resolve-at-impact for enemy spell cast. Freeze the targeted
-	# minion slot (or all player slots for AoE) before state mutates so death
-	# animations defer until vfx finishes. Popups capture and drain at impact.
-	_show_card_cast_anim(spell, true, func() -> void:
-		var frozen_slots: Array[BoardSlot] = []
-		if chosen is MinionInstance:
-			var slot: BoardSlot = _find_slot_for(chosen)
-			if slot != null:
-				slot.freeze_visuals = true
-				frozen_slots.append(slot)
-		else:
-			# AoE / non-minion target — freeze every player minion slot.
-			for s in player_slots:
-				if s.minion != null:
-					s.freeze_visuals = true
-					frozen_slots.append(s)
-		_capturing_spell_popups = true
-		state.cast_enemy_spell(spell, chosen)
-		_capturing_spell_popups = false
-		var on_impact := func(_i: int) -> void: _drain_pending_spell_popups()
-		await vfx_controller.play_spell(spell.id, "enemy", chosen, on_impact)
-		_drain_pending_spell_popups()
-		for s in frozen_slots:
-			if is_instance_valid(s):
-				s.freeze_visuals = false
-				s._refresh_visuals()
-		_flush_deferred_deaths()
-		_enemy_spell_cast_active = false
-		enemy_spell_cast_done.emit()
-	)
 
-## Called by EnemyAI's trap_placed signal.
-func _on_enemy_trap_placed(trap: TrapCardData) -> void:
-	if trap.is_rune:
-		_log("Enemy places rune: %s" % trap.card_name, _LogType.ENEMY)
-		_apply_rune_aura(trap, "enemy")
-	else:
-		_log("Enemy sets a trap.", _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
-	_update_enemy_trap_display()
-	if trap.is_rune:
-		# Hide the slot, then play the VFX. The VFX wrapper fades the art
-		# back in on finish. Sets _on_play_vfx_active synchronously so the
-		# AI's next-action gate blocks until the VFX finishes — the await is
-		# fire-and-forget here (emit() returns to EnemyAI immediately).
-		vfx_bridge.hide_rune_slot_for_placement(trap, "enemy")
-		vfx_bridge.play_rune_placement_vfx(trap, "enemy")
 
-## Called by EnemyAI's environment_placed signal.
-func _on_enemy_environment_placed(env: EnvironmentCardData) -> void:
-	_log("Enemy plays environment: %s" % env.card_name, _LogType.ENEMY)
-	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 
 # Facades to CombatState's signal emit — external callers (HardcodedEffects,
 # EffectResolver, RelicEffects) keep working unchanged. Subscribers below do
@@ -3085,38 +2621,13 @@ func _wait_for_rune_placement_vfx() -> void:
 
 
 
-## Presenter hook — CombatState._spawn_token_into_slot, before the slot is
-## taken: freeze the node on its empty look when an entrance animation
-## (champion banner / sigil) will reveal it.
-func _prepare_token_reveal(_instance: MinionInstance, data: MinionCardData, owner: String, slot_index: int) -> void:
-	var node: BoardSlot = slot_node(owner, slot_index)
-	if node == null or vfx_bridge == null:
-		return
-	if data.is_champion or CardVfxRegistry.has_token_summon(data.id):
-		node.freeze_visuals = true
 
-## Presenter hook — CombatState._spawn_token_into_slot, after the summon
-## triggers: champion banner, sigil reveal, or a plain show.
-func _play_token_summon(instance: MinionInstance, data: MinionCardData, slot_index: int) -> void:
-	var node: BoardSlot = slot_node(instance.owner, slot_index)
-	if node == null:
-		return
-	if vfx_bridge != null and data.is_champion:
-		vfx_bridge.champion_summon_sequence(data, instance, node)
-		return
-	if CardVfxRegistry.try_play_token_summon(vfx_bridge, data.id, instance, data, node, instance.owner):
-		return
-	node.freeze_visuals = false
-	node.show_minion(instance)
 
 ## Presenter hook — CombatState._fire_ritual, called before the runes are
-## consumed: snapshot the rune panels + art now, then (after the rune-placement
-## VFX that may still be playing) run the merge VFX on them. Fire-and-forget.
+## consumed: snapshot the rune panels + art now; the presenter runs the merge
+## VFX on them at RITUAL_FIRED playback.
 func _on_ritual_firing(ritual: RitualData) -> void:
-	var capture: Dictionary = _capture_ritual_visual(ritual)
-	if capture.is_empty():
-		return
-	_run_ritual_visual(capture)
+	_pending_ritual_capture = _capture_ritual_visual(ritual)
 
 ## Identify which player rune slots `ritual` consumes (mirroring
 ## CombatState._fire_ritual's exact-then-wildcard pick order) and snapshot their
@@ -3676,34 +3187,16 @@ func _spawn_void_imp_claw_vfx_at(source_pos: Vector2, owner_side: String) -> voi
 	var vfx := VoidImpClawVFX.create(target_panel, source_pos)
 	vfx_controller.spawn(vfx)
 
-func _play_void_netter_on_play_vfx(source_minion: MinionInstance, target: MinionInstance, owner_side: String) -> void:
-	if source_minion == null or target == null:
+## Void Netter's net VFX (presentation only — the 200 damage is the card's
+## on-play step, journaled as DAMAGE_DEALT and shown by the presenter).
+func _play_void_netter_on_play_vfx(source_minion: MinionInstance, target: MinionInstance, _owner_side: String) -> void:
+	if source_minion == null or target == null or vfx_controller == null:
 		return
 	var source_slot: BoardSlot = _find_slot_for(source_minion)
 	var target_slot: BoardSlot = _find_slot_for(target)
-	var apply_damage := func() -> void:
-		if target == null or not is_instance_valid(target) or target.current_health <= 0:
-			return
-		# Void Netter on-play is a MINION-emitted effect on both sides. _spell_dmg
-		# defaults to SPELL source, so pass an explicit info to keep this MINION-source.
-		var netter_info := CombatManager.make_damage_info(0, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, source_minion, "void_netter")
-		if owner_side == "player":
-			_spell_dmg(target, 200, netter_info)
-			return
-		var slot_now := _find_slot_for(target)
-		var pre_hp: int = target.current_health
-		combat_manager.apply_damage_to_minion(target,
-				CombatManager.make_damage_info(200, Enums.DamageSource.MINION, Enums.DamageSchool.NONE, source_minion, "void_netter"))
-		_refresh_slot_for(target)
-		if slot_now != null:
-			_flash_slot(slot_now)
-			_spawn_damage_popup(slot_now.get_global_rect().get_center(), 200)
-			if slot_now.has_method("animate_hp_change"):
-				slot_now.animate_hp_change(pre_hp, target.current_health)
-	if vfx_controller == null or source_slot == null or target_slot == null:
-		apply_damage.call()
+	if source_slot == null or target_slot == null:
 		return
-	var vfx := VoidNetterVFX.create(source_slot, target_slot, apply_damage)
+	var vfx := VoidNetterVFX.create(source_slot, target_slot, func() -> void: pass)
 	vfx_controller.spawn(vfx)
 
 func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstance, feral_count: int) -> void:
@@ -3722,18 +3215,6 @@ func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstanc
 	# Setter auto-emits on_play_vfx_done when count hits zero.
 	_on_play_vfx_active = false
 
-## Safety sweep: find any minion on a slot whose HP ≤ 0 and that is no longer in the
-## board array, then clear the slot.  Guards against edge-case desync between board
-## data and slot visuals (e.g. death during async animation callbacks).
-func _sweep_dead_minions() -> void:
-	for slot in player_slots:
-		if slot.minion != null:
-			if slot.minion.current_health <= 0 or not player_board.has(slot.minion):
-				slot.show_empty()
-	for slot in enemy_slots:
-		if slot.minion != null:
-			if slot.minion.current_health <= 0 or not enemy_board.has(slot.minion):
-				slot.show_empty()
 
 ## Death animation system delegated to vfx_bridge. Scene keeps thin wrappers
 ## so external callers (VfxController via _combat._flush_deferred_deaths)
@@ -3744,9 +3225,6 @@ func _animate_minion_death(slot: BoardSlot, pos: Vector2, dead_minion: MinionIns
 	if vfx_bridge != null:
 		await vfx_bridge.animate_minion_death(slot, pos, dead_minion)
 
-func _flush_deferred_deaths() -> void:
-	if vfx_bridge != null:
-		vfx_bridge.flush_deferred_deaths()
 
 func _clear_all_highlights() -> void:
 	targeting.clear_all_highlights()
@@ -3773,34 +3251,7 @@ func slot_node(side: String, index: int) -> BoardSlot:
 		return null
 	return slots[index]
 
-## CombatState.slot_changed subscriber (plan 3.1a): mirror engine occupancy
-## onto the view. A frozen node keeps its dead occupant's art until the death
-## animation flushes it (`_deferred_death_slots`); a placement into such a
-## node flushes that death first so the ghost rises before the newcomer shows.
-## Until Phase 3.2 this is immediate; the presenter then does it on playback.
-func _on_slot_changed(side: String, index: int) -> void:
-	var node: BoardSlot = slot_node(side, index)
-	if node == null:
-		return
-	var m: MinionInstance = state.slot_of(side, index).minion
-	if m == null:
-		if not node.freeze_visuals:
-			node.show_empty()
-		return
-	var was_frozen: bool = node.freeze_visuals
-	_flush_deferred_death_for(node)
-	node.freeze_visuals = was_frozen
-	node.show_minion(m)
 
-func _flush_deferred_death_for(node: BoardSlot) -> void:
-	for i in _deferred_death_slots.size():
-		var entry: Dictionary = _deferred_death_slots[i]
-		if entry.get("slot") != node:
-			continue
-		_deferred_death_slots.remove_at(i)
-		node.show_empty()
-		_animate_minion_death(node, entry["pos"], entry.get("minion"))
-		return
 
 
 ## Returns occupied BoardSlots belonging to the opponent of `owner_side`.
@@ -3842,7 +3293,6 @@ func _restore_slot_from_lunge(slot: BoardSlot, orig_parent: Control, orig_index:
 	placeholder.queue_free()
 	slot.freeze_visuals = false
 	slot._refresh_visuals()
-	_flush_deferred_deaths()
 
 func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		attacker: MinionInstance = null, defender: MinionInstance = null,
@@ -3908,6 +3358,7 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		if attacker: _refresh_slot_for(attacker)
 		if defender: _refresh_slot_for(defender)
 	)
+	await tw.finished
 
 func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control, attacker: MinionInstance = null) -> void:
 	var atk_rect   := atk_slot.get_global_rect()
@@ -3941,6 +3392,7 @@ func _play_hero_attack_anim(atk_slot: BoardSlot, hero_panel: Control, attacker: 
 	tw.tween_callback(func() -> void:
 		_restore_slot_from_lunge(atk_slot, orig_parent, orig_index, placeholder)
 	)
+	await tw.finished
 
 
 func _flash_slot(slot: BoardSlot) -> void:
@@ -3967,108 +3419,10 @@ func _update_counter_warning() -> void:
 func _spell_dmg(target: MinionInstance, damage: int, info: Dictionary = {}) -> void:
 	state._spell_dmg(target, damage, info)
 
-## P4B: while a player spell is mid-resolution (state mutates inside
-## scene's wrapper BEFORE the VFX projectile lands), queue popup + flash
-## events so they fire at vfx.impact_hit instead of immediately. This
-## preserves the "damage popup appears when projectile hits" UX after
-## inverting the resolve-at-impact pattern. Cleared when the VFX dispatcher
-## drains the queue.
-var _capturing_spell_popups: bool = false
-var _pending_spell_popups: Array = []  # Array[{slot: BoardSlot, damage: int}]
-## Hero popups queued during inverted spell flow — same purpose as
-## _pending_spell_popups but for hero-target damage / heal that flows through
-## combat_manager.hero_damaged / hero_healed (not spell_damage_dealt). Drained
-## alongside minion popups at vfx.impact_hit. Lethal damage skips the queue
-## so the defeat / victory flow can fire immediately.
-var _pending_hero_popups: Array = []  # Array[{kind, target, amount, school, is_crit}]
 
-## Pending corruption-apply visuals for wave-driven spells (Abyssal Plague).
-## The stack itself is applied at cast (plan 3.0); the splash + blink wait for
-## wave-touch. Drained per-minion by _drain_pending_spell_popup_for_slot; any
-## leftovers drain at end of VFX via _drain_pending_spell_popups.
-var _pending_corruption_apply: Array = []  # Array[{slot: BoardSlot}]
 
-func _on_state_spell_damage_dealt(target: MinionInstance, damage: int, school: int = Enums.DamageSchool.NONE) -> void:
-	if combat_ui != null:
-		combat_ui.on_state_spell_damage_dealt(target, damage, school)
 
-## Drain queued spell popups (minion + hero) — called from spell VFX
-## controllers' resolve_damage callback at impact_hit so popups sync with
-## projectile arrival even though state mutated earlier.
-##
-## Each minion popup also refreshes its slot's stat labels so the HP tween
-## animates in sync with the popup (rule: floating damage number + HP
-## reduction display together). Uses refresh_stats_only so the tween plays
-## even on frozen slots.
-func _drain_pending_spell_popups() -> void:
-	for p in _pending_spell_popups:
-		var slot: BoardSlot = p.slot
-		if slot != null and is_instance_valid(slot):
-			_flash_slot(slot)
-			var p_school: int = p.school if p.has("school") else Enums.DamageSchool.NONE
-			_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage, false, p_school)
-			if slot.has_method("animate_hp_change") and p.has("from_hp"):
-				slot.animate_hp_change(p.from_hp, p.to_hp)
-	_pending_spell_popups.clear()
-	for hp in _pending_hero_popups:
-		if hp.kind == "heal":
-			_flash_hero_heal(hp.target, hp.amount)
-		else:
-			_flash_hero(hp.target, hp.amount, Callable(), hp.school, hp.is_crit)
-	_pending_hero_popups.clear()
-	for entry in _pending_corruption_apply:
-		var c_slot: BoardSlot = entry["slot"] as BoardSlot
-		if c_slot != null and is_instance_valid(c_slot):
-			_play_corruption_apply_visual(c_slot)
-	_pending_corruption_apply.clear()
 
-## Drain ONE queued spell-damage popup matched to the given slot. Used by
-## per-minion-impact VFX (e.g. Abyssal Plague's wave) so each popup fires when
-## the wave actually touches that minion's slot, instead of all draining at
-## the end of the VFX. Returns true if a popup was found and spawned.
-##
-## Also drains the matching deferred corruption-apply visual so the splash +
-## blink + ATK-debuff flash land with the wave on that minion (state mutation
-## still happened at cast; this is purely the visual landing).
-##
-## Finally, unfreezes the slot and refreshes its visuals so the HP label and
-## corruption icon repaint in sync with the wave touching it. Without this,
-## HP and stack icons stay frozen at their pre-cast values until the entire
-## VFX completes — looks wrong because the popup shows damage but the HP label
-## doesn't move.
-func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
-	if slot == null:
-		return false
-	# Find matching deferred corruption-apply by slot. Mutate state now (fires
-	# minion_stats_changed → label tween via subscriber) and play the splash.
-	var corr_idx: int = -1
-	for i in _pending_corruption_apply.size():
-		var e: Dictionary = _pending_corruption_apply[i]
-		if e.get("slot") == slot:
-			corr_idx = i
-			break
-	if corr_idx >= 0:
-		_pending_corruption_apply.remove_at(corr_idx)
-		_play_corruption_apply_visual(slot)
-	var found_popup := false
-	for i in _pending_spell_popups.size():
-		var p: Dictionary = _pending_spell_popups[i]
-		if p.slot == slot:
-			_pending_spell_popups.remove_at(i)
-			if is_instance_valid(slot):
-				_flash_slot(slot)
-				var p_school: int = p.school if p.has("school") else Enums.DamageSchool.NONE
-				_spawn_damage_popup(slot.get_global_rect().get_center(), p.damage, false, p_school)
-				if slot.has_method("animate_hp_change") and p.has("from_hp"):
-					slot.animate_hp_change(p.from_hp, p.to_hp)
-			found_popup = true
-			break
-	# Unfreeze + refresh whether or not a popup was queued, so non-damaging
-	# state changes (e.g. corruption stack) also appear at wave-touch.
-	if is_instance_valid(slot) and slot.freeze_visuals:
-		slot.freeze_visuals = false
-		slot._refresh_visuals()
-	return found_popup
 
 ## Hero/minion flash + popup primitives all delegated to vfx_bridge.
 func _flash_hero(target: String, amount: int, on_done: Callable = Callable(), school: int = Enums.DamageSchool.NONE, is_crit: bool = false) -> void:
@@ -4088,35 +3442,7 @@ func _spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = fa
 # Enemy attack visuals
 # ---------------------------------------------------------------------------
 
-func _on_enemy_about_to_attack(attacker: MinionInstance, target: MinionInstance) -> void:
-	var atk_slot := _find_slot_for(attacker)
-	var def_slot := _find_slot_for(target)
-	if atk_slot:
-		atk_slot.set_highlight(BoardSlot.HighlightMode.SELECTED)
-	if def_slot:
-		def_slot.set_highlight(BoardSlot.HighlightMode.INVALID)
-	_anim_pre_hp   = target.current_health
-	_anim_atk_slot = _find_slot_for(attacker)
-	_anim_def_slot = _find_slot_for(target)
-	if _anim_atk_slot: _anim_atk_slot.freeze_visuals = true
-	if _anim_def_slot: _anim_def_slot.freeze_visuals = true
-	_log("Enemy %s attacks your %s" % [attacker.card_data.card_name, target.card_data.card_name], _LogType.ENEMY)
-	# Fire ON_ENEMY_ATTACK BEFORE the attack resolves (enables cancel/pre-damage traps)
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
-	ctx.minion = attacker
-	trigger_manager.fire(ctx)
 
-func _on_enemy_attacking_hero(attacker: MinionInstance) -> void:
-	var atk_slot := _find_slot_for(attacker)
-	if atk_slot:
-		atk_slot.set_highlight(BoardSlot.HighlightMode.SELECTED)
-	_log("Enemy %s attacks your Hero" % attacker.card_data.card_name, _LogType.ENEMY)
-	# Fire ON_ENEMY_ATTACK BEFORE the attack resolves
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
-	ctx.minion = attacker
-	trigger_manager.fire(ctx)
-	if atk_slot and _player_status_panel:
-		_play_hero_attack_anim(atk_slot, _player_status_panel, attacker)
 
 # LogType / _log() are facades that delegate to CombatLog. Kept on the scene
 # so the dozens of internal call sites and ~5 external callers (handlers,

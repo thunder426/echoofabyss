@@ -51,4 +51,4 @@ static func sacrifice(state: CombatState, minion: MinionInstance, source_tag: St
 	if state == null:
 		return
 	state._on_demon_sacrificed(minion, source_tag)
-	state._sacrifice_minion(minion)
+	state._sacrifice_minion(minion, source_tag)

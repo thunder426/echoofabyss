@@ -46,6 +46,20 @@ static func play_summon_aura_pulse(controller: VfxController, card: CardData, sl
 static func has_token_summon(card_id: String) -> bool:
 	return card_id in ["void_spark", "void_demon", "brood_imp"]
 
+## Awaitable form for the presenter: plays the entrance animation for
+## `card_id` (sigil → reveal) and returns when it has finished.
+static func play_token_summon(vfx_bridge: CombatVFXBridge, card_id: String,
+		instance: MinionInstance, data: MinionCardData, slot: BoardSlot, owner: String) -> void:
+	if vfx_bridge == null:
+		return
+	match card_id:
+		"void_spark":
+			await vfx_bridge.summon_spark_with_sigil(instance, data, slot, owner)
+		"void_demon":
+			await vfx_bridge.summon_demon_with_sigil(instance, data, slot, owner)
+		"brood_imp":
+			await vfx_bridge.summon_brood_imp_with_sigil(instance, data, slot, owner)
+
 static func try_play_token_summon(vfx_bridge: CombatVFXBridge, card_id: String,
 		instance: MinionInstance, data: MinionCardData, slot: BoardSlot, owner: String) -> bool:
 	if vfx_bridge == null:

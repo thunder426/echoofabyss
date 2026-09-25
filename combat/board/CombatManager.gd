@@ -417,8 +417,6 @@ func _siphon_self_heal(attacker: MinionInstance, damage_dealt: int) -> void:
 	var healed := attacker.current_health - before
 	if healed > 0 and scene != null:
 		state.emit_event(CombatEvent.Kind.MINION_HEALED, attacker.owner, {minion = attacker, amount = healed, hp_before = before, hp_after = attacker.current_health, siphon = true})
-	if healed > 0 and presenter != null:
-		presenter._on_minion_siphon_healed(attacker, healed)
 
 ## Check if the last attack consumed a crit and run post-crit processing.
 func _check_post_crit(attacker: MinionInstance) -> void:

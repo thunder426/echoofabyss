@@ -101,10 +101,14 @@ var presenter: Object = null
 ## plays one animation per event against a lagging ViewState. Sim ignores it.
 var journal: Array[CombatEvent] = []
 
+## One event was appended (the presenter pumps on it).
+signal journaled(ev: CombatEvent)
+
 func emit_event(kind: int, side: String, payload: Dictionary = {}) -> CombatEvent:
 	var ev := CombatEvent.make(kind, side, turn_number, payload)
 	ev.seq = journal.size()
 	journal.append(ev)
+	journaled.emit(ev)
 	return ev
 
 ## Self-alias so `<shell>.state` works on every shell — CombatScene composes a
@@ -301,8 +305,6 @@ func _apply_void_mark(amount: int) -> void:
 		return
 	enemy_void_marks += amount
 	_log("  Void Mark x%d applied! (total: %d)" % [amount, enemy_void_marks], 1)  # CombatLog.LogType.PLAYER = 1
-	if presenter != null:
-		presenter._show_void_mark_applied()
 
 ## Korrath — add Armour to a hero. Routes through HeroState.add_armour for the
 ## central mutation point and emits hero_armour_changed for UI.
@@ -610,9 +612,7 @@ func _summon_token_at_slot(card_id: String, owner: String, slot: SlotState, toke
 	return _spawn_token_into_slot(card_id, owner, slot, token_atk, token_hp, token_shield)
 
 ## Shared core: card lookup + stat overrides + place + emit + trigger fire.
-## Synchronous on both shells. The presenter freezes the slot node before the
-## placement when an entrance animation will reveal it (`_prepare_token_reveal`)
-## and plays that animation after the triggers (`_play_token_summon`).
+## Synchronous on both shells; the presenter plays the entrance from the journal.
 func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> MinionInstance:
 	# Combat-time lookup so clan rules / overrides apply to tokens summoned mid-fight.
 	var base := _card_for(owner, card_id)
@@ -625,12 +625,11 @@ func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, tok
 	if token_shield > 0: mc.shield_max = token_shield
 	var instance := MinionInstance.create(mc, owner)
 	board.append(instance)
-	if presenter != null:
-		presenter._prepare_token_reveal(instance, mc, owner, slot.index)
-	slot.place(instance)
-	minion_summoned.emit(owner, instance, slot.index)
+	# The event precedes the placement so the presenter can play the entrance first.
 	emit_event(CombatEvent.Kind.CHAMPION_SUMMONED if mc.is_champion else CombatEvent.Kind.TOKEN_SUMMONED, owner,
 			{minion = instance, card = mc, slot = slot.index})
+	slot.place(instance)
+	minion_summoned.emit(owner, instance, slot.index)
 	_log("  %s summoned!" % mc.card_name, 1)  # PLAYER
 	if trigger_manager != null:
 		var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" \
@@ -639,8 +638,6 @@ func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, tok
 		ctx.minion = instance
 		ctx.card   = mc
 		trigger_manager.fire(ctx)
-	if presenter != null:
-		presenter._play_token_summon(instance, mc, slot.index)
 	return instance
 
 ## Apply spell damage to a single minion target. Adds _player_spell_damage_bonus
@@ -924,7 +921,7 @@ func _void_mark_damage_per_stack() -> int:
 ## (if any stacks), and ON_*_MINION_SACRIFICED but NOT ON_*_MINION_DIED.
 ## Removes the minion from its board and frees its slot, then hands the
 ## presenter the death animation (same hook as a death).
-func _sacrifice_minion(minion: MinionInstance) -> void:
+func _sacrifice_minion(minion: MinionInstance, source_tag: String = "") -> void:
 	if minion == null:
 		return
 	# Step 1 — declarative ON LEAVE steps run while the minion is still on its slot.
@@ -950,15 +947,13 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 		trigger_manager.fire(sac_ctx)
 	# Step 4 — remove from board and free the slot. The live view keeps a
 	# frozen node's art until the death animation flushes it (plan 3.1a).
-	_friendly_board(minion.owner).erase(minion)
 	var sac_slot: SlotState = slot_for(minion)
 	var sac_index: int = sac_slot.index if sac_slot != null else -1
+	emit_event(CombatEvent.Kind.MINION_SACRIFICED, minion.owner, {minion = minion, slot = sac_index, source_tag = source_tag})
+	_friendly_board(minion.owner).erase(minion)
 	if sac_slot != null:
 		sac_slot.clear()
 	_log("  %s was sacrificed" % minion.card_data.card_name, 6)  # DEATH
-	emit_event(CombatEvent.Kind.MINION_SACRIFICED, minion.owner, {minion = minion, slot = sac_index})
-	if presenter != null:
-		presenter._on_minion_vanished_visual(minion, sac_index)
 
 ## Apply Void Bolt damage to the enemy hero, scaled by current Void Marks.
 ## CONVENTION: ALL Void Bolt damage in the game must go through this function
@@ -971,9 +966,6 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 ## Live combat's _deal_void_bolt_damage wrapper fires + awaits the projectile
 ## VFX before calling this so damage syncs with bolt impact.
 func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
-	# The projectile is presentation (plan 3.0): it flies while the damage lands now.
-	if presenter != null:
-		presenter._fire_void_bolt_projectile(source_minion, from_rune)
 	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
 	var total: int = base_damage + bonus
 	# Korrath B3 T2 Path of Corruption — gated by school: Path of Corruption
@@ -1010,8 +1002,6 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 ## in Void Marks (those only apply to the enemy hero). The presenter fires the
 ## projectile; the damage lands now (plan 3.0).
 func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
-	if presenter != null:
-		presenter._fire_enemy_void_bolt_projectile(source_minion)
 	_log("  Void Bolt: %d damage." % base_damage, 2)  # ENEMY
 	emit_event(CombatEvent.Kind.VOID_BOLT, "enemy", {amount = base_damage, source_minion = source_minion, from_rune = false})
 	var base_source: String = _pending_dmg_source
@@ -1077,10 +1067,7 @@ func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInsta
 			_update_trap_display_for(owner)
 		trap_fired.emit(owner, trap, slot_idx)
 		emit_event(CombatEvent.Kind.TRAP_FIRED, owner, {trap = trap, slot = slot_idx})
-		# Reveal first (fire-and-forget card animation), then resolve inline
-		# (plan 3.0 / B12: the effect lands on the event that sprang it).
-		if presenter != null:
-			presenter.play_trap_reveals(owner, [{trap = trap, slot_index = slot_idx}])
+		# Resolve inline (B12); the presenter plays the reveal from TRAP_FIRED.
 		var ctx := EffectContext.make(_get_scene_facade(), owner)
 		ctx.trigger_minion = triggering_minion
 		EffectResolver.run(trap.effect_steps, ctx)
@@ -1168,8 +1155,6 @@ func _corrupt_minion(target: MinionInstance) -> void:
 		BuffSystem.apply(target, Enums.BuffType.ARMOUR_BREAK, 100, "corrupting_presence", false, false)
 	_refresh_slot_for(target)
 	emit_event(CombatEvent.Kind.CORRUPTION_APPLIED, target.owner, {minion = target, stacks = BuffSystem.count_type(target, Enums.BuffType.CORRUPTION)})
-	if presenter != null:
-		presenter._show_corruption_applied(target)
 
 ## Apply one Corruption stack to a hero. Mirror of _corrupt_minion for the hero
 ## debuff path (corrupting_strike against enemy hero, path_of_corruption spells
@@ -2030,11 +2015,12 @@ var _pending_dmg_source: String = ""
 func _on_minion_vanished(minion: MinionInstance) -> void:
 	var dead_slot: SlotState = slot_for(minion)
 	var dead_index: int = dead_slot.index if dead_slot != null else -1
+	# The event precedes the slot clear so the presenter can animate the departing minion.
+	emit_event(CombatEvent.Kind.MINION_DIED, minion.owner, {minion = minion, slot = dead_index, attacker = _last_attacker})
 	_friendly_board(minion.owner).erase(minion)
 	if dead_slot != null:
 		dead_slot.clear()
 	minion_died.emit(minion.owner, minion, dead_index)
-	emit_event(CombatEvent.Kind.MINION_DIED, minion.owner, {minion = minion, slot = dead_index, attacker = _last_attacker})
 	_log("  %s died" % minion.card_data.card_name, 6)  # DEATH
 	# On-death effects resolve inline in the death trigger (D3); the presenter
 	# plays the death animation and on-death icon before what follows.
@@ -2051,8 +2037,6 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		ctx.minion = minion
 		ctx.attacker = _last_attacker
 		trigger_manager.fire(ctx)
-	if presenter != null:
-		presenter._on_minion_vanished_visual(minion, dead_index)
 
 ## A hero took damage. Bone Shield absorbs player damage. Fires ON_HERO_DAMAGED /
 ## ON_ENEMY_HERO_DAMAGED on every landed hit (lethal included). The first lethal
@@ -2110,8 +2094,6 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		emit_event(CombatEvent.Kind.PHASE_TRANSITION, "enemy", {})
 	elif outcome == "lethal":
 		emit_event(CombatEvent.Kind.COMBAT_ENDED, target, {winner = winner})
-	if presenter != null:
-		presenter._on_hero_damaged_visual(target, amount, school, is_crit, outcome)
 
 ## A hero was healed — clamped to that hero's max HP.
 func _on_hero_healed(target: String, amount: int) -> void:
@@ -2124,8 +2106,6 @@ func _on_hero_healed(target: String, amount: int) -> void:
 	else:
 		return
 	emit_event(CombatEvent.Kind.HERO_HEALED, target, {amount = amount, hp = player_hp if target == "player" else enemy_hp})
-	if presenter != null:
-		presenter._on_hero_healed_visual(target, amount)
 
 # ---------------------------------------------------------------------------
 # Gameplay helpers that lived on CombatScene / SimState (plan 1.4)
@@ -2191,13 +2171,12 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 		var instance := MinionInstance.create(card, "player")
 		instance.card_instance = inst
 		player_board.append(instance)
+		emit_event(CombatEvent.Kind.CHAMPION_SUMMONED, "player", {minion = instance, card = card, slot = slot.index, from_hand = from_hand})
 		slot.place(instance)
 		minion_summoned.emit("player", instance, slot.index)
-		emit_event(CombatEvent.Kind.CHAMPION_SUMMONED, "player", {minion = instance, card = card, slot = slot.index, from_hand = from_hand})
 		if from_hand:
 			remove_from_hand("player", inst)
-			if presenter != null:
-				presenter._on_card_left_hand(inst)
+			emit_event(CombatEvent.Kind.CARD_PLAYED, "player", {inst = inst, card = card})
 		else:
 			player_deck.erase(inst)
 		_log("⚡ 3 Void Imps on board — %s emerges!" % card.card_name, 1)
@@ -2265,13 +2244,13 @@ func pay_sparks(side: String, cost: int) -> bool:
 		if m.card_data.id == "void_spark":
 			combat_manager.kill_minion(m)
 		else:
+			emit_event(CombatEvent.Kind.MINION_CONSUMED, side, {minion = m, slot = m.slot_index})
 			board.erase(m)
 			for slot: SlotState in _friendly_slots(side):
 				if slot.minion == m:
 					slot.clear()
 					break
 			_log("  %s consumed as spark fuel." % m.card_data.card_name)
-			emit_event(CombatEvent.Kind.MINION_CONSUMED, side, {minion = m})
 		if trigger_manager != null:
 			var event := Enums.TriggerEvent.ON_PLAYER_SPARK_CONSUMED if side == "player" \
 				else Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED
@@ -2547,8 +2526,8 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 			_vw_behemoth_plays += 1
 	var instance := MinionInstance.create(mc, side)
 	instance.card_instance = inst
-	slot.place(instance)
 	emit_event(CombatEvent.Kind.MINION_PLAYED, side, {minion = instance, card = mc, slot = slot.index, inst = inst, target = target})
+	slot.place(instance)
 	if side == "enemy":
 		enemy_play_target = target  # read (and cleared) by the ON_ENEMY_MINION_PLAYED handler
 	if trigger_manager != null:
@@ -2987,13 +2966,13 @@ func _consume_minion(side: String, minion: MinionInstance) -> void:
 		_vw_behemoth_lost["consumed"] += 1
 	elif minion.card_data.id == "bastion_colossus":
 		_vw_bastion_lost["consumed"] += 1
+	emit_event(CombatEvent.Kind.MINION_CONSUMED, side, {minion = minion, slot = minion.slot_index})
 	_friendly_board(side).erase(minion)
 	for slot: SlotState in _friendly_slots(side):
 		if slot.minion == minion:
 			slot.clear()
 			break
 	_log("  %s consumed as spark fuel." % minion.card_data.card_name, 1 if side == "player" else 2)
-	emit_event(CombatEvent.Kind.MINION_CONSUMED, side, {minion = minion})
 	# Effective value so spirit_resonance-boosted Spirits still count.
 	if spark_val > 0 and trigger_manager != null:
 		var ctx := EventContext.make(
