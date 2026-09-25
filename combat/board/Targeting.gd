@@ -79,7 +79,7 @@ func highlight_valid_attack_targets() -> void:
 		if slot.minion == _scene.selected_attacker:
 			slot.set_highlight(BoardSlot.HighlightMode.SELECTED)
 			break
-	var has_taunt := CombatManager.board_has_taunt(_scene.enemy_board)
+	var has_taunt := CombatManager.board_has_taunt(_scene.state.enemy_board)
 	for slot in _scene.enemy_slots:
 		if slot.is_empty():
 			continue
@@ -184,8 +184,8 @@ func is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 			var mc := minion.card_data as MinionCardData
 			return mc != null and (mc.is_race(Enums.MinionType.HUMAN) or mc.is_race(Enums.MinionType.DEMON))
 		"friendly_minion":   return true
-		"friendly_void_imp": return _scene._minion_has_tag(minion, "void_imp")
-		"friendly_feral_imp": return _scene._minion_has_tag(minion, "feral_imp")
+		"friendly_void_imp": return _scene.state._minion_has_tag(minion, "void_imp")
+		"friendly_feral_imp": return _scene.state._minion_has_tag(minion, "feral_imp")
 		"enemy_minion":           return true
 		"any_minion":             return true
 		"any_minion_or_enemy_hero": return true
@@ -199,21 +199,21 @@ func is_valid_spell_target(minion: MinionInstance, target_type: String) -> bool:
 func effective_target_type(mc: MinionCardData) -> String:
 	if mc == null:
 		return ""
-	if mc.id == "grafted_fiend" and _scene._has_talent("grafting_ritual"):
+	if mc.id == "grafted_fiend" and _scene.state._has_talent("grafting_ritual"):
 		return "friendly_demon"
 	return mc.on_play_target_type
 
 func effective_target_optional(mc: MinionCardData) -> bool:
 	if mc == null:
 		return false
-	if mc.id == "grafted_fiend" and _scene._has_talent("grafting_ritual"):
+	if mc.id == "grafted_fiend" and _scene.state._has_talent("grafting_ritual"):
 		return true
 	return mc.on_play_target_optional
 
 func effective_target_prompt(mc: MinionCardData) -> String:
 	if mc == null:
 		return ""
-	if mc.id == "grafted_fiend" and _scene._has_talent("grafting_ritual"):
+	if mc.id == "grafted_fiend" and _scene.state._has_talent("grafting_ritual"):
 		return "Click a Demon to transform into a Grafted Fiend, or click a slot to summon without effect."
 	return mc.on_play_target_prompt
 

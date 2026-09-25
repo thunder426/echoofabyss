@@ -114,7 +114,7 @@ func play_champion_acp_aura_pulse() -> void:
 	if _scene == null or vfx_controller == null:
 		return
 	var champion: MinionInstance = null
-	for m in _scene.enemy_board:
+	for m in _scene.state.enemy_board:
 		if (m as MinionInstance).card_data.id == "champion_abyss_cultist_patrol":
 			champion = m
 			break
@@ -262,11 +262,9 @@ func _resolve_rune_slot_idx(owner: String) -> int:
 		return -1
 	var traps: Array
 	if owner == "player":
-		traps = _scene.active_traps
-	elif _scene.enemy_ai != null:
-		traps = _scene.enemy_ai.active_traps
+		traps = _scene.state.active_traps
 	else:
-		return -1
+		traps = _scene.state.enemy_active_traps
 	var idx: int = traps.size() - 1
 	if idx < 0 or idx >= panels.size():
 		return -1
@@ -831,7 +829,7 @@ func fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune: 
 		if not found:
 			from_pos = Vector2(vp_size.x / 2.0, vp_size.y - 120)
 	elif from_rune:
-		var rune_pos: Vector2 = _scene._find_void_rune_slot_position()
+		var rune_pos: Vector2 = find_void_rune_slot_position()
 		if rune_pos != Vector2.ZERO:
 			from_pos = rune_pos
 		else:
@@ -1172,3 +1170,207 @@ func _reveal_after_sigil(slot: BoardSlot, data: MinionCardData,
 	var fade := create_tween()
 	fade.tween_property(slot, "modulate:a", 1.0, 0.35) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Board flourishes played by the presenter's VFX events (moved off CombatScene
+# in plan 4.4): Pack Instinct chain + ATK pulse, lifedrain icon pulse, and the
+# Void Rune projectile origin.
+# ─────────────────────────────────────────────────────────────────────────────
+
+## Rotation index over the player's Void Runes — each rune-fired Void Bolt
+## launches from the next one (presentation only).
+var _void_rune_fire_index: int = 0
+
+## Pack Chain VFX — visualize pack_instinct when a new feral imp joins the pack.
+## Refreshes the ENTIRE pack network: each feral imp re-links to its adjacent
+## neighbors. Isolated imps (no adjacent feral imp) fall back to linking with the
+## single nearest other feral imp by slot index distance.
+## Chain endpoints are anchored at slot edges (facing each other), not slot centers.
+func spawn_pack_chain_vfx(_new_imp: MinionInstance, side: String = "enemy") -> void:
+	var slots: Array[BoardSlot] = _scene.enemy_slots if side == "enemy" else _scene.player_slots
+
+	# Collect every feral-imp slot on this side
+	var imp_slots: Array[BoardSlot] = []
+	for s in slots:
+		if s.minion != null and state._minion_has_tag(s.minion, "feral_imp"):
+			imp_slots.append(s)
+	if imp_slots.size() < 2:
+		return
+
+	# Build the set of chain pairs — each imp links to adjacent imps (slot index ±1);
+	# imps with no adjacent feral imp fall back to their single nearest by index distance.
+	# Deduped so we don't render the same pair twice.
+	var pairs: Dictionary = {}  # "lo:hi" → [BoardSlot, BoardSlot]
+	for imp in imp_slots:
+		var adjacent: Array[BoardSlot] = []
+		for other in imp_slots:
+			if other != imp and abs(other.index - imp.index) == 1:
+				adjacent.append(other)
+		var targets: Array[BoardSlot] = adjacent
+		if targets.is_empty():
+			var nearest: BoardSlot = null
+			for other in imp_slots:
+				if other == imp:
+					continue
+				if nearest == null or abs(other.index - imp.index) < abs(nearest.index - imp.index):
+					nearest = other
+			if nearest != null:
+				targets.append(nearest)
+		for t in targets:
+			var lo: int = mini(imp.index, t.index)
+			var hi: int = maxi(imp.index, t.index)
+			var key := "%d:%d" % [lo, hi]
+			if not pairs.has(key):
+				# Always store with the lower-index slot first for consistent anchor calculation
+				var lo_slot: BoardSlot = imp if imp.index < t.index else t
+				var hi_slot: BoardSlot = t if imp.index < t.index else imp
+				pairs[key] = [lo_slot, hi_slot]
+
+	if pairs.is_empty():
+		return
+
+	# Small delay so the chain gets its own beat after the enemy summon reveal
+	# has fully faded and the landing punch has resolved.
+	await get_tree().create_timer(0.35).timeout
+	if not is_inside_tree():
+		return
+	# Re-verify feral imps still alive after the delay (a kill effect could have cleared them)
+	var any_alive := false
+	for pair in pairs.values():
+		if pair[0].minion != null and pair[1].minion != null:
+			any_alive = true
+			break
+	if not any_alive:
+		return
+
+	# SFX once per burst (not per chain) to avoid audio stacking
+	AudioManager.play_sfx("res://assets/audio/sfx/minions/pack_chain.wav", -4.0)
+
+	for pair in pairs.values():
+		var a: BoardSlot = pair[0]
+		var b: BoardSlot = pair[1]
+		if a.minion == null or b.minion == null:
+			continue  # imp died during the delay
+		var chain := preload("res://combat/effects/PackChainVFX.gd").new()
+		vfx_controller.spawn(chain)
+		var a_pos: Vector2 = _pack_chain_anchor(a, b)
+		var b_pos: Vector2 = _pack_chain_anchor(b, a)
+		chain.play(a_pos, b_pos)
+
+## Return the point on `from` slot's edge closest to `toward` slot — so chain VFX
+## appears to emerge from the side of the minion facing its neighbor, not from
+## its dead center.
+func _pack_chain_anchor(from: BoardSlot, toward: BoardSlot) -> Vector2:
+	var from_center: Vector2 = from.global_position + from.size * 0.5
+	var toward_center: Vector2 = toward.global_position + toward.size * 0.5
+	var dir: Vector2 = (toward_center - from_center).normalized()
+	# Pull the anchor ~35% of the slot size toward the neighbor (stops inside the sprite's edge)
+	var offset: float = min(from.size.x, from.size.y) * 0.35
+	return from_center + dir * offset
+
+## Per-imp buff-gain VFX: scale/color pulse on the ATK label + a small green
+## procedural chevron to the right of it, both timed to coincide with the chain
+## VFX so the player reads "chains link → ATK jumps up" as one beat.
+## The buff is already applied in state; the ATK label is held at `old_atk`
+## (synchronously, before the first await) and flipped to the new value in
+## sync with the pulse.
+func spawn_pack_instinct_buff_vfx(minion: MinionInstance, old_atk: int) -> void:
+	var held_slot: BoardSlot = _scene._find_slot_for(minion)
+	if held_slot != null and held_slot._atk_label != null:
+		held_slot._atk_label.text = str(old_atk)
+	# Defer so it lands in the same visual beat as the chain animation
+	await get_tree().create_timer(0.45).timeout
+	if not is_inside_tree():
+		return
+	var slot: BoardSlot = _scene._find_slot_for(minion)
+	if slot == null or slot.minion != minion:
+		return  # minion died or moved
+
+	# Flip the ATK label to the new (buffed) value now — synchronised with the pulse
+	var atk_lbl: Label = slot._atk_label
+	if atk_lbl == null:
+		return
+	atk_lbl.text = str(minion.effective_atk())
+
+	# Pulse the ATK label — scale up briefly + color flash to green
+	atk_lbl.pivot_offset = atk_lbl.size * 0.5
+	var original_color: Color = atk_lbl.get_theme_color("font_color")
+	var pulse_color := Color(0.45, 1.00, 0.35, 1.0)
+	var tw := atk_lbl.create_tween().set_parallel(true)
+	tw.tween_property(atk_lbl, "scale", Vector2(1.35, 1.35), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_method(func(c: Color) -> void:
+			atk_lbl.add_theme_color_override("font_color", c),
+			original_color, pulse_color, 0.12)
+	tw.chain().tween_property(atk_lbl, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_SINE)
+	tw.parallel().tween_method(func(c: Color) -> void:
+			atk_lbl.add_theme_color_override("font_color", c),
+			pulse_color, original_color, 0.35)
+
+	# Spawn a procedural green chevron to the right of the ATK label.
+	# Rendered via _draw() on a helper Control — no font glyph needed.
+	var chevron := preload("res://combat/effects/BuffChevronVFX.gd").new()
+	slot.add_child(chevron)
+	# Anchor just past the right edge of the atk_label, vertically centered
+	chevron.position = atk_lbl.position + Vector2(atk_lbl.size.x - 10.0, atk_lbl.size.y * 0.5 - 8.0)
+	chevron.set_size(Vector2(14, 16))
+	chevron.play()
+
+## Pulse the lifedrain icon on a minion's status bar to highlight the grant
+## from the Imp Matriarch's Ancient Frenzy aura. Fire-and-forget.
+func pulse_lifedrain_icon(minion: MinionInstance) -> void:
+	if minion == null or not is_instance_valid(minion):
+		return
+	var slot: BoardSlot = _scene._find_slot_for(minion)
+	if slot == null or slot.minion != minion:
+		return
+	var status_bar: Node = slot.get_node_or_null("_status_bar")
+	if status_bar == null:
+		# _status_bar is added directly to the slot but not named — find by type.
+		for child in slot.get_children():
+			if child is HBoxContainer:
+				status_bar = child
+				break
+	if status_bar == null:
+		return
+	# Find the lifedrain TextureRect by matching its texture's resource path.
+	var icon: TextureRect = null
+	for child in status_bar.get_children():
+		var tr := child as TextureRect
+		if tr == null or tr.texture == null:
+			continue
+		if String(tr.texture.resource_path).ends_with("icon_lifedrain.png"):
+			icon = tr
+			break
+	if icon == null:
+		return
+	icon.pivot_offset = icon.size * 0.5
+	var original_mod: Color = icon.modulate
+	var pulse_color := Color(1.6, 0.6, 0.5, 1.0)
+	var tw := icon.create_tween()
+	for _cycle in 3:
+		tw.tween_property(icon, "modulate", pulse_color, 0.14) \
+				.set_trans(Tween.TRANS_SINE)
+		tw.parallel().tween_property(icon, "scale", Vector2(1.35, 1.35), 0.14) \
+				.set_trans(Tween.TRANS_SINE)
+		tw.tween_property(icon, "modulate", original_mod, 0.18) \
+				.set_trans(Tween.TRANS_SINE)
+		tw.parallel().tween_property(icon, "scale", Vector2.ONE, 0.18) \
+				.set_trans(Tween.TRANS_SINE)
+
+## Find the global center position of the next Void Rune trap slot.
+## Cycles through all void runes so each one fires in turn.
+func find_void_rune_slot_position() -> Vector2:
+	var rune_slots: Array[int] = []
+	for i in state.active_traps.size():
+		var trap := state.active_traps[i] as TrapCardData
+		if trap.is_rune and trap.rune_type == Enums.RuneType.VOID_RUNE:
+			if i < _scene.trap_slot_panels.size():
+				rune_slots.append(i)
+	if rune_slots.is_empty():
+		return Vector2.ZERO
+	# Pick the next rune in rotation
+	var idx: int = _void_rune_fire_index % rune_slots.size()
+	_void_rune_fire_index += 1
+	var slot_i: int = rune_slots[idx]
+	var panel := _scene.trap_slot_panels[slot_i] as Panel
+	return panel.global_position + panel.size / 2.0

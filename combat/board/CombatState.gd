@@ -108,18 +108,15 @@ func emit_event(kind: int, side: String, payload: Dictionary = {}) -> CombatEven
 ## silent BUFF_APPLIED (the handler requests its own cosmetic VFX).
 var _silent_buff_apply: bool = false
 
-## Logging convenience — handlers, effects, and combat code call `state._log(msg)`
-## without needing a scene reference or knowing whether a UI exists. Signal
-## subscribers (CombatScene's _on_state_combat_log) forward to the visual log;
-## sim has no subscriber so this is a no-op there.
+## Logging convenience — handlers, effects and combat code call `state._log(msg)`.
+## Journals a LOG event (the presenter writes it to the on-screen combat log)
+## and emits combat_log (CombatDiagnostics' debug print).
 func _log(msg: String, log_type: int = 1) -> void:  # default = CombatLog.LogType.PLAYER
 	combat_log.emit(msg, log_type)
 	emit_event(CombatEvent.Kind.LOG, "", {msg = msg, log_type = log_type})
 
-## Refresh a minion's slot visual. Handlers and effects call
-## `ctx.scene._refresh_slot_for(m)`; the scene's facade calls this method,
-## which emits the signal. Live subscribers re-render; sim has no subscribers
-## so the call is a no-op there.
+## A minion's stats / keywords changed: journal MINION_STATS_CHANGED (the
+## presenter re-renders its slot) and emit minion_stats_changed.
 func _refresh_slot_for(minion: MinionInstance) -> void:
 	if minion != null:
 		minion_stats_changed.emit(minion)
@@ -277,8 +274,8 @@ func _find_random_minion(board: Array) -> MinionInstance:
 # ---------------------------------------------------------------------------
 
 ## Add `amount` Void Mark stacks to the enemy hero. Property setter on
-## enemy_void_marks emits void_marks_changed; live UI subscribes. Logs via
-## the combat_log signal; scene's wrapper additionally spawns the apply VFX.
+## enemy_void_marks emits void_marks_changed and journals VOID_MARKS_CHANGED
+## (the presenter plays the mark VFX).
 func _apply_void_mark(amount: int) -> void:
 	if amount <= 0:
 		return
@@ -563,8 +560,7 @@ func cast_player_hero_spell(spell: SpellCardData) -> void:
 	emit_event(CombatEvent.Kind.SPELL_RESOLVED, "player", {spell = spell})
 
 ## Entry point for EffectResolver HARDCODED steps — delegates to the
-## HardcodedEffects resolver. Both scene and sim assign _hardcoded in their
-## setup; this method works uniformly across both surfaces.
+## HardcodedEffects resolver (created by setup_combat).
 func _resolve_hardcoded(id: String, ctx: EffectContext) -> void:
 	if _hardcoded == null:
 		return
@@ -1085,8 +1081,6 @@ func _seris_corrupt_apply(target: MinionInstance) -> bool:
 		return false
 	if not (target.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 		return false
-	# Note: scene's _spend_flesh path (Flesh.spend) logs and emits flesh_changed.
-	# Sim mutates player_flesh directly via inherited setter — same emission.
 	if player_flesh < 1:
 		return false
 	player_flesh -= 1
@@ -1338,10 +1332,9 @@ func slot_for(minion: MinionInstance) -> SlotState:
 	return null
 
 # ---------------------------------------------------------------------------
-# Turn, resources, decks, hands, graveyards — both sides (plan 1.3). Live's
-# TurnManager (player) and EnemyAI (enemy) forward their fields here; sim reads
-# them directly. Mutators that live's UI shows (spend / gain / convert) emit
-# `resources_changed`; TurnManager relays the player side to its own signal.
+# Turn, resources, decks, hands, graveyards — both sides (plan 1.3). Every
+# shell reads them here. Mutators the UI shows (spend / gain / convert) emit
+# `resources_changed` and journal RESOURCES_CHANGED.
 # ---------------------------------------------------------------------------
 
 ## (side, essence, essence_max, mana, mana_max) after a spend / gain / convert,
@@ -1752,9 +1745,6 @@ var _spell_cast_depth: int = 0
 ## Guard so void_resonance_seris double-cast doesn't recursively trigger itself.
 var _double_cast_in_progress: bool = false
 
-## Round-robin index for void rune firing — picks which rune slot fires next.
-var _void_rune_fire_index: int = 0
-
 ## Seris — Corrupt Flesh once-per-turn gate. Reset on ON_PLAYER_TURN_START.
 var _seris_corrupt_used_this_turn: bool = false
 
@@ -1814,8 +1804,7 @@ signal enemy_profile_changed(profile_id: String)
 
 # ---------------------------------------------------------------------------
 # Champion counters — every per-encounter trigger counter for Act 1–4 champions
-# and supporting Void Warband tracking. Move-as-pure-data; live combat already
-# populates these via scene.set(key, value) from CombatSetup.
+# and supporting Void Warband tracking (registry stats set them via state.set).
 # ---------------------------------------------------------------------------
 
 var _champion_summon_count: int = 0
@@ -2301,9 +2290,8 @@ static func _digest_buffs(buffs: Array) -> String:
 
 # ---------------------------------------------------------------------------
 # Turn engine (LIVE_SIM_UNIFICATION_PLAN.md 2A.3) — one turn flow for both
-# shells. Live's TurnManager is a façade that calls these and relays
-# turn_started / turn_ended to the UI (which kicks off the live enemy turn);
-# CombatSim reaches them through cmd_end_turn. No awaits: draw animations hang
+# shells, reached through cmd_end_turn; live's scene listens to turn_started /
+# turn_ended for its UI (and to kick off the live enemy turn). No awaits: draw animations hang
 # off card_drawn.
 # ---------------------------------------------------------------------------
 
@@ -3075,16 +3063,11 @@ func _encode_target(target) -> Variant:
 	return {kind = "unknown", side = "", slot = -1}
 
 # ---------------------------------------------------------------------------
-# Sub-systems shared by scene and sim.
+# Sub-systems — created by setup_combat.
 # ---------------------------------------------------------------------------
 
 ## Central event dispatcher — created by CombatSetup.setup (setup_combat).
 var trigger_manager: TriggerManager = null
-
-## Turn-manager: live combat assigns the scene-tree TurnManager (Node), sim a
-## nothing (null). The façade forwards the turn/resource/deck fields above;
-## rules code uses those directly (lint L3). Untyped so either fits.
-var turn_manager = null
 
 ## Trigger handlers (CombatHandlers) — created by CombatSetup.setup. Environment
 ## rituals call into them.

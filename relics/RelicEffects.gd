@@ -129,7 +129,7 @@ func _relic_place_random_rune() -> void:
 	active.append(rune)
 	# Wire the rune's aura so it actually fires on its trigger event.
 	state._apply_rune_aura(rune)
-	# Live scene has a UI refresh; sim no-ops.
+	# Journals TRAPS_CHANGED (the presenter refreshes the rune slots).
 	state._update_trap_display()
 	# Fire ON_RUNE_PLACED so ritual checks see the new rune.
 	if state.trigger_manager != null:

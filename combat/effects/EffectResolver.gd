@@ -2,8 +2,8 @@
 ## Executes an Array[EffectStep] against an EffectContext.
 ## Each step is evaluated independently: conditions checked, targets resolved, effect applied.
 ##
-## CombatScene is accessed via ctx.scene — no direct dependency on CombatScene's class name,
-## so this file compiles independently.
+## Gameplay goes through the typed ctx.state; the resolver never sees the combat
+## shell (lint L1 / L3).
 class_name EffectResolver
 extends RefCounted
 

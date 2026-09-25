@@ -44,6 +44,11 @@ rule set and the phase that introduces each rule.
       player_board / enemy_board append / erase, or current_health writes
       (CheatPanel, a debug tool, is exempt).
 
+  L9  (plan 4.8) No duck typing in combat/board, combat/events,
+      combat/effects (VFX files exempt), relics, sim or enemies/ai:
+      `has_method(`, and `.get/.set("x")` / `"x" in` on an object handle.
+      Dictionary `.get("key")` is fine.
+
 Rules not yet enforced (see ENFORCED) are still computed; `--all` prints them,
 but they do not count toward the exit code.
 
@@ -88,7 +93,7 @@ RULES_FILES = [
 
 # Rules counted toward the exit code (L3/L4 since plan step 1.2, L5 since 1.6,
 # L6/L7 since 2A.9).
-ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"}
+ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"}
 
 # L1 / L3: handles that would resolve to the combat shell, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
@@ -97,6 +102,11 @@ PRESENTER_HANDLES = ["ctx.presenter", "presenter"]
 OBJECT_HANDLES = SHELL_HANDLES + PRESENTER_HANDLES + [
     "ctx.state", "state", "enemy_ai", "ai", "turn_manager", "tm", "ctx", "event_ctx", "ectx",
 ]
+
+# L9 (plan 4.8) scope: no duck typing anywhere in the combat layer, relics, sim
+# or the AI — VFX files (*VFX.gd, combat/effects/vfx/) are exempt.
+DUCK_DIRS = ["combat/board", "combat/events", "combat/effects", "relics", "sim", "enemies/ai"]
+DUCK_HANDLES = ["_scene", "scene", "_combat", "combat", "target", "node", "slot", "panel"]
 
 # L2 scope: directories scanned recursively, plus single files.
 RNG_DIRS = ["combat/board", "combat/events", "sim", "enemies/ai"]
@@ -300,6 +310,26 @@ class Linter:
                 if m:
                     self.err("L2", rel, i, f"global RNG `{m.group(0)}` — use state.rng_* (engine RNG)")
 
+    # -- L9 ------------------------------------------------------------------
+    def scan_duck_typing(self) -> None:
+        objs = "|".join(re.escape(h) for h in OBJECT_HANDLES + DUCK_HANDLES)
+        duck_re = re.compile(rf"(?<![\w.])(?:{objs})\.(?:get|set)\(\s*\"(\w+)\"")
+        in_re = re.compile(rf"\"(\w+)\"\s+in\s+(?:{objs})\b")
+        rules = set(RULES_FILES)
+        for rel in gd_files():
+            if not any(rel.startswith(d + "/") for d in DUCK_DIRS) or rel in rules:
+                continue  # rules files already get the same checks as L4
+            if rel.endswith("VFX.gd") or rel.startswith("combat/effects/vfx/"):
+                continue
+            for i, raw in enumerate(read(rel), start=1):
+                line = strip_comment(raw)
+                if "has_method(" in line:
+                    self.err("L9", rel, i, "has_method( — duck typing; call a typed member")
+                for m in duck_re.finditer(line):
+                    self.err("L9", rel, i, f'.get/.set("{m.group(1)}") on an object — use the typed member')
+                for m in in_re.finditer(line):
+                    self.err("L9", rel, i, f'"{m.group(1)}" in <object> — use the typed member')
+
     def run(self) -> int:
         self.scan_rng()
         for rel in RULES_FILES:
@@ -310,10 +340,19 @@ class Linter:
         self.scan_engine_waits()
         self.scan_single_definitions()
         self.scan_presentation_mutation()
+        self.scan_duck_typing()
         return sum(1 for e in self.errors if e.split(" ", 1)[0] in ENFORCED)
 
 
 def main() -> int:
+    if "--report-pairs" in sys.argv:
+        # Plan 4.4 gate: funcs defined on both CombatScene and CombatState
+        # (one-line scene delegates to the state) — should be none.
+        pairs = sorted(declared_funcs(SCENE) & declared_funcs(STATE))
+        for name in pairs:
+            print(f"pair {name}")
+        print(f"report-pairs: {len(pairs)}")
+        return min(len(pairs), 255)
     quiet = "--quiet" in sys.argv
     show_all = "--all" in sys.argv
     linter = Linter()

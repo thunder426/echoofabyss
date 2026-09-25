@@ -122,7 +122,7 @@ func _apply_spell_cast_passive(effect_id: String) -> void:
 func on_card_drawn_void_echo(ctx: EventContext) -> void:
 	if ctx.card == null or not _card_has_tag(ctx.card, "base_void_imp"):
 		return
-	# Once per turn — tracked via scene flag, reset at player turn start.
+	# Once per turn — tracked via a state flag, reset at player turn start.
 	if state._void_echo_fired_this_turn:
 		return
 	# Append directly — NOT via state.add_to_hand — so the copy doesn't fire
@@ -926,7 +926,7 @@ func on_enemy_died_void_resonance(_ctx: EventContext) -> void:
 
 ## Abyssal Forge — end of player turn, apply Void Growth and Void Pulse auras to any
 ## minion on the player board that carries them. Flesh Bond (draw on flesh-spend) is
-## driven by scene._on_flesh_spent, not this handler. Iterates a snapshot so an aura
+## driven by state._on_flesh_spent, not this handler. Iterates a snapshot so an aura
 ## whose effect kills its own carrier doesn't corrupt the loop.
 func on_turn_end_forge_auras(_ctx: EventContext) -> void:
 	var snapshot: Array = (state.player_board as Array).duplicate()
@@ -1909,7 +1909,7 @@ func on_enemy_turn_end_abyssal_mandate(_ctx: EventContext) -> void:
 ## void_precision (Fight 10 — Void Scout): after an enemy minion deals crit
 ## damage (attack resolves), grant it +200 ATK permanently.
 ## Listens to ON_ENEMY_ATTACK — we check after the attack if a crit was consumed.
-## Implementation: tracks pre-attack crit count via scene field, compares after.
+## Implementation: tracks pre-attack crit count via a state field, compares after.
 func on_enemy_attack_void_precision_pre(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.minion
 	if attacker == null or attacker.owner != "enemy":

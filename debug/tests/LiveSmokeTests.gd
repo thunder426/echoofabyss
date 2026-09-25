@@ -34,7 +34,7 @@ func _ready() -> void:
 ## F1: combat boots, the opening hand is dealt, and a full enemy turn runs.
 func _f1_enemy_turn_completes() -> void:
 	var scene: Node = await _launch(1, "swarm")
-	var tm = scene.turn_manager
+	var tm: CombatState = scene.state
 	_check(scene.state.player_hp > 0, "F1: player hp > 0")
 	_check(tm.player_hand.size() == 4, "F1: opening hand is 4 cards (got %d)" % tm.player_hand.size())
 	_check(tm.is_player_turn, "F1: player acts first")
@@ -73,7 +73,7 @@ func _f13_vrp_champion_progress() -> void:
 	for i in 6:
 		var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
 		ctx.card = vb
-		scene.trigger_manager.fire(ctx)
+		scene.state.trigger_manager.fire(ctx)
 		await get_tree().process_frame
 	var t0: int = Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS:
@@ -106,14 +106,14 @@ func _live_rules_paths() -> void:
 	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS and (attacker.slot_index < 0 or defender.slot_index < 0):
 		await get_tree().process_frame
 	defender.current_health = 1
-	scene.combat_manager.resolve_minion_attack(attacker, defender)
+	scene.state.combat_manager.resolve_minion_attack(attacker, defender)
 	await _drain(scene)
 	_check(not st.enemy_board.has(defender), "live: lethal attack removed the defender")
 	var enemy_before: int = st.enemy_hp
-	scene.combat_manager.apply_hero_damage("enemy",
+	scene.state.combat_manager.apply_hero_damage("enemy",
 			CombatManager.make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE))
 	_check(st.enemy_hp == enemy_before - 100, "live: enemy hero took 100 (%d → %d)" % [enemy_before, st.enemy_hp])
-	scene.combat_manager.apply_hero_damage("player",
+	scene.state.combat_manager.apply_hero_damage("player",
 			CombatManager.make_damage_info(300, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE))
 	st._on_hero_healed("player", 1000)
 	_check(st.player_hp == st.player_hp_max, "live: heal clamps at max HP (%d / %d)" % [st.player_hp, st.player_hp_max])
@@ -127,7 +127,7 @@ func _live_rules_paths() -> void:
 	trap.effect_steps = [{"type": "DAMAGE_HERO", "amount": 100}]
 	st.active_traps.append(trap)
 	var trap_hp: int = st.enemy_hp
-	scene.trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START, "enemy"))
+	scene.state.trigger_manager.fire(EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START, "enemy"))
 	_check(not st.active_traps.has(trap), "live: sprung trap consumed at once")
 	t0 = Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < TURN_TIMEOUT_MS and st.enemy_hp == trap_hp:
@@ -172,7 +172,7 @@ func _ai_vs_ai_fight() -> void:
 	profile.setup(agent)
 	var t0: int = Time.get_ticks_msec()
 	var turns: int = 0
-	while st.winner.is_empty() and not scene._combat_ended and Time.get_ticks_msec() - t0 < FIGHT_TIMEOUT_MS:
+	while st.winner.is_empty() and not scene.state._combat_ended and Time.get_ticks_msec() - t0 < FIGHT_TIMEOUT_MS:
 		if st.is_player_turn:
 			await profile.play_phase()
 			if st.winner.is_empty():

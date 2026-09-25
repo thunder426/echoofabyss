@@ -1,19 +1,15 @@
 [gd_scene format=3 uid="uid://ciodm3kdmwqjx"]
 
 [ext_resource type="Script" uid="uid://fxrmjijno84s" path="res://combat/board/CombatScene.gd" id="1_dyoly"]
-[ext_resource type="Script" uid="uid://bx36mhvgq0wax" path="res://combat/board/TurnManager.gd" id="2_fi7n0"]
 [ext_resource type="Script" uid="uid://bu6yta5qm7qry" path="res://combat/board/BoardSlot.gd" id="3_2ubrw"]
 [ext_resource type="PackedScene" path="res://combat/ui/HandDisplay.tscn" id="4_handdisplay"]
-[ext_resource type="Script" path="res://combat/board/EnemyAI.gd" id="5_enemyai"]
+[ext_resource type="Script" path="res://combat/board/EnemyTurnRunner.gd" id="5_enemyai"]
 [ext_resource type="Script" path="res://combat/effects/vfx/VfxController.gd" id="6_vfxctrl"]
 
 [node name="CombatScene" type="Node2D" unique_id=220153093]
 script = ExtResource("1_dyoly")
 
-[node name="TurnManager" type="Node" parent="." unique_id=2126401951]
-script = ExtResource("2_fi7n0")
-
-[node name="EnemyAI" type="Node" parent="." unique_id=987654321]
+[node name="EnemyTurnRunner" type="Node" parent="." unique_id=987654321]
 script = ExtResource("5_enemyai")
 
 [node name="UI" type="CanvasLayer" parent="." unique_id=178167502]

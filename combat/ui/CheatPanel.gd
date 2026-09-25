@@ -137,14 +137,14 @@ func _build_ui() -> void:
 	var dmg_player := Button.new()
 	dmg_player.text = "Dmg Player"
 	dmg_player.pressed.connect(func():
-		_scene.combat_manager.apply_hero_damage("player",
+		_scene.state.combat_manager.apply_hero_damage("player",
 				CombatManager.make_damage_info(int(_dmg_input.value), Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cheat_panel")))
 	dmg_row.add_child(dmg_player)
 
 	var dmg_enemy := Button.new()
 	dmg_enemy.text = "Dmg Enemy"
 	dmg_enemy.pressed.connect(func():
-		_scene.combat_manager.apply_hero_damage("enemy",
+		_scene.state.combat_manager.apply_hero_damage("enemy",
 				CombatManager.make_damage_info(int(_dmg_input.value), Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cheat_panel")))
 	dmg_row.add_child(dmg_enemy)
 
@@ -152,7 +152,7 @@ func _build_ui() -> void:
 	kill_enemy.text = "Kill Enemy (5000)"
 	kill_enemy.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35, 1.0))
 	kill_enemy.pressed.connect(func():
-		_scene.combat_manager.apply_hero_damage("enemy",
+		_scene.state.combat_manager.apply_hero_damage("enemy",
 				CombatManager.make_damage_info(5000, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "cheat_panel")))
 	dmg_row.add_child(kill_enemy)
 
@@ -174,8 +174,8 @@ func _build_ui() -> void:
 	var res_btn := Button.new()
 	res_btn.text = "Refill Resources (Essence + Mana)"
 	res_btn.pressed.connect(func():
-		_scene.turn_manager.gain_essence(_scene.turn_manager.essence_max)
-		_scene.turn_manager.gain_mana(_scene.turn_manager.mana_max))
+		_scene.state.gain_essence("player", _scene.state.player_essence_max)
+		_scene.state.gain_mana("player", _scene.state.player_mana_max))
 	vbox.add_child(res_btn)
 
 	vbox.add_child(HSeparator.new())
@@ -283,11 +283,11 @@ func _add_card() -> void:
 	# _card_for so the added copy reflects current talents/passives (overrides
 	# applied via talent_overrides + CardModRules). Cheating a card in after
 	# unlocking a talent mid-fight should show the talent's effects on it.
-	var card: CardData = _scene._card_for("player", id)
+	var card: CardData = _scene.state._card_for("player", id)
 	if card == null:
 		_status_lbl.text = "Unknown card: " + id
 		return
-	_scene.turn_manager.add_to_hand(card)
+	_scene.state.add_to_hand("player", card)
 	_status_lbl.text = ""
 	_card_input.select_all()
 
@@ -319,7 +319,7 @@ func _unlock_selected_talent() -> void:
 	_populate_talent_dropdown()
 	var talent: TalentData = TalentDatabase.get_talent(id)
 	_status_lbl.text = "Unlocked: " + talent.talent_name
-	_scene._log("  [CHEAT] Talent unlocked: %s" % talent.talent_name, _scene._LogType.PLAYER)
+	_scene.state._log("  [CHEAT] Talent unlocked: %s" % talent.talent_name, _scene._LogType.PLAYER)
 
 func _populate_relic_dropdown() -> void:
 	_relic_dropdown.clear()
@@ -345,7 +345,7 @@ func _grant_selected_relic() -> void:
 	_populate_relic_dropdown()
 	var relic: RelicData = RelicDatabase.get_relic(id)
 	_status_lbl.text = "Granted: " + relic.relic_name
-	_scene._log("  [CHEAT] Relic granted: %s" % relic.relic_name, _scene._LogType.PLAYER)
+	_scene.state._log("  [CHEAT] Relic granted: %s" % relic.relic_name, _scene._LogType.PLAYER)
 
 func _populate_enemy_dropdown() -> void:
 	_enemy_dropdown.clear()

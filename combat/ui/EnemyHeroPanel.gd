@@ -78,7 +78,7 @@ func setup(scene: Node2D, ui_root: Node) -> void:
 	# Layer 1: dark background
 	var bg_fill := Panel.new()
 	bg_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg_fill.add_theme_stylebox_override("panel", _create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1), 6))
+	bg_fill.add_theme_stylebox_override("panel", CombatUiStyle.create_stylebox(Color(0.08, 0.04, 0.13, 0.93), Color(0.55, 0.20, 0.80, 1), 6))
 	bg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg_fill)
 
@@ -181,8 +181,8 @@ func _build_enemy_portrait_row(vbox: VBoxContainer, ui_root: Node) -> void:
 		name_lbl.text = prefix + GameManager.current_enemy.enemy_name.to_upper()
 	header_row.add_child(name_lbl)
 
-	if not _scene.enemy_passives.is_empty():
-		_scene._add_enemy_passive_hover_icon(header_row, ui_root)
+	if not _scene.state.enemy_passives.is_empty():
+		_scene.ui_style.add_enemy_passive_hover_icon(header_row, ui_root)
 
 # ---------------------------------------------------------------------------
 # HP bar
@@ -757,7 +757,7 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 
 	# Find the active champion passive
 	var champ_id: String = ""
-	for pid in _scene.enemy_passives:
+	for pid in _scene.state.enemy_passives:
 		if pid.begins_with("champion_"):
 			champ_id = pid
 			break
@@ -863,7 +863,7 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 	if info.is_empty():
 		return
 
-	var scaffold: Dictionary = _scene._build_hover_tooltip_scaffold(ui_root, 280, Color(0.08, 0.04, 0.02, 0.97), Color(1.0, 0.70, 0.15, 0.85))
+	var scaffold: Dictionary = _scene.ui_style.build_hover_tooltip_scaffold(ui_root, 280, Color(0.08, 0.04, 0.02, 0.97), Color(1.0, 0.70, 0.15, 0.85))
 	var tip: PanelContainer = scaffold.tip
 	var tip_vbox: VBoxContainer = scaffold.tip_vbox
 
@@ -977,10 +977,3 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 # Helpers
 # ---------------------------------------------------------------------------
 
-func _create_stylebox(bg: Color, border: Color, corner_radius: int = 4, border_width: int = 2) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color     = bg
-	style.border_color = border
-	style.set_border_width_all(border_width)
-	style.set_corner_radius_all(corner_radius)
-	return style

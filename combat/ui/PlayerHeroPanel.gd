@@ -56,7 +56,7 @@ func setup(scene: Node2D, ui_root: Node) -> void:
 	# Layer 1: dark background with border
 	var player_bg_fill := Panel.new()
 	player_bg_fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	player_bg_fill.add_theme_stylebox_override("panel", _create_stylebox(Color(0.06, 0.06, 0.14, 0.93), Color(0.35, 0.55, 0.90, 1.0), 6))
+	player_bg_fill.add_theme_stylebox_override("panel", CombatUiStyle.create_stylebox(Color(0.06, 0.06, 0.14, 0.93), Color(0.35, 0.55, 0.90, 1.0), 6))
 	player_bg_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(player_bg_fill)
 
@@ -112,7 +112,7 @@ func setup(scene: Node2D, ui_root: Node) -> void:
 	header_row.add_child(name_lbl)
 
 	# Talent hover icon — injected by CombatScene after setup
-	_scene._add_talent_hover_icon(header_row, self)
+	_scene.ui_style.add_talent_hover_icon(header_row, self)
 
 	var player_bar: Dictionary = _build_hp_bar(vbox, Color(0.30, 0.75, 0.35, 1.0))
 	_hp_bar_fill  = player_bar["fill"] as TextureRect
@@ -321,10 +321,3 @@ func _update_hp_bar_gradient(bar_fill: TextureRect, ratio: float) -> void:
 		grad_tex.gradient.set_color(0, base_color.lightened(0.15))
 		grad_tex.gradient.set_color(1, base_color.darkened(0.15))
 
-func _create_stylebox(bg: Color, border: Color, corner_radius: int = 4, border_width: int = 2) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color     = bg
-	style.border_color = border
-	style.set_border_width_all(border_width)
-	style.set_corner_radius_all(corner_radius)
-	return style

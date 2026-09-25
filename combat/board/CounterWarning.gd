@@ -41,7 +41,7 @@ func setup() -> void:
 func update() -> void:
 	if label == null:
 		return
-	var should_show: bool = _scene._player_spell_counter > 0
+	var should_show: bool = _scene.state._player_spell_counter > 0
 	if should_show and not label.visible:
 		label.visible = true
 		label.modulate = Color(1, 1, 1, 0)

@@ -21,7 +21,7 @@ const _TRAP_BATTLEFIELD_ART := "res://assets/art/traps/trap_battlefield.png"
 const _TRAP_SEALED_BORDER := Color(0.25, 0.12, 0.35, 0.6)
 const _TRAP_SEALED_BG     := Color(0.04, 0.02, 0.06, 0.7)
 
-# Reference back to CombatScene — used for _apply_slot_style, _apply_empty_slot,
+# Reference back to CombatScene — used for
 # enemy_ai access, and read of active_traps / active_environment.
 var _scene: Node2D = null
 
@@ -106,9 +106,9 @@ func _setup_trap_row(scene: Node, row_path: String,
 func update_environment() -> void:
 	if env_slot == null:
 		return
-	var active = _scene.active_environment
+	var active = _scene.state.active_environment
 	if active != null:
-		_scene._apply_slot_style(env_slot, Color(0.02, 0.02, 0.04, 0.3), Color(0.15, 0.75, 0.35, 1))
+		CombatUiStyle.apply_slot_style(env_slot, Color(0.02, 0.02, 0.04, 0.3), Color(0.15, 0.75, 0.35, 1))
 		if env_name != null: env_name.visible = false
 		if env_desc != null: env_desc.visible = false
 		var header := env_slot.get_node_or_null("HeaderLabel")
@@ -122,7 +122,7 @@ func update_environment() -> void:
 			else:
 				_env_art.visible = false
 	else:
-		_scene._apply_empty_slot(env_slot, env_name)
+		CombatUiStyle.apply_empty_slot(env_slot, env_name)
 		if env_desc != null:
 			env_desc.visible = true
 			env_desc.text = ""
@@ -134,7 +134,7 @@ func update_environment() -> void:
 func update_traps_for(owner: String) -> void:
 	var panels: Array = player_panels       if owner == "player" else enemy_panels
 	var labels: Array = player_labels       if owner == "player" else enemy_labels
-	var traps:  Array = _scene.active_traps if owner == "player" else (_scene.enemy_ai.active_traps if _scene.enemy_ai else [])
+	var traps:  Array = _scene.state.active_traps if owner == "player" else _scene.state.enemy_active_traps
 	var is_enemy := owner == "enemy"
 	var is_player := owner == "player"
 	for i in panels.size():
@@ -163,14 +163,14 @@ func update_traps_for(owner: String) -> void:
 						has_art = true
 						lbl.visible = false
 						var border_color: Color = _get_rune_glow_color(trap)
-						_scene._apply_slot_style(panel, Color(0.02, 0.02, 0.04, 0.2), border_color)
+						CombatUiStyle.apply_slot_style(panel, Color(0.02, 0.02, 0.04, 0.2), border_color)
 					else:
 						art_container.visible = false
 				if not has_art:
 					lbl.visible = true
 					lbl.text = trap.card_name
 					var fallback_border: Color = _get_rune_glow_color(trap)
-					_scene._apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), fallback_border)
+					CombatUiStyle.apply_slot_style(panel, Color(0.10, 0.04, 0.22, 1), fallback_border)
 				panel.tooltip_text = ""
 				start_rune_glow(i, trap, owner)
 			elif is_enemy:
@@ -183,7 +183,7 @@ func update_traps_for(owner: String) -> void:
 					if art_container != null: art_container.visible = false
 					lbl.visible = true
 					lbl.text = trap.card_name
-				_scene._apply_slot_style(panel, _TRAP_SEALED_BG, _TRAP_SEALED_BORDER)
+				CombatUiStyle.apply_slot_style(panel, _TRAP_SEALED_BG, _TRAP_SEALED_BORDER)
 				panel.tooltip_text = ""
 				start_sealed_pulse(i, "enemy")
 			else:
@@ -196,12 +196,12 @@ func update_traps_for(owner: String) -> void:
 					if art_container != null: art_container.visible = false
 					lbl.visible = true
 					lbl.text = trap.card_name
-				_scene._apply_slot_style(panel, _TRAP_SEALED_BG, _TRAP_SEALED_BORDER)
+				CombatUiStyle.apply_slot_style(panel, _TRAP_SEALED_BG, _TRAP_SEALED_BORDER)
 				panel.tooltip_text = ""
 				if is_player:
 					start_sealed_pulse(i)
 		else:
-			_scene._apply_empty_slot(panel, lbl)
+			CombatUiStyle.apply_empty_slot(panel, lbl)
 			panel.tooltip_text = ""
 			if art_container != null: art_container.visible = false
 			stop_rune_glow(i, owner)
@@ -226,7 +226,7 @@ func hide_slot_for_placement(owner: String, slot_idx: int) -> void:
 		(labels[slot_idx] as Label).visible = false
 	# Reset border to the empty-slot style so the slot doesn't pulse a rune
 	# glow color before the VFX has revealed it.
-	_scene._apply_empty_slot(panels[slot_idx], labels[slot_idx])
+	CombatUiStyle.apply_empty_slot(panels[slot_idx], labels[slot_idx])
 
 ## Restore the slot's persistent rendering and fade the art back in. Called
 ## after the rune placement VFX finishes. Re-runs `update_traps_for` so the
@@ -254,7 +254,7 @@ func flash_slot(owner: String, slot_idx: int) -> void:
 	var panels := player_panels if owner == "player" else enemy_panels
 	if slot_idx >= 0 and slot_idx < panels.size():
 		var panel := panels[slot_idx]
-		_scene._apply_slot_style(panel, Color(0.35, 0.28, 0.0, 1), Color(1.0, 0.85, 0.1, 1))
+		CombatUiStyle.apply_slot_style(panel, Color(0.35, 0.28, 0.0, 1), Color(1.0, 0.85, 0.1, 1))
 		var tw := _scene.create_tween()
 		tw.tween_interval(0.5)
 		tw.tween_callback(func(): update_traps_for(owner))

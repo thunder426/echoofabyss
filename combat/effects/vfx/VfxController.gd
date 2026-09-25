@@ -128,7 +128,7 @@ func _play_void_screech(caster_side: String, _target: Variant, resolve_damage: C
 	# Chorus mode: one wave per feral imp if 3+ are present.
 	var feral_slots: Array[BoardSlot] = []
 	for s in caster_slots:
-		if s.minion != null and _combat._minion_has_tag(s.minion, "feral_imp"):
+		if s.minion != null and _combat.state._minion_has_tag(s.minion, "feral_imp"):
 			feral_slots.append(s)
 	var sources: Array = []
 	if feral_slots.size() >= 3:

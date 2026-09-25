@@ -36,14 +36,14 @@ func setup(p_scene: Node, p_state: CombatState) -> void:
 func on_trap_slot_hover(idx: int) -> void:
 	if _scene == null:
 		return
-	if idx < _scene.active_traps.size():
-		_scene._show_large_preview(_scene.active_traps[idx])
+	if idx < _scene.state.active_traps.size():
+		_scene._show_large_preview(_scene.state.active_traps[idx])
 
 ## Enemy trap slot hover — only previews face-up runes (concealed traps stay hidden).
 func on_enemy_trap_slot_hover(idx: int) -> void:
-	if _scene == null or _scene.enemy_ai == null:
+	if _scene == null:
 		return
-	var traps: Array = _scene.enemy_ai.active_traps
+	var traps: Array = _scene.state.enemy_active_traps
 	if idx < traps.size():
 		var trap: TrapCardData = traps[idx] as TrapCardData
 		if trap.is_rune:
@@ -65,7 +65,7 @@ func on_relic_hovered(effect_id: String) -> void:
 		return
 	match effect_id:
 		"relic_refill_mana":
-			var gain: int = mini(2, _scene.turn_manager.mana_max - _scene.turn_manager.mana)
+			var gain: int = mini(2, _scene.state.player_mana_max - _scene.state.player_mana)
 			if gain > 0 and _scene._pip_bar != null:
 				_scene._pip_bar.start_blink(0, 0, 0, gain)
 
@@ -80,7 +80,7 @@ func on_relic_unhovered() -> void:
 ## Handle a hand card click. Spell/minion go through their respective begin_*
 ## chains; trap/environment play immediately.
 func on_hand_card_selected(inst: CardInstance) -> void:
-	if _scene == null or not _scene.turn_manager.is_player_turn:
+	if _scene == null or not _scene.state.is_player_turn:
 		return
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
@@ -116,7 +116,7 @@ func on_hand_card_hovered(card_data: CardData, visual: CardVisual) -> void:
 	if _scene.pending_play_card != null:
 		return  # targeting in progress — don't interrupt with another card's preview
 	_scene._show_large_preview(card_data, visual)
-	if _scene.turn_manager and _scene.turn_manager.is_player_turn:
+	if _scene.state.is_player_turn:
 		start_pip_blink_for_card(card_data)
 
 ## Hand card unhover — hide preview and stop blink (unless a targeted card is still pending).
@@ -131,7 +131,7 @@ func on_hand_card_unhovered() -> void:
 ## Compute and start the pip blink preview for any card type. Used by hover
 ## preview and as a fallback when a targeted card is clicked.
 func start_pip_blink_for_card(card_data: CardData) -> void:
-	if _scene == null or _scene.turn_manager == null:
+	if _scene == null:
 		return
 	var ess_spend := 0
 	var mna_spend := 0
@@ -146,8 +146,8 @@ func start_pip_blink_for_card(card_data: CardData) -> void:
 			var amount: int    = step.get("amount", 0)
 			var from: String   = step.get("convert_from", "")
 			var to: String     = step.get("convert_to", "")
-			var available: int = _scene.turn_manager.mana - mna_spend if from == "mana" \
-					else _scene.turn_manager.essence - ess_spend
+			var available: int = _scene.state.player_mana - mna_spend if from == "mana" \
+					else _scene.state.player_essence - ess_spend
 			var actual: int    = mini(amount, maxi(available, 0))
 			if from == "mana":   mna_spend += actual
 			elif from == "essence": ess_spend += actual
@@ -156,17 +156,17 @@ func start_pip_blink_for_card(card_data: CardData) -> void:
 	elif card_data is MinionCardData:
 		var mc := card_data as MinionCardData
 		# piercing_void's +1 Mana now baked into mc.mana_cost via talent_overrides.
-		ess_spend = maxi(0, mc.essence_cost - _scene._peek_fiendish_pact_discount(mc))
+		ess_spend = maxi(0, mc.essence_cost - _scene.state._peek_fiendish_pact_discount(mc))
 		mna_spend = maxi(0, mc.mana_cost)
 	elif card_data is TrapCardData:
 		mna_spend = _scene._effective_trap_cost(card_data as TrapCardData)
 	elif card_data is EnvironmentCardData:
 		mna_spend = (card_data as EnvironmentCardData).cost
 	# Dark Mirror: reduce both costs for preview
-	if _scene._relic_cost_reduction > 0:
-		ess_spend = maxi(0, ess_spend - _scene._relic_cost_reduction)
-		mna_spend = maxi(0, mna_spend - _scene._relic_cost_reduction)
-	if not _scene.turn_manager.can_afford(ess_spend, mna_spend):
+	if _scene.state._relic_cost_reduction > 0:
+		ess_spend = maxi(0, ess_spend - _scene.state._relic_cost_reduction)
+		mna_spend = maxi(0, mna_spend - _scene.state._relic_cost_reduction)
+	if not _scene.state.can_afford("player", ess_spend, mna_spend):
 		return
 	if _scene._pip_bar != null:
 		_scene._pip_bar.start_blink(ess_spend, mna_spend, ess_gain, mna_gain)
@@ -177,7 +177,7 @@ func start_pip_blink_for_card(card_data: CardData) -> void:
 func begin_spell_select(spell: SpellCardData) -> void:
 	if _scene == null:
 		return
-	if not _scene.turn_manager.can_afford(0, _scene._effective_spell_cost(spell)):
+	if not _scene.state.can_afford("player", 0, _scene._effective_spell_cost(spell)):
 		cancel_card_select()
 		return
 	if not _scene._player_can_afford_sparks(spell.void_spark_cost):
@@ -195,8 +195,8 @@ func begin_minion_select(mc: MinionCardData) -> void:
 	if _scene == null:
 		return
 	# piercing_void's +1 Mana now baked into mc.mana_cost via talent_overrides.
-	var ess_cost := maxi(0, mc.essence_cost - _scene._peek_fiendish_pact_discount(mc))
-	if not _scene.turn_manager.can_afford(ess_cost, maxi(0, mc.mana_cost)):
+	var ess_cost := maxi(0, mc.essence_cost - _scene.state._peek_fiendish_pact_discount(mc))
+	if not _scene.state.can_afford("player", ess_cost, maxi(0, mc.mana_cost)):
 		cancel_card_select()
 		return
 	if not _scene._player_can_afford_sparks(mc.void_spark_cost):
@@ -285,7 +285,7 @@ func on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 ## targeted spell on a friendly minion, targeted minion-on-play, or attacker
 ## selection — in that priority order.
 func on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -> void:
-	if _scene == null or not _scene.turn_manager.is_player_turn:
+	if _scene == null or not _scene.state.is_player_turn:
 		return
 	# Seris — Corrupt Flesh activated ability targeting mode.
 	if _scene._seris_corrupt_targeting:
@@ -320,7 +320,7 @@ func on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -
 ## Click on an occupied enemy slot. Resolves relic targeting, targeted spell,
 ## targeted minion-on-play, or attack — in that priority order. Enforces Guard.
 func on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
-	if _scene == null or not _scene.turn_manager.is_player_turn:
+	if _scene == null or not _scene.state.is_player_turn:
 		return
 	# Seris — Corrupt Flesh targeting: enemy clicks cancel (target must be friendly Demon).
 	if _scene._seris_corrupt_targeting:
@@ -349,12 +349,12 @@ func on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	if _scene.selected_attacker == null:
 		return
 	# Enforce Guard — must attack a Guard minion if one exists
-	if CombatManager.board_has_taunt(_scene.enemy_board) and not minion.has_guard():
+	if CombatManager.board_has_taunt(_scene.state.enemy_board) and not minion.has_guard():
 		return  # Invalid target
-	_scene._log("Your %s attacks enemy %s" % [_scene.selected_attacker.card_data.card_name, minion.card_data.card_name])
+	_scene.state._log("Your %s attacks enemy %s" % [_scene.selected_attacker.card_data.card_name, minion.card_data.card_name])
 	var r: CommandResult = _scene.state.cmd_attack("player", _scene.selected_attacker, minion)
 	if not r.ok:
-		_scene._log("  Attack refused: %s." % r.reason, 1)  # PLAYER
+		_scene.state._log("  Attack refused: %s." % r.reason, 1)  # PLAYER
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
 	_scene._enemy_hero_panel.show_attackable(false)
@@ -374,14 +374,14 @@ func setup_trap_env_targeting() -> void:
 		return
 	tear_down_trap_env_targeting()
 	for i in _scene.trap_slot_panels.size():
-		if i < _scene.active_traps.size():
+		if i < _scene.state.active_traps.size():
 			var cb := func(ev: InputEvent) -> void: on_trap_env_input(ev, i, null)
 			_scene.trap_slot_panels[i].gui_input.connect(cb)
 			_active_trap_env_connections.append({node = _scene.trap_slot_panels[i], cb = cb})
 			_scene.trap_slot_panels[i].modulate = Color(1.3, 1.3, 0.5)
 	var env_slot: Control = _scene.trap_env_display.env_slot
-	if env_slot and _scene.active_environment:
-		var env: EnvironmentCardData = _scene.active_environment
+	if env_slot and _scene.state.active_environment:
+		var env: EnvironmentCardData = _scene.state.active_environment
 		var cb := func(ev: InputEvent) -> void: on_trap_env_input(ev, -1, env)
 		env_slot.gui_input.connect(cb)
 		_active_trap_env_connections.append({node = env_slot, cb = cb})
@@ -408,9 +408,9 @@ func on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 		return
 	var spell := _scene.pending_play_card.card_data as SpellCardData
 	var target: Variant = null
-	if trap_idx >= 0 and trap_idx < _scene.active_traps.size():
-		target = _scene.active_traps[trap_idx]
-	elif env_data != null and _scene.active_environment == env_data:
+	if trap_idx >= 0 and trap_idx < _scene.state.active_traps.size():
+		target = _scene.state.active_traps[trap_idx]
+	elif env_data != null and _scene.state.active_environment == env_data:
 		target = env_data
 	if target == null:
 		return
@@ -421,7 +421,7 @@ func on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 		_scene.hand_display.deselect_current()
 	var r: CommandResult = _scene.state.cmd_play_spell("player", inst, target)
 	if not r.ok:
-		_scene._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
+		_scene.state._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
 
 ## Fired when player clicks the enemy hero panel while relic targeting is active.
 func on_relic_target_hero_input(event: InputEvent) -> void:
@@ -455,7 +455,7 @@ func on_enemy_hero_spell_input(event: InputEvent) -> void:
 	# The engine validates, pays and casts at the enemy hero; the presenter plays it.
 	var r: CommandResult = _scene.state.cmd_play_spell("player", inst, "enemy_hero")
 	if not r.ok:
-		_scene._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
+		_scene.state._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
 
 ## Global _input — F12 / C toggles cheat menu, ESC closes it, right-click cancels
 ## the current pending action (relic targeting → card targeting → attacker).
@@ -494,9 +494,9 @@ func handle_input(event: InputEvent) -> void:
 func on_enemy_hero_button_pressed() -> void:
 	if _scene == null:
 		return
-	if not _scene.turn_manager.is_player_turn or _scene.selected_attacker == null:
+	if not _scene.state.is_player_turn or _scene.selected_attacker == null:
 		return
-	if CombatManager.board_has_taunt(_scene.enemy_board):
+	if CombatManager.board_has_taunt(_scene.state.enemy_board):
 		return
 	if not _scene.selected_attacker.can_attack_hero():
 		return
@@ -505,7 +505,7 @@ func on_enemy_hero_button_pressed() -> void:
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
 	_scene._enemy_hero_panel.show_attackable(false)
-	_scene._log("Your %s attacks Enemy Hero" % attacker.card_data.card_name)
+	_scene.state._log("Your %s attacks Enemy Hero" % attacker.card_data.card_name)
 	var r: CommandResult = _scene.state.cmd_attack_hero("player", attacker)
 	if not r.ok:
-		_scene._log("  Attack refused: %s." % r.reason, 1)  # PLAYER
+		_scene.state._log("  Attack refused: %s." % r.reason, 1)  # PLAYER

@@ -46,7 +46,7 @@ func on_state_hp_changed(side: String, new_hp: int, mx: int, _delta: int) -> voi
 			_scene._player_hero_panel.update(new_hp, mx)
 	else:
 		if _scene._enemy_hero_panel:
-			_scene._enemy_hero_panel.update(new_hp, mx, _scene.state, _scene.enemy_void_marks)
+			_scene._enemy_hero_panel.update(new_hp, mx, _scene.state, _scene.state.enemy_void_marks)
 
 ## Subscriber to CombatState.void_marks_changed — refreshes the enemy hero
 ## panel so the stack count visual stays current without scattered manual
@@ -55,7 +55,7 @@ func on_state_void_marks_changed(side: String, _value: int) -> void:
 	if _scene == null:
 		return
 	if side == "enemy" and _scene._enemy_hero_panel:
-		_scene._enemy_hero_panel.update(_scene.enemy_hp, _scene.enemy_hp_max, _scene.state, _scene.enemy_void_marks)
+		_scene._enemy_hero_panel.update(_scene.state.enemy_hp, _scene.state.enemy_hp_max, _scene.state, _scene.state.enemy_void_marks)
 
 ## Korrath — refresh the appropriate hero panel's debuff badges. State signals
 ## (hero_armour_changed, hero_buff_changed) route through here so the panel sees
@@ -153,7 +153,7 @@ func on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: i
 	if _scene.mana_label:
 		_scene.mana_label.text = "%d/%d" % [mana, mana_max]
 	if _scene.hand_display:
-		_scene.hand_display.refresh_playability(essence, mana, _scene._relic_cost_reduction, _scene._relic_cost_reduction)
+		_scene.hand_display.refresh_playability(essence, mana, _scene.state._relic_cost_reduction, _scene.state._relic_cost_reduction)
 	refresh_hand_spell_costs()
 	if _scene._pip_bar:
 		_scene._pip_bar.update(essence, essence_max, mana, mana_max)
@@ -171,7 +171,7 @@ func on_resources_changed(essence: int, essence_max: int, mana: int, mana_max: i
 func refresh_end_turn_mode() -> void:
 	if _scene == null:
 		return
-	var at_cap: bool = (_scene.turn_manager.essence_max + _scene.turn_manager.mana_max) >= TurnManager.COMBINED_RESOURCE_CAP
+	var at_cap: bool = (_scene.state.player_essence_max + _scene.state.player_mana_max) >= CombatState.COMBINED_RESOURCE_CAP
 	if _scene.end_turn_essence_button:
 		_scene.end_turn_essence_button.visible = not at_cap
 	if _scene.end_turn_mana_button:
@@ -186,8 +186,8 @@ func refresh_end_turn_mode() -> void:
 func on_card_anim_finished() -> void:
 	if _scene == null or _scene.hand_display == null:
 		return
-	_scene.hand_display.refresh_playability(_scene.turn_manager.essence, _scene.turn_manager.mana, _scene._relic_cost_reduction, _scene._relic_cost_reduction)
-	_scene.hand_display.refresh_condition_glows(_scene, _scene.turn_manager.essence, _scene.turn_manager.mana)
+	_scene.hand_display.refresh_playability(_scene.state.player_essence, _scene.state.player_mana, _scene.state._relic_cost_reduction, _scene.state._relic_cost_reduction)
+	_scene.hand_display.refresh_condition_glows(_scene, _scene.state.player_essence, _scene.state.player_mana)
 
 ## Refresh hand card cost displays + relic cost preview + playability glows +
 ## condition glows + the large preview's cost overlay (if visible). Called
@@ -196,15 +196,15 @@ func on_card_anim_finished() -> void:
 func refresh_hand_spell_costs() -> void:
 	if _scene == null:
 		return
-	var net_discount: int = _scene._spell_mana_discount() - _scene.player_spell_cost_penalty
-	var relic_red: int = _scene._relic_cost_reduction
+	var net_discount: int = _scene._spell_mana_discount() - _scene.state.player_spell_cost_penalty
+	var relic_red: int = _scene.state._relic_cost_reduction
 	if _scene.hand_display:
 		# Non-minion cards: mana discount includes relic reduction
 		_scene.hand_display.refresh_spell_costs(net_discount + relic_red)
 		# Minion cards: show essence and mana reductions from Dark Mirror
 		_scene.hand_display.refresh_relic_cost_preview(relic_red, relic_red)
-		_scene.hand_display.refresh_playability(_scene.turn_manager.essence, _scene.turn_manager.mana, relic_red, relic_red)
-		_scene.hand_display.refresh_condition_glows(_scene, _scene.turn_manager.essence, _scene.turn_manager.mana)
+		_scene.hand_display.refresh_playability(_scene.state.player_essence, _scene.state.player_mana, relic_red, relic_red)
+		_scene.hand_display.refresh_condition_glows(_scene, _scene.state.player_essence, _scene.state.player_mana)
 	if _scene.large_preview != null and _scene.large_preview.is_visible():
 		var extra: int = -(_scene._hovered_hand_visual.card_inst.mana_delta) if _scene._hovered_hand_visual != null and _scene._hovered_hand_visual.card_inst != null else 0
 		_scene.large_preview.visual.apply_cost_discount(net_discount + relic_red + extra)

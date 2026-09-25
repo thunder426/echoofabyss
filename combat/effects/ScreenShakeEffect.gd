@@ -16,8 +16,7 @@ const DEFAULT_INTERVAL: float = 0.025
 static func shake(target: Node, scene: Node, amplitude: float, ticks: int, interval: float = DEFAULT_INTERVAL) -> void:
 	if target == null or scene == null or ticks <= 0 or amplitude <= 0.0:
 		return
-	var pos_variant: Variant = target.get("position")
-	if pos_variant == null:
+	if not (target is Control or target is Node2D):
 		return
 	# Share a single resting base across concurrent shakes on the same target.
 	# Without this, a shake that starts while another is mid-loop would capture
@@ -27,7 +26,7 @@ static func shake(target: Node, scene: Node, amplitude: float, ticks: int, inter
 	if target.has_meta("_shake_base_pos"):
 		base_pos = target.get_meta("_shake_base_pos")
 	else:
-		base_pos = pos_variant
+		base_pos = _position_of(target)
 		target.set_meta("_shake_base_pos", base_pos)
 	target.set_meta("_shake_active", int(target.get_meta("_shake_active", 0)) + 1)
 	for i in ticks:
@@ -37,7 +36,7 @@ static func shake(target: Node, scene: Node, amplitude: float, ticks: int, inter
 		var decay: float = 1.0 - (float(i) / float(ticks))
 		var amp: float = amplitude * decay
 		var offset := Vector2(randf_range(-amp, amp), randf_range(-amp, amp))
-		target.set("position", base_pos + offset)
+		_set_position(target, base_pos + offset)
 		await scene.get_tree().create_timer(interval).timeout
 	_end_shake(target, base_pos)
 
@@ -49,6 +48,18 @@ static func _end_shake(target: Node, base_pos: Vector2) -> void:
 	if remaining <= 0:
 		target.remove_meta("_shake_active")
 		target.remove_meta("_shake_base_pos")
-		target.set("position", base_pos)
+		_set_position(target, base_pos)
 	else:
 		target.set_meta("_shake_active", remaining)
+
+
+## `position` of a Control or Node2D (the two shakeable kinds).
+static func _position_of(target: Node) -> Vector2:
+	return (target as Control).position if target is Control else (target as Node2D).position
+
+
+static func _set_position(target: Node, pos: Vector2) -> void:
+	if target is Control:
+		(target as Control).position = pos
+	elif target is Node2D:
+		(target as Node2D).position = pos

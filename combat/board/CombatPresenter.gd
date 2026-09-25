@@ -544,15 +544,15 @@ func _play_vfx(ev: CombatEvent) -> void:
 		"atk_chevron":
 			scene._spawn_atk_chevron(p.get("minion", null))
 		"lifedrain_pulse":
-			scene._pulse_lifedrain_icon(p.get("minion", null))
+			scene.vfx_bridge.pulse_lifedrain_icon(p.get("minion", null))
 		"void_netter":
 			scene._play_void_netter_on_play_vfx(p.get("source", null), p.get("target", null), ev.side)
 		"presence_aura":
 			scene._spawn_presence_aura_buff_vfx(p.get("minion", null), p.get("atk_delta", 0), p.get("hp_delta", 0))
 		"pack_chain":
-			scene._spawn_pack_chain_vfx_for_new_imp(p.get("minion", null), ev.side)
+			scene.vfx_bridge.spawn_pack_chain_vfx(p.get("minion", null), ev.side)
 		"pack_instinct":
-			scene._spawn_pack_instinct_buff_vfx(p.get("minion", null), p.get("old_atk", 0))
+			scene.vfx_bridge.spawn_pack_instinct_buff_vfx(p.get("minion", null), p.get("old_atk", 0))
 		"feral_reinforcement":
 			await scene._play_feral_reinforcement_vfx(p.get("source", null), p.get("card", null))
 		"champion_acp_aura_pulse":

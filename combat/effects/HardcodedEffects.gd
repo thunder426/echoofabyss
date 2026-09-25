@@ -111,7 +111,7 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 ## The discount is consumed on the first Demon played (see CombatScene._consume_fiendish_pact_discount
 ## . Display-only essence_delta on hand Demons reflects
 ## the pending discount until consumed or turn end. Symmetric: enemy casts arm
-## `_enemy_fiendish_pact_pending` on the same scene.
+## `_enemy_fiendish_pact_pending` on the state.
 func _fiendish_pact(ctx: EffectContext) -> void:
 	var ls := _log_side(ctx.owner)
 	if ctx.owner == "player":

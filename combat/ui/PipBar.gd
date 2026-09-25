@@ -166,7 +166,7 @@ func setup(scene: Node2D, ui_root: Node, essence_label: Label, mana_label: Label
 			pip.clip_contents         = true
 			pip.visible               = false
 			pip.add_theme_stylebox_override("panel",
-				_create_stylebox(Color(0.10, 0.08, 0.16, 0.85),
+				CombatUiStyle.create_stylebox(Color(0.10, 0.08, 0.16, 0.85),
 					Color(0.28, 0.24, 0.38, 0.65), PIP_CORNER, 1))
 			vbox.add_child(pip)
 
@@ -198,9 +198,8 @@ func setup(scene: Node2D, ui_root: Node, essence_label: Label, mana_label: Label
 	if GameManager.has_talent("soul_forge"):
 		_build_forge_widget(ui_root, RIGHT_MARGIN, COL_W, COL_GAP, COL_H, MARGIN_BOTTOM, LBL_H)
 
-	if _scene.turn_manager:
-		update(_scene.turn_manager.essence, _scene.turn_manager.essence_max,
-				_scene.turn_manager.mana, _scene.turn_manager.mana_max)
+	update(_scene.state.player_essence, _scene.state.player_essence_max,
+			_scene.state.player_mana, _scene.state.player_mana_max)
 	update_flesh()
 	update_forge()
 
@@ -231,11 +230,11 @@ func update(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
 				if overflow:
 					tr.texture = _ess_ovf_tex
 					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(Color(0, 0, 0, 0), ESS_OVF_BORDER, 3, 1))
+						CombatUiStyle.create_stylebox(Color(0, 0, 0, 0), ESS_OVF_BORDER, 3, 1))
 				else:
 					tr.texture = _ess_pip_tex
 					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(
+						CombatUiStyle.create_stylebox(
 							Color(0, 0, 0, 0) if filled else EMPTY_BG,
 							ESS_BORDER if filled else EMPTY_BORDER, 3, 1))
 
@@ -255,11 +254,11 @@ func update(essence: int, essence_max: int, mana: int, mana_max: int) -> void:
 				if overflow:
 					tr.texture = _mna_ovf_tex
 					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(Color(0, 0, 0, 0), MNA_OVF_BORDER, 3, 1))
+						CombatUiStyle.create_stylebox(Color(0, 0, 0, 0), MNA_OVF_BORDER, 3, 1))
 				else:
 					tr.texture = _mna_pip_tex
 					pip.add_theme_stylebox_override("panel",
-						_create_stylebox(
+						CombatUiStyle.create_stylebox(
 							Color(0, 0, 0, 0) if filled else EMPTY_BG,
 							MNA_BORDER if filled else EMPTY_BORDER, 3, 1))
 
@@ -291,9 +290,8 @@ func stop_blink() -> void:
 	_pip_ess_gain   = 0
 	_pip_mna_gain   = 0
 	_pip_blink_phase = 0.0
-	if _scene.turn_manager:
-		update(_scene.turn_manager.essence, _scene.turn_manager.essence_max,
-				_scene.turn_manager.mana, _scene.turn_manager.mana_max)
+	update(_scene.state.player_essence, _scene.state.player_essence_max,
+			_scene.state.player_mana, _scene.state.player_mana_max)
 
 ## Animate the pip column border with a gain (green) or spend (red-orange) glow.
 ## Pulse rises 0->1 in 0.15 s then decays 1->0 in 0.50 s.
@@ -339,19 +337,17 @@ func _make_pip_gradient_tex(color_top: Color, color_bot: Color) -> GradientTextu
 ## Repaint only the blinking pips based on the current _pip_blink_phase (0->1).
 ## Called every tween tick — fades spent pips, glows gain pips.
 func _refresh_blink_pips() -> void:
-	if not _scene.turn_manager:
-		return
 	const MAX_PIPS   := 10
 	const ESS_BORDER := Color(0.62, 0.32, 0.88, 0.90)
 	const MNA_BORDER := Color(0.22, 0.58, 0.98, 0.90)
 	_blink_pip_range(_pip_essence_panels, _pip_essence_rects,
-			_scene.turn_manager.essence, _pip_ess_blink, MAX_PIPS)
+			_scene.state.player_essence, _pip_ess_blink, MAX_PIPS)
 	_blink_pip_range(_pip_mana_panels, _pip_mana_rects,
-			_scene.turn_manager.mana,    _pip_mna_blink, MAX_PIPS)
+			_scene.state.player_mana,    _pip_mna_blink, MAX_PIPS)
 	_blink_pip_gain_range(_pip_essence_panels,
-			_scene.turn_manager.essence, _pip_ess_gain, ESS_BORDER, MAX_PIPS)
+			_scene.state.player_essence, _pip_ess_gain, ESS_BORDER, MAX_PIPS)
 	_blink_pip_gain_range(_pip_mana_panels,
-			_scene.turn_manager.mana,    _pip_mna_gain, MNA_BORDER, MAX_PIPS)
+			_scene.state.player_mana,    _pip_mna_gain, MNA_BORDER, MAX_PIPS)
 
 func _blink_pip_range(panels: Array[Panel], rects: Array[TextureRect],
 		current: int, cost: int, max_pips: int) -> void:
@@ -415,14 +411,6 @@ func _apply_col_border_style(panel: Panel, pulse: float, is_gain: bool, is_essen
 		s.border_color = normal_border
 		s.shadow_size  = 0
 	panel.add_theme_stylebox_override("panel", s)
-
-func _create_stylebox(bg: Color, border: Color, corner_radius: int = 4, border_width: int = 2) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color     = bg
-	style.border_color = border
-	style.set_border_width_all(border_width)
-	style.set_corner_radius_all(corner_radius)
-	return style
 
 # ---------------------------------------------------------------------------
 # Flesh counter widget (Seris)
@@ -526,8 +514,8 @@ func _build_flesh_widget(ui_root: Node, right_margin: int, col_w: int,
 func update_flesh() -> void:
 	if _flesh_root == null or _scene == null:
 		return
-	var flesh: int = int(_scene.get("player_flesh"))
-	var flesh_max: int = int(_scene.get("player_flesh_max"))
+	var flesh: int = _scene.state.player_flesh
+	var flesh_max: int = _scene.state.player_flesh_max
 	if flesh_max <= 0:
 		flesh_max = 5
 	_flesh_count_lbl.text = "%d/%d" % [flesh, flesh_max]
@@ -716,8 +704,8 @@ func _build_forge_widget(ui_root: Node, right_margin: int, col_w: int,
 func update_forge() -> void:
 	if _forge_root == null or _scene == null:
 		return
-	var fc:  int = int(_scene.get("forge_counter"))
-	var cap: int = int(_scene.get("forge_counter_threshold"))
+	var fc:  int = _scene.state.forge_counter
+	var cap: int = _scene.state.forge_counter_threshold
 	if cap <= 0:
 		cap = 3
 	_forge_count_lbl.text = "%d/%d" % [fc, cap]

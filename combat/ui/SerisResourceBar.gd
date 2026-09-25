@@ -219,29 +219,25 @@ func refresh() -> void:
 	if _scene == null:
 		return
 	if _forge_btn != null:
-		var flesh: int = int(_scene.get("player_flesh"))
+		var flesh: int = _scene.state.player_flesh
 		var castable: bool = flesh >= _FORGE_BTN_FLESH_COST
 		_set_skill_castable(_forge_btn, castable, not castable)
 	if _corrupt_btn != null:
-		var flesh: int = int(_scene.get("player_flesh"))
-		var _uv = _scene.get("_seris_corrupt_used_this_turn")
-		var used: bool = _uv if _uv is bool else false
+		var flesh: int = _scene.state.player_flesh
+		var used: bool = _scene.state._seris_corrupt_used_this_turn
 		var castable: bool = flesh >= 1 and not used
 		_set_skill_castable(_corrupt_btn, castable, not castable)
 
-## Click handler for the Soul Forge button. Delegates to the scene so the
-## actual game-state mutation stays symmetric with sim (sim triggers the
-## same _soul_forge_activate method via its agent profile if ever needed).
+## Click handler for the Soul Forge button — the engine's hero-skill command
+## (the sim's Seris profiles issue the same one).
 func _on_forge_btn_pressed() -> void:
 	if _scene == null:
 		return
-	if _scene.has_method("_soul_forge_activate"):
-		_scene._soul_forge_activate()
+	_scene.state.cmd_hero_skill("player", "soul_forge")
 	refresh()
 
 func _on_corrupt_btn_pressed() -> void:
 	if _scene == null:
 		return
-	if _scene.has_method("_seris_corrupt_activate"):
-		_scene._seris_corrupt_activate()
+	_scene._seris_corrupt_activate()
 	refresh()
