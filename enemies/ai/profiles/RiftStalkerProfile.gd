@@ -339,7 +339,7 @@ func _sort_by_play_priority(a: CardInstance, b: CardInstance) -> bool:
 
 ## Play regular (non-spark-cost) minions with board awareness.
 func _play_regular_minions() -> void:
-	var _dbg: bool = agent.state.debug_log_enabled
+	var _dbg: bool = agent.state.diagnostics != null and agent.state.diagnostics.debug_log_enabled
 	var placed := true
 	while placed:
 		placed = false

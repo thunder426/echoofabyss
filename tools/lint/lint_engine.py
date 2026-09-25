@@ -7,7 +7,7 @@ rule set and the phase that introduces each rule.
   L1  Rules code reaching through the combat shell (`_scene.x`, `scene.x`,
       `ctx.scene.x`, `.get/.set/.has_method("x")`) must name something the
       LIVE shell (CombatScene) actually has. A name that only exists on
-      CombatState / SimState works in tests (which run on SimState) and crashes
+      CombatState works in tests (which run on a bare CombatState) and crashes
       or silently no-ops in the real game. `<shell>.state.x` must name
       something on CombatState. CombatSetup registry "stats" keys must exist on
       CombatState (they are written with `state.set`).
@@ -29,13 +29,12 @@ rule set and the phase that introduces each rule.
       state, enemy_ai / turn_manager aliases, event contexts). Dictionary
       `.get("key")` is fine.
 
-  L5  (plan 1.4) One implementation per gameplay method: no
-      func defined on both CombatScene and SimState, and no SimState override of
-      a CombatState func. Allowed exceptions live in tools/lint/l5_allow.txt.
+  L5  (plan 1.4; 4.2) One implementation per gameplay method: nothing
+      `extends CombatState` (SimState, the last subclass, is gone).
 
   L6  (plan 2A.9) The engine never waits: no `await`, `get_tree(` or
       `create_timer(` in CombatState.gd. (plan 3.1a, D11) The engine holds no
-      slot Node: no `BoardSlot` in CombatState.gd, SimState.gd,
+      slot Node: no `BoardSlot` in CombatState.gd,
       CombatHandlers.gd, EffectResolver.gd or TargetResolver.gd — slots are
       `SlotState`.
 
@@ -67,10 +66,9 @@ LINT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SCENE = "combat/board/CombatScene.gd"
 STATE = "combat/board/CombatState.gd"
-SIM_STATE = "sim/SimState.gd"
 # L6 (3.1a): files that must not name the BoardSlot view.
 NO_BOARDSLOT_FILES = [
-    STATE, SIM_STATE,
+    STATE,
     "combat/events/CombatHandlers.gd",
     "combat/effects/EffectResolver.gd",
     "combat/effects/TargetResolver.gd",
@@ -199,6 +197,17 @@ def load_sections(name: str) -> dict[str, list[tuple[int, str]]]:
     return out
 
 
+def gd_files() -> list[str]:
+    """Every project .gd file (repo-relative), skipping dot-dirs, tasks/ and addons/."""
+    out: list[str] = []
+    for dirpath, dirs, names in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("tasks", "addons")]
+        for n in sorted(names):
+            if n.endswith(".gd"):
+                out.append(os.path.relpath(os.path.join(dirpath, n), ROOT))
+    return out
+
+
 def declared_funcs(rel: str) -> set[str]:
     return {m.group(1) for line in read(rel)
             if (m := re.match(r"^(?:static\s+)?func\s+(\w+)", line))}
@@ -208,7 +217,6 @@ class Linter:
     def __init__(self) -> None:
         self.scene = declared(SCENE) | BUILTINS
         self.state = declared(STATE)
-        self.sim = declared(SIM_STATE)
         self.allow = load_allow("l1_allow.txt")
         sections = load_sections("presentation_allowlist.txt")
         self.presenter_names = {n for _, n in sections.get("presenter", [])}
@@ -223,14 +231,9 @@ class Linter:
     def check_shell_name(self, rel: str, lineno: int, name: str, via: str) -> None:
         if name in self.scene or (rel, name) in self.allow:
             return
-        where = []
         if name in self.state:
-            where.append("CombatState")
-        if name in self.sim:
-            where.append("SimState")
-        if where:
             self.err("L1", rel, lineno,
-                     f"{via}{name} exists on {'/'.join(where)} but not on CombatScene "
+                     f"{via}{name} exists on CombatState but not on CombatScene "
                      f"(works in sim/tests, breaks live) — use .state.{name}")
         else:
             self.err("L1", rel, lineno, f"{via}{name} is not declared on any combat shell")
@@ -238,8 +241,7 @@ class Linter:
     def check_state_name(self, rel: str, lineno: int, name: str) -> None:
         if name in self.state or (rel, "state." + name) in self.allow:
             return
-        extra = " (SimState only)" if name in self.sim else ""
-        self.err("L1", rel, lineno, f".state.{name} is not declared on CombatState{extra}")
+        self.err("L1", rel, lineno, f".state.{name} is not declared on CombatState")
 
     def scan_file(self, rel: str, handles: list[str]) -> None:
         alt = "|".join(re.escape(h) for h in handles)
@@ -332,12 +334,13 @@ class Linter:
 
     # -- L5 ------------------------------------------------------------------
     def scan_pairs(self) -> None:
-        allow = {n for _, n in load_allow("l5_allow.txt")}
-        scene_f, state_f, sim_f = declared_funcs(SCENE), declared_funcs(STATE), declared_funcs(SIM_STATE)
-        for name in sorted((scene_f & sim_f) - allow):
-            self.err("L5", SIM_STATE, 0, f"{name} is defined on both CombatScene and SimState — one CombatState body")
-        for name in sorted((state_f & sim_f) - allow):
-            self.err("L5", SIM_STATE, 0, f"{name} overrides a CombatState func")
+        """Since plan 4.2 (SimState deleted): nothing extends CombatState, so no
+        shell can override a rule — every gameplay method has one body."""
+        ext_re = re.compile(r"^\s*extends\s+CombatState\b")
+        for rel in gd_files():
+            for i, raw in enumerate(read(rel), start=1):
+                if ext_re.match(raw):
+                    self.err("L5", rel, i, "extends CombatState — the engine has one body; compose it instead")
 
     # -- L6 ------------------------------------------------------------------
     def scan_engine_waits(self) -> None:
@@ -378,19 +381,14 @@ class Linter:
         func_re = re.compile(r"^\s*(?:static\s+)?func\s+(cmd_\w+|begin_turn|end_turn|_fire_traps_for)\s*\(")
         seen: dict[str, list[str]] = {}
         registries: list[str] = []
-        for dirpath, dirs, names in os.walk(ROOT):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("tasks", "addons")]
-            for n in sorted(names):
-                if not n.endswith(".gd"):
-                    continue
-                rel = os.path.relpath(os.path.join(dirpath, n), ROOT)
-                lines = read(rel)
-                for i, raw in enumerate(lines, start=1):
-                    m = func_re.match(raw)
-                    if m:
-                        seen.setdefault(m.group(1), []).append(f"{rel}:{i}")
-                if sum(raw.count('preload("res://enemies/ai/profiles/') for raw in lines) > 3:
-                    registries.append(rel)
+        for rel in gd_files():
+            lines = read(rel)
+            for i, raw in enumerate(lines, start=1):
+                m = func_re.match(raw)
+                if m:
+                    seen.setdefault(m.group(1), []).append(f"{rel}:{i}")
+            if sum(raw.count('preload("res://enemies/ai/profiles/') for raw in lines) > 3:
+                registries.append(rel)
         for name, where in sorted(seen.items()):
             if len(where) > 1:
                 for loc in where:

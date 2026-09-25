@@ -1,0 +1,96 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+
+=== Echo of Abyss — Batch Balance Simulator ===
+Runs per combination: 200
+Seed: 7 (deterministic per-run)
+Acts: [1]
+
+--- Act 1 ---
+Swarm      | none | F1 Rogue Imp Pack         | Win  63.0% | Loss  37.0% | T  6.0 | HP +1219 | Champ 0.52 [f1_a]
+Swarm      | none | F1 Rogue Imp Pack         | Win  66.0% | Loss  34.0% | T  5.8 | HP +1554 | Champ 0.62 [f1_b]
+Swarm      | none | F1 Rogue Imp Pack         | Win  59.0% | Loss  41.0% | T  5.9 | HP +1348 | Champ 0.48 [f1_c]
+Swarm      | none | F2 Corrupted Broodlings   | Win  88.0% | Loss  12.0% | T  5.9 | HP +2049 | Champ 0.61 [f2_a]
+Swarm      | none | F2 Corrupted Broodlings   | Win  88.0% | Loss  12.0% | T  5.3 | HP +1768 | Champ 0.47 [f2_b]
+Swarm      | none | F2 Corrupted Broodlings   | Win  87.0% | Loss  13.0% | T  5.4 | HP +1845 | Champ 0.30 [f2_c]
+Swarm      | none | F3 Imp Matriarch          | Win  82.5% | Loss  17.5% | T  5.8 | HP +2041 | Champ 0.15 [f3_a]
+Swarm      | none | F3 Imp Matriarch          | Win  79.0% | Loss  21.0% | T  6.9 | HP +2192 | Champ 0.23 [f3_b]
+Swarm      | none | F3 Imp Matriarch          | Win  81.5% | Loss  18.5% | T  6.4 | HP +2244 | Champ 0.19 [f3_c]
+Voidbolt   | none | F1 Rogue Imp Pack         | Win  87.0% | Loss  13.0% | T  5.6 | HP +1376 | Champ 0.21 [f1_a]
+             Plg:1.2/1.2 | VB:1.3x/1790dmg | Imp:251
+Voidbolt   | none | F1 Rogue Imp Pack         | Win  85.5% | Loss  14.5% | T  5.5 | HP +1732 | Champ 0.29 [f1_b]
+             Plg:1.1/1.2 | VB:1.3x/1791dmg | Imp:250
+Voidbolt   | none | F1 Rogue Imp Pack         | Win  83.5% | Loss  16.5% | T  5.5 | HP +1484 | Champ 0.18 [f1_c]
+             Plg:1.2/1.0 | VB:1.3x/1787dmg | Imp:252
+Voidbolt   | none | F2 Corrupted Broodlings   | Win  93.5% | Loss   6.5% | T  5.6 | HP +1574 | Champ 0.45 [f2_a]
+             Plg:1.2/0.1 | VB:1.3x/1850dmg | Imp:257
+Voidbolt   | none | F2 Corrupted Broodlings   | Win  83.5% | Loss  16.5% | T  5.6 | HP +1219 | Champ 0.41 [f2_b]
+             Plg:1.2/0.1 | VB:1.3x/1811dmg | Imp:257
+Voidbolt   | none | F2 Corrupted Broodlings   | Win  85.0% | Loss  15.0% | T  5.4 | HP +1381 | Champ 0.34 [f2_c]
+             Plg:1.1/0.1 | VB:1.2x/1680dmg | Imp:250
+Voidbolt   | none | F3 Imp Matriarch          | Win  61.5% | Loss  38.5% | T  5.7 | HP +1230 | Champ 0.26 [f3_a]
+             Plg:1.1/0.1 | VB:1.3x/1866dmg | Imp:264
+Voidbolt   | none | F3 Imp Matriarch          | Win  69.0% | Loss  31.0% | T  7.0 | HP +1370 | Champ 0.39 [f3_b]
+             Plg:1.5/0.8 | VB:1.7x/2762dmg | Imp:315
+Voidbolt   | none | F3 Imp Matriarch          | Win  54.5% | Loss  45.5% | T  6.7 | HP +1144 | Champ 0.43 [f3_c]
+             Plg:1.3/1.0 | VB:1.7x/2558dmg | Imp:308
+DeathCircle | none | F1 Rogue Imp Pack         | Win  44.0% | Loss  56.0% | T  5.6 | HP  +585 | Champ 0.45 [f1_a]
+             PRit:1.1
+DeathCircle | none | F1 Rogue Imp Pack         | Win  51.5% | Loss  48.5% | T  5.7 | HP  +892 | Champ 0.62 [f1_b]
+             PRit:1.1
+DeathCircle | none | F1 Rogue Imp Pack         | Win  43.5% | Loss  56.5% | T  5.8 | HP  +646 | Champ 0.42 [f1_c]
+             PRit:1.1
+DeathCircle | none | F2 Corrupted Broodlings   | Win  79.5% | Loss  20.5% | T  5.6 | HP +1594 | Champ 0.61 [f2_a]
+             PRit:1.1
+DeathCircle | none | F2 Corrupted Broodlings   | Win  72.5% | Loss  27.5% | T  5.2 | HP +1356 | Champ 0.46 [f2_b]
+             PRit:0.8
+DeathCircle | none | F2 Corrupted Broodlings   | Win  72.5% | Loss  27.5% | T  5.5 | HP +1410 | Champ 0.38 [f2_c]
+             PRit:1.1
+DeathCircle | none | F3 Imp Matriarch          | Win  60.0% | Loss  40.0% | T  5.7 | HP +1267 | Champ 0.24 [f3_a]
+             PRit:1.1
+DeathCircle | none | F3 Imp Matriarch          | Win  53.0% | Loss  47.0% | T  7.7 | HP +1044 | Champ 0.40 [f3_b]
+             PRit:1.7
+DeathCircle | none | F3 Imp Matriarch          | Win  40.0% | Loss  60.0% | T  7.1 | HP  +800 | Champ 0.46 [f3_c]
+             PRit:1.5
+S.Flesh    | none | F1 Rogue Imp Pack         | Win  70.0% | Loss  30.0% | T  6.0 | HP +1514 | Champ 0.52 [f1_a]
+S.Flesh    | none | F1 Rogue Imp Pack         | Win  71.5% | Loss  28.5% | T  6.0 | HP +1736 | Champ 0.56 [f1_b]
+S.Flesh    | none | F1 Rogue Imp Pack         | Win  58.5% | Loss  41.5% | T  5.9 | HP +1423 | Champ 0.47 [f1_c]
+S.Flesh    | none | F2 Corrupted Broodlings   | Win  52.5% | Loss  47.5% | T  6.5 | HP +1156 | Champ 0.60 [f2_a]
+S.Flesh    | none | F2 Corrupted Broodlings   | Win  53.0% | Loss  47.0% | T  6.0 | HP  +898 | Champ 0.47 [f2_b]
+S.Flesh    | none | F2 Corrupted Broodlings   | Win  64.0% | Loss  36.0% | T  6.2 | HP +1120 | Champ 0.36 [f2_c]
+S.Flesh    | none | F3 Imp Matriarch          | Win  55.0% | Loss  45.0% | T  6.3 | HP +1187 | Champ 0.30 [f3_a]
+S.Flesh    | none | F3 Imp Matriarch          | Win  61.0% | Loss  39.0% | T  7.4 | HP +1660 | Champ 0.36 [f3_b]
+S.Flesh    | none | F3 Imp Matriarch          | Win  78.0% | Loss  22.0% | T  6.1 | HP +2173 | Champ 0.20 [f3_c]
+S.Forge    | none | F1 Rogue Imp Pack         | Win  57.5% | Loss  42.5% | T  5.8 | HP +1166 | Champ 0.49 [f1_a]
+S.Forge    | none | F1 Rogue Imp Pack         | Win  67.5% | Loss  32.5% | T  6.0 | HP +1534 | Champ 0.63 [f1_b]
+S.Forge    | none | F1 Rogue Imp Pack         | Win  53.5% | Loss  46.5% | T  6.2 | HP +1288 | Champ 0.51 [f1_c]
+S.Forge    | none | F2 Corrupted Broodlings   | Win  63.5% | Loss  36.5% | T  6.9 | HP +1218 | Champ 0.68 [f2_a]
+S.Forge    | none | F2 Corrupted Broodlings   | Win  51.5% | Loss  48.5% | T  6.2 | HP  +788 | Champ 0.43 [f2_b]
+S.Forge    | none | F2 Corrupted Broodlings   | Win  45.0% | Loss  55.0% | T  6.4 | HP  +794 | Champ 0.34 [f2_c]
+S.Forge    | none | F3 Imp Matriarch          | Win  31.5% | Loss  68.5% | T  6.6 | HP  +489 | Champ 0.42 [f3_a]
+S.Forge    | none | F3 Imp Matriarch          | Win  46.0% | Loss  54.0% | T  8.7 | HP +1056 | Champ 0.54 [f3_b]
+S.Forge    | none | F3 Imp Matriarch          | Win  55.5% | Loss  44.5% | T  7.6 | HP +1352 | Champ 0.41 [f3_c]
+S.Corr     | none | F1 Rogue Imp Pack         | Win  58.0% | Loss  42.0% | T  5.3 | HP +1333 | Champ 0.47 [f1_a]
+             Clog:0.8
+S.Corr     | none | F1 Rogue Imp Pack         | Win  66.5% | Loss  33.5% | T  5.6 | HP +1618 | Champ 0.55 [f1_b]
+             Clog:0.9
+S.Corr     | none | F1 Rogue Imp Pack         | Win  60.5% | Loss  39.5% | T  5.5 | HP +1494 | Champ 0.45 [f1_c]
+             Clog:0.8
+S.Corr     | none | F2 Corrupted Broodlings   | Win  55.5% | Loss  44.5% | T  6.1 | HP +1146 | Champ 0.43 [f2_a]
+             Clog:0.6
+S.Corr     | none | F2 Corrupted Broodlings   | Win  66.5% | Loss  33.5% | T  5.5 | HP +1128 | Champ 0.14 [f2_b]
+             Clog:0.7
+S.Corr     | none | F2 Corrupted Broodlings   | Win  61.0% | Loss  39.0% | T  5.7 | HP +1039 | Champ 0.15 [f2_c]
+             Clog:0.8
+S.Corr     | none | F3 Imp Matriarch          | Win  40.5% | Loss  59.5% | T  6.0 | HP  +764 | Champ 0.32 [f3_a]
+             Clog:0.7
+S.Corr     | none | F3 Imp Matriarch          | Win  55.0% | Loss  45.0% | T  7.1 | HP +1497 | Champ 0.41 [f3_b]
+             Clog:0.7
+S.Corr     | none | F3 Imp Matriarch          | Win  70.0% | Loss  30.0% | T  5.9 | HP +1915 | Champ 0.24 [f3_c]
+             Clog:1.0
+
+Done.
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+     at: cleanup (core/object/object.cpp:2641)
+ERROR: 35 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

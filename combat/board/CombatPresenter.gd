@@ -239,7 +239,7 @@ func _play_minion_played(ev: CombatEvent) -> void:
 		node.show_minion(m)
 		await scene._animate_enemy_landing(node, total_cost, card.is_champion)
 		if is_inside_tree():
-			CardVfxRegistry.play_enemy_summon_reveal_extra(scene.vfx_controller, m, node, state._active_enemy_passives)
+			CardVfxRegistry.play_enemy_summon_reveal_extra(scene.vfx_controller, m, node, state.enemy_passives)
 	if is_inside_tree():
 		scene._maybe_spawn_aura_pulse(card, node)
 

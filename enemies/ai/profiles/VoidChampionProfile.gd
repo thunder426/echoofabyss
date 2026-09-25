@@ -209,7 +209,7 @@ func _find_in_hand(id: String) -> CardInstance:
 	return null
 
 func _has_mana_for_spark() -> bool:
-	var passives: Array[String] = agent.state._active_enemy_passives
+	var passives: Array[String] = agent.state.enemy_passives
 	return passives != null and "mana_for_spark" in passives
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@
 ##   CardVfxRegistry.play_summon_aura_pulse(vfx_controller, card, slot)
 ##   if CardVfxRegistry.try_play_token_summon(vfx_bridge, id, inst, data, slot, owner):
 ##       return  # bridge handled placement + triggers
-##   CardVfxRegistry.play_enemy_summon_reveal_extra(vfx_controller, minion, slot, _active_enemy_passives)
+##   CardVfxRegistry.play_enemy_summon_reveal_extra(vfx_controller, minion, slot, enemy_passives)
 ##
 ## Adding a card VFX: add a new branch to the relevant `match` below. No edits
 ## to CombatScene, VfxController, or CombatVFXBridge required.
@@ -78,7 +78,7 @@ static func try_play_token_summon(vfx_bridge: CombatVFXBridge, card_id: String,
 
 ## Extra VFX layered on top of the standard enemy-summon reveal. Used for
 ## passive-gated cosmetics (e.g. Corrupted Death imps get a void wisp on
-## landing). active_passives is the scene's _active_enemy_passives array.
+## landing). active_passives is the scene's enemy_passives array.
 static func play_enemy_summon_reveal_extra(controller: VfxController,
 		minion: MinionInstance, slot: BoardSlot, active_passives: Array) -> void:
 	if controller == null or minion == null or slot == null or minion.card_data == null:

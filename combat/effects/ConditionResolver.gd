@@ -20,7 +20,7 @@ static func check(cond: String, ctx: EffectContext, target) -> bool:
 	# flag is seen and consumes the flag atomically; subsequent checks return false.
 	# Per the design contract: the gate is consumed even if the gated step's body fails
 	# (e.g. ADD_CARD lands on a full hand) — the consume happens here, before the body runs.
-	# The flag dictionary is reset at player turn start (CombatScene + SimState).
+	# The flag dictionary is reset at player turn start (CombatState.begin_turn).
 	if cond.begins_with("once_per_turn:"):
 		var flag_id: String = cond.substr("once_per_turn:".length())
 		if flag_id == "":

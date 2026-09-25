@@ -8,7 +8,7 @@ class_name MinionInstance
 extends RefCounted
 
 ## Global Seris Corrupt Flesh flag — when true, Corruption stacks on friendly Demons
-## grant +ATK instead of -ATK. Set by CombatSetup / SimTriggerSetup when the corrupt_flesh
+## grant +ATK instead of -ATK. Set by CombatSetup when the corrupt_flesh
 ## talent is active; reset to false at combat teardown. Kept as a static (not per-scene)
 ## so effective_atk() can read it without a scene reference.
 static var corruption_inverts_on_friendly_demons: bool = false
@@ -207,7 +207,7 @@ func has_immune() -> bool:
 ## spirit_resonance: Spirit minions with Critical Strike have +1 spark_value (min 1).
 func effective_spark_value(st: CombatState = null) -> int:
 	var base: int = (card_data as MinionCardData).spark_value
-	if st == null or not ("spirit_resonance" in st._active_enemy_passives):
+	if st == null or not ("spirit_resonance" in st.enemy_passives):
 		return base
 	# Passive applies to enemy Spirit minions with crit
 	if owner != "enemy":

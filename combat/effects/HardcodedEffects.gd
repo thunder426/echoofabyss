@@ -116,7 +116,7 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 
 ## Seris Starter — Fiendish Pact: arm a pending 2-Essence discount for the NEXT Demon played this turn.
 ## The discount is consumed on the first Demon played (see CombatScene._consume_fiendish_pact_discount
-## / SimState._consume_fiendish_pact_discount). Display-only essence_delta on hand Demons reflects
+## . Display-only essence_delta on hand Demons reflects
 ## the pending discount until consumed or turn end. Symmetric: enemy casts arm
 ## `_enemy_fiendish_pact_pending` on the same scene.
 func _fiendish_pact(ctx: EffectContext) -> void:
@@ -281,7 +281,7 @@ func _brood_call(ctx: EffectContext) -> void:
 
 func _pack_frenzy(ctx: EffectContext) -> void:
 	var feral_board: Array = state._friendly_board(ctx.owner).duplicate()
-	var ancient_active: bool = "ancient_frenzy" in (state._active_enemy_passives)
+	var ancient_active: bool = "ancient_frenzy" in (state.enemy_passives)
 
 	var targets: Array = []
 	for m in feral_board:

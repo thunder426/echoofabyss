@@ -550,7 +550,7 @@ func _reserved_slots() -> int:
 	if agent.state._champion_summon_count > 0:
 		return 0
 	# Check if this encounter even has a champion passive
-	for p: String in agent.state._active_enemy_passives:
+	for p: String in agent.state.enemy_passives:
 		if p.begins_with("champion_"):
 			return 1
 	return 0
@@ -958,7 +958,7 @@ func _effective_spark_cost(card: CardData) -> int:
 			if m.card_data.id == "champion_void_herald":
 				return 0
 	var cost: int = base
-	var passives: Array[String] = agent.state._active_enemy_passives
+	var passives: Array[String] = agent.state.enemy_passives
 	# ritualist_spark_free (F13 Void Ritualist Prime): all spark costs become 0 for spells.
 	if passives != null and "ritualist_spark_free" in passives and card is SpellCardData:
 		return 0
@@ -998,7 +998,7 @@ func _mana_for_spark_shortfall(spark_cost: int) -> int:
 	var available: int = _available_sparks()
 	if available >= spark_cost:
 		return 0
-	var passives: Array[String] = agent.state._active_enemy_passives
+	var passives: Array[String] = agent.state.enemy_passives
 	if passives != null and "mana_for_spark" in passives:
 		return spark_cost - available
 	return 0  # Caller will fail the spark check separately
@@ -1049,7 +1049,7 @@ func _plan_spark_payment(cost: int) -> Array[MinionInstance]:
 	if remaining > 0:
 		# mana_for_spark passive: shortfall is paid in extra Mana, not fuel.
 		# Return whatever plan we have — caller reads _mana_for_spark_shortfall to pay extra.
-		var passives: Array[String] = agent.state._active_enemy_passives
+		var passives: Array[String] = agent.state.enemy_passives
 		if passives != null and "mana_for_spark" in passives:
 			return plan
 		return []  # Can't afford

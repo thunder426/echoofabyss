@@ -47,12 +47,6 @@ var _sovereign_transition_turn: int:
 	get: return state._sovereign_transition_turn
 	set(v): state._sovereign_transition_turn = v
 
-## Stub hook for the Phase 2 transition VFX (screen darken, banner, portrait
-## swap, etc.). Called by PhaseTransition after state has been reset. Leave
-## empty until polish pass — transition still functions without VFX.
-func _play_phase2_vfx() -> void:
-	_log("THE SOVEREIGN REAWAKENS — Phase 2 begins.", _LogType.ENEMY)
-
 ## Deferred by _on_hero_damaged after a P1→P2 transition. Runs next frame so
 ## the current damage/attack resolution can finish before we yank player
 ## control. Ends the player turn and lets the normal enemy-turn pipeline fire.
@@ -382,9 +376,9 @@ var _hovered_hand_visual: CardVisual = null
 # ---------------------------------------------------------------------------
 
 ## Active passive IDs for the current encounter — forwarded to state.
-var _active_enemy_passives: Array[String]:
-	get: return state._active_enemy_passives
-	set(v): state._active_enemy_passives = v
+var enemy_passives: Array[String]:
+	get: return state.enemy_passives
+	set(v): state.enemy_passives = v
 
 ## Act 4 passive / crit / Dark Channeling state — all forwarded to state.
 var _vp_pre_crit_stacks: int:
@@ -566,90 +560,34 @@ var _champion_vh_summoned: bool:
 # ---------------------------------------------------------------------------
 
 func _ready() -> void:
-	combat_manager = CombatManager.new()
-	trigger_manager = TriggerManager.new()
-	_hardcoded = HardcodedEffects.new()
-	_hardcoded.setup(self)
-	# This scene is the state's presenter. Every EffectContext the state builds
-	# (cast_player_targeted_spell, _fire_traps_for, env rituals, etc.)
-	# carries `ctx.scene = scene` via state._get_scene_facade(), so VFX-bound
-	# calls like ctx.scene._deal_void_bolt_damage / ._corrupt_minion / ._fire_ritual
-	# reach the scene's VFX-rich overrides instead of state's bare bodies.
+	# If no run is active (e.g. launched directly for testing), start one now.
+	if not GameManager.run_active:
+		GameManager.start_new_run()
+	# The one setup path (plan 4.1): seed, heroes, passives, decks, opening hands,
+	# triggers and relics. The presenter plays everything it journaled.
+	state.setup_combat(CombatConfig.from_game_manager())
 	state.presenter = self
 	presenter = CombatPresenter.new()
 	presenter.name = "Presenter"
 	add_child(presenter)
 	presenter.setup(self, state)
-	# Seed the engine RNG before anything shuffles (enemy deck in _setup_enemy_ai,
-	# player deck in turn_manager.start_combat). Same seed + same inputs = same fight.
-	var combat_seed: int = GameManager.next_combat_seed
-	if combat_seed < 0:
-		combat_seed = randi() & 0x7FFFFFFF  # lint: allow-rng (seed roll)
-	GameManager.next_combat_seed = -1
-	GameManager.combat_seed = combat_seed
-	state.seed_rng(combat_seed)
-	# Register VFX-rich _summon_token so EffectResolver SUMMON steps fired
-	# through state-created EffectContexts route into scene (sigils, champion
-	# entrance, etc.). Sim leaves this unset → state's pure logic path runs.
 	targeting = Targeting.new(self)
 	large_preview = LargePreview.new(self)
 	counter_warning = CounterWarning.new(self)
 	_find_nodes()
-	_connect_buff_signal()
 	_register_buff_preludes()
-	_connect_sacrifice_signal()
 	_load_combat_background()
 	_connect_turn_manager()
 	_connect_board_slots()
-	_connect_combat_manager()
 	_connect_ui()
 	# UI refresh is driven by the presenter as it plays the journal (plan 3.2);
 	# the initial display refresh calls below journal their events.
 	_update_environment_display()
 	_update_trap_display()
 	_update_enemy_trap_display()
-	# If no run is active (e.g. launched directly for testing), start one now
-	if not GameManager.run_active:
-		GameManager.start_new_run()
-
-	# HP resets to full at the start of every new combat.
-	state.player_hp_max = GameManager.player_hp_max
-	player_hp = GameManager.player_hp_max
-	# Mirror GameManager talents and hero passives into state. Both must be set
-	# before deck construction so CardModRules / talent_overrides see the right
-	# context when building override-applied card clones.
-	state.talents.assign(GameManager.unlocked_talents)
-	state.player_hero_id = GameManager.current_hero
-	var _hero := HeroDatabase.get_hero(GameManager.current_hero)
-	state.hero_passives.clear()
-	if _hero != null:
-		for p in _hero.passives:
-			state.hero_passives.append(p.id)
-	# Enemy passives: mirror the encounter's passive list into state for the same reason.
-	state.enemy_passives.clear()
-	if GameManager.current_enemy != null:
-		state.enemy_passives.assign(GameManager.current_enemy.passives)
-
-	# Reset the override-applied card cache so a different talent set in this
-	# combat doesn't reuse a clone built for a previous one.
-	CardDatabase.clear_override_cache()
-
-	# Override enemy HP / name / fight number from current encounter
-	if GameManager.current_enemy != null:
-		enemy_hp = GameManager.current_enemy.hp
-		enemy_hp_max = enemy_hp
-		if fight_label:
-			fight_label.text = "Fight %d / %d" % [GameManager.run_node_index, GameManager.TOTAL_FIGHTS]
-
-	# Build the deck from GameManager and begin combat. Use combat-time lookup
-	# so talent_overrides + CardModRules (e.g. corrupt_flesh re-aiming
-	# Cultist/Weaver, void_imp_boost +100/+100 to Void Imp clan,
-	# swarm_discipline +100 HP) apply to deck/hand cards from turn 1.
-	var deck_ids: Array[String] = GameManager.player_deck
-	var deck: Array[CardData] = CardDatabase.get_cards_for_combat(deck_ids, state._card_ctx("player"))
+	if GameManager.current_enemy != null and fight_label:
+		fight_label.text = "Fight %d / %d" % [GameManager.run_node_index, GameManager.TOTAL_FIGHTS]
 	_setup_enemy_ai()
-	if GameManager.current_enemy != null:
-		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
 	var ui_root: Node = get_node_or_null("UI")
 	_enemy_hero_panel = EnemyHeroPanel.new()
 	_enemy_hero_panel.setup(self, ui_root)
@@ -663,20 +601,17 @@ func _ready() -> void:
 	if ui_root:
 		ui_root.add_child(_player_hero_panel)
 	_player_status_panel = _player_hero_panel
-	# Initial panel sync — the hp_changed signal already fired above (in
-	# `player_hp = GameManager.player_hp_max`) but the panels didn't exist yet,
-	# so push the values manually now. Future HP changes route through the
-	# signal subscriber.
-	_player_hero_panel.update(player_hp, GameManager.player_hp_max)
+	# Initial panel sync — the setup's HP events journaled before the panels
+	# existed, so push the values once; later changes arrive through the presenter.
+	_player_hero_panel.update(player_hp, state.player_hp_max)
 	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
 	_setup_second_wind_indicator(ui_root)
 	_pip_bar = PipBar.new()
 	_pip_bar.setup(self, ui_root, essence_label, mana_label)
 	large_preview.setup()
 	_log("Seed: %d" % state.rng_seed, CombatLog.LogType.TURN)
-	turn_manager.start_combat(deck)
-	_setup_triggers()
 	_setup_relics()
+	state.start_combat()
 	_cheat = CheatPanel.new()
 	add_child(_cheat)
 	_cheat.setup(self)
@@ -766,19 +701,15 @@ func _find_nodes() -> void:
 # Signal wiring
 # ---------------------------------------------------------------------------
 
+## The live enemy: EnemyAI drives a StateAgent on the state (plan 3.4). Its deck
+## and passives came from setup_combat; the growth hook is its profile's curve.
 func _setup_enemy_ai() -> void:
-	# Load the enemy's deck and profile from the current encounter
-	var enemy_deck: Array[String] = []
-	if GameManager.current_enemy != null:
-		enemy_deck = GameManager.current_enemy.deck
-		enemy_ai.ai_profile = GameManager.current_enemy.ai_profile
 	enemy_ai.scene = self
+	enemy_ai.ai_profile = state.enemy_profile_id
+	state.enemy_profile_changed.connect(func(id: String) -> void: enemy_ai.ai_profile = id)
 	# Enemy resource growth runs inside state.begin_turn("enemy"); the opening
 	# 1 Essence / 1 Mana is set by state.start_combat.
 	state.growth_hooks["enemy"] = enemy_ai.grow_at_turn_start
-	if GameManager.current_enemy != null:
-		enemy_ai._limited_cards = GameManager.current_enemy.limited_cards
-	enemy_ai.setup_deck(enemy_deck)
 
 func _connect_turn_manager() -> void:
 	turn_manager.state = state
@@ -799,12 +730,6 @@ func _connect_board_slots() -> void:
 		enemy_slots[i].slot_clicked_occupied.connect(_on_enemy_slot_clicked)
 		enemy_slots[i].mouse_entered.connect(_on_board_slot_hover_enter.bind(enemy_slots[i]))
 		enemy_slots[i].mouse_exited.connect(_hide_large_preview)
-
-func _connect_combat_manager() -> void:
-	combat_manager.scene = self
-	combat_manager.minion_vanished.connect(state._on_minion_vanished)
-	combat_manager.hero_damaged.connect(state._on_hero_damaged)
-	combat_manager.hero_healed.connect(state._on_hero_healed)
 
 func _connect_ui() -> void:
 	if end_turn_essence_button:
@@ -1339,30 +1264,10 @@ func _register_buff_preludes() -> void:
 	BuffVfxRegistry.register_palette("dark_command",
 			DarkCommandPreludeVFX.PALETTE)
 
-## Subscribe to BuffSystem.bus() for corruption_removed (gameplay trigger).
-## buff_applied is no longer subscribed — VFX-driven buffs flow through
-## _show_buff_apply (called by EffectResolver / HardcodedEffects directly),
-## and silent buffs use emit_vfx=false at the call site so they never need
-## a VFX listener.
-func _connect_buff_signal() -> void:
-	var bus: Object = BuffSystem.bus()
-	if bus == null:
-		return
-	if not bus.is_connected("corruption_removed", _on_corruption_removed):
-		bus.connect("corruption_removed", _on_corruption_removed)
-
-## The signal bus is a static Object that outlives this scene, so the
-## connection must be torn down or it'll point at a freed receiver next run.
+## The BuffSystem bus subscription is the state's (CombatSetup.setup);
+## teardown drops it and resets the per-fight MinionInstance globals.
 func _exit_tree() -> void:
-	var bus: Object = BuffSystem.bus()
-	if bus != null and bus.is_connected("corruption_removed", _on_corruption_removed):
-		bus.disconnect("corruption_removed", _on_corruption_removed)
-	var sac_bus: Object = SacrificeSystem.bus()
-	if sac_bus != null and sac_bus.is_connected("sacrifice_occurred", _on_sacrifice_occurred):
-		sac_bus.disconnect("sacrifice_occurred", _on_sacrifice_occurred)
-	# Reset Seris Corrupt Flesh global — otherwise a non-Seris run after a Seris run
-	# would see inverted corruption on its Demons.
-	MinionInstance.corruption_inverts_on_friendly_demons = false
+	state.teardown()
 
 ## Seris — called before a player spell's effect resolves. Sets
 ## _player_spell_damage_bonus from Void Amplification (sum of Corruption on
@@ -1386,42 +1291,6 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 var _double_cast_in_progress: bool:
 	get: return state._double_cast_in_progress
 	set(v): state._double_cast_in_progress = v
-
-## Forward BuffSystem.corruption_removed into the TriggerManager as ON_CORRUPTION_REMOVED
-## so corrupt_detonation and future listeners can react uniformly. ctx.minion = the minion,
-## ctx.damage = stacks removed (overloaded field — see EventContext comments).
-##
-## Slot refresh is mandatory here: BuffSystem mutates `minion.buffs` directly,
-## so the corruption icon + "x2" count linger on the status bar until something
-## else triggers a redraw. Refresh immediately so the icon/count clear in sync
-## with the detonation pulse (or any other corruption-removing path).
-func _on_corruption_removed(target: Object, stacks: int) -> void:
-	if trigger_manager == null or target == null or stacks <= 0:
-		return
-	# Hero targets: emit hero_buff_changed so the badge re-reads stacks.
-	# No minion-keyed ON_CORRUPTION_REMOVED triggers fire today (Corrupt
-	# Detonation etc. are minion-only by design).
-	if target is HeroState:
-		var hero: HeroState = target
-		state.hero_buff_changed.emit(hero.side)
-		return
-	if not (target is MinionInstance):
-		return
-	var minion: MinionInstance = target
-	var ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
-	ctx.minion = minion
-	ctx.damage = stacks
-	trigger_manager.fire(ctx)
-	state._refresh_slot_for(minion)
-
-## Subscribe to SacrificeSystem.bus() so every ritual sacrifice (Abyssal
-## Sacrifice, Blood Pact, Soul Shatter, Void Devourer) fires the generic
-## SacrificeVFX. Plain deaths (combat, fatigue) never reach here — they go
-## through combat_manager.kill_minion directly without emitting.
-func _connect_sacrifice_signal() -> void:
-	# The presenter plays SacrificeVFX at MINION_SACRIFICED playback (plan 3.2);
-	# the SacrificeSystem bus is no longer subscribed.
-	pass
 
 ## Minions currently mid-sacrifice — maps instance_id → delay in seconds
 ## that _animate_minion_death should wait before starting its ghost rise.
@@ -1878,10 +1747,7 @@ func _setup_relics() -> void:
 	if _relic_bar != null:
 		_relic_bar.queue_free()
 		_relic_bar = null
-	state.relic_runtime = RelicRuntime.new()
-	state.relic_runtime.setup(GameManager.player_relics, GameManager.relic_bonus_charges)
-
-	if state.relic_runtime.relics.is_empty():
+	if state.relic_runtime == null or state.relic_runtime.relics.is_empty():
 		return
 
 	# Build relic bar UI just below the EndTurnPanel, same width, center-aligned
@@ -2119,7 +1985,6 @@ func _refresh_override_context() -> void:
 		for p in _hero.passives:
 			state.hero_passives.append(p.id)
 	if GameManager.current_enemy != null:
-		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
 		state.enemy_passives.assign(GameManager.current_enemy.passives)
 	CardDatabase.clear_override_cache()
 
@@ -2904,7 +2769,7 @@ func _add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void
 	hdr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tip_vbox.add_child(hdr)
 
-	for pid in _active_enemy_passives:
+	for pid in enemy_passives:
 		var info: Dictionary = PASSIVE_INFO.get(pid, {})
 		var p_name: String = info.get("name", pid) as String
 		var p_desc: String = info.get("desc", "") as String
@@ -3349,52 +3214,3 @@ func _highlight_empty_player_slots() -> void:
 
 func _highlight_valid_attack_targets() -> void:
 	targeting.highlight_valid_attack_targets()
-
-# ===========================================================================
-# TriggerManager setup
-# Called once at the end of _ready(), after all run state is initialised.
-#
-# HOW TO ADD A NEW MECHANIC:
-#   1. Write a handler method in CombatHandlers.gd:  func on_my_thing(ctx: EventContext) -> void
-#   2. Register it here:  trigger_manager.register(EVENT, _handlers.on_my_thing, priority)
-#   3. Fire the event from the appropriate CombatScene callsite if it doesn't exist yet.
-# ===========================================================================
-
-func _setup_triggers() -> void:
-	_handlers = CombatHandlers.new()
-	_handlers.setup(self)
-
-	# Load active enemy passives before anything else
-	if GameManager.current_enemy != null:
-		_active_enemy_passives = GameManager.current_enemy.passives.duplicate()
-
-	# ── Live-only always-on handlers ─────────────────────────────────────────
-	# Priority guide: 0=relics, 5=enemy passives, 10=environment, 21+=minion passives, 30=traps/synergies
-	# NOTE: on_player_minion_played_effect, on_enemy_minion_played_effect, on_void_archmagus_spell,
-	# and on_summon_board_synergies are registered by CombatSetup.setup() (shared with sim).
-	# Only register live-only handlers here to avoid double-registration.
-	# NOTE: Old passive relic handlers (on_player_turn_relics, on_summon_relic) removed.
-	# Relics are now activated abilities — see _setup_relics().
-	# Trap routes are registered first inside CombatSetup.setup (shared with sim).
-
-	# ── ancient_frenzy hand injection (live-only side effect) ─────────────────
-	if "ancient_frenzy" in _active_enemy_passives:
-		# _card_for so the pack_frenzy talent_override (cost discount under
-		# ancient_frenzy) applies to the enemy's injected copy.
-		var pf_card: CardData = _card_for("enemy", "pack_frenzy")
-		if pf_card:
-			enemy_ai.hand.append(CardInstance.create(pf_card))
-
-	# ── Shared: talents, hero passives, enemy passives via registry ───────────
-	var hero_passive_ids: Array[String] = []
-	var hero := HeroDatabase.get_hero(GameManager.current_hero)
-	if hero:
-		for p in hero.passives:
-			hero_passive_ids.append(p.id)
-
-	CombatSetup.new().setup(
-		trigger_manager, _handlers, self,
-		GameManager.unlocked_talents,
-		hero_passive_ids,
-		_active_enemy_passives
-	)

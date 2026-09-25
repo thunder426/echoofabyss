@@ -42,25 +42,25 @@ static func run_all() -> void:
 # Helpers
 # ---------------------------------------------------------------------------
 
-static func _hand_card(state: SimState, side: String, id: String) -> CardInstance:
+static func _hand_card(state: CombatState, side: String, id: String) -> CardInstance:
 	return state.add_to_hand(side, CardDatabase.get_card(id))
 
-static func _set_res(state: SimState, side: String, essence: int, mana: int) -> void:
+static func _set_res(state: CombatState, side: String, essence: int, mana: int) -> void:
 	state.set_essence(side, essence)
 	state.set_mana(side, mana)
 
-static func _ready_minion(state: SimState, side: String, id: String) -> MinionInstance:
+static func _ready_minion(state: CombatState, side: String, id: String) -> MinionInstance:
 	var m: MinionInstance = TestHarness.spawn_friendly(state, id) if side == "player" else TestHarness.spawn_enemy(state, id)
 	m.state = Enums.MinionState.NORMAL
 	return m
 
-static func _enemy_turn(state: SimState) -> void:
+static func _enemy_turn(state: CombatState) -> void:
 	state.is_player_turn = false
 
-static func _snap(state: SimState) -> String:
+static func _snap(state: CombatState) -> String:
 	return "%s\nlog %d" % [state.digest_text(), state.command_log.size()]
 
-static func _assert_refused(state: SimState, r: CommandResult, reason: String, before: String, label: String) -> void:
+static func _assert_refused(state: CombatState, r: CommandResult, reason: String, before: String, label: String) -> void:
 	TestHarness.assert_false(r.ok, "%s: refused" % label)
 	TestHarness.assert_eq(r.reason, reason, "%s: reason" % label)
 	TestHarness.assert_eq(_snap(state), before, "%s: nothing changed" % label)

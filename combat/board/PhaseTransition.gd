@@ -2,10 +2,10 @@
 ## Logic for the F15 Abyss Sovereign two-phase boss transition. When the
 ## Sovereign's P1 HP drops to 0, this helper resets the fight to Phase 2:
 ## HP refill, both boards wiped, statuses cleared, passives swapped, deck
-## replaced. Shared by live (CombatScene) and sim (SimState) via duck-typing.
+## replaced. One body for every shell (it runs inside CombatState).
 ##
 ## Usage:
-##   PhaseTransition.attempt(scene, ...)  # returns true if transition fired
+##   PhaseTransition.attempt(state)  # returns true if transition fired
 ##   Hook this before the "enemy defeated" path in hero-damage logic. If it
 ##   returns true, skip the victory handler for this damage event.
 class_name PhaseTransition
@@ -24,31 +24,25 @@ const SOVEREIGN_P2_PROFILE: String = "abyss_sovereign_p2"
 const SOVEREIGN_P1_PASSIVES: Array[String] = ["void_might", "abyssal_mandate", "dark_channeling", "champion_abyss_sovereign"]
 const SOVEREIGN_P2_PASSIVES: Array[String] = ["void_might", "abyss_awakened", "champion_abyss_sovereign"]
 
-## Returns true if the scene is the Abyss Sovereign in Phase 1 and the
+## Returns true if the fight is the Abyss Sovereign in Phase 1 and the
 ## transition should fire instead of a victory.
-static func should_transition(scene: Object) -> bool:
-	if scene.get("_sovereign_phase") != 1:
-		return false
-	# Guard: encounter must actually be Abyss Sovereign. We use ai_profile
-	# to detect this without coupling to GameManager.
-	var profile_id: String = _read_ai_profile(scene)
-	return profile_id == "abyss_sovereign"
+static func should_transition(st: CombatState) -> bool:
+	return st._sovereign_phase == 1 and st.enemy_profile_id == "abyss_sovereign"
 
 ## Run the P1 → P2 transition. Returns true if it fired (caller should skip
 ## the normal enemy-defeated flow for this damage event).
-static func attempt(scene: Object) -> bool:
-	if not should_transition(scene):
+static func attempt(st: CombatState) -> bool:
+	if not should_transition(st):
 		return false
-	_do_transition(scene)
+	_do_transition(st)
 	return true
 
 # ---------------------------------------------------------------------------
-# Core transition — mutates state atomically (no await, no animations).
-# Animations / VFX are the caller's job via the _play_phase2_vfx hook.
+# Core transition — mutates state atomically (no await, no animations). The
+# presenter shows it from the PHASE_TRANSITION journal event.
 # ---------------------------------------------------------------------------
 
-static func _do_transition(scene: Object) -> void:
-	var st: CombatState = scene.state
+static func _do_transition(st: CombatState) -> void:
 	st._sovereign_phase = 2
 	st._sovereign_transition_turn = st.turn_number
 
@@ -69,28 +63,19 @@ static func _do_transition(scene: Object) -> void:
 	# 5. Enemy resources inherit current values (per Q1 option b). Nothing to do.
 
 	# 6. Swap passives (unregister P1, register P2).
-	_swap_passives(scene)
+	_swap_passives(st)
 
-	# 7. Swap enemy deck + AI profile + opening hand of 5.
-	_swap_deck_and_profile(scene)
+	# 7. Swap enemy deck + opening hand of 5, then the AI profile (the shell
+	#    rebuilds its enemy CombatProfile on enemy_profile_changed).
+	st.setup_deck("enemy", EncounterDecks.get_deck(SOVEREIGN_P2_DECK_ID))
+	st.enemy_profile_id = SOVEREIGN_P2_PROFILE
+	st.enemy_profile_changed.emit(SOVEREIGN_P2_PROFILE)
 
-	# 8. VFX hook — stubbed in live CombatScene, no-op in sim.
-	if scene.has_method("_play_phase2_vfx"):
-		scene._play_phase2_vfx()
+	st._log("THE SOVEREIGN REAWAKENS — Phase 2 begins.", 2)  # ENEMY
 
 # ---------------------------------------------------------------------------
-# Helpers — duck-typed across CombatScene and SimState.
+# Helpers
 # ---------------------------------------------------------------------------
-
-static func _read_ai_profile(scene: Object) -> String:
-	# Live: scene.enemy_ai.ai_profile. Sim: scene.enemy_ai_profile (string).
-	var ai = scene.get("enemy_ai")
-	if ai != null and ai.get("ai_profile") != null:
-		return ai.ai_profile as String
-	var direct = scene.get("enemy_ai_profile")
-	if direct != null:
-		return direct as String
-	return ""
 
 static func _wipe_boards_silently(st: CombatState) -> void:
 	st.player_board.clear()
@@ -112,33 +97,12 @@ static func _clear_combat_state(st: CombatState) -> void:
 	# Void marks on enemy hero (cosmetic but resets cleanly)
 	st.enemy_void_marks = 0
 
-static func _swap_passives(scene: Object) -> void:
-	var st: CombatState = scene.state
-	var tm: TriggerManager = st.trigger_manager
-	var h: CombatHandlers  = st._handlers
-	if tm == null or h == null:
+static func _swap_passives(st: CombatState) -> void:
+	if st.trigger_manager == null or st._handlers == null:
 		push_warning("PhaseTransition: missing trigger_manager or handlers — cannot swap passives")
 		return
 	for p in SOVEREIGN_P1_PASSIVES:
-		CombatSetup.unapply_passive(p, tm, h)
+		CombatSetup.unapply_passive(p, st.trigger_manager, st._handlers)
 	for p in SOVEREIGN_P2_PASSIVES:
-		CombatSetup.apply_passive(p, tm, h, scene)
-	# Keep scene.enemy_passives in sync (for any other systems that read it).
-	var passives = scene.get("enemy_passives")
-	if passives != null and passives is Array:
-		passives.clear()
-		passives.append_array(SOVEREIGN_P2_PASSIVES)
-
-static func _swap_deck_and_profile(scene: Object) -> void:
-	var cards: Array[String] = EncounterDecks.get_deck(SOVEREIGN_P2_DECK_ID)
-	(scene.state as CombatState).setup_deck("enemy", cards)
-	# Live (CombatScene) path — EnemyAI's ai_profile setter swaps the profile.
-	var ai = scene.get("enemy_ai")
-	if ai is EnemyAI:
-		ai.ai_profile = SOVEREIGN_P2_PROFILE
-		return
-	# Sim (SimState) path — swap profile via factory.
-	scene.enemy_ai_profile = SOVEREIGN_P2_PROFILE
-	var factory: Callable = scene.get("_e_profile_factory")
-	if factory.is_valid():
-		scene._e_profile = factory.call(SOVEREIGN_P2_PROFILE)
+		CombatSetup.apply_passive(p, st)
+	st.enemy_passives.assign(SOVEREIGN_P2_PASSIVES)

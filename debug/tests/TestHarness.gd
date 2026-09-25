@@ -22,10 +22,10 @@ static var _pass_count: int = 0
 static var _fail_count: int = 0
 static var _skip_count: int = 0
 static var _failures: Array = []   ## Array[{label, detail}]
-static var _current_state: SimState = null
+static var _current_state: CombatState = null
 static var _current_label: String = ""
 
-static func begin_test(label: String, state: SimState = null) -> bool:
+static func begin_test(label: String, state: CombatState = null) -> bool:
 	_current_label = label
 	_current_state = state
 	if filter_substr != "" and not label.to_lower().contains(filter_substr.to_lower()):
@@ -49,7 +49,7 @@ static func fail_count() -> int:
 # State builder
 # ---------------------------------------------------------------------------
 
-## Build a minimal SimState with triggers wired. Options keys:
+## Build a minimal state through CombatState.setup_combat. Options keys:
 ##   hero_id        : String  — default "lord_vael"
 ##   talents        : Array[String]
 ##   hero_passives  : Array[String]
@@ -58,53 +58,40 @@ static func fail_count() -> int:
 ##   enemy_deck     : Array[String] — default ["rabid_imp"]
 ##   player_hp      : int — default 3000
 ##   enemy_hp       : int — default 2000
-static func build_state(opts: Dictionary = {}) -> SimState:
-	var state := SimState.new()
-	state.player_hero_id = opts.get("hero_id", "lord_vael")
-	var talents_opt = opts.get("talents", [])
-	var talents_typed: Array[String] = []
-	for t in talents_opt:
-		talents_typed.append(str(t))
-	state.talents = talents_typed
-	var hp_opt = opts.get("hero_passives", [])
-	var hp_typed: Array[String] = []
-	for p in hp_opt:
-		hp_typed.append(str(p))
-	state.hero_passives = hp_typed
-	var ep_opt = opts.get("enemy_passives", [])
-	var ep_typed: Array[String] = []
-	for p in ep_opt:
-		ep_typed.append(str(p))
-	state.enemy_passives = ep_typed
-
-	var p_deck_opt = opts.get("player_deck", ["void_imp"])
-	var p_deck_typed: Array[String] = []
-	for id in p_deck_opt:
-		p_deck_typed.append(str(id))
-	var e_deck_opt = opts.get("enemy_deck", ["rabid_imp"])
-	var e_deck_typed: Array[String] = []
-	for id in e_deck_opt:
-		e_deck_typed.append(str(id))
-
-	state.setup(p_deck_typed, e_deck_typed, opts.get("player_hp", 3000), opts.get("enemy_hp", 2000))
-	var ts := SimTriggerSetup.new()
-	ts.setup(state)
+static func build_state(opts: Dictionary = {}) -> CombatState:
+	var config := CombatConfig.new()
+	config.player_hero_id = opts.get("hero_id", "lord_vael")
+	config.talents.assign(_str_array(opts.get("talents", [])))
+	config.hero_passives.assign(_str_array(opts.get("hero_passives", [])))
+	config.enemy_passives.assign(_str_array(opts.get("enemy_passives", [])))
+	config.player_deck_ids.assign(_str_array(opts.get("player_deck", ["void_imp"])))
+	config.enemy_deck_ids.assign(_str_array(opts.get("enemy_deck", ["rabid_imp"])))
+	config.player_hp = opts.get("player_hp", 3000)
+	config.enemy_hp = opts.get("enemy_hp", 2000)
+	var state := CombatState.new()
+	state.setup_combat(config)
 	return state
 
-static func spawn_friendly(state: SimState, id: String) -> MinionInstance:
+static func _str_array(a: Variant) -> Array[String]:
+	var out: Array[String] = []
+	for v in a:
+		out.append(str(v))
+	return out
+
+static func spawn_friendly(state: CombatState, id: String) -> MinionInstance:
 	return _spawn(state, id, "player")
 
-static func spawn_enemy(state: SimState, id: String) -> MinionInstance:
+static func spawn_enemy(state: CombatState, id: String) -> MinionInstance:
 	return _spawn(state, id, "enemy")
 
 ## Spawn a minion using state._card_for() so talent overrides and CardModRules
 ## deltas are applied — needed when a test cares about the post-override stats
 ## (e.g. Korrath's abyssal_knight under iron_formation needs to be HUMAN with the
 ## FORMATION keyword). For most tests `spawn_friendly` (base stats) is enough.
-static func spawn_resolved_friendly(state: SimState, id: String) -> MinionInstance:
+static func spawn_resolved_friendly(state: CombatState, id: String) -> MinionInstance:
 	return _spawn_resolved(state, id, "player")
 
-static func _spawn_resolved(state: SimState, id: String, side: String) -> MinionInstance:
+static func _spawn_resolved(state: CombatState, id: String, side: String) -> MinionInstance:
 	var data: MinionCardData = state._card_for(side, id) as MinionCardData
 	if data == null:
 		push_error("TestHarness: _card_for returned null for '%s'" % id)
@@ -119,7 +106,7 @@ static func _spawn_resolved(state: SimState, id: String, side: String) -> Minion
 			break
 	return inst
 
-static func _spawn(state: SimState, id: String, side: String) -> MinionInstance:
+static func _spawn(state: CombatState, id: String, side: String) -> MinionInstance:
 	var data: MinionCardData = CardDatabase.get_card(id) as MinionCardData
 	if data == null:
 		push_error("TestHarness: unknown minion id '%s'" % id)
@@ -137,13 +124,13 @@ static func _spawn(state: SimState, id: String, side: String) -> MinionInstance:
 ## Spawn a card at a specific slot index (no first-empty search). Useful for
 ## adjacency tests where target slot index matters (Rally the Ranks, Formation
 ## sandwich setups). Returns null if the slot is already occupied.
-static func spawn_friendly_at(state: SimState, id: String, slot_index: int) -> MinionInstance:
+static func spawn_friendly_at(state: CombatState, id: String, slot_index: int) -> MinionInstance:
 	return _spawn_at(state, id, "player", slot_index)
 
-static func spawn_enemy_at(state: SimState, id: String, slot_index: int) -> MinionInstance:
+static func spawn_enemy_at(state: CombatState, id: String, slot_index: int) -> MinionInstance:
 	return _spawn_at(state, id, "enemy", slot_index)
 
-static func _spawn_at(state: SimState, id: String, side: String, slot_index: int) -> MinionInstance:
+static func _spawn_at(state: CombatState, id: String, side: String, slot_index: int) -> MinionInstance:
 	var data: MinionCardData = CardDatabase.get_card(id) as MinionCardData
 	if data == null:
 		push_error("TestHarness: unknown minion id '%s'" % id)
@@ -163,7 +150,7 @@ static func _spawn_at(state: SimState, id: String, side: String, slot_index: int
 	return inst
 
 ## EffectContext for a raw EffectResolver.run() call, bypassing card lifecycle.
-static func make_ctx(state: SimState, owner: String, source: MinionInstance = null,
+static func make_ctx(state: CombatState, owner: String, source: MinionInstance = null,
 		chosen_target: MinionInstance = null, extra_cast_data: Dictionary = {}) -> EffectContext:
 	var ctx := EffectContext.new()
 	ctx.scene = state
@@ -177,21 +164,21 @@ static func make_ctx(state: SimState, owner: String, source: MinionInstance = nu
 # Common state presets — mirror the per-hero setups used by L1/L2 tests.
 # ---------------------------------------------------------------------------
 
-static func seris_state(talents: Array[String] = []) -> SimState:
+static func seris_state(talents: Array[String] = []) -> CombatState:
 	return build_state({
 		"hero_id": "seris",
 		"talents": talents,
 		"hero_passives": ["fleshbind", "grafted_affinity"],
 	})
 
-static func vael_state(talents: Array[String] = []) -> SimState:
+static func vael_state(talents: Array[String] = []) -> CombatState:
 	return build_state({
 		"hero_id": "lord_vael",
 		"talents": talents,
 		"hero_passives": ["void_imp_boost"],
 	})
 
-static func korrath_state(talents: Array[String] = []) -> SimState:
+static func korrath_state(talents: Array[String] = []) -> CombatState:
 	return build_state({
 		"hero_id": "korrath",
 		"talents": talents,
@@ -203,7 +190,7 @@ static func korrath_state(talents: Array[String] = []) -> SimState:
 # `fields` may set: minion, card, damage, attacker.
 # ---------------------------------------------------------------------------
 
-static func fire(state: SimState, event: int, side: String, fields: Dictionary = {}) -> void:
+static func fire(state: CombatState, event: int, side: String, fields: Dictionary = {}) -> void:
 	var ctx := EventContext.make(event, side)
 	if fields.has("minion"):
 		ctx.minion = fields["minion"]
@@ -221,7 +208,7 @@ static func fire(state: SimState, event: int, side: String, fields: Dictionary =
 # Board lookups
 # ---------------------------------------------------------------------------
 
-static func find_on_board(state: SimState, side: String, card_id: String) -> MinionInstance:
+static func find_on_board(state: CombatState, side: String, card_id: String) -> MinionInstance:
 	var board := state.player_board if side == "player" else state.enemy_board
 	for raw in board:
 		var m := raw as MinionInstance
@@ -229,7 +216,7 @@ static func find_on_board(state: SimState, side: String, card_id: String) -> Min
 			return m
 	return null
 
-static func count_on_board(state: SimState, side: String, card_id: String) -> int:
+static func count_on_board(state: CombatState, side: String, card_id: String) -> int:
 	var board := state.player_board if side == "player" else state.enemy_board
 	var count := 0
 	for raw in board:
@@ -237,7 +224,7 @@ static func count_on_board(state: SimState, side: String, card_id: String) -> in
 			count += 1
 	return count
 
-static func has_on_board(state: SimState, side: String, card_id: String) -> bool:
+static func has_on_board(state: CombatState, side: String, card_id: String) -> bool:
 	return find_on_board(state, side, card_id) != null
 
 # ---------------------------------------------------------------------------
@@ -296,7 +283,7 @@ static func assert_approx(actual: float, expected: float, tolerance: float, labe
 	return _record_fail(label, "expected %f ± %f, got %f" % [expected, tolerance, actual])
 
 ## Assert that the board on `side` contains exactly these card ids (in order).
-static func assert_board(state: SimState, side: String, expected_ids: Array, label: String) -> bool:
+static func assert_board(state: CombatState, side: String, expected_ids: Array, label: String) -> bool:
 	var board := state.player_board if side == "player" else state.enemy_board
 	var actual_ids: Array = []
 	for m in board:
@@ -330,7 +317,7 @@ static func _full_label(label: String) -> String:
 	return "%s / %s" % [_current_label, label]
 
 ## Full board-and-resources dump, printed under a failed assertion when --verbose.
-static func _dump_state(state: SimState) -> void:
+static func _dump_state(state: CombatState) -> void:
 	print("    --- state dump ---")
 	print("    hero hp: player=%d enemy=%d" % [state.player_hp, state.enemy_hp])
 	print("    resources: player ess=%d/%d mana=%d/%d flesh=%d"
@@ -366,7 +353,7 @@ static func _repr(value) -> String:
 	return str(value)
 
 ## A StateAgent for `side` of `state` (the sim's agent — plan 2A.5).
-static func agent_for(state: SimState, side: String) -> StateAgent:
+static func agent_for(state: CombatState, side: String) -> StateAgent:
 	var agent := StateAgent.new()
 	agent.setup(state, side)
 	return agent

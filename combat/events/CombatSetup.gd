@@ -1,7 +1,7 @@
 ## CombatSetup.gd
 ## Registers all conditional handlers (talents, hero passives, enemy passives)
 ## and shared always-on handlers into TriggerManager.
-## Used by both CombatScene._setup_triggers() and SimTriggerSetup.
+## Run by CombatState.setup_combat on every shell (live, sim, tests).
 ##
 ## To add a new talent, hero passive, or enemy passive:
 ##   1. Add its handler method to CombatHandlers.gd
@@ -11,7 +11,7 @@
 ## Registry entry shape:
 ##   "passive_id": {
 ##       "triggers": [ { "event": TriggerEvent, "method": "handler_name", "priority": int }, ... ],
-##       "stats":    { "state_field_name": value, ... }   -- applied via scene.state.set() at setup
+##       "stats":    { "state_field_name": value, ... }   -- applied via state.set() at setup
 ##   }
 class_name CombatSetup
 extends RefCounted
@@ -330,7 +330,7 @@ const _REGISTRY: Dictionary = {
 		],
 		"stats": {}
 	},
-	# ancient_frenzy: cost discount applied here; hand injection is live-only (handled in CombatScene._setup_triggers)
+	# ancient_frenzy: cost discount via pack_frenzy's talent_overrides; the opening Pack Frenzy is added by CombatState.setup_combat
 	"ancient_frenzy": {
 		"triggers": [],
 		"stats":    {}
@@ -446,7 +446,7 @@ const _REGISTRY: Dictionary = {
 	},
 	"ritualist_spark_free": {
 		# F13 Void Ritualist Prime: all enemy spell spark costs become 0.
-		# Checked in CombatProfile._effective_spark_cost via _active_enemy_passives.
+		# Checked in CombatProfile._effective_spark_cost via enemy_passives.
 		"triggers": [],
 		"stats":    {}
 	},
@@ -512,18 +512,33 @@ const _REGISTRY: Dictionary = {
 	},
 }
 
-func setup(
-		tm: TriggerManager,
-		h: CombatHandlers,
-		scene: Object,
-		talents: Array[String],
-		hero_passives: Array[String],
-		enemy_passives: Array[String]) -> void:
+## The one trigger setup (plan 4.3), run by CombatState.setup_combat on every
+## shell: a fresh TriggerManager + CombatHandlers on the state, the trap routes
+## (first, so equal-priority handlers keep live's order), the BuffSystem bus
+## bridge, the always-on handlers, then the registry for the state's talents,
+## hero passives and enemy passives. Re-running it (the cheat panel's talent
+## unlock) replaces every registration.
+static func setup(st: CombatState) -> void:
+	var h := CombatHandlers.new()
+	h.setup(st)
+	st._handlers = h
+	var tm := TriggerManager.new()
+	st.trigger_manager = tm
+	var talents: Array[String] = st.talents
+	var hero_passives: Array[String] = st.hero_passives
+	var enemy_passives: Array[String] = st.enemy_passives
 
 	# ── Trap routes — first, so equal-priority handlers keep live's order ─────
-	var st: CombatState = scene.state
 	for route: Array in CombatState.TRAP_ROUTES:
 		tm.register(route[0], st._on_trap_route.bind(route[1]), route[2])
+
+	# ── BuffSystem bus → ON_CORRUPTION_REMOVED (the bus is a global singleton;
+	# CombatState.teardown disconnects) ─────────────────────────────────────
+	var buff_bus: Object = BuffSystem.bus()
+	if buff_bus != null:
+		var cb := Callable(st, "_on_corruption_removed_bus")
+		if not buff_bus.is_connected("corruption_removed", cb):
+			buff_bus.connect("corruption_removed", cb)
 
 	# ── Shared always-on handlers (both live and sim) ─────────────────────────
 	tm.register(Enums.TriggerEvent.ON_PLAYER_TURN_START,     h.on_player_turn_environment,           10)
@@ -595,16 +610,16 @@ func setup(
 	MinionInstance.iron_resolve_active = "iron_resolve" in talents
 
 	# ── Conditional: registry-driven registration and stat overrides ──────────
-	for id in talents:       _apply(id, tm, h, scene)
-	for id in hero_passives: _apply(id, tm, h, scene)
+	for id in talents:       apply_passive(id, st)
+	for id in hero_passives: apply_passive(id, st)
 	for id in enemy_passives:
-		_apply(id, tm, h, scene)
+		apply_passive(id, st)
 		# ancient_frenzy: pack_frenzy cost discount migrated to pack_frenzy's
 		# talent_overrides in CardDatabase. The card now lands in hand at cost 2
 		# already, so no runtime spell_cost_discounts entry needed.
 		# corrupted_death: void_touched_imp costs 1 less essence
 		if id == "corrupted_death":
-			(scene.state as CombatState).enemy_essence_cost_discounts["void_touched_imp"] = 1
+			st.enemy_essence_cost_discounts["void_touched_imp"] = 1
 
 	# ── Grand rituals from talents (data-driven via TalentDatabase) ───────────
 	for talent_id in talents:
@@ -616,33 +631,18 @@ func setup(
 			tm.register(Enums.TriggerEvent.ON_RITUAL_ENVIRONMENT_PLAYED,
 				func(_ctx: EventContext): h.on_grand_ritual(gr), 0)
 
-func _apply(id: String, tm: TriggerManager, h: CombatHandlers, scene: Object) -> void:
+## Register one registry entry's triggers and stat overrides — setup, and the
+## F15 phase transition swapping passives mid-combat.
+static func apply_passive(id: String, st: CombatState) -> void:
 	if not _REGISTRY.has(id):
 		return
 	var entry: Dictionary = _REGISTRY[id]
+	var tm: TriggerManager = st.trigger_manager
 	for t in entry["triggers"]:
-		tm.register(t["event"], Callable(h, t["method"]), t["priority"])
+		tm.register(t["event"], Callable(st._handlers, t["method"]), t["priority"])
 	for stat in entry["stats"]:
-		_set_stat(scene, stat, entry["stats"][stat])
-
-## Public entrypoint for dynamic passive (un)registration — used by the F15
-## phase transition to swap passives mid-combat without tearing down the whole
-## trigger system.
-static func apply_passive(id: String, tm: TriggerManager, h: CombatHandlers, scene: Object) -> void:
-	if not _REGISTRY.has(id):
-		return
-	var entry: Dictionary = _REGISTRY[id]
-	for t in entry["triggers"]:
-		tm.register(t["event"], Callable(h, t["method"]), t["priority"])
-	for stat in entry["stats"]:
-		_set_stat(scene, stat, entry["stats"][stat])
-
-## Registry stats are CombatState fields. Write through `scene.state` — CombatScene
-## forwards only some of them, and `set()` on an unforwarded name silently no-ops live.
-static func _set_stat(scene: Object, stat: String, value: Variant) -> void:
-	var st: CombatState = scene.state
-	assert(stat in st, "CombatSetup: registry stat '%s' is not a CombatState field" % stat)
-	st.set(stat, value)
+		assert(stat in st, "CombatSetup: registry stat '%s' is not a CombatState field" % stat)
+		st.set(stat, entry["stats"][stat])
 
 static func unapply_passive(id: String, tm: TriggerManager, h: CombatHandlers) -> void:
 	if not _REGISTRY.has(id):

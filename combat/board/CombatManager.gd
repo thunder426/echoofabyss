@@ -49,7 +49,7 @@ static func make_damage_info(
 # Main attack resolution
 # ---------------------------------------------------------------------------
 
-## The combat shell (CombatScene live, SimState in sim) — set by the shell at
+## The combat shell (CombatScene live, the state itself in sim) — set by the shell at
 ## setup. Gameplay reads and writes go through `state`; the shell is used only
 ## as a facade (tools/lint/presentation_allowlist.txt).
 var scene: Object = null
@@ -201,7 +201,7 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 ## Korrath — armour math runs whenever the damage school does NOT bypass armour
 ## (see `_school_bypasses_armour`). Only PHYSICAL and NONE go through; ARCANE and
 ## VOID lineage bypass. `info.amount` is rewritten to the post-armour value before
-## the signal fires so listeners (CombatScene/SimState) and downstream telemetry
+## the signal fires so listeners (CombatState) and downstream telemetry
 ## see the value that actually lands.
 func apply_hero_damage(target: String, info: Dictionary) -> void:
 	var amount: int = info.get("amount", 0)
@@ -432,7 +432,7 @@ func _check_post_crit(attacker: MinionInstance) -> void:
 ## and champion crit tracking.  Called after attack resolves when a crit was consumed.
 func _post_crit(attacker: MinionInstance) -> void:
 	# void_precision: grant +200 ATK permanently after crit
-	var passives = state._active_enemy_passives
+	var passives = state.enemy_passives
 	if passives != null and "void_precision" in passives and attacker.owner == "enemy":
 		BuffSystem.apply(attacker, Enums.BuffType.ATK_BONUS, 200, "void_precision", false, false)
 	# Champion void_captain aura: on enemy crit consumed, deal 100 damage to

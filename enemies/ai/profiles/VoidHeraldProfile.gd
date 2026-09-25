@@ -270,7 +270,7 @@ func _play_spark_spells() -> void:
 
 ## Play a specific spark-cost minion by ID.
 func _play_spark_minion_by_id(target_id: String) -> bool:
-	var _dbg: bool = agent.state.debug_log_enabled
+	var _dbg: bool = agent.state.diagnostics != null and agent.state.diagnostics.debug_log_enabled
 	for inst in agent.hand.duplicate():
 		if not (inst.card_data is MinionCardData):
 			continue

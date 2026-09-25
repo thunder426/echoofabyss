@@ -41,7 +41,7 @@ func _run() -> void:
 		var snapshots: Array = []
 		var prev_enemy_hp := 5000
 		var sim := CombatSim.new()
-		sim.turn_snapshot_callback = func(st: SimState, turn: int) -> void:
+		sim.turn_snapshot_callback = func(st: CombatState, turn: int) -> void:
 			var enemy_board_atk := 0
 			for m: MinionInstance in st.enemy_board: enemy_board_atk += m.effective_atk()
 			var player_board_atk := 0
@@ -85,7 +85,7 @@ func _run() -> void:
 
 	_print_summary()
 
-func _is_castable(inst: CardInstance, st: SimState) -> bool:
+func _is_castable(inst: CardInstance, st: CombatState) -> bool:
 	var cd = inst.card_data
 	if cd is SpellCardData:
 		var sp := cd as SpellCardData

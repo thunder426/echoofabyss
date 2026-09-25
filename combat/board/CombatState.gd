@@ -1,10 +1,9 @@
 ## CombatState.gd
-## Pure data layer shared by live combat (CombatScene) and headless simulation
-## (SimState extends this). Holds combat-scoped state with no Node references,
-## no UI coupling, no awaits.
-##
-## Migration in progress — fields are being moved here from CombatScene.gd in
-## batches. See design/refactors/COMBAT_STATE_MANIFEST.md for the full plan.
+## The combat engine: every gameplay field and rule, shared by live combat
+## (CombatScene composes one), the headless simulator (CombatSim) and the tests.
+## No Node references, no UI coupling, no awaits (lint L6). Built by
+## setup_combat(CombatConfig); driven through the cmd_* commands; every mutation
+## journals a CombatEvent the live presenter plays.
 class_name CombatState
 extends RefCounted
 
@@ -33,14 +32,14 @@ signal hero_armour_changed(side: String, value: int)
 ## per-buff payload. Live UI subscribes to refresh hero-panel debuff badges.
 signal hero_buff_changed(side: String)
 
-## Emitted on every landed damage hit. Drives sim's dmg_log diagnostic and live
+## Emitted on every landed damage hit. Drives the sim damage log (CombatDiagnostics) and live
 ## combat's damage popups. `source` is "player"/"enemy" — the side that dealt
 ## damage. `target` is the side or minion-instance-id receiving. `school` uses
 ## Enums.DamageSchool.
 signal damage_dealt(source: String, target: String, amount: int, school: int, was_crit: bool)
 
 ## Emitted whenever combat-relevant text should be logged. Live subscribes and
-## forwards to CombatLog UI. Sim subscribes (when dmg_log_enabled) for diagnostic
+## forwards to CombatLog UI. CombatDiagnostics subscribes (debug print) for diagnostic
 ## capture. `log_type` is one of CombatLog.LogType (TURN / PLAYER / ENEMY / DAMAGE / HEAL / TRAP / DEATH).
 signal combat_log(msg: String, log_type: int)
 
@@ -112,7 +111,7 @@ func emit_event(kind: int, side: String, payload: Dictionary = {}) -> CombatEven
 	return ev
 
 ## Self-alias so `<shell>.state` works on every shell — CombatScene composes a
-## CombatState, SimState and bare test states are one.
+## sim and test states are one.
 var state: CombatState:
 	get: return self
 
@@ -120,7 +119,7 @@ var state: CombatState:
 ## tools/lint/presentation_allowlist.txt: gameplay whose live version is still
 ## VFX-bound (Void Bolt projectile before damage, corruption popup capture,
 ## ritual VFX, sacrifice / token-summon animations). Returns the presenter in
-## live and the state itself in sim/tests (SimState extends CombatState), so
+## live and the state itself in sim/tests, so
 ## the same call resolves to CombatScene's VFX-rich override live and the pure
 ## body here otherwise. Phase 3.0 makes those bodies synchronous and this goes.
 func _get_scene_facade() -> Object:
@@ -137,7 +136,7 @@ func _log(msg: String, log_type: int = 1) -> void:  # default = CombatLog.LogTyp
 ## Refresh a minion's slot visual. Handlers and effects call
 ## `ctx.scene._refresh_slot_for(m)`; the scene's facade calls this method,
 ## which emits the signal. Live subscribers re-render; sim has no subscribers
-## so the call is a no-op (replaces SimState's old `pass` duck-type stub).
+## so the call is a no-op there.
 func _refresh_slot_for(minion: MinionInstance) -> void:
 	if minion != null:
 		minion_stats_changed.emit(minion)
@@ -146,7 +145,7 @@ func _refresh_slot_for(minion: MinionInstance) -> void:
 ## Trap/rune display refresh hook for a specific side ("player"/"enemy").
 ## Scene's `_update_trap_display_for(owner)` facade delegates here; subscribers
 ## call `trap_env_display.update_traps_for(side)`. Sim has no subscriber → no-op
-## (replaces the old SimState pass-stub).
+## in sim.
 func _update_trap_display_for(owner: String) -> void:
 	traps_changed.emit(owner)
 	emit_event(CombatEvent.Kind.TRAPS_CHANGED, owner, {traps = traps_of(owner).duplicate()})
@@ -243,15 +242,12 @@ func _card_for(side: String, id: String) -> CardData:
 
 ## Build the override-evaluation context for the given side. Centralized so the
 ## per-card and batch lookups produce identical ctx dicts (cache hits depend on it).
-## Reads from both _active_enemy_passives (live) and enemy_passives (sim mirror) —
-## whichever is populated. They're kept in sync so either source is valid.
 func _card_ctx(side: String) -> Dictionary:
-	var enemy: Array[String] = _active_enemy_passives if not _active_enemy_passives.is_empty() else enemy_passives
 	return {
 		"side":           side,
 		"talents":        talents if side == "player" else [],
 		"hero_passives":  hero_passives if side == "player" else [],
-		"enemy_passives": enemy,
+		"enemy_passives": enemy_passives,
 	}
 
 # ---------------------------------------------------------------------------
@@ -986,10 +982,10 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 	emit_event(CombatEvent.Kind.VOID_BOLT, "player", {amount = total, source_minion = source_minion, from_rune = from_rune})
 	_pending_dmg_source = base_source
 	# Split log: base damage + mark bonus separately (sim diagnostic; live combat ignores).
-	if dmg_log_enabled:
-		dmg_log.append({turn = turn_number, amount = base_damage, source = base_source})
+	if diagnostics != null and diagnostics.dmg_log_enabled:
+		diagnostics.log_damage(base_damage, base_source)
 		if bonus > 0:
-			dmg_log.append({turn = turn_number, amount = bonus, source = "void_mark"})
+			diagnostics.log_damage(bonus, "void_mark")
 		_pending_dmg_source = "__logged__"  # signal _on_hero_damaged to skip logging
 	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
 	combat_manager.apply_hero_damage("enemy",
@@ -1008,8 +1004,8 @@ func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstanc
 	if base_source.is_empty():
 		base_source = "enemy_void_bolt"
 	_pending_dmg_source = base_source
-	if dmg_log_enabled:
-		dmg_log.append({turn = turn_number, amount = base_damage, source = base_source})
+	if diagnostics != null and diagnostics.dmg_log_enabled:
+		diagnostics.log_damage(base_damage, base_source)
 		_pending_dmg_source = "__logged__"
 	var src: Enums.DamageSource = Enums.DamageSource.MINION if is_minion_emitted else Enums.DamageSource.SPELL
 	combat_manager.apply_hero_damage("player",
@@ -1275,9 +1271,7 @@ var enemy_hp: int:
 		hp_changed.emit("enemy", v, enemy_hero.hp_max, delta)
 		emit_event(CombatEvent.Kind.HERO_HP_CHANGED, "enemy", {hp = v, hp_max = enemy_hero.hp_max, delta = delta})
 
-## Player hero max HP — set by CombatScene._ready from GameManager.player_hp_max
-## (varies with hero/talents). Sim sets this directly via SimState.setup() and
-## currently leaves it at 0 since sim runs on absolute HP values; setup overrides.
+## Hero max HP — set by setup_combat from the config (live: GameManager.player_hp_max).
 var player_hp_max: int:
 	get: return player_hero.hp_max
 	set(v): player_hero.hp_max = v
@@ -1826,13 +1820,13 @@ var _dark_channeling_dmg_by_spell: Dictionary = {}  ## spell_id -> extra damage 
 var void_mark_damage_per_stack: int = 25  ## deepened_curse sets this to 40
 var rune_aura_multiplier: int = 1         ## runic_attunement sets this to 2
 
-## Active passive IDs for the current enemy encounter. Sim sets this directly;
-## live populates from GameManager.current_enemy.passives in CombatScene._ready.
-var _active_enemy_passives: Array[String] = []
-## Sim-only mirror that some sim handlers read by the name `enemy_passives`.
-## Kept in sync with `_active_enemy_passives` by SimTriggerSetup. Will collapse
-## into a single field in Phase 5.
+## Active passive IDs for the current enemy encounter (setup_combat; F15's
+## phase transition swaps them).
 var enemy_passives: Array[String] = []
+## Enemy AI profile id (setup_combat). PhaseTransition swaps it and emits
+## enemy_profile_changed; the shell rebuilds the enemy's CombatProfile.
+var enemy_profile_id: String = "default"
+signal enemy_profile_changed(profile_id: String)
 
 # ---------------------------------------------------------------------------
 # Champion counters — every per-encounter trigger counter for Act 1–4 champions
@@ -1993,18 +1987,13 @@ var _void_bolt_spell_casts: int = 0
 var _void_bolt_total_dmg: int = 0
 var _void_imp_dmg: int = 0
 
-## Optional per-turn snapshot hook. Called at end of enemy turn with (state, turn).
-var turn_snapshot_callback: Callable = Callable()
-
-## Verbose damage log — populated when dmg_log_enabled = true.
-## Each entry: { turn: int, amount: int, source: String }
-var dmg_log_enabled: bool = false
-var dmg_log: Array = []
+## Sim reporting (damage log, debug print) — CombatSim attaches one; null live.
+var diagnostics: CombatDiagnostics = null
 var _pending_dmg_source: String = ""
 
 # ---------------------------------------------------------------------------
 # CombatManager signal handlers — one body for both shells (plan 1.4). Both
-# CombatScene and SimState connect combat_manager's minion_vanished /
+# setup_combat connects combat_manager's minion_vanished /
 # hero_damaged / hero_healed here; the presenter hooks play the animations.
 # ---------------------------------------------------------------------------
 
@@ -2082,7 +2071,7 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		trigger_manager.fire(ectx)
 		if enemy_hp <= 0 and winner.is_empty():
 			# F15 Abyss Sovereign: intercept P1 death and transition to P2.
-			if PhaseTransition.attempt(_get_scene_facade()):
+			if PhaseTransition.attempt(self):
 				outcome = "transition"
 			else:
 				outcome = "lethal"
@@ -2108,7 +2097,7 @@ func _on_hero_healed(target: String, amount: int) -> void:
 	emit_event(CombatEvent.Kind.HERO_HEALED, target, {amount = amount, hp = player_hp if target == "player" else enemy_hp})
 
 # ---------------------------------------------------------------------------
-# Gameplay helpers that lived on CombatScene / SimState (plan 1.4)
+# Gameplay helpers that lived on CombatScene / the old SimState (plan 1.4)
 # ---------------------------------------------------------------------------
 
 ## Summon a 100/100 Void Spark on the player board (void_spark_on_friendly_death).
@@ -2347,9 +2336,81 @@ var growth_hooks: Dictionary = {}
 ## next turn begins (D10).
 var _pending_player_growth: String = ""
 
+## Build a fight from its config (plan 4.1) — the one setup path for live, sim,
+## replays and tests: seed, heroes and passives (before any card is built, so
+## talent_overrides / CardModRules apply), HP, both decks (player first, then the
+## enemy, who draws 5), the combat manager and hardcoded effects, the player's
+## opening 3, trigger registration (CombatSetup), the ancient_frenzy Pack Frenzy
+## and relics. The shell then sets growth hooks / agents and calls start_combat.
+func setup_combat(config: CombatConfig) -> void:
+	seed_rng(config.seed)
+	player_hero_id = config.player_hero_id
+	talents.assign(config.talents)
+	hero_passives.assign(config.hero_passives)
+	enemy_passives.assign(config.enemy_passives)
+	enemy_limited_cards.assign(config.enemy_limited_cards)
+	enemy_profile_id = config.enemy_profile_id
+	# A different talent / passive set must not reuse another fight's clones.
+	CardDatabase.clear_override_cache()
+	player_hp_max = config.player_hp
+	enemy_hp_max = config.enemy_hp
+	player_hp = config.player_hp
+	enemy_hp = config.enemy_hp
+	setup_deck("player", config.player_deck_ids)
+	setup_deck("enemy", config.enemy_deck_ids)
+	combat_manager = CombatManager.new()
+	combat_manager.scene = self
+	combat_manager.minion_vanished.connect(_on_minion_vanished)
+	combat_manager.hero_damaged.connect(_on_hero_damaged)
+	combat_manager.hero_healed.connect(_on_hero_healed)
+	_hardcoded = HardcodedEffects.new()
+	_hardcoded.setup(self)
+	draw_cards("player", 3)
+	CombatSetup.setup(self)
+	# ancient_frenzy: the enemy opens with a Pack Frenzy (_card_for, so its
+	# talent_override cost discount applies).
+	if "ancient_frenzy" in enemy_passives:
+		var pf_card: CardData = _card_for("enemy", "pack_frenzy")
+		if pf_card != null:
+			enemy_hand.append(CardInstance.create(pf_card))
+	if not config.relic_ids.is_empty():
+		relic_runtime = RelicRuntime.new()
+		relic_runtime.setup(config.relic_ids, config.relic_bonus_charges)
+
+## BuffSystem's bus is global: corruption_removed → ON_CORRUPTION_REMOVED on this
+## fight's TriggerManager (Corrupt Detonation etc.). Connected by
+## CombatSetup.setup, disconnected by teardown(). Hero targets have no listeners;
+## their debuff badge re-reads the stacks.
+func _on_corruption_removed_bus(target: Object, stacks: int) -> void:
+	if trigger_manager == null or target == null or stacks <= 0:
+		return
+	if target is HeroState:
+		var hero: HeroState = target
+		hero_buff_changed.emit(hero.side)
+		emit_event(CombatEvent.Kind.HERO_BUFF_CHANGED, hero.side, {})
+		return
+	if not (target is MinionInstance):
+		return
+	var minion: MinionInstance = target
+	var ctx := EventContext.make(Enums.TriggerEvent.ON_CORRUPTION_REMOVED, minion.owner)
+	ctx.minion = minion
+	ctx.damage = stacks
+	trigger_manager.fire(ctx)
+	_refresh_slot_for(minion)
+
+## Drop the global-bus subscription and reset the per-fight MinionInstance
+## globals so nothing leaks into the next fight (sim batches run thousands).
+func teardown() -> void:
+	var bus: Object = BuffSystem.bus()
+	var cb := Callable(self, "_on_corruption_removed_bus")
+	if bus != null and bus.is_connected("corruption_removed", cb):
+		bus.disconnect("corruption_removed", cb)
+	MinionInstance.corruption_inverts_on_friendly_demons = false
+	MinionInstance.iron_resolve_active = false
+
 ## Begin combat: both sides at 1 Essence / 1 Mana max (written to the backing
 ## fields — not a growth choice), then the player's first turn. Opening hands
-## come from deck setup (enemy 5) and the shell (player 3).
+## come from setup_combat (player 3, enemy 5).
 func start_combat() -> void:
 	turn_number = 0
 	_player_essence_max = 1
@@ -2893,12 +2954,12 @@ func spark_cost_of(side: String, card: CardData) -> int:
 			return 0
 	if side != "enemy":
 		return base
-	if "ritualist_spark_free" in _active_enemy_passives and card is SpellCardData:
+	if "ritualist_spark_free" in enemy_passives and card is SpellCardData:
 		return 0
 	var cost: int = base
-	if "captain_orders" in _active_enemy_passives and card.id == "thrones_command":
+	if "captain_orders" in enemy_passives and card.id == "thrones_command":
 		cost = maxi(cost - 1, 0)
-	if "void_mastery" in _active_enemy_passives:
+	if "void_mastery" in enemy_passives:
 		return maxi(ceili(float(cost) / 2.0), 1)
 	return cost
 
@@ -2925,14 +2986,14 @@ func plan_cost(side: String, inst: CardInstance, extra: Dictionary) -> Dictionar
 				fuel.append(m)
 				fuel_value += m.effective_spark_value(self)
 			if fuel_value < sparks:
-				if side == "enemy" and "mana_for_spark" in _active_enemy_passives:
+				if side == "enemy" and "mana_for_spark" in enemy_passives:
 					extra_mana = sparks - fuel_value
 				else:
 					return {why = "sparks"}
 		elif extra.has("sparks_prepaid"):
 			var prepaid: int = extra["sparks_prepaid"]
 			if prepaid < sparks:
-				if side == "enemy" and "mana_for_spark" in _active_enemy_passives:
+				if side == "enemy" and "mana_for_spark" in enemy_passives:
 					extra_mana = sparks - prepaid
 				else:
 					return {why = "sparks"}
@@ -3033,9 +3094,7 @@ func _encode_target(target) -> Variant:
 # Sub-systems shared by scene and sim.
 # ---------------------------------------------------------------------------
 
-## Central event dispatcher. Live combat creates one in CombatScene._ready
-## and assigns it here; sim creates one in SimTriggerSetup. Always non-null
-## once setup completes.
+## Central event dispatcher — created by CombatSetup.setup (setup_combat).
 var trigger_manager: TriggerManager = null
 
 ## Turn-manager: live combat assigns the scene-tree TurnManager (Node), sim a
@@ -3043,19 +3102,16 @@ var trigger_manager: TriggerManager = null
 ## rules code uses those directly (lint L3). Untyped so either fits.
 var turn_manager = null
 
-## Trigger handlers (CombatHandlers). Live creates them in CombatScene._setup_triggers,
-## sim in SimTriggerSetup. Environment rituals and a few VFX callbacks call into them.
+## Trigger handlers (CombatHandlers) — created by CombatSetup.setup. Environment
+## rituals call into them.
 var _handlers: CombatHandlers = null
 
-## Hardcoded-effect resolver. Live combat creates one in CombatScene._ready
-## and assigns it through the forwarding property; sim creates one in
-## SimState.setup. Used by _resolve_spell_effect for legacy effect_id spells,
-## and by EffectResolver via ctx.scene._resolve_hardcoded for HARDCODED steps.
+## Hardcoded-effect resolver — created by setup_combat. Used by
+## _resolve_spell_effect for legacy effect_id spells and by EffectResolver for
+## HARDCODED steps.
 var _hardcoded: HardcodedEffects = null
 
 ## Combat-manager instance — owns hero/minion damage application, attack
-## resolution, and minion-vanished signaling. Live combat creates one in
-## CombatScene._ready (forwarded through the property); sim creates one in
-## SimState.setup. State methods that apply damage (e.g. cast_player_hero_spell)
-## read combat_manager directly.
+## resolution, and minion-vanished signaling — created by setup_combat. State
+## methods that apply damage (e.g. cast_player_hero_spell) read it directly.
 var combat_manager: CombatManager = null

@@ -3,7 +3,7 @@
 ## effect_steps through the appropriate entry point:
 ##   - Spells  → EffectResolver.run(spell.effect_steps, ctx)
 ##   - Minions → EffectResolver.run(minion.on_play_effect_steps, ctx)
-##   - Raw deltas on SimState are asserted inline.
+##   - Raw deltas on CombatState are asserted inline.
 ##
 ## "KNOWN BUG" markers denote probes that intentionally fail on first run to
 ## surface implementation gaps.
@@ -300,7 +300,7 @@ static func _saboteur_adept() -> void:
 # (Void Bolt pipeline adds another void_mark_damage_per_stack * marks on top).
 # Enemy cast should scale with marks on PLAYER hero (symmetric) — KNOWN BUG:
 # current code hardcodes marks=0 when owner != "player", and no player_void_marks
-# field exists on SimState yet.
+# field exists on CombatState yet.
 # ---------------------------------------------------------------------------
 
 static func _void_detonation_base() -> void:
@@ -376,11 +376,11 @@ static func _smoke_veil() -> void:
 
 static func _silence_trap() -> void:
 	# KNOWN BUG: HardcodedEffects calls _scene.set("_spell_cancelled", true) but
-	# _spell_cancelled is not a declared field on SimState. GDScript's set() on a
+	# _spell_cancelled is not a declared field on CombatState. GDScript's set() on a
 	# non-existent property is a silent no-op, so enemy spells never get cancelled
 	# in sim. (Live CombatScene may or may not have the field — unverified.)
 	var state := TestHarness.build_state({})
-	if not TestHarness.begin_test("silence_trap / sets spell-cancel flag (KNOWN BUG: field missing on SimState)", state):
+	if not TestHarness.begin_test("silence_trap / sets spell-cancel flag (KNOWN BUG: field missing on CombatState)", state):
 		return
 	var trap := CardDatabase.get_card("silence_trap") as TrapCardData
 	EffectResolver.run(trap.effect_steps, TestHarness.make_ctx(state, "player"))
@@ -587,9 +587,9 @@ static func _pack_frenzy_ancient_frenzy_lifedrain() -> void:
 	if not TestHarness.begin_test("pack_frenzy / ancient_frenzy active → grants LIFEDRAIN rider", state):
 		return
 	# ancient_frenzy is an enemy passive; per the HardcodedEffects code it reads
-	# `_active_enemy_passives`. The sim's SimTriggerSetup wires enemy passives
+	# `enemy_passives`. CombatSetup wires enemy passives
 	# through a different mechanism — seed it directly for this probe.
-	state.set("_active_enemy_passives", ["ancient_frenzy"])
+	state.set("enemy_passives", ["ancient_frenzy"])
 	var imp := TestHarness.spawn_enemy(state, "rabid_imp")
 	var spell := CardDatabase.get_card("pack_frenzy") as SpellCardData
 	# Enemy casts Pack Frenzy so the ancient_frenzy check matters

@@ -1,6 +1,6 @@
 ## LiveSmokeTests.gd
 ## Headless smoke test of the LIVE combat shell (CombatScene), which the rest of
-## the suite never instantiates — every other test runs on SimState. Catches the
+## the suite never instantiates — every other test runs on CombatState. Catches the
 ## class of bug where rules code works in sim and crashes live (task 040, B1).
 ##
 ## Run from tools/run_checks.sh (separate process: RunAllTests quits the tree),

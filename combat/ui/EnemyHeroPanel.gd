@@ -181,7 +181,7 @@ func _build_enemy_portrait_row(vbox: VBoxContainer, ui_root: Node) -> void:
 		name_lbl.text = prefix + GameManager.current_enemy.enemy_name.to_upper()
 	header_row.add_child(name_lbl)
 
-	if not _scene._active_enemy_passives.is_empty():
+	if not _scene.enemy_passives.is_empty():
 		_scene._add_enemy_passive_hover_icon(header_row, ui_root)
 
 # ---------------------------------------------------------------------------
@@ -757,7 +757,7 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 
 	# Find the active champion passive
 	var champ_id: String = ""
-	for pid in _scene._active_enemy_passives:
+	for pid in _scene.enemy_passives:
 		if pid.begins_with("champion_"):
 			champ_id = pid
 			break

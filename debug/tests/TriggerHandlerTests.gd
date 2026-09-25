@@ -1,5 +1,5 @@
 ## TriggerHandlerTests.gd
-## Layer 2: one probe per trigger handler registered in SimTriggerSetup.
+## Layer 2: one probe per trigger handler registered in CombatSetup.
 ## Skipped (no trigger; consumed by CombatProfile cost logic elsewhere):
 ##   void_mastery, ritualist_spark_free, mana_for_spark, void_precision.
 class_name TriggerHandlerTests
@@ -519,7 +519,7 @@ static func _void_resonance_double_cast() -> void:
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# Act 3 relics — RelicEffects.resolve(relic_id) applied to a neutral SimState.
+# Act 3 relics — RelicEffects.resolve(relic_id) applied to a neutral CombatState.
 # ---------------------------------------------------------------------------
 
 static func _relic_void_hourglass() -> void:
@@ -591,39 +591,39 @@ static func _relic_phantom_deck() -> void:
 # ---------------------------------------------------------------------------
 
 ## Fire ON_PLAYER_CARD_DRAWN for a given card.
-static func _fire_card_drawn(state: SimState, card: CardData) -> void:
+static func _fire_card_drawn(state: CombatState, card: CardData) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_CARD_DRAWN, "player")
 	ctx.card = card
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_PLAYER_TURN_START.
-static func _fire_player_turn_start(state: SimState) -> void:
+static func _fire_player_turn_start(state: CombatState) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_TURN_START, "player")
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_PLAYER_MINION_SUMMONED on an already-spawned minion.
-static func _fire_player_summon(state: SimState, minion: MinionInstance) -> void:
+static func _fire_player_summon(state: CombatState, minion: MinionInstance) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
 	ctx.minion = minion
 	ctx.card = minion.card_data
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_PLAYER_MINION_PLAYED.
-static func _fire_player_played(state: SimState, minion: MinionInstance) -> void:
+static func _fire_player_played(state: CombatState, minion: MinionInstance) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
 	ctx.minion = minion
 	ctx.card = minion.card_data
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_ENEMY_MINION_SUMMONED.
-static func _fire_enemy_summon(state: SimState, minion: MinionInstance) -> void:
+static func _fire_enemy_summon(state: CombatState, minion: MinionInstance) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "enemy")
 	ctx.minion = minion
 	ctx.card = minion.card_data
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_ENEMY_TURN_START.
-static func _fire_enemy_turn_start(state: SimState) -> void:
+static func _fire_enemy_turn_start(state: CombatState) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_START, "enemy")
 	state.trigger_manager.fire(ctx)
 
@@ -1131,13 +1131,13 @@ static func _void_might_crit_stack() -> void:
 # ---------------------------------------------------------------------------
 
 ## Fire ON_ENEMY_ATTACK with a given attacker.
-static func _fire_enemy_attack(state: SimState, attacker: MinionInstance) -> void:
+static func _fire_enemy_attack(state: CombatState, attacker: MinionInstance) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_ATTACK, "enemy")
 	ctx.minion = attacker
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_ENEMY_SPELL_CAST with a given spell card.
-static func _fire_enemy_spell_cast(state: SimState, card: CardData) -> void:
+static func _fire_enemy_spell_cast(state: CombatState, card: CardData) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "enemy")
 	ctx.card = card
 	state.trigger_manager.fire(ctx)
@@ -1442,7 +1442,7 @@ static func _ch_no_resummon_after_summoned() -> void:
 # ---------------------------------------------------------------------------
 
 ## Fire ON_ENEMY_SPARK_CONSUMED with damage = spark_value.
-static func _fire_spark_consumed(state: SimState, spark_value: int = 1, minion: MinionInstance = null) -> void:
+static func _fire_spark_consumed(state: CombatState, spark_value: int = 1, minion: MinionInstance = null) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_SPARK_CONSUMED, "enemy")
 	ctx.damage = spark_value
 	if minion != null:
@@ -1450,12 +1450,12 @@ static func _fire_spark_consumed(state: SimState, spark_value: int = 1, minion: 
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_ENEMY_TURN_END.
-static func _fire_enemy_turn_end(state: SimState) -> void:
+static func _fire_enemy_turn_end(state: CombatState) -> void:
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_ENEMY_TURN_END, "enemy")
 	state.trigger_manager.fire(ctx)
 
 ## Fire ON_PLAYER_MINION_DIED with an attacker + "was this attack a crit" flag.
-static func _fire_player_died_by_crit(state: SimState, dead: MinionInstance, attacker: MinionInstance) -> void:
+static func _fire_player_died_by_crit(state: CombatState, dead: MinionInstance, attacker: MinionInstance) -> void:
 	state._last_attack_was_crit = true
 	var ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_DIED, "player")
 	ctx.minion = dead
@@ -2120,7 +2120,7 @@ static func _make_formation_card(race: int, with_keyword: bool = true) -> Minion
 
 ## Place a synthetic minion at a specific slot on the player side. Bypasses
 ## TestHarness.spawn_friendly so we can pick the slot and the data freely.
-static func _place_at(state: SimState, data: MinionCardData, slot_index: int) -> MinionInstance:
+static func _place_at(state: CombatState, data: MinionCardData, slot_index: int) -> MinionInstance:
 	var inst := MinionInstance.create(data, "player")
 	state.player_board.append(inst)
 	state.player_slots[slot_index].minion = inst
@@ -2372,7 +2372,7 @@ static func _make_korrath_test_human() -> MinionCardData:
 	data.minion_type = Enums.MinionType.HUMAN
 	return data
 
-static func _place_korrath_human(state: SimState, slot: int) -> MinionInstance:
+static func _place_korrath_human(state: CombatState, slot: int) -> MinionInstance:
 	var inst := MinionInstance.create(_make_korrath_test_human(), "player")
 	state.player_board.append(inst)
 	state.player_slots[slot].minion = inst
@@ -3362,7 +3362,7 @@ static func _sim_enemy_agent_sees_essence_discounts() -> void:
 			"Abyssal Mandate aura stacks on top")
 	state.teardown()
 
-## Void Devourer's on-play was a `pass` stub in SimState; the live body is now
+## Void Devourer's on-play was a `pass` stub in CombatState; the live body is now
 ## the one CombatState implementation.
 static func _state_void_devourer_sacrifices_adjacent() -> void:
 	var state := TestHarness.build_state()

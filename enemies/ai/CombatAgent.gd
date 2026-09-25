@@ -48,7 +48,7 @@ var mana: int:
 	set(v): _set_mana(v)
 
 ## Scene reference — passed to ConditionResolver / EffectResolver.
-## Typed as Object so both Node (real game) and RefCounted (SimState) work.
+## Typed as Object (historically a Node live, a RefCounted in sim).
 var scene: Object:
 	get: return _get_scene()
 

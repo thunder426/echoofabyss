@@ -782,7 +782,7 @@ static func _rune_tempo_multi_match() -> void:
 
 static func _void_imp_dmg_evidence() -> void:
 	# Originally asserted void_imp_dmg > 0 — but that counter is declared on
-	# SimState and never incremented anywhere (CombatSim only sums it for
+	# CombatState and never incremented anywhere (CombatSim only sums it for
 	# aggregate reporting, but no code writes to it). Leave the scenario as a
 	# clean-finish smoke test and document the dead counter so it's visible.
 	# Worth fixing: either remove the field or wire its increment in the

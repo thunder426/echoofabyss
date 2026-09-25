@@ -314,8 +314,7 @@ func _unlock_selected_talent() -> void:
 	# talent's overrides. Cards already in hand/deck keep their old card_data
 	# by design — only newly created CardInstances get the new behavior.
 	_scene._refresh_override_context()
-	_scene.trigger_manager.clear()
-	_scene._setup_triggers()
+	CombatSetup.setup(_scene.state)
 	rebuild_talent_tooltip()
 	_populate_talent_dropdown()
 	var talent: TalentData = TalentDatabase.get_talent(id)
@@ -340,6 +339,8 @@ func _grant_selected_relic() -> void:
 		_status_lbl.text = "Already owned: " + id
 		return
 	GameManager.player_relics.append(id)
+	_scene.state.relic_runtime = RelicRuntime.new()
+	_scene.state.relic_runtime.setup(GameManager.player_relics, GameManager.relic_bonus_charges)
 	_scene._setup_relics()
 	_populate_relic_dropdown()
 	var relic: RelicData = RelicDatabase.get_relic(id)
