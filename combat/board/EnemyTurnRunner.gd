@@ -22,6 +22,9 @@ var state: CombatState:
 
 var _active_profile: CombatProfile = null
 var _pacer: LivePacer = null
+## One agent for the whole fight: a profile swap (F15) keeps it, so the AI's
+## decision_rng runs on as it does in the sim.
+var _agent: StateAgent = null
 
 ## The enemy's actions. Growth, refill, the Void Rift Lord drain and the draw
 ## already ran in state.begin_turn("enemy").
@@ -49,8 +52,9 @@ func grow_at_turn_start(side: String, turn: int) -> void:
 
 func _setup_profile() -> void:
 	_active_profile = ProfileRegistry.make("enemy", ai_profile)
-	_pacer = LivePacer.new()
-	_pacer.setup(scene)
-	var agent := StateAgent.new()
-	agent.setup(state, "enemy", _pacer)
-	_active_profile.setup(agent)
+	if _agent == null:
+		_pacer = LivePacer.new()
+		_pacer.setup(scene)
+		_agent = StateAgent.new()
+		_agent.setup(state, "enemy", _pacer)
+	_active_profile.setup(_agent)

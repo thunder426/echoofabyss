@@ -200,7 +200,6 @@ func _play(ev: CombatEvent) -> void:
 			await _play_attack(ev)
 		CombatEvent.Kind.PHASE_TRANSITION:
 			scene._enemy_hero_panel.update(state.enemy_hp, state.enemy_hp_max, state, state.enemy_void_marks)
-			scene.call_deferred("_force_end_player_turn_for_phase_transition")
 		CombatEvent.Kind.COMBAT_ENDED:
 			if ev.payload.get("winner", "") == "player":
 				scene._on_victory()

@@ -180,7 +180,7 @@ func begin_spell_select(spell: SpellCardData) -> void:
 	if not _scene.state.can_afford("player", 0, _scene._effective_spell_cost(spell)):
 		cancel_card_select()
 		return
-	if not _scene._player_can_afford_sparks(spell.void_spark_cost):
+	if not _scene.state.can_afford_sparks("player", spell.void_spark_cost):
 		cancel_card_select()
 		return
 	if spell.requires_target:
@@ -199,7 +199,7 @@ func begin_minion_select(mc: MinionCardData) -> void:
 	if not _scene.state.can_afford("player", ess_cost, maxi(0, mc.mana_cost)):
 		cancel_card_select()
 		return
-	if not _scene._player_can_afford_sparks(mc.void_spark_cost):
+	if not _scene.state.can_afford_sparks("player", mc.void_spark_cost):
 		cancel_card_select()
 		return
 	# Check board space before highlighting

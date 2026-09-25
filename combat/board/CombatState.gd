@@ -2046,6 +2046,7 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 			# F15 Abyss Sovereign: intercept P1 death and transition to P2.
 			if PhaseTransition.attempt(self):
 				outcome = "transition"
+				_transition_ends_player_turn = is_player_turn
 			else:
 				outcome = "lethal"
 				winner = "player"
@@ -2250,6 +2251,13 @@ func digest_text() -> String:
 			lines.append("%s[%d] %s atk %d hp %d arm %d st %d %s" % [
 				side, slot.index, m.card_data.id, m.effective_atk(), m.current_health,
 				m.armour, m.state, _digest_buffs(m.buffs)])
+	# Board arrays in order (AI and trigger iteration order) with each minion's
+	# slot_index — catches a board / slot desync the per-slot lines can't see.
+	for side in ["player", "enemy"]:
+		var board_parts: PackedStringArray = []
+		for m: MinionInstance in (player_board if side == "player" else enemy_board):
+			board_parts.append("%s@%d" % [m.card_data.id, m.slot_index])
+		lines.append("board %s %s" % [side, ",".join(board_parts)])
 	lines.append("hand P %s" % ",".join(_digest_ids(player_hand)))
 	lines.append("hand E %s" % ",".join(_digest_ids(enemy_hand)))
 	lines.append("deck %d/%d grave %d/%d" % [player_deck.size(), enemy_deck.size(),
@@ -2516,6 +2524,9 @@ var relic_effects: RelicEffects = null
 ## ON_*_MINION_PLAYED (not yet on the board array, so ALL_FRIENDLY on-play
 ## effects skip it) → join the board → minion_summoned → ON_*_MINION_SUMMONED.
 func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target = null, extra: Dictionary = {}) -> CommandResult:
+	return _finish_command(_cmd_play_minion(side, inst, slot_index, target, extra))
+
+func _cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target = null, extra: Dictionary = {}) -> CommandResult:
 	var why: String = _check_card_play(side, inst)
 	if why.is_empty() and not (inst.card_data is MinionCardData):
 		why = "wrong_card_type"
@@ -2571,6 +2582,10 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 		if target is MinionInstance:
 			played_ctx.target = target
 		trigger_manager.fire(played_ctx)
+	if slot.minion != instance:
+		# Gone before it joined the board: its on-play ended F15's Phase 1 (the
+		# transition banishes both boards) or it died during its own on-play.
+		return CommandResult.accepted("minion_gone")
 	_friendly_board(side).append(instance)
 	minion_summoned.emit(side, instance, slot.index)
 	if trigger_manager != null:
@@ -2587,6 +2602,9 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 ## ON_*_SPELL_CAST fires before resolution (D8) so a counter / Silence Trap can
 ## cancel it; a Phase Disruptor counter stops it before the event.
 func cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dictionary = {}) -> CommandResult:
+	return _finish_command(_cmd_play_spell(side, inst, target, extra))
+
+func _cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dictionary = {}) -> CommandResult:
 	var why: String = _check_card_play(side, inst)
 	if why.is_empty() and not (inst.card_data is SpellCardData):
 		why = "wrong_card_type"
@@ -2639,6 +2657,9 @@ func cmd_play_spell(side: String, inst: CardInstance, target = null, extra: Dict
 ## Set a trap or place a rune from `side`'s hand. Refused when the side's trap
 ## slots are full or it already has the same non-rune trap set.
 func cmd_play_trap(side: String, inst: CardInstance) -> CommandResult:
+	return _finish_command(_cmd_play_trap(side, inst))
+
+func _cmd_play_trap(side: String, inst: CardInstance) -> CommandResult:
 	var why: String = _check_card_play(side, inst)
 	if why.is_empty() and not (inst.card_data is TrapCardData):
 		why = "wrong_card_type"
@@ -2683,6 +2704,9 @@ func cmd_play_trap(side: String, inst: CardInstance) -> CommandResult:
 ## drops its ritual handlers); the new one registers its rituals (player),
 ## fires ON_RITUAL_ENVIRONMENT_PLAYED, then runs on-enter and passive steps.
 func cmd_play_environment(side: String, inst: CardInstance) -> CommandResult:
+	return _finish_command(_cmd_play_environment(side, inst))
+
+func _cmd_play_environment(side: String, inst: CardInstance) -> CommandResult:
 	var why: String = _check_card_play(side, inst)
 	if why.is_empty() and not (inst.card_data is EnvironmentCardData):
 		why = "wrong_card_type"
@@ -2724,6 +2748,9 @@ func cmd_play_environment(side: String, inst: CardInstance) -> CommandResult:
 ## up — the target is a Guard (B5: no silent redirect; pick a legal target).
 ## Enemy attacks fire ON_ENEMY_ATTACK first; a Smoke Veil there cancels it.
 func cmd_attack(side: String, attacker: MinionInstance, target: MinionInstance) -> CommandResult:
+	return _finish_command(_cmd_attack(side, attacker, target))
+
+func _cmd_attack(side: String, attacker: MinionInstance, target: MinionInstance) -> CommandResult:
 	var why: String = _check_can_act(side)
 	if why.is_empty() and (attacker == null or not _friendly_board(side).has(attacker)):
 		why = "no_attacker"
@@ -2748,6 +2775,9 @@ func cmd_attack(side: String, attacker: MinionInstance, target: MinionInstance) 
 ## `attacker` attacks the opposing hero. Refused unless the attacker can attack
 ## the hero (not SWIFT-only) and the opponent has no Guard up.
 func cmd_attack_hero(side: String, attacker: MinionInstance) -> CommandResult:
+	return _finish_command(_cmd_attack_hero(side, attacker))
+
+func _cmd_attack_hero(side: String, attacker: MinionInstance) -> CommandResult:
 	var why: String = _check_can_act(side)
 	if why.is_empty() and (attacker == null or not _friendly_board(side).has(attacker)):
 		why = "no_attacker"
@@ -2769,6 +2799,9 @@ func cmd_attack_hero(side: String, attacker: MinionInstance) -> CommandResult:
 ## Remove a friendly minion as spark fuel: no death, no on-death effects.
 ## Fires ON_*_SPARK_CONSUMED when it carried spark value.
 func cmd_consume_minion(side: String, minion: MinionInstance) -> CommandResult:
+	return _finish_command(_cmd_consume_minion(side, minion))
+
+func _cmd_consume_minion(side: String, minion: MinionInstance) -> CommandResult:
 	var why: String = _check_can_act(side)
 	if why.is_empty() and (minion == null or not _friendly_board(side).has(minion)):
 		why = "no_minion"
@@ -2781,6 +2814,9 @@ func cmd_consume_minion(side: String, minion: MinionInstance) -> CommandResult:
 ## Activate the player's relic at `index`. Blood Chalice ("relic_execute") needs
 ## a target: an enemy MinionInstance or "enemy_hero".
 func cmd_activate_relic(index: int, target = null) -> CommandResult:
+	return _finish_command(_cmd_activate_relic(index, target))
+
+func _cmd_activate_relic(index: int, target = null) -> CommandResult:
 	var why: String = _check_can_act("player")
 	if why.is_empty() and (relic_runtime == null or not relic_runtime.can_activate(index)):
 		why = "unavailable"
@@ -2815,6 +2851,9 @@ func cmd_activate_relic(index: int, target = null) -> CommandResult:
 ## "soul_forge". Refused when the ability isn't available (talent missing,
 ## already used this turn, not enough Flesh).
 func cmd_hero_skill(side: String, skill_id: String, target = null) -> CommandResult:
+	return _finish_command(_cmd_hero_skill(side, skill_id, target))
+
+func _cmd_hero_skill(side: String, skill_id: String, target = null) -> CommandResult:
 	var why: String = _check_can_act(side)
 	if why.is_empty() and side != "player":
 		why = "no_skill"
@@ -2835,6 +2874,9 @@ func cmd_hero_skill(side: String, skill_id: String, target = null) -> CommandRes
 ## End `side`'s turn and begin the opponent's. `growth` ("essence" / "mana") is
 ## the player's resource pick, applied when their next turn starts (D10).
 func cmd_end_turn(side: String, growth: String = "") -> CommandResult:
+	return _finish_command(_cmd_end_turn(side, growth))
+
+func _cmd_end_turn(side: String, growth: String = "") -> CommandResult:
 	var why: String = _check_can_act(side)
 	if not why.is_empty():
 		return CommandResult.refused(why)
@@ -2859,6 +2901,23 @@ func trap_placement_refusal(side: String, trap: TrapCardData) -> String:
 			if not existing.is_rune and existing.id == trap.id:
 				return "duplicate_trap"
 	return ""
+
+## Set when the F15 Sovereign's P1 → P2 transition happens during the player's
+## turn: the command that caused it ends that turn once it has resolved.
+var _transition_ends_player_turn: bool = false
+
+## Runs after every command (accepted or refused). The F15 phase transition
+## ends the player's turn here — after the damage that caused it, before the
+## player can act into Phase 2 — and passes the turn to the enemy.
+func _finish_command(r: CommandResult) -> CommandResult:
+	if not _transition_ends_player_turn:
+		return r
+	_transition_ends_player_turn = false
+	if is_player_turn and winner.is_empty() and not _combat_ended:
+		end_turn("player")
+		if winner.is_empty() and not _combat_ended:
+			begin_turn("enemy")
+	return r
 
 ## "" when `side` may act now, else the refusal reason.
 func _check_can_act(side: String) -> String:
@@ -3029,6 +3088,12 @@ func _fire_enemy_attack_declared(side: String, attacker: MinionInstance) -> Stri
 		return "attacker_gone"
 	return ""
 
+## A command was accepted and appended to command_log (its record is
+## command_log[index]). Emitted before the command resolves (hero_skill: after,
+## since its body can still refuse) — the parity test snapshots digest_text()
+## here.
+signal command_recorded(index: int)
+
 func _log_command(cmd: String, side: String, inst: CardInstance, slot: int, target, extra: Dictionary) -> void:
 	var rec_extra: Dictionary = extra.duplicate()
 	if rec_extra.has("spark_fuel"):
@@ -3043,6 +3108,7 @@ func _log_command(cmd: String, side: String, inst: CardInstance, slot: int, targ
 		hand_index = hand_of(side).find(inst) if inst != null else -1,
 		slot = slot, target = _encode_target(target), extra = rec_extra,
 	})
+	command_recorded.emit(command_log.size() - 1)
 
 ## A command target as plain data: {kind: minion|hero|trap|env, side, slot}.
 func _encode_target(target) -> Variant:

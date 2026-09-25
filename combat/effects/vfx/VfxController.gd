@@ -1,22 +1,15 @@
 ## VfxController.gd
-## Orchestrates VFX for combat — owns spell dispatch, target freeze, damage
-## sync, and deferred death flush. Lives as a child of CombatScene.
+## Plays spell VFX for combat — owns spell dispatch, target freeze and the
+## impact beat. Lives as a child of CombatScene. Presentation only: the engine
+## already resolved the spell; the presenter hands in a `resolve_damage`
+## Callable that shows the spell's captured events (popups, HP drops) at the
+## impact.
 ##
-## Before this controller:
-##   CombatScene._apply_targeted_spell and _on_enemy_spell_cast each held
-##   per-spell branches that created the VFX, picked a parent ($UI vs self),
-##   awaited impact_hit, resolved damage, optionally froze the slot + awaited
-##   finished + flushed _deferred_death_slots. ~40 lines duplicated twice.
-##
-## After:
-##   CombatScene builds a `resolve_damage` Callable and calls
-##   `vfx_controller.play_spell(spell_id, caster_side, target, resolve_damage)`.
-##   The controller:
-##     1. Freezes target slot(s) — makes ghost-over-empty-slot impossible.
+##   vfx_controller.play_spell(spell_id, caster_side, target, resolve_damage)
+##     1. Freezes the target slot(s) so the card stays under the effect.
 ##     2. Spawns the VFX under CombatScene.VfxLayer (layer 2 — above UI).
-##     3. Awaits vfx.impact_hit(i) and fires resolve_damage.call(i).
-##     4. Awaits vfx.finished.
-##     5. Unfreezes slots + calls CombatScene._flush_deferred_deaths().
+##     3. Awaits vfx.impact_hit(i) and calls resolve_damage.call(i).
+##     4. Awaits vfx.finished, then unfreezes and refreshes the slots.
 ##
 ## Adding a new spell VFX: add a private `_play_*` method below and a one-line
 ## entry to `_SPELL_DISPATCH`. CombatScene does not change.
@@ -33,8 +26,8 @@ const _SPELL_DISPATCH := {
 	"pack_frenzy": "_play_pack_frenzy",
 }
 
-## CombatScene — set via setup(). Used for _find_slot_for, hero panels,
-## _flush_deferred_deaths, and the VfxLayer reference.
+## CombatScene — set via setup(). Used for _find_slot_for, hero panels and
+## the VfxLayer reference.
 var _combat: Node2D = null
 var _vfx_layer: CanvasLayer = null
 var _shake_root: Control = null

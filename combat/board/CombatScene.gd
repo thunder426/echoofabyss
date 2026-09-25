@@ -19,26 +19,6 @@ signal buff_vfx_batch_done()
 
 var enemy_turn: EnemyTurnRunner
 
-## Deferred by _on_hero_damaged after a P1→P2 transition. Runs next frame so
-## the current damage/attack resolution can finish before we yank player
-## control. Ends the player turn and lets the normal enemy-turn pipeline fire.
-func _force_end_player_turn_for_phase_transition() -> void:
-	if state._combat_ended:
-		return
-	if not state.is_player_turn:
-		return  # already flipped (double-defer safety)
-	# Cancel any in-flight player-side selection so no stale state bleeds
-	# into the enemy turn or P2.
-	selected_attacker = null
-	pending_play_card = null
-	pending_minion_target = null
-	_awaiting_minion_target = false
-	if hand_display:
-		hand_display.deselect_current()
-	_clear_all_highlights()
-	# End the turn — the state emits turn_ended then turn_started for the enemy,
-	# which routes through _on_turn_started and kicks off enemy_turn.run_turn().
-	state.cmd_end_turn("player")
 ## Board slot *views* (plan 3.1a). Gameplay occupancy is `state.player_slots`
 ## / `state.enemy_slots` (SlotState); these Panels mirror it via
 ## `_on_slot_changed` and are what VFX / targeting anchor to.
@@ -434,17 +414,23 @@ func _on_turn_started(is_player_turn: bool) -> void:
 	await presenter.pump_and_wait_idle()
 	if not is_inside_tree() or state._combat_ended:
 		return
-	await get_tree().create_timer(0.4).timeout
+	await get_tree().create_timer(0.4 * BaseVfx.time_scale).timeout
 	if not is_inside_tree() or state._combat_ended:
 		return
 	enemy_turn.run_turn()
 
 ## UI half of a turn end — the state's end_turn fired ON_*_TURN_END and cleaned up.
+## Also drops any half-made player selection — the F15 phase transition ends
+## the player's turn from inside the command that caused it.
 func _on_turn_ended(_is_player_turn: bool) -> void:
 	_clear_all_highlights()
 	_enemy_hero_panel.show_attackable(false)
 	selected_attacker = null
 	pending_play_card = null
+	pending_minion_target = null
+	_awaiting_minion_target = false
+	if hand_display:
+		hand_display.deselect_current()
 
 func _refresh_end_turn_mode() -> void:
 	if combat_ui != null:
@@ -1709,10 +1695,8 @@ func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstanc
 	await vfx.finished
 
 ## Death animation system delegated to vfx_bridge. Scene keeps thin wrappers
-## so external callers (VfxController via _combat._flush_deferred_deaths)
-## don't need to know about the bridge. State (_active_death_anims,
-## _deferred_death_slots, _pending_sacrifice_ghost_delay) stays on scene
-## since multiple non-VFX paths write to it.
+## so callers (the presenter) don't need to know about the bridge;
+## _pending_sacrifice_ghost_delay stays on the scene.
 func _animate_minion_death(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
 	if vfx_bridge != null:
 		await vfx_bridge.animate_minion_death(slot, pos, dead_minion)

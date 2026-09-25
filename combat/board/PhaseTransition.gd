@@ -80,9 +80,10 @@ static func _do_transition(st: CombatState) -> void:
 static func _wipe_boards_silently(st: CombatState) -> void:
 	st.player_board.clear()
 	st.enemy_board.clear()
+	# clear() journals SLOT_CHANGED, so the live slot views empty too.
 	for slot: SlotState in st.player_slots + st.enemy_slots:
 		if slot != null and slot.minion != null:
-			slot.minion = null
+			slot.clear()
 
 static func _clear_combat_state(st: CombatState) -> void:
 	# Environments, traps and runes (both sides)

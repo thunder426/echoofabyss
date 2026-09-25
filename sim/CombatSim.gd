@@ -28,6 +28,10 @@ var turn_snapshot_callback: Callable = Callable()
 var record_replay: bool = false
 var dump_replay_path: String = ""
 
+## Optional: called with the built CombatState before combat starts (the parity
+## test subscribes to command_recorded there). Set before run().
+var state_observer: Callable = Callable()
+
 ## A fight's inputs as plain data — with the seed, everything a replay needs.
 static func make_config(player_deck_ids: Array[String], enemy_profile_id: String,
 		enemy_deck_ids: Array[String], player_hp: int, enemy_hp: int,
@@ -111,7 +115,7 @@ func replay(record: Dictionary) -> Dictionary:
 static func apply_logged_command(state: CombatState, rec: Dictionary) -> CommandResult:
 	var side: String = rec["side"]
 	var slot: int = int(rec["slot"])
-	var target: Variant = _decode_target(state, rec.get("target"))
+	var target: Variant = decode_target(state, rec.get("target"))
 	var extra: Dictionary = (rec.get("extra", {}) as Dictionary).duplicate()
 	if extra.has("spark_fuel"):
 		var fuel: Array = []
@@ -143,7 +147,7 @@ static func apply_logged_command(state: CombatState, rec: Dictionary) -> Command
 		"end_turn":         return state.cmd_end_turn(side, extra.get("growth", ""))
 	return CommandResult.refused("replay_unknown_command")
 
-static func _decode_target(state: CombatState, t: Variant) -> Variant:
+static func decode_target(state: CombatState, t: Variant) -> Variant:
 	if t == null or not (t is Dictionary):
 		return null
 	var d: Dictionary = t
@@ -204,6 +208,8 @@ func run(
 	var enemy: Dictionary = built["enemy"]
 	var e_profile: CombatProfile = enemy["profile"]
 	var debug_on: bool = state.diagnostics != null and state.diagnostics.debug_log_enabled
+	if state_observer.is_valid():
+		state_observer.call(state)
 	if turn_snapshot_callback.is_valid():
 		# Snapshot at the end of each enemy turn (before the player's next begins).
 		var snap: Callable = turn_snapshot_callback

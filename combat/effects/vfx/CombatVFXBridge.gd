@@ -131,12 +131,9 @@ func play_champion_acp_aura_pulse() -> void:
 ## the visible burst. Missing slots fall back to immediate application.
 ##
 ## Freezes each target slot's visuals so lethal damage keeps the card parked
-## under the burst — any deaths queue into _deferred_death_slots and flush
-## once the last VFX finishes.
+## under the burst until the last VFX finishes.
 ##
-## Gates enemy actions: sets scene's `_on_play_vfx_active` while detonations
-## play and emits `on_play_vfx_done` when the last one finishes, so EnemyAI
-## awaits the full animation before the next enemy action.
+## Awaitable: the presenter waits for the last burst before the next event.
 ##
 ## targets: Array of Dictionary { "minion": MinionInstance, "stacks": int }.
 ## Presentation only (plan 3.0): the handler consumes the stacks and deals the
@@ -178,9 +175,8 @@ func play_corruption_detonations(targets: Array) -> void:
 ## Feral Reinforcement (Act 2 passive) — radiant violet halo erupts from the
 ## summoned Human's slot, then a face-down card arcs toward the enemy hero
 ## panel's hand indicator and lands with a pulse on the hand count.
-## Blocking: sets scene's `_on_play_vfx_active` and emits `on_play_vfx_done`
-## when the FeralReinforcementVFX finishes, so EnemyAI awaits it before its
-## next action (same pattern as Frenzied Imp Hurl).
+## Awaitable: the presenter waits for FeralReinforcementVFX to finish before
+## the next event.
 ##
 ## Visual implementation lives in FeralReinforcementVFX.gd; this wrapper
 ## resolves the slot/panel refs and is awaitable.
@@ -223,9 +219,8 @@ func hide_rune_slot_for_placement(trap: TrapCardData, owner: String) -> void:
 ## by the time this runs, on both sides). Tinted from `trap.rune_glow_color`
 ## with the rune's `battlefield_art_path` (if any) used for the stamp overlay.
 ##
-## Blocking: sets `_on_play_vfx_active` and emits `on_play_vfx_done` when the
-## VFX finishes, so EnemyAI's action loop awaits the placement read before
-## continuing. On finish, calls `reveal_slot_after_placement` to re-render the
+## Awaitable: the presenter waits for the placement read before the next
+## event. On finish, calls `reveal_slot_after_placement` to re-render the
 ## slot with its real (rune-aware) styling and fade the art in.
 func play_rune_placement_vfx(trap: TrapCardData, owner: String) -> void:
 	if vfx_controller == null or _scene == null or trap == null or not trap.is_rune:
@@ -277,12 +272,7 @@ func _resolve_rune_slot_idx(owner: String) -> int:
 ## Spawn the Brood Call portal VFX at the first empty slot that will receive
 ## the summoned imp. Awaits the full VFX (ramp → hold → collapse) so the token
 ## is placed after the portal has closed.
-##
-## Also gates the AI: sets `_on_play_vfx_active` and emits `on_play_vfx_done`
-## when the VFX finishes, so EnemyAI's commit_spell_cast awaits the portal
-## before the next action. (The HardcodedEffects → EffectResolver chain doesn't
-## propagate awaits, so the caller's `await _scene._play_brood_call_vfx(...)`
-## alone isn't enough to block the AI loop.)
+## The presenter awaits it before the next event.
 func play_brood_call_vfx(owner: String) -> void:
 	if vfx_controller == null or _scene == null:
 		return
@@ -1116,8 +1106,8 @@ func show_spell_countered_anim(card: CardData) -> void:
 	tw.set_parallel(false)
 	tw.tween_callback(cv.queue_free)
 
-## Big-card reveal whenever the enemy summons a new minion. Caller toggles
-## scene._enemy_summon_reveal_active around the call so EnemyAI can wait.
+## Big-card reveal whenever the enemy summons a new minion (the presenter's
+## MINION_PLAYED playback awaits it).
 ## Uses the same "combat_preview" size mode as the hover preview.
 ## Returns after the fade-out so callers can await it.
 func show_enemy_summon_reveal(card: CardData) -> void:
