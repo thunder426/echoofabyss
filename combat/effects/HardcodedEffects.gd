@@ -86,7 +86,7 @@ func _soul_shatter(ctx: EffectContext) -> void:
 	if demon == null:
 		return
 	var pre_hp: int = demon.current_health
-	SacrificeSystem.sacrifice(_scene, demon, "soul_shatter")
+	SacrificeSystem.sacrifice(state, demon, "soul_shatter")
 	var dmg := 300 if pre_hp >= 300 else 200
 	var ls := _log_side(ctx.owner)
 	_log("  Soul Shatter: sacrifice had %d HP — %d AoE to all %s minions." % [pre_hp, dmg, state._opponent_of(ctx.owner)], ls)
@@ -109,7 +109,7 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 	var sac_slot: Variant = presenter._find_slot_for(sac) if presenter != null else null
 	if sac_slot != null and is_instance_valid(sac_slot):
 		sac_center = sac_slot.global_position + sac_slot.size * 0.5
-	SacrificeSystem.sacrifice(_scene, sac, "grafted_butcher")
+	SacrificeSystem.sacrifice(state, sac, "grafted_butcher")
 	_log("  Grafted Butcher: sacrificed %s — 200 AoE to all %s minions." % [sac.card_data.card_name, state._opponent_of(ctx.owner)], ls)
 	# Play the VFX (skip in sim) and sync the AoE damage with its impact beat.
 	if presenter != null:

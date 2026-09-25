@@ -47,7 +47,7 @@ func resolve(effect_id: String) -> bool:
 			# Apply 1 Corruption to all enemies + 100 AoE damage. Mirror the
 			# abyssal_plague spell's school (VOID) since this relic literally casts it.
 			for m in (state._opponent_board("player") as Array).duplicate():
-				_scene._corrupt_minion(m)
+				state._corrupt_minion(m)
 			var plague_info := CombatManager.make_damage_info(0, Enums.DamageSource.SPELL, Enums.DamageSchool.VOID, null, "relic_void_lens_plague")
 			for m in (state._opponent_board("player") as Array).duplicate():
 				state._spell_dmg(m, 100, plague_info)

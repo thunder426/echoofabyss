@@ -145,7 +145,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 
 		EffectStep.EffectType.VOID_MARK:
 			if ConditionResolver.check_all(step.conditions, ctx, null) and ctx.owner == "player":
-				ctx.scene._apply_void_mark(step.amount)
+				ctx.state._apply_void_mark(step.amount)
 			return
 
 		EffectStep.EffectType.VOID_BOLT:
@@ -155,9 +155,9 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 				# minion is emitting (e.g. void_imp_wizard on-play). Null = spell card.
 				var is_min_emitted: bool = ctx.source != null
 				if ctx.owner == "player":
-					ctx.scene._deal_void_bolt_damage(dmg, ctx.source, ctx.from_rune, is_min_emitted)
+					ctx.state._deal_void_bolt_damage(dmg, ctx.source, ctx.from_rune, is_min_emitted)
 				else:
-					ctx.scene._deal_enemy_void_bolt_damage(dmg, ctx.source, is_min_emitted)
+					ctx.state._deal_enemy_void_bolt_damage(dmg, ctx.source, is_min_emitted)
 			return
 
 		EffectStep.EffectType.TUTOR:
@@ -551,13 +551,13 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 		EffectStep.EffectType.CORRUPTION:
 			var stacks := maxi(1, amount)
 			for _i in stacks:
-				ctx.scene._corrupt_minion(target)
+				ctx.state._corrupt_minion(target)
 
 		EffectStep.EffectType.SACRIFICE:
 			# SacrificeSystem.sacrifice handles the full flow — ON LEAVE steps,
 			# ON_*_MINION_SACRIFICED trigger, corruption removal, silent board cleanup.
 			# Strict rule: sacrifice is NOT death — does not fire ON_*_MINION_DIED.
-			SacrificeSystem.sacrifice(ctx.scene, target, ctx.source_card_id)
+			SacrificeSystem.sacrifice(ctx.state, target, ctx.source_card_id)
 
 		EffectStep.EffectType.KILL_MINION:
 			ctx.state.combat_manager.kill_minion(target)
@@ -727,7 +727,7 @@ static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> 
 		var m: MinionInstance = target
 		if m.current_health <= 0:
 			return
-		ctx.scene._corrupt_minion(m)
+		ctx.state._corrupt_minion(m)
 	elif target is String:
 		var state: CombatState = ctx.state if ctx.state.state != null else ctx.scene
 		if target == "enemy_hero":

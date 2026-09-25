@@ -1926,30 +1926,24 @@ func _pack_chain_anchor(from: BoardSlot, toward: BoardSlot) -> Vector2:
 # Abyss Order — Corruption helpers
 # ---------------------------------------------------------------------------
 
-## Apply one Corruption stack to a minion. State handles BuffSystem + log + slot
-## refresh; scene wrapper adds the VFX + slot blink (UI-only).
-##
-## Capture-aware: while a player spell is mid-resolution (P4B inverted flow,
-## state mutates before the wave VFX plays), queue the corruption VFX/blink/flash
-## for the slot. The wave's per-minion callback drains the queued visuals as the
-## wave touches each minion, so corruption "lands" with the wave instead of all
-## flashing at cast time. Final drain runs after VFX completes.
-func _corrupt_minion(minion: MinionInstance) -> void:
-	if minion == null:
-		return
-	# When a wave/per-minion VFX is gating spell popups, defer the entire
-	# state mutation (BuffSystem.apply for CORRUPTION) to wave-touch. State
-	# mutating at the visible moment means the cascading signals
-	# (minion_stats_changed → label tween) fire naturally with no special-case
-	# label workarounds. Without capture, mutate immediately and play the VFX.
+
+## Presenter hook — CombatState._corrupt_minion (the stack is already applied).
+## While a player spell is captured the splash waits for the wave / impact
+## drain so corruption "lands" with the wave instead of at cast time.
+func _show_corruption_applied(minion: MinionInstance) -> void:
 	var slot: BoardSlot = _find_slot_for(minion)
-	if _capturing_spell_popups and slot != null:
-		_pending_corruption_apply.append({"slot": slot, "minion": minion})
-		return
-	state._corrupt_minion(minion)
 	if slot == null:
 		return
+	if _capturing_spell_popups:
+		_pending_corruption_apply.append({"slot": slot})
+		return
 	_play_corruption_apply_visual(slot)
+
+## Presenter hook — CombatState._apply_void_mark: the mark VFX on the enemy panel.
+func _show_void_mark_applied() -> void:
+	if _enemy_status_panel and is_instance_valid(_enemy_status_panel) and vfx_controller != null:
+		var vfx := VoidMarkApplyVFX.create(_enemy_status_panel)
+		vfx_controller.spawn(vfx)
 
 ## Spawn the corruption-apply VFX, blink, and ATK-debuff flash on a slot. Split
 ## out so both the immediate path and the queued-drain path go through the same
@@ -2500,14 +2494,6 @@ func _spell_mana_discount() -> int:
 func _void_mark_damage_per_stack() -> int:
 	return state._void_mark_damage_per_stack()
 
-## Add Void Mark stacks to the enemy hero.
-## Apply Void Mark stacks. State handles HP-marker mutation + log; scene
-## wrapper adds the VFX (UI-only).
-func _apply_void_mark(stacks: int = 1) -> void:
-	state._apply_void_mark(stacks)
-	if _enemy_status_panel and is_instance_valid(_enemy_status_panel):
-		var vfx := VoidMarkApplyVFX.create(_enemy_status_panel)
-		vfx_controller.spawn(vfx)
 
 # Flesh / Forge facades — delegate to CombatState primitives. The state
 # setters emit flesh_changed / forge_changed which refresh Seris's resource
@@ -2531,16 +2517,6 @@ func _forge_counter_reset() -> void:
 func _gain_forge_counter(amount: int = 1) -> bool:
 	return state._gain_forge_counter(amount)
 
-## Seris — fires for every friendly Demon SACRIFICE emit (not combat deaths).
-## Handles Forge Counter ticks, Fiend Offering, and the auto Forged Demon summon.
-## Silently no-ops for non-Seris runs (no soul_forge talent).
-##
-## Board-full rule: if an auto-summon would land but no slot is free, Flesh/
-## counter costs are still paid — the summon just fails silently. This matches
-## the user-facing "reduce flesh as well" decision so over-boarding isn't free.
-## Delegated to CombatState — Fiend Offering + Soul Forge counter tick.
-func _on_demon_sacrificed(minion: MinionInstance, source_tag: String) -> void:
-	state._on_demon_sacrificed(minion, source_tag)
 
 ## Delegated to CombatState — summons Forged Demon and applies Abyssal Forge auras.
 func _summon_forged_demon() -> void:
@@ -2624,61 +2600,11 @@ func _heal_minion(minion: MinionInstance, amount: int) -> void:
 func _heal_minion_full(minion: MinionInstance) -> void:
 	state._heal_minion_full(minion)
 
-## Sacrifice flow (strict rule: sacrifice is NOT death — does not fire ON DEATH).
-##
-## Order:
-##   1. Run the minion's on_leave_effect_steps (declarative, source = minion).
-##   2. Fire ON_*_MINION_SACRIFICED so board-wide listeners (Fleshbind, Blood/Soul Rune,
-##      Soul Forge talent etc.) can react.
-##   3. Fire ON_CORRUPTION_REMOVED if the sacrificed minion had Corruption stacks.
-##   4. Erase from board and clear slot. Death animation is reused for visuals.
-##
-## Skips: ON_*_MINION_DIED, on_death_effect_steps, on-death icon VFX, granted_on_death_effects.
-## Delegated to CombatState — runs ON LEAVE / corruption-removed / sacrifice
-## triggers, removes from board, clears slot.minion (skipping frozen slots),
-## logs DEATH. Scene captures dead_slot beforehand to queue the death animation
-## after state mutates.
-func _sacrifice_minion(minion: MinionInstance) -> void:
-	if minion == null:
-		return
-	var dead_slot: BoardSlot = null
-	var search_slots := player_slots if minion.owner == "player" else enemy_slots
-	for s in search_slots:
-		if s.minion == minion:
-			dead_slot = s
-			break
-	state._sacrifice_minion(minion)
-	if hand_display:
-		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
-	_refresh_hand_spell_costs()
-	if dead_slot:
-		if dead_slot.freeze_visuals:
-			_deferred_death_slots.append({slot = dead_slot, pos = dead_slot.global_position, minion = minion})
-		else:
-			_animate_minion_death(dead_slot, dead_slot.global_position, minion)
 
 ## Pure logic — delegated to CombatState. Logs + slot refresh via signals.
 func _add_kill_stacks(minion: MinionInstance, count: int = 1) -> void:
 	state._add_kill_stacks(minion, count)
 
-## Deal Void Bolt damage to the enemy hero, scaled by current Void Marks.
-## CONVENTION: ALL Void Bolt damage in the game must go through this function
-## so that talents like deepened_curse and future modifiers apply automatically.
-## source_minion: if provided, projectile fires from that minion's board slot.
-## If null, auto-detects: checks for active void rune (fires from rune slot),
-## otherwise fires from center-bottom (player hero area).
-## is_minion_emitted: caller asserts this Void Bolt is a minion attack/effect (e.g.
-## void_manifestation talent retag of basic attack, piercing_void retag of on-play).
-## Default false → SPELL source for spell-cast / triggered-passive paths.
-## Live-combat wrapper around CombatState._deal_void_bolt_damage — fires the
-## projectile VFX and awaits impact before delegating to state for the
-## (logging, dmg_log split, hero damage application) logic. Sim path skips
-## the projectile entirely; state-internal logic is the source of truth.
-func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
-	var bolt := _fire_void_bolt_projectile(source_minion, from_rune)
-	if bolt != null and is_inside_tree():
-		await bolt.impact_hit
-	state._deal_void_bolt_damage(base_damage, source_minion, from_rune, is_minion_emitted)
 
 ## Delegated to vfx_bridge — fires the player's void bolt projectile.
 func _fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune: bool = false) -> VoidBoltProjectile:
@@ -2686,17 +2612,6 @@ func _fire_void_bolt_projectile(source_minion: MinionInstance = null, from_rune:
 		return null
 	return vfx_bridge.fire_void_bolt_projectile(source_minion, from_rune)
 
-## Enemy-cast Void Bolt — fires a projectile from the enemy minion's slot (or
-## enemy hero area) to the player hero panel, then applies damage on impact.
-## Does not participate in Void Marks (those only apply to the enemy hero).
-## is_minion_emitted: see _deal_void_bolt_damage. Default false (SPELL source).
-## Live-combat wrapper — fires enemy projectile VFX, awaits impact, delegates
-## to state for log + damage application.
-func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
-	var bolt := _fire_enemy_void_bolt_projectile(source_minion)
-	if bolt != null and is_inside_tree():
-		await bolt.impact_hit
-	state._deal_enemy_void_bolt_damage(base_damage, source_minion, is_minion_emitted)
 
 ## Delegated to vfx_bridge — fires the enemy's void bolt projectile.
 func _fire_enemy_void_bolt_projectile(source_minion: MinionInstance = null) -> VoidBoltProjectile:
@@ -3021,15 +2936,11 @@ func play_trap_reveals(owner: String, reveals: Array) -> void:
 		if not is_inside_tree():
 			return
 		var trap: TrapCardData = entry["trap"]
-		var resolve: Callable = entry["resolve"]
 		_flash_trap_slot_for(owner, entry["slot_index"])
-		var effect_resolved := false
-		_show_card_cast_anim(trap, owner == "enemy", func() -> void:
-			resolve.call()
-			effect_resolved = true
-		)
+		var shown: Array[bool] = [false]
+		_show_card_cast_anim(trap, owner == "enemy", func() -> void: shown[0] = true)
 		# Wait for the full card animation to finish (~1.1s)
-		while not effect_resolved and is_inside_tree():
+		while not shown[0] and is_inside_tree():
 			await get_tree().process_frame
 		# Small gap between sequential traps
 		if is_inside_tree():
@@ -4266,12 +4177,11 @@ var _pending_spell_popups: Array = []  # Array[{slot: BoardSlot, damage: int}]
 ## so the defeat / victory flow can fire immediately.
 var _pending_hero_popups: Array = []  # Array[{kind, target, amount, school, is_crit}]
 
-## Pending corruption-apply for wave-driven spells (Abyssal Plague). Each
-## entry's BuffSystem.apply is deferred until wave-touch, so state mutation,
-## label tween, corruption icon, and blink all happen at the visible moment.
-## Drained per-minion by _drain_pending_spell_popup_for_slot; any leftovers
-## drain at end of VFX via _drain_pending_spell_popups.
-var _pending_corruption_apply: Array = []  # Array[{slot: BoardSlot, minion: MinionInstance}]
+## Pending corruption-apply visuals for wave-driven spells (Abyssal Plague).
+## The stack itself is applied at cast (plan 3.0); the splash + blink wait for
+## wave-touch. Drained per-minion by _drain_pending_spell_popup_for_slot; any
+## leftovers drain at end of VFX via _drain_pending_spell_popups.
+var _pending_corruption_apply: Array = []  # Array[{slot: BoardSlot}]
 
 func _on_state_spell_damage_dealt(target: MinionInstance, damage: int, school: int = Enums.DamageSchool.NONE) -> void:
 	if combat_ui != null:
@@ -4303,12 +4213,6 @@ func _drain_pending_spell_popups() -> void:
 	_pending_hero_popups.clear()
 	for entry in _pending_corruption_apply:
 		var c_slot: BoardSlot = entry["slot"] as BoardSlot
-		var c_minion: MinionInstance = entry["minion"] as MinionInstance
-		if c_minion == null or not is_instance_valid(c_minion):
-			continue
-		# Mutate state now — fires minion_stats_changed naturally, which
-		# drives the ATK tween via the signal subscriber.
-		state._corrupt_minion(c_minion)
 		if c_slot != null and is_instance_valid(c_slot):
 			_play_corruption_apply_visual(c_slot)
 	_pending_corruption_apply.clear()
@@ -4339,11 +4243,7 @@ func _drain_pending_spell_popup_for_slot(slot: BoardSlot) -> bool:
 			corr_idx = i
 			break
 	if corr_idx >= 0:
-		var entry: Dictionary = _pending_corruption_apply[corr_idx]
 		_pending_corruption_apply.remove_at(corr_idx)
-		var c_minion: MinionInstance = entry.get("minion") as MinionInstance
-		if c_minion != null and is_instance_valid(c_minion):
-			state._corrupt_minion(c_minion)
 		_play_corruption_apply_visual(slot)
 	var found_popup := false
 	for i in _pending_spell_popups.size():

@@ -399,7 +399,7 @@ func on_player_attack_corrupting_strike(ctx: EventContext) -> void:
 		return
 	var defender = ctx.defender
 	if defender is MinionInstance:
-		_scene._corrupt_minion(defender as MinionInstance)
+		state._corrupt_minion(defender as MinionInstance)
 	elif defender is String and defender == "enemy_hero":
 		state._corrupt_hero("enemy")
 
@@ -801,7 +801,7 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 		"void_mark_on_void_imp_death":
 			if _is_void_imp(dead):
 				_log("  Abyssal Sacrificer: %s died → 1 Void Mark." % dead.card_data.card_name, _LOG_PLAYER)
-				_scene._apply_void_mark(1)
+				state._apply_void_mark(1)
 		"soul_taskmaster_gain_atk":
 			if (dead.card_data as MinionCardData).is_race(Enums.MinionType.DEMON) and dead != passive_owner:
 				BuffSystem.apply(passive_owner, Enums.BuffType.ATK_BONUS, 50, "soul_taskmaster_stack", false, false)
@@ -1176,7 +1176,7 @@ func on_enemy_summon_corrupt_authority_human(ctx: EventContext) -> void:
 	if state.player_board.is_empty():
 		return
 	var target: MinionInstance = state.rng_pick(state.player_board)
-	_scene._corrupt_minion(target)
+	state._corrupt_minion(target)
 	_log("  Corrupt Authority: %s summoned → %s is Corrupted." % [minion.card_data.card_name, target.card_data.card_name], _LOG_ENEMY)
 
 ## When a feral imp is summoned: consume all Corruption on each player minion, deal 100 damage per stack.
@@ -1375,7 +1375,7 @@ func on_enemy_turn_end_void_unraveling(_ctx: EventContext) -> void:
 	# Pick one random spark, corrupt it, transfer it
 	var spark: MinionInstance = state.rng_pick(sparks)
 	if not BuffSystem.has_type(spark, Enums.BuffType.CORRUPTION):
-		_scene._corrupt_minion(spark)
+		state._corrupt_minion(spark)
 	state._spark_transfer_count += 1
 	if not _transfer_to_player_board(spark):
 		state.combat_manager.kill_minion(spark)

@@ -22,6 +22,10 @@
 # Slot / board visuals
 _find_slot_for                    # BoardSlot lookup for VFX anchoring; null-checked
 _play_corruption_apply_visual
+_show_corruption_applied          # CombatState._corrupt_minion hook (capture-aware splash)
+_show_void_mark_applied           # CombatState._apply_void_mark hook
+_fire_void_bolt_projectile        # CombatState._deal_void_bolt_damage hook (projectile only)
+_fire_enemy_void_bolt_projectile  # CombatState._deal_enemy_void_bolt_damage hook
 _play_corruption_detonations
 _play_void_netter_on_play_vfx
 _play_brood_call_vfx
@@ -42,7 +46,7 @@ _flash_trap_slot_for
 enemy_trap_slot_panels            # ritual-sacrifice VFX anchors
 # CombatState hooks (plan 1.4) — animation / popup half of the shared handlers
 _on_minion_vanished_visual        # hand glows, spell costs, death animation (deferred mid-lunge)
-play_trap_reveals                 # trap card animations; runs each resolve at impact (B12, until Phase 3.0)
+play_trap_reveals                 # trap card animation; the state resolves the trap inline
 _on_hero_damaged_visual           # flash / popup; lethal → defeat/victory, F15 transition
 _on_hero_healed_visual
 _on_card_left_hand                # hand-display removal without a play animation
@@ -63,11 +67,6 @@ death_anims_done
 _active_death_anims
 
 [facade]
-_apply_void_mark                  # + VoidMarkApplyVFX on the enemy panel
-_corrupt_minion                   # deferred into the spell-popup drain while a spell is captured (B13)
-_deal_void_bolt_damage            # awaits the projectile's impact before damage
-_deal_enemy_void_bolt_damage      # awaits the projectile's impact before damage
 _fire_ritual                      # awaits rune-placement + ritual VFX before resolving
-_sacrifice_minion                 # death animation + hand glow refresh
 _summon_token                     # sigil summon animation
 _summon_token_at_slot             # sigil summon animation

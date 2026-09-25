@@ -543,15 +543,13 @@ func on_enemy_hero_button_pressed() -> void:
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
 	if school == Enums.DamageSchool.VOID_BOLT:
-		# Void Bolt-flavored basic attack: fire projectile, await impact, then
-		# resolve damage. resolve_minion_attack_hero still tags the DamageInfo
-		# with VOID_BOLT via _attack_damage_info, so school flows correctly.
+		# Void Bolt-flavored basic attack: the damage lands now (plan 3.0) and
+		# the projectile flies as presentation. resolve_minion_attack_hero tags
+		# the DamageInfo with VOID_BOLT via _attack_damage_info.
 		_scene._log("Your %s strikes Enemy Hero with a Void Bolt!" % attacker.card_data.card_name, 1)  # PLAYER
 		_scene._enemy_hero_panel.show_attackable(false)
-		var bolt: VoidBoltProjectile = _scene._fire_void_bolt_projectile(attacker, false)
-		if bolt != null and _scene.is_inside_tree():
-			await bolt.impact_hit
 		_scene.combat_manager.resolve_minion_attack_hero(attacker, "enemy")
+		_scene._fire_void_bolt_projectile(attacker, false)
 	else:
 		_scene._log("Your %s attacks Enemy Hero" % attacker.card_data.card_name)
 		_scene.combat_manager.resolve_minion_attack_hero(attacker, "enemy")

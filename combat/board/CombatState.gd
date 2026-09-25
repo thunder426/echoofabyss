@@ -287,6 +287,8 @@ func _apply_void_mark(amount: int) -> void:
 		return
 	enemy_void_marks += amount
 	_log("  Void Mark x%d applied! (total: %d)" % [amount, enemy_void_marks], 1)  # CombatLog.LogType.PLAYER = 1
+	if presenter != null:
+		presenter._show_void_mark_applied()
 
 ## Korrath — add Armour to a hero. Routes through HeroState.add_armour for the
 ## central mutation point and emits hero_armour_changed for UI.
@@ -911,10 +913,8 @@ func _void_mark_damage_per_stack() -> int:
 
 ## Sacrifice a minion: NOT death — fires ON_LEAVE steps, ON_CORRUPTION_REMOVED
 ## (if any stacks), and ON_*_MINION_SACRIFICED but NOT ON_*_MINION_DIED.
-## Removes the minion from its board and clears its slot (unless the slot is
-## frozen for an ongoing animation — scene's animation flow finishes the clear).
-## Live combat's _sacrifice_minion wrapper captures the slot reference first
-## and queues the death animation after this call returns.
+## Removes the minion from its board and frees its slot, then hands the
+## presenter the death animation (same hook as a death).
 func _sacrifice_minion(minion: MinionInstance) -> void:
 	if minion == null:
 		return
@@ -943,9 +943,12 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 	# frozen node's art until the death animation flushes it (plan 3.1a).
 	_friendly_board(minion.owner).erase(minion)
 	var sac_slot: SlotState = slot_for(minion)
+	var sac_index: int = sac_slot.index if sac_slot != null else -1
 	if sac_slot != null:
 		sac_slot.clear()
 	_log("  %s was sacrificed" % minion.card_data.card_name, 6)  # DEATH
+	if presenter != null:
+		presenter._on_minion_vanished_visual(minion, sac_index)
 
 ## Apply Void Bolt damage to the enemy hero, scaled by current Void Marks.
 ## CONVENTION: ALL Void Bolt damage in the game must go through this function
@@ -958,6 +961,9 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 ## Live combat's _deal_void_bolt_damage wrapper fires + awaits the projectile
 ## VFX before calling this so damage syncs with bolt impact.
 func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, from_rune: bool = false, is_minion_emitted: bool = false) -> void:
+	# The projectile is presentation (plan 3.0): it flies while the damage lands now.
+	if presenter != null:
+		presenter._fire_void_bolt_projectile(source_minion, from_rune)
 	var bonus: int = enemy_void_marks * void_mark_damage_per_stack
 	var total: int = base_damage + bonus
 	# Korrath B3 T2 Path of Corruption — gated by school: Path of Corruption
@@ -990,9 +996,11 @@ func _deal_void_bolt_damage(base_damage: int, source_minion: MinionInstance = nu
 		_corrupt_hero("enemy")
 
 ## Apply enemy-cast Void Bolt damage to the player hero. Does not participate
-## in Void Marks (those only apply to the enemy hero). Live combat's wrapper
-## fires + awaits the projectile VFX before calling this.
+## in Void Marks (those only apply to the enemy hero). The presenter fires the
+## projectile; the damage lands now (plan 3.0).
 func _deal_enemy_void_bolt_damage(base_damage: int, source_minion: MinionInstance = null, is_minion_emitted: bool = false) -> void:
+	if presenter != null:
+		presenter._fire_enemy_void_bolt_projectile(source_minion)
 	_log("  Void Bolt: %d damage." % base_damage, 2)  # ENEMY
 	var base_source: String = _pending_dmg_source
 	if base_source.is_empty():
@@ -1034,9 +1042,8 @@ func _on_trap_route(ctx: EventContext, owner: String) -> void:
 ## Spring `owner`'s non-rune traps whose trigger is `trigger` (skipped while the
 ## side's traps are blocked by Saboteur Adept). Each is consumed (unless
 ## reusable) before it resolves, so a second trigger mid-resolution can't
-## re-fire it. With a presenter (live) the resolutions go to
-## presenter.play_trap_reveals, which runs each after its card animation
-## (B12 stays open until Phase 3.0); without one they resolve inline.
+## re-fire it. Each trap resolves inline on both shells (B12 fixed, plan 3.0);
+## with a presenter its card animation is started first, fire-and-forget.
 func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInstance = null) -> void:
 	if owner == "enemy" and _enemy_traps_blocked:
 		return
@@ -1057,16 +1064,13 @@ func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInsta
 			traps.erase(trap)
 			_update_trap_display_for(owner)
 		trap_fired.emit(owner, trap, slot_idx)
-		var resolve := func() -> void:
-			var ctx := EffectContext.make(_get_scene_facade(), owner)
-			ctx.trigger_minion = triggering_minion
-			EffectResolver.run(trap.effect_steps, ctx)
+		# Reveal first (fire-and-forget card animation), then resolve inline
+		# (plan 3.0 / B12: the effect lands on the event that sprang it).
 		if presenter != null:
-			reveals.append({trap = trap, slot_index = slot_idx, resolve = resolve})
-		else:
-			resolve.call()
-	if not reveals.is_empty():
-		presenter.play_trap_reveals(owner, reveals)
+			presenter.play_trap_reveals(owner, [{trap = trap, slot_index = slot_idx}])
+		var ctx := EffectContext.make(_get_scene_facade(), owner)
+		ctx.trigger_minion = triggering_minion
+		EffectResolver.run(trap.effect_steps, ctx)
 
 ## Compose an enemy spell cast resolution. The pre/post-cast hooks (Seris
 ## Void Amplification / Void Resonance) are player-only and not invoked here.
@@ -1148,6 +1152,8 @@ func _corrupt_minion(target: MinionInstance) -> void:
 	if _corrupting_presence_active and target.owner == "enemy":
 		BuffSystem.apply(target, Enums.BuffType.ARMOUR_BREAK, 100, "corrupting_presence", false, false)
 	_refresh_slot_for(target)
+	if presenter != null:
+		presenter._show_corruption_applied(target)
 
 ## Apply one Corruption stack to a hero. Mirror of _corrupt_minion for the hero
 ## debuff path (corrupting_strike against enemy hero, path_of_corruption spells
@@ -2101,7 +2107,7 @@ func _resolve_void_devourer_sacrifice(devourer: MinionInstance, owner: String = 
 	var count: int = to_sacrifice.size()
 	for m: MinionInstance in to_sacrifice:
 		_log("  Void Devourer sacrifices %s!" % m.card_data.card_name, 1)
-		SacrificeSystem.sacrifice(_get_scene_facade(), m, "void_devourer")
+		SacrificeSystem.sacrifice(self, m, "void_devourer")
 	if count > 0:
 		BuffSystem.apply(devourer, Enums.BuffType.ATK_BONUS, count * 300, "void_devourer", false, false)
 		devourer.current_health += count * 300

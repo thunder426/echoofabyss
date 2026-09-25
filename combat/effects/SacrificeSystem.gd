@@ -36,19 +36,19 @@ static func emit(minion: MinionInstance, source_tag: String) -> void:
 
 ## Preferred entry point. Drives the full sacrifice flow:
 ##   1. VFX bus signal (sacrifice_occurred) so SacrificeVFX subscribers can react.
-##   2. scene._on_demon_sacrificed for the Soul Forge / Fiend Offering tick.
-##   3. scene._sacrifice_minion which handles ON LEAVE steps, the
-##      ON_*_MINION_SACRIFICED trigger event, corruption removal, and silent
-##      board removal.
+##   2. state._on_demon_sacrificed for the Soul Forge / Fiend Offering tick.
+##   3. state._sacrifice_minion which handles ON LEAVE steps, the
+##      ON_*_MINION_SACRIFICED trigger event, corruption removal, board removal
+##      and the presenter's death animation.
 ##
 ## Strict rule: sacrifice does NOT fire ON_*_MINION_DIED, on_death_effect_steps,
 ## or any "killer credit" effect. Cards that need to react to sacrifice must use
 ## ON LEAVE (on_leave_effect_steps) or listen to ON_*_MINION_SACRIFICED directly.
-static func sacrifice(scene: Object, minion: MinionInstance, source_tag: String) -> void:
+static func sacrifice(state: CombatState, minion: MinionInstance, source_tag: String) -> void:
 	if minion == null:
 		return
 	bus().emit_signal("sacrifice_occurred", minion, source_tag)
-	if scene != null and scene.has_method("_on_demon_sacrificed"):
-		scene._on_demon_sacrificed(minion, source_tag)
-	if scene != null and scene.has_method("_sacrifice_minion"):
-		scene._sacrifice_minion(minion)
+	if state == null:
+		return
+	state._on_demon_sacrificed(minion, source_tag)
+	state._sacrifice_minion(minion)
