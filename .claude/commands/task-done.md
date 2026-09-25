@@ -18,5 +18,6 @@ Steps:
 7. Tell the user one short line: `Closed task NNN — <title>.` Do not paste the file back.
 
 Notes:
+- If the task touched combat, rules, AI or sim code, `tools/run_checks.sh` must be green before the version commit (lint, RunAllTests, LiveSmoke, Parity). Say in the summary if it was not run.
 - Do NOT manually edit `tasks/TASKS.md` or `tasks/tasks.html`. They regenerate via the hook.
 - If the work split into a follow-up that warrants its own tracker entry, mention to the user that they may want `/task-start` for it.

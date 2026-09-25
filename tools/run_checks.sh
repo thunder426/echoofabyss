@@ -3,7 +3,8 @@
 #   1. refresh Godot's import + global class cache (it goes stale and breaks parsing)
 #   2. engine lint + every script compiles
 #   3. RunAllTests (headless)
-#   4. LiveSmoke — headless CombatScene (once debug/tests/LiveSmoke.tscn exists)
+#   4. LiveSmoke — headless CombatScene
+#   5. Parity — engine fights replayed through the live CombatScene (plan 5.1)
 # Fails on any lint error, test failure, or `SCRIPT ERROR` in Godot's output.
 set -u
 cd "$(dirname "$0")/.."
@@ -54,7 +55,7 @@ run_scene() {  # $1 = label, $2 = scene path
 	local log="$LOG_DIR/$1.log"
 	run_logged "$log" "$GODOT" --headless --path . "$2"
 	local rc=$?
-	grep -E 'passed, [0-9]+ failed|LiveSmoke:' "$log" | tail -5
+	grep -E 'passed, [0-9]+ failed|LiveSmoke:|Parity:|  FAIL ' "$log" | tail -8
 	if [ $rc -ne 0 ]; then echo "run_checks: $1 exited $rc (log: $log)"; status=1; fi
 	if grep -q 'SCRIPT ERROR' "$log"; then
 		echo "run_checks: $1 printed SCRIPT ERROR (log: $log):"
@@ -64,9 +65,8 @@ run_scene() {  # $1 = label, $2 = scene path
 }
 
 run_scene tests res://debug/tests/RunAllTests.tscn
-if [ -f debug/tests/LiveSmoke.tscn ]; then
-	run_scene livesmoke res://debug/tests/LiveSmoke.tscn
-fi
+run_scene livesmoke res://debug/tests/LiveSmoke.tscn
+run_scene parity res://debug/tests/Parity.tscn
 
 if [ $status -eq 0 ]; then echo "run_checks: OK"; else echo "run_checks: FAILED"; fi
 exit $status

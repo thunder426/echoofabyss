@@ -3,7 +3,7 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-- ["044"](044-live-sim-unification-phase-4.md) — Live/sim unification — Phase 4 (combat, started 2026-09-25)
+- ["045"](045-live-sim-unification-phase-5.md) — Live/sim unification — Phase 5 (combat, started 2026-09-25)
 - ["043"](043-live-sim-unification-phase-3.md) — Live/sim unification — Phase 3 (combat, started 2026-09-24)
 
 ## Backlog
@@ -20,6 +20,7 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
 
 ## Done
+- ["044"](044-live-sim-unification-phase-4.md) — Live/sim unification — Phase 4 (combat, 2026-09-25 → 2026-09-25)
 - ["040"](040-live-sim-unification-phase-0.md) — Live/sim unification — Phase 0 (foundations + hotfixes) (combat, 2026-09-23 → 2026-09-23)
 - ["041"](041-live-sim-unification-phase-1.md) — Live/sim unification — Phase 1 (rules code addresses state) (combat, 2026-09-23 → 2026-09-23)
 - ["042"](042-live-sim-unification-phase-2a.md) — Live/sim unification — Phase 2A (engine commands, shared turn engine, trap routing) (combat, 2026-09-23 → 2026-09-23)

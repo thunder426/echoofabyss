@@ -18,9 +18,10 @@ Project-relative paths in the table below are clickable.
 
 | Tool | Purpose | Headless? | Asserts? | Time |
 |---|---|---|---|---|
-| [tools/run_checks.sh](#run_checkssh--the-refactor-gate) | **The gate**: import → engine lint → compile every script → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR` | Yes | Yes | ~40s |
-| [Engine lint](#engine-lint--toolslintlint_enginepy) | Static checks: no shell (L1) or presenter (L3) in rules code, global RNG (L2), duck typing (L4 / L9), nothing extends CombatState (L5), the engine never waits (L6), one engine body (L7), presentation never mutates (L8) | Yes (Python) | Yes | <1s |
+| [tools/run_checks.sh](#run_checkssh--the-refactor-gate) | **The gate**: import → engine lint → compile every script → RunAllTests → LiveSmoke → Parity; fails on any `SCRIPT ERROR` | Yes | Yes | ~90s |
+| [Engine lint](#engine-lint--toolslintlint_enginepy) | Static checks: no shell (L1) or presenter (L3) in rules code, global RNG (L2), duck typing (L4 / L9), nothing extends CombatState (L5), the engine never waits (L6), one engine body (L7), presentation never mutates (L8), VFX timer count (L10), scene-handle names resolve (L11) | Yes (Python) | Yes | <1s |
 | [LiveSmoke](#livesmoke--headless-combatscene) | Boots the real `CombatScene` headless: an enemy turn, the F13 champion, the live rules paths and a whole AI-vs-AI fight through the presenter | Yes | Yes | ~30s |
+| [Parity](#parity--engine-vs-live-scene) | 8 fights × 3 seeds run on the bare engine, then replayed through the live `CombatScene`'s input handlers; state compared after every command | Yes | Yes | ~40s |
 | [RunAllTests](#runalltests--layered-test-suite) | Layered correctness tests (4 layers, ~500 assertions) | Yes | Yes | ~10s |
 | [BalanceSimBatch](#balancesimbatch--full-balance-matrix) | Full balance matrix across acts/decks/relics | Yes | No (prints stats) | 5–15 min |
 | [BalanceSim](#balancesim--interactive-balance-ui) | Editor UI to tweak settings + run sims | No (editor) | No | Interactive |
@@ -47,7 +48,7 @@ Runs, in order: `godot --headless --import` (refreshes `.godot/global_script_cla
 which goes stale and makes CombatScene fail to parse), the engine lint,
 `tools/lint/load_all_scripts.gd` (compiles every `.gd` — tests only load the
 scripts they reach, so a parse error in UI or debug code would otherwise slip
-through), `RunAllTests`, then `LiveSmoke`. Exits non-zero on any lint error,
+through), `RunAllTests`, `LiveSmoke`, then `Parity`. Exits non-zero on any lint error,
 compile failure, test failure, or `SCRIPT ERROR` line in Godot's output (handler
 errors don't fail an assertion, they only print — this is how live-only crashes
 surface). Each Godot run is killed after `RUN_CHECKS_TIMEOUT` seconds (default
@@ -69,6 +70,8 @@ step of that refactor must leave it green.
 | L7 | A second definition, anywhere in the repo, of a state command (`func cmd_*`), the turn engine (`begin_turn` / `end_turn`), trap routing (`_fire_traps_for`), or an AI profile table (a script preloading the `enemies/ai/profiles/` scripts — only `ProfileRegistry` may). |
 | L8 | Gameplay mutation in presentation code (`combat/effects/*VFX.gd`, `combat/effects/vfx/*.gd`, `combat/ui/*.gd` except `CheatPanel`, and `BoardSlot` / `CombatPresenter` / `CombatUI` / `CombatInputHandler` / `TrapEnvDisplay` / `LargePreview` / `Targeting` / `CounterWarning`): `BuffSystem.apply*`, `SlotState.place(`, `combat_manager.`, `trigger_manager.fire`, `EffectResolver.run`, `state.<field> =`, board `append` / `erase`, `current_health` writes. Rules code journals an event; the presenter plays it (plan 3.5). |
 | L9 | Duck typing anywhere in `combat/board`, `combat/events`, `combat/effects` (VFX files exempt), `relics`, `sim`, `enemies/ai`: `has_method(`, and `.get("x")` / `.set("x", …)` / `"x" in obj` on an object handle. Dictionary `.get("key")` is fine (plan 4.8). |
+| L10 | More `await get_tree().create_timer` in `combat/effects/*VFX.gd` than `L10_BASELINE` (20 when the rule landed) — new VFX sequence with `VfxSequence`; lower the baseline as old ones migrate (plan 5.3). |
+| L11 | A name reached through an untyped scene handle that doesn't exist: in `combat/`, `relics/` and `debug/tests/`, `_scene.X` / `scene.X` / `_combat.X` / `combat.X` must be declared on `CombatScene` (or be a Node / CanvasItem member) and `<handle>.state.X` on `CombatState`. The compiler never checks these, so a deleted scene helper otherwise fails only when a player clicks — 0.617 deleted `_player_can_afford_sparks` and every spell / minion selection errored live until Phase 5 (plan 5.3). |
 
 ## LiveSmoke — headless CombatScene
 
@@ -80,6 +83,38 @@ F1 boots with a 4-card hand and completes a full enemy turn; F13 fires 6 enemy
 spells and gets exactly one Void Ritualist Prime champion. Sets
 `UserProfile.saving_disabled` so scene changes never touch `user://profile.json`,
 and `BaseVfx.time_scale = 0.05` (not 0 — at 0 VfxSequence drops mid-phase beats).
+
+## Parity — engine vs live scene
+
+**Path:** [debug/tests/ParityTests.gd](../debug/tests/ParityTests.gd) · **Scene:** `res://debug/tests/Parity.tscn`
+
+```bash
+godot --headless --path . res://debug/tests/Parity.tscn [-- --filter F15]
+```
+
+Plan 5.1 / 5.2. For each of 8 cases (F1–F3 on the three Vael decks, Seris
+Corrupt Flesh and Soul Forge, Korrath, F13, F15; four carry relic pairs) × 3
+seeds:
+
+1. **Engine run:** `CombatSim.run` on a bare `CombatState`; every accepted
+   command's record and `digest_text()` are captured through
+   `state.command_recorded` (hooked in with `CombatSim.state_observer`).
+2. **Live replay:** the same run state in `GameManager` → a headless
+   `CombatScene` (`CombatConfig.from_game_manager`, same seed,
+   `presenter.instant`). The player's commands are replayed through the
+   scene's input entry points — hand-card select, slot and hero clicks, the
+   relic bar, the Seris skill buttons, end turn; the enemy is the scene's own
+   `EnemyTurnRunner`. The player grows by the same profile curve the sim uses.
+3. Records and digests must match at every index, the final digests too; the
+   fight must end with a winner and the presenter must have played the whole
+   journal (5.2's live smoke matrix — F1–F3 are every Act 1 encounter).
+
+A mismatch prints the index, the command, and the differing digest lines (or,
+when the input layer issued nothing, engine vs view slot occupancy). Moves the
+AI makes that a player can't (a skipped mandatory target, a target the UI
+doesn't offer, a random-target spell, spark fuel) are issued straight to the
+engine and tallied by `reason:card` in the last line — a sim-fidelity signal,
+not a failure. Budget ≤ 60 s: trim cases, never seeds.
 
 ## Determinism and seeds
 
@@ -100,7 +135,8 @@ the agents' own `decision_rng`, so the engine RNG stream matches). Record with
 `ReplayRunner.tscn -- /tmp/f.json` (exit 0 = digest matches, every command
 accepted). Probe: `--filter replay`. Live input goes through the same commands
 since Phase 3.4 (end turn included since 4.4), so `state.command_log` records a
-live fight too; replaying it through the scene is the Phase 5 parity test.
+live fight too. The [parity test](#parity--engine-vs-live-scene) replays sim
+fights through the live scene's input handlers.
 
 ## RunAllTests — layered test suite
 
@@ -403,9 +439,12 @@ is a regression.
 $GODOT --headless --path $PROJECT res://debug/tests/RunAllTests.tscn 2>&1 | tee test.log
 grep -q "^=== [0-9]* passed, 0 failed" test.log || exit 1
 
-# The full gate (lint, compile, tests, LiveSmoke): ~40s
+# The full gate (lint, compile, tests, LiveSmoke, Parity): ~90s
 tools/run_checks.sh || exit 1
 ```
+
+A ready-made hook: `ln -s ../../tools/hooks/pre-push .git/hooks/pre-push`
+(`git push --no-verify` skips it once).
 
 ---
 

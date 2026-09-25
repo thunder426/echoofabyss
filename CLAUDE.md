@@ -28,7 +28,7 @@ Project work is logged in `tasks/` — one markdown file per task with frontmatt
 `design/TESTING.md` is the inventory of every test harness, simulator, and debug tool, with run commands. The two defaults:
 
 - **Correctness** — `res://debug/tests/RunAllTests.tscn` (~10s, ~500 assertions across 4 layers). Use `--filter <substring>` to scope. New cards/handlers should ship with a probe in `CardEffectTests.gd` or `TriggerHandlerTests.gd`.
-- **Refactor gate** — `tools/run_checks.sh` (Godot import → engine lint → RunAllTests → headless live-CombatScene smoke; fails on any `SCRIPT ERROR`). Run it for combat/rules changes: the plain suite runs on SimState and can't see live-only breakage.
+- **Refactor gate** — `tools/run_checks.sh` (Godot import → engine lint → RunAllTests → headless live-CombatScene smoke → live/engine parity; fails on any `SCRIPT ERROR`). Run it for combat/rules/UI changes: the plain suite runs on a bare CombatState and can't see live-only breakage; the parity test (`res://debug/tests/Parity.tscn`) replays engine fights through the live scene's input handlers and compares state after every command.
 - **Balance** — `res://debug/BalanceSimBatch.tscn` is the default sim entry point (full Act × profile matrix). Reach for it first; use `DebugSingleSim` only for step-by-step debug logs.
 
 Both run headless via `godot --headless --path . <scene>`.
@@ -49,4 +49,4 @@ Both run headless via `godot --headless --path . <scene>`.
 
 Register via `tm.register(Enums.TriggerEvent.X, callable, priority)` inside `CombatSetup.setup(state)` (or its `_REGISTRY` for talents / passives) only — `CombatState.setup_combat` runs it for live, sim and tests alike. No mirroring anywhere else.
 
-In handler/effect bodies, read and write gameplay through the typed `state` (`state.player_board`, `state._refresh_slot_for(m)`, `ctx.state.draw_cards(...)`). Rules code never touches the scene or the presenter: anything the screen must show is a journal event (`state.emit_event(CombatEvent.Kind.X, side, payload)`, card-specific animation as a `VFX` event) that `CombatPresenter` plays. Never duck-type (`has_method`, `.get("x")` on an object). `tools/run_checks.sh` lints this (L1–L9) and must be green before a version commit.
+In handler/effect bodies, read and write gameplay through the typed `state` (`state.player_board`, `state._refresh_slot_for(m)`, `ctx.state.draw_cards(...)`). Rules code never touches the scene or the presenter: anything the screen must show is a journal event (`state.emit_event(CombatEvent.Kind.X, side, payload)`, card-specific animation as a `VFX` event) that `CombatPresenter` plays. Never duck-type (`has_method`, `.get("x")` on an object). `tools/run_checks.sh` lints this (L1–L11) and must be green before a version commit.

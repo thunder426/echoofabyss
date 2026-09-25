@@ -59,7 +59,7 @@ func _f1_enemy_turn_completes() -> void:
 		"F1: Essence pick applied on turn 2 (%d/%d)" % [st.player_essence_max, st.player_mana_max])
 	_check(st.enemy_essence_max == 1 and st.enemy_mana_max == 1,
 		"F1: enemy at 1/1 after its first turn (%d/%d)" % [st.enemy_essence_max, st.enemy_mana_max])
-	# Plan 2A.5: profiles no longer deduct costs — EnemyAI.commit_* pays them.
+	# Plan 2A.5: profiles no longer deduct costs — the state commands pay them.
 	var played: int = st.enemy_graveyard.size() - e_grave_before
 	_check(played == 0 or st.enemy_essence + st.enemy_mana < 2,
 		"F1: the enemy paid for its %d play(s) (left %dE/%dM)" % [played, st.enemy_essence, st.enemy_mana])
@@ -159,10 +159,11 @@ func _live_rules_paths() -> void:
 # ---------------------------------------------------------------------------
 
 ## A whole fight in the real scene (plan 3.5): the player is a StateAgent on
-## the default player profile, the enemy the scene's own EnemyAI; the presenter
+## the default player profile, the enemy the scene's own EnemyTurnRunner; the presenter
 ## runs with `instant` so nothing animates. Ends with a winner, the presenter
 ## idle and the journal fully played.
 func _ai_vs_ai_fight() -> void:
+	GameManager.next_combat_seed = 7  # a reproducible fight
 	var scene: Node = await _launch(1, "swarm")
 	var st: CombatState = scene.state
 	scene.presenter.instant = true
@@ -170,6 +171,10 @@ func _ai_vs_ai_fight() -> void:
 	agent.setup(st, "player")
 	var profile: CombatProfile = ProfileRegistry.make("player", "default")
 	profile.setup(agent)
+	# The agent ends its turns with no growth pick; grow it by the profile's
+	# curve instead, as the sim does.
+	st.growth_hooks["player"] = func(side: String, turn: int) -> void:
+		profile.grow_resources(st, side, turn)
 	var t0: int = Time.get_ticks_msec()
 	var turns: int = 0
 	while st.winner.is_empty() and not scene.state._combat_ended and Time.get_ticks_msec() - t0 < FIGHT_TIMEOUT_MS:

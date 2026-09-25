@@ -49,6 +49,17 @@ rule set and the phase that introduces each rule.
       `has_method(`, and `.get/.set("x")` / `"x" in` on an object handle.
       Dictionary `.get("key")` is fine.
 
+  L10 (plan 5.3) VFX runners, not ad-hoc timers: `await get_tree().create_timer`
+      in combat/effects/*VFX.gd may not exceed L10_BASELINE (the count when the
+      rule landed). Lower the baseline when a VFX migrates.
+
+  L11 (plan 5.3) Names reached through an untyped scene handle resolve: in
+      combat/, relics/ and debug/tests/, `_scene.X` / `scene.X` / `_combat.X` /
+      `combat.X` must be declared on CombatScene (or be a Node / CanvasItem
+      member), and `<handle>.state.X` on CombatState. The handles are untyped,
+      so the compiler never checks these — a deleted scene helper otherwise
+      fails only when a player clicks (0.617's `_player_can_afford_sparks`).
+
 Rules not yet enforced (see ENFORCED) are still computed; `--all` prints them,
 but they do not count toward the exit code.
 
@@ -93,7 +104,25 @@ RULES_FILES = [
 
 # Rules counted toward the exit code (L3/L4 since plan step 1.2, L5 since 1.6,
 # L6/L7 since 2A.9).
-ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9"}
+ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11"}
+
+# L10: `await get_tree().create_timer` count in *VFX.gd when the rule landed.
+L10_BASELINE = 20
+
+# L11: untyped handles to the live CombatScene, the directories they are
+# checked in, and the Node / CanvasItem members they may use besides the
+# scene's own declarations.
+SCENE_HANDLES = ["_scene", "scene", "_combat", "combat"]
+SCENE_HANDLE_DIRS = ["combat", "relics", "debug/tests"]
+NODE_MEMBERS = {
+    "get_viewport", "get_tree", "add_child", "remove_child", "move_child", "is_inside_tree",
+    "get_node", "get_node_or_null", "has_node", "get_parent", "get_children", "get_child",
+    "get_child_count", "get_index", "find_child", "queue_free", "call_deferred", "call",
+    "create_tween", "get_global_mouse_position", "get_viewport_rect", "connect", "disconnect",
+    "is_connected", "emit_signal", "set_process", "set_process_input", "name", "owner",
+    "position", "global_position", "scale", "rotation", "modulate", "visible", "z_index",
+    "to_global", "to_local", "get_canvas_transform", "state",
+}
 
 # L1 / L3: handles that would resolve to the combat shell, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
@@ -330,6 +359,38 @@ class Linter:
                 for m in in_re.finditer(line):
                     self.err("L9", rel, i, f'"{m.group(1)}" in <object> — use the typed member')
 
+    # -- L10 -----------------------------------------------------------------
+    def scan_vfx_timers(self) -> None:
+        import glob
+        hits: list[tuple[str, int]] = []
+        for f in sorted(glob.glob(os.path.join(ROOT, "combat/effects/*VFX.gd"))):
+            rel = os.path.relpath(f, ROOT)
+            for i, raw in enumerate(read(rel), start=1):
+                if "await get_tree().create_timer" in strip_comment(raw):
+                    hits.append((rel, i))
+        if len(hits) > L10_BASELINE:
+            rel, i = hits[-1]
+            self.err("L10", rel, i, f"{len(hits)} `await get_tree().create_timer` in *VFX.gd (baseline {L10_BASELINE}) "
+                     "— sequence the VFX with VfxSequence instead")
+
+    # -- L11 -----------------------------------------------------------------
+    def scan_scene_handles(self) -> None:
+        scene_names = declared(SCENE) | NODE_MEMBERS
+        handles = "|".join(re.escape(h) for h in SCENE_HANDLES)
+        state_re = re.compile(rf"(?<![\w.])(?:{handles})\.state\.(\w+)")
+        scene_re = re.compile(rf"(?<![\w.])(?:{handles})\.(\w+)")
+        for rel in gd_files():
+            if rel == SCENE or not any(rel.startswith(d + "/") for d in SCENE_HANDLE_DIRS):
+                continue
+            for i, raw in enumerate(read(rel), start=1):
+                line = re.sub(r'"[^"]*"', '""', strip_comment(raw))
+                for m in state_re.finditer(line):
+                    if m.group(1) not in self.state:
+                        self.err("L11", rel, i, f"`{m.group(0)}` — CombatState declares no `{m.group(1)}`")
+                for m in scene_re.finditer(line):
+                    if m.group(1) not in scene_names:
+                        self.err("L11", rel, i, f"`{m.group(0)}` — CombatScene declares no `{m.group(1)}`")
+
     def run(self) -> int:
         self.scan_rng()
         for rel in RULES_FILES:
@@ -341,6 +402,8 @@ class Linter:
         self.scan_single_definitions()
         self.scan_presentation_mutation()
         self.scan_duck_typing()
+        self.scan_vfx_timers()
+        self.scan_scene_handles()
         return sum(1 for e in self.errors if e.split(" ", 1)[0] in ENFORCED)
 
 
