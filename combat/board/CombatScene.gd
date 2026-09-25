@@ -67,12 +67,11 @@ func _force_end_player_turn_for_phase_transition() -> void:
 	# End the turn — turn_manager will emit turn_ended(true) then turn_started(false),
 	# which routes through _on_turn_started and kicks off enemy_ai.run_turn().
 	turn_manager.end_player_turn()
-var player_slots: Array[BoardSlot]:
-	get: return state.player_slots
-	set(v): state.player_slots = v
-var enemy_slots: Array[BoardSlot]:
-	get: return state.enemy_slots
-	set(v): state.enemy_slots = v
+## Board slot *views* (plan 3.1a). Gameplay occupancy is `state.player_slots`
+## / `state.enemy_slots` (SlotState); these Panels mirror it via
+## `_on_slot_changed` and are what VFX / targeting anchor to.
+var player_slots: Array[BoardSlot] = []
+var enemy_slots:  Array[BoardSlot] = []
 
 # UI nodes
 var essence_label: Label
@@ -893,6 +892,7 @@ func _connect_board_slots() -> void:
 
 func _connect_combat_manager() -> void:
 	combat_manager.scene = self
+	state.slot_changed.connect(_on_slot_changed)
 	combat_manager.attack_resolved.connect(_on_attack_resolved)
 	combat_manager.minion_vanished.connect(state._on_minion_vanished)
 	combat_manager.hero_damaged.connect(state._on_hero_damaged)
@@ -1294,53 +1294,9 @@ func _on_enemy_slot_clicked(slot: BoardSlot, minion: MinionInstance) -> void:
 # Minion play
 # ---------------------------------------------------------------------------
 
-func _try_play_minion(inst: CardInstance, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
-	if not slot.is_empty():
-		return
-	var card := inst.card_data as MinionCardData
-	if not state.can_afford_sparks("player", card.void_spark_cost):
-		return
-	if card.void_spark_cost > 0:
-		state.pay_sparks("player", card.void_spark_cost)
-	# piercing_void talent's +1 Mana on Void Imp now lives in card.mana_cost
-	# directly via the talent_overrides system in CardDatabase.
-	var fp_discount := _peek_fiendish_pact_discount(card)
-	if not _pay_card_cost(maxi(0, card.essence_cost - fp_discount), maxi(0, card.mana_cost)):
-		return
-	if fp_discount > 0:
-		_log("  Fiendish Pact: %s costs %d less Essence." % [card.card_name, fp_discount], _LogType.PLAYER)
-		state._consume_fiendish_pact_discount()
-	_log("You play: %s" % card.card_name)
-	var instance := MinionInstance.create(card, "player")
-	instance.card_instance = inst
-	# Place visually first so the slot is not mistakenly taken by tokens summoned during on-play.
-	# Do NOT append to player_board yet — on-play effects should not see this minion on the board.
-	AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
-	slot.place_minion(instance)
-	# Fire ON_PLAYER_MINION_PLAYED — carries the player-chosen target for targeted battle cries.
-	# The minion is not in player_board during this event, so ALL_FRIENDLY effects exclude it naturally.
-	var play_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
-	play_ctx.minion = instance
-	play_ctx.card   = card
-	play_ctx.target = on_play_target
-	turn_manager.remove_from_hand(inst)
-	if hand_display:
-		hand_display.remove_card(inst)
-		hand_display.deselect_current()
-	trigger_manager.fire(play_ctx)
-	# Now officially join the board before ON_PLAYER_MINION_SUMMONED (summon triggers expect it present).
-	player_board.append(instance)
-	state.minion_summoned.emit("player", instance, slot.index)
-	var summon_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED, "player")
-	summon_ctx.minion = instance
-	summon_ctx.card   = card
-	trigger_manager.fire(summon_ctx)
-	_maybe_spawn_aura_pulse(card, slot)
-	_refresh_hand_spell_costs()
-
-
-## Animated variant of _try_play_minion — fires card flight + landing before triggers.
-## State changes happen immediately; triggers fire after landing animation.
+## Player minion play with card flight — the engine slot is taken at once (the
+## node stays frozen on its empty look during the flight); triggers still fire
+## at landing until Phase 3.4 routes this through cmd_play_minion.
 ## Called without await so input is never blocked.
 func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_target: MinionInstance = null) -> void:
 	if not slot.is_empty():
@@ -1361,7 +1317,9 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 	_log("You play: %s" % card.card_name)
 	var instance := MinionInstance.create(card, "player")
 	instance.card_instance = inst
-	# slot.place_minion deferred to on_landing so empty placeholder stays visible during flight
+	# Engine occupancy now; the view reveals the minion at landing.
+	slot.freeze_visuals = true
+	state.slot_of("player", slot.index).place(instance)
 
 	# Capture hand index BEFORE popping (pop removes the visual from the list)
 	var hand_index := hand_display.get_index_for(card) if hand_display else 0
@@ -1374,7 +1332,8 @@ func _try_play_minion_animated(inst: CardInstance, slot: BoardSlot, on_play_targ
 	var total_cost: int = card.essence_cost + card.mana_cost
 	var is_champion: bool = card.is_champion
 	var on_landing := func() -> void:
-		slot.place_minion(instance)  # switches slot from empty→occupied view at landing
+		slot.freeze_visuals = false
+		slot.show_minion(instance)  # switches slot from empty→occupied view at landing
 		var play_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, "player")
 		play_ctx.minion = instance
 		play_ctx.card   = card
@@ -2137,8 +2096,7 @@ func _on_friendly_minion_died(_dead_minion: MinionInstance) -> void:
 ## Generic token summon used by EffectResolver. Summons card_id into the first empty slot for owner.
 ## token_atk / token_hp / token_shield override the template defaults when non-zero.
 func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
-	var slots  := player_slots if owner == "player" else enemy_slots
-	for slot in slots:
+	for slot: SlotState in state._friendly_slots(owner):
 		if slot.is_empty():
 			_spawn_token_into_slot_vfx(card_id, owner, slot, token_atk, token_hp, token_shield)
 			return
@@ -2147,7 +2105,7 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 ## Silently fizzles if the slot is null, off-board, or already occupied — that's
 ## the "up to 2" semantics. Mirrors CombatState._summon_token_at_slot but routes
 ## through the VFX-rich spawn path so champion/sigil token animations still play.
-func _summon_token_at_slot(card_id: String, owner: String, slot: BoardSlot, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+func _summon_token_at_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
 	if slot == null or not slot.is_empty():
 		return
 	_spawn_token_into_slot_vfx(card_id, owner, slot, token_atk, token_hp, token_shield)
@@ -2158,10 +2116,11 @@ func _summon_token_at_slot(card_id: String, owner: String, slot: BoardSlot, toke
 ## Combat-time `_card_for` lookup so clan rules / overrides apply (Imp Vessel
 ## on-death imps, Ritual Surge imps, Soul Forge Forged Demons land with talent
 ## baselines instead of base stats).
-func _spawn_token_into_slot_vfx(card_id: String, owner: String, slot: BoardSlot, token_atk: int, token_hp: int, token_shield: int) -> void:
+func _spawn_token_into_slot_vfx(card_id: String, owner: String, sslot: SlotState, token_atk: int, token_hp: int, token_shield: int) -> void:
 	var data := _card_for(owner, card_id) as MinionCardData
 	if data == null:
 		return
+	var slot: BoardSlot = slot_node(owner, sslot.index)
 	var board  := player_board if owner == "player" else enemy_board
 	var instance := MinionInstance.create(data, owner)
 	if token_atk    > 0:
@@ -2174,18 +2133,25 @@ func _spawn_token_into_slot_vfx(card_id: String, owner: String, slot: BoardSlot,
 		instance.current_shield = token_shield
 		BuffSystem.apply(instance, Enums.BuffType.SHIELD_BONUS, token_shield, "token", false, false)
 	board.append(instance)
-	state.minion_summoned.emit(owner, instance, slot.index)
-	# Champion tokens get a dramatic entrance (fire-and-forget — places minion on slot after animation)
-	if data.is_champion and vfx_bridge != null:
+	# Engine occupancy at once; the node stays frozen on its empty look until
+	# the entrance animation (champion banner / sigil) reveals it.
+	if slot != null:
+		slot.freeze_visuals = true
+	sslot.place(instance)
+	state.minion_summoned.emit(owner, instance, sslot.index)
+	# Champion tokens get a dramatic entrance (fire-and-forget — reveals the minion after the banner)
+	if data.is_champion and vfx_bridge != null and slot != null:
 		vfx_bridge.champion_summon_sequence(data, instance, slot)
 		return
 	# Token-VFX dispatch lives in CardVfxRegistry. When a registered handler runs
-	# (sigil summons for spark/demon/brood_imp), the bridge places the minion AND
+	# (sigil summons for spark/demon/brood_imp), the bridge reveals the minion AND
 	# fires ON_*_MINION_SUMMONED via _reveal_after_sigil — so we short-circuit
 	# the default path.
-	if CardVfxRegistry.try_play_token_summon(vfx_bridge, card_id, instance, data, slot, owner):
+	if slot != null and CardVfxRegistry.try_play_token_summon(vfx_bridge, card_id, instance, data, slot, owner):
 		return
-	slot.place_minion(instance)
+	if slot != null:
+		slot.freeze_visuals = false
+		slot.show_minion(instance)
 	_log("  %s summoned!" % data.card_name, _LogType.PLAYER)
 	var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" else Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED
 	var ctx   := EventContext.make(event, owner)
@@ -2822,7 +2788,8 @@ func _on_attack_resolved(attacker: MinionInstance, defender: MinionInstance) -> 
 ## Hand glows / spell costs refresh, then the death animation — deferred while
 ## the slot is frozen mid-lunge; its position is captured now, while the slot
 ## is still in its original container.
-func _on_minion_vanished_visual(minion: MinionInstance, dead_slot: BoardSlot) -> void:
+func _on_minion_vanished_visual(minion: MinionInstance, slot_index: int) -> void:
+	var dead_slot: BoardSlot = slot_node(minion.owner, slot_index)
 	if minion.owner == "player" and hand_display:
 		hand_display.refresh_condition_glows(self, turn_manager.essence, turn_manager.mana)
 	_refresh_hand_spell_costs()
@@ -3104,7 +3071,7 @@ func _flash_trap_slot_for(owner: String, slot_idx: int) -> void:
 	trap_env_display.flash_slot(owner, slot_idx)
 
 ## Called by EnemyAI's minion_summoned signal.
-## slot.place_minion and triggers are deferred until after the reveal animation.
+## the slot reveal and triggers are deferred until after the reveal animation.
 func _on_enemy_minion_summoned(minion: MinionInstance, slot: BoardSlot) -> void:
 	_log("Enemy summons: %s" % minion.card_data.card_name, _LogType.ENEMY)
 	_enemy_hero_panel.update(enemy_hp, enemy_hp_max, state, enemy_void_marks)
@@ -3125,7 +3092,7 @@ func _animate_enemy_landing(slot: BoardSlot, total_cost: int, is_champion: bool)
 	slot.pivot_offset = Vector2.ZERO
 	_spawn_slot_ripple(slot, total_cost, is_champion)
 
-## Sequences reveal → place_minion → triggers → punch+ripple for an enemy summon.
+## Sequences reveal → show_minion → triggers → punch+ripple for an enemy summon.
 ## Empty placeholder stays visible during the reveal; minion appears only after it.
 func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, total_cost: int, is_champion: bool) -> void:
 	await _show_enemy_summon_reveal(minion.card_data)
@@ -3138,7 +3105,8 @@ func _enemy_summon_reveal_then_land(minion: MinionInstance, slot: BoardSlot, tot
 		enemy_ai._pending_slots.erase(slot)
 	if slot:
 		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
-		slot.place_minion(minion)
+		slot.freeze_visuals = false
+		slot.show_minion(minion)
 	if not is_inside_tree():
 		enemy_summon_reveal_done.emit()
 		return
@@ -4071,12 +4039,6 @@ func _play_frenzied_imp_vfx(source_minion: MinionInstance, target: MinionInstanc
 	# Setter auto-emits on_play_vfx_done when count hits zero.
 	_on_play_vfx_active = false
 
-func _clear_slot_for(minion: MinionInstance, slots: Array[BoardSlot]) -> void:
-	for slot in slots:
-		if slot.minion == minion:
-			slot.remove_minion()
-			return
-
 ## Safety sweep: find any minion on a slot whose HP ≤ 0 and that is no longer in the
 ## board array, then clear the slot.  Guards against edge-case desync between board
 ## data and slot visuals (e.g. death during async animation callbacks).
@@ -4084,11 +4046,11 @@ func _sweep_dead_minions() -> void:
 	for slot in player_slots:
 		if slot.minion != null:
 			if slot.minion.current_health <= 0 or not player_board.has(slot.minion):
-				slot.remove_minion()
+				slot.show_empty()
 	for slot in enemy_slots:
 		if slot.minion != null:
 			if slot.minion.current_health <= 0 or not enemy_board.has(slot.minion):
-				slot.remove_minion()
+				slot.show_empty()
 
 ## Death animation system delegated to vfx_bridge. Scene keeps thin wrappers
 ## so external callers (VfxController via _combat._flush_deferred_deaths,
@@ -4115,12 +4077,53 @@ func _clear_all_highlights() -> void:
 	targeting.clear_all_highlights()
 	_pending_relic_target = ""
 
+## The BoardSlot view showing `minion`: by engine occupancy first, then by what
+## the nodes still display (a dead minion held on a frozen node mid-animation).
 func _find_slot_for(minion: MinionInstance) -> BoardSlot:
+	if minion == null:
+		return null
+	var engine_slot: SlotState = state.slot_for(minion)
+	if engine_slot != null:
+		return slot_node(minion.owner, engine_slot.index)
 	var slots := player_slots if minion.owner == "player" else enemy_slots
 	for slot in slots:
 		if slot.minion == minion:
 			return slot
 	return null
+
+## The BoardSlot view for engine slot (side, index), or null when off-board.
+func slot_node(side: String, index: int) -> BoardSlot:
+	var slots: Array[BoardSlot] = player_slots if side == "player" else enemy_slots
+	if index < 0 or index >= slots.size():
+		return null
+	return slots[index]
+
+## CombatState.slot_changed subscriber (plan 3.1a): mirror engine occupancy
+## onto the view. A frozen node keeps its dead occupant's art until the death
+## animation flushes it (`_deferred_death_slots`); a placement into such a
+## node flushes that death first so the ghost rises before the newcomer shows.
+## Until Phase 3.2 this is immediate; the presenter then does it on playback.
+func _on_slot_changed(side: String, index: int) -> void:
+	var node: BoardSlot = slot_node(side, index)
+	if node == null:
+		return
+	var m: MinionInstance = state.slot_of(side, index).minion
+	if m == null:
+		if not node.freeze_visuals:
+			node.show_empty()
+		return
+	_flush_deferred_death_for(node)
+	node.show_minion(m)
+
+func _flush_deferred_death_for(node: BoardSlot) -> void:
+	for i in _deferred_death_slots.size():
+		var entry: Dictionary = _deferred_death_slots[i]
+		if entry.get("slot") != node:
+			continue
+		_deferred_death_slots.remove_at(i)
+		node.show_empty()
+		_animate_minion_death(node, entry["pos"], entry.get("minion"))
+		return
 
 
 ## Returns occupied BoardSlots belonging to the opponent of `owner_side`.

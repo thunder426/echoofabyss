@@ -305,7 +305,7 @@ func _execute_play(inst: CardInstance) -> bool:
 	var card: CardData = inst.card_data
 	if card is MinionCardData:
 		var mc := card as MinionCardData
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return true  # Board filled between scoring and execution
 		return await agent.commit_play_minion(inst, slot, pick_on_play_target(mc))

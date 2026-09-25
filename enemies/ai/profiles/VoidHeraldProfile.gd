@@ -159,7 +159,7 @@ func _try_rift_lord_combo() -> void:
 		return
 
 	# Execute combo: Tender first, then RL
-	var slot1: BoardSlot = agent.find_empty_slot()
+	var slot1: SlotState = agent.find_empty_slot()
 	if slot1 == null:
 		return
 	if not await agent.commit_play_minion(tender_inst, slot1, null):
@@ -286,7 +286,7 @@ func _play_spark_minion_by_id(target_id: String) -> bool:
 		var vh_alive := _scene_has("_champion_vh_summoned")
 		if not vh_alive and _empty_slot_count() <= 1:
 			return false
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		var mc := inst.card_data as MinionCardData
@@ -325,7 +325,7 @@ func _play_regular_minions() -> void:
 			# Rift Tender: needs extra slot for spark summon
 			if mc.id == "rift_tender" and not vh_alive and _empty_slot_count() < 3:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

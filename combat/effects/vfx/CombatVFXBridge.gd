@@ -44,9 +44,8 @@ func setup(p_scene: Node, p_state: CombatState, p_vfx: VfxController) -> void:
 ## slots. Each summon plays its own sigil in parallel.
 func summon_spark_with_sigil(instance: MinionInstance, data: MinionCardData,
 		slot: BoardSlot, owner: String) -> void:
-	# Reserve the slot synchronously — is_empty() now returns false for it.
+	# The engine already owns the slot; keep the node on its empty look until the sigil ends.
 	slot.freeze_visuals = true
-	slot.place_minion(instance)
 
 	# Spawn sigil and wait for it to finish before revealing the minion.
 	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.SPARK)
@@ -63,7 +62,6 @@ func summon_spark_with_sigil(instance: MinionInstance, data: MinionCardData,
 func summon_demon_with_sigil(instance: MinionInstance, data: MinionCardData,
 		slot: BoardSlot, owner: String) -> void:
 	slot.freeze_visuals = true
-	slot.place_minion(instance)
 
 	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.ARCANE_PURPLE)
 	vfx_controller.spawn(sigil)
@@ -88,7 +86,6 @@ func summon_demon_with_sigil(instance: MinionInstance, data: MinionCardData,
 func summon_brood_imp_with_sigil(instance: MinionInstance, data: MinionCardData,
 		slot: BoardSlot, owner: String) -> void:
 	slot.freeze_visuals = true
-	slot.place_minion(instance)
 
 	var sigil := SummonSigilVFX.create(slot, SummonSigilVFX.Flavor.BROOD_DARK)
 	vfx_controller.spawn(sigil)
@@ -675,13 +672,13 @@ func _summon_void_demon_synced(owner: String, done_ref: Array) -> void:
 	if data == null:
 		done_ref[0] = true
 		return
-	var slots: Array = scene.player_slots if owner == "player" else scene.enemy_slots
 	var board: Array = scene.player_board if owner == "player" else scene.enemy_board
-	var slot: BoardSlot = null
-	for s in slots:
-		if (s as BoardSlot).is_empty():
-			slot = s as BoardSlot
+	var sslot: SlotState = null
+	for s: SlotState in state._friendly_slots(owner):
+		if s.is_empty():
+			sslot = s
 			break
+	var slot: BoardSlot = scene.slot_node(owner, sslot.index) if sslot != null else null
 	if slot == null:
 		done_ref[0] = true
 		return
@@ -692,6 +689,8 @@ func _summon_void_demon_synced(owner: String, done_ref: Array) -> void:
 	instance.current_health = 500
 	instance.spawn_health   = 500
 	board.append(instance)
+	slot.freeze_visuals = true
+	sslot.place(instance)
 	if scene.state != null:
 		scene.state.minion_summoned.emit(owner, instance, slot.index)
 
@@ -787,10 +786,11 @@ func champion_summon_sequence(card: MinionCardData, instance: MinionInstance, sl
 	# 1+2. Card reveal + "CHAMPION" banner shown together, held longer
 	AudioManager.play_sfx("res://assets/audio/sfx/minions/champion_summon.wav")
 	await show_champion_reveal_with_banner(card)
-	if not is_inside_tree(): slot.place_minion(instance); return
+	if not is_inside_tree(): slot.freeze_visuals = false; slot.show_minion(instance); return
 
-	# 3. Place the minion on the slot
-	slot.place_minion(instance)
+	# 3. Reveal the minion on the slot (the engine placed it before the banner)
+	slot.freeze_visuals = false
+	slot.show_minion(instance)
 	if state != null:
 		state._log("  %s summoned!" % card.card_name, 1)  # PLAYER
 
@@ -1231,7 +1231,7 @@ func flush_deferred_deaths() -> void:
 		# Slot visuals were held during the freeze — clear the art so the
 		# ghost rises from an empty slot.
 		if slot != null and slot.minion != null:
-			slot.remove_minion()
+			slot.show_empty()
 		animate_minion_death(slot, entry.pos, entry.get("minion"))
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1415,7 +1415,7 @@ func show_enemy_summon_reveal(card: CardData) -> void:
 	visual.queue_free()
 	_scene._enemy_summon_reveal_active = false
 	# Do NOT emit enemy_summon_reveal_done here — scene's _enemy_summon_reveal_then_land
-	# emits it after slot.place_minion() so the AI never acts before the minion lands.
+	# emits it after the slot reveal so the AI never acts before the minion lands.
 
 ## Shared tail of every sigil-style summon: unfreeze the slot, fade the
 ## minion in, log, fire ON_*_MINION_SUMMONED. Pulled out so the three

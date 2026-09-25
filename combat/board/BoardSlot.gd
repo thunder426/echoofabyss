@@ -260,18 +260,20 @@ func _stop_pulse() -> void:
 	_pulse_t = 0.0
 
 # ---------------------------------------------------------------------------
-# Minion placement
+# Displayed occupant (view of CombatState's SlotState — plan 3.1a, D11).
+# Gameplay occupancy lives on `state.player_slots / enemy_slots`; these only
+# change what this panel shows. CombatScene._on_slot_changed mirrors the
+# engine; VFX paths call them to time the reveal.
 # ---------------------------------------------------------------------------
 
 func is_empty() -> bool:
 	return minion == null
 
-func place_minion(m: MinionInstance) -> void:
+func show_minion(m: MinionInstance) -> void:
 	minion = m
-	minion.slot_index = index
 	_refresh_visuals()
 
-func remove_minion() -> void:
+func show_empty() -> void:
 	minion = null
 	# Force-clear even if mid-lunge/sacrifice — the minion is gone, so the
 	# freeze (meant to hide transient empty-state flashes) would otherwise
@@ -685,7 +687,7 @@ func _show_occupied_state() -> void:
 	elif minion.owner == "player" and minion.state == Enums.MinionState.EXHAUSTED:
 		_status_bar_add_interactive_icon("icon_tired.png", "EXHAUSTED", "Cannot attack yet.")
 
-	# Set status bar size from config (always controlled here, not in place_minion)
+	# Set status bar size from config (always controlled here, not in show_minion)
 	var cfg_status: Dictionary = (_CFG_GENERIC if _using_generic else _CFG)["status"]
 	_status_bar.size = cfg_status["size"]
 	_status_bar.visible = _status_bar.get_child_count() > 0

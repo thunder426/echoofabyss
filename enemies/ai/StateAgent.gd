@@ -38,15 +38,15 @@ func _get_opponent_hp() -> int: return _state.enemy_hp if side == "player" else 
 func is_alive() -> bool:
 	return _state.winner.is_empty()
 
-func find_empty_slot() -> BoardSlot:
-	for slot: BoardSlot in _state._friendly_slots(side):
+func find_empty_slot() -> SlotState:
+	for slot: SlotState in _state._friendly_slots(side):
 		if slot.is_empty():
 			return slot
 	return null
 
 func empty_slot_count() -> int:
 	var count := 0
-	for slot: BoardSlot in _state._friendly_slots(side):
+	for slot: SlotState in _state._friendly_slots(side):
 		if slot.is_empty():
 			count += 1
 	return count
@@ -55,7 +55,7 @@ func empty_slot_count() -> int:
 # Actions — state commands
 # ---------------------------------------------------------------------------
 
-func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
+func commit_play_minion(inst: CardInstance, slot: SlotState, chosen_target = null) -> bool:
 	if slot == null:
 		return false
 	return await _done(_state.cmd_play_minion(side, inst, slot.index, chosen_target, _with_prepaid({})), "play_minion")

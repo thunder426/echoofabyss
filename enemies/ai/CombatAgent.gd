@@ -78,8 +78,9 @@ func is_alive() -> bool:
 # Board
 # ---------------------------------------------------------------------------
 
-## Returns the first empty friendly board slot, or null if the board is full.
-func find_empty_slot() -> BoardSlot:
+## Returns the first empty friendly board slot (engine SlotState), or null if
+## the board is full.
+func find_empty_slot() -> SlotState:
 	return null
 
 ## Returns the number of empty friendly board slots.
@@ -94,7 +95,7 @@ func empty_slot_count() -> int:
 ## Place a minion on a slot (slot already found). The engine pays the cost —
 ## profiles only check affordability; spark fuel they consume first is credited.
 ## inst is the CardInstance being played from hand.
-func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
+func commit_play_minion(inst: CardInstance, slot: SlotState, chosen_target = null) -> bool:
 	return false
 
 ## Cast a spell. extra: pre-resolved cast choices (e.g. rally_race).

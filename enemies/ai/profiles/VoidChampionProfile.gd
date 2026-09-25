@@ -112,7 +112,7 @@ func _play_simple_minion(id: String) -> bool:
 	var mana_cost: int = agent.effective_minion_mana_cost(mc)
 	if mc.essence_cost > agent.essence or mana_cost > agent.mana:
 		return false
-	var slot: BoardSlot = agent.find_empty_slot()
+	var slot: SlotState = agent.find_empty_slot()
 	if slot == null:
 		return false
 	if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -163,7 +163,7 @@ func _play_one_regular_body() -> bool:
 					await _pay_sparks_smart(plan, DeckType.AGGRO)
 					if not agent.is_alive(): return false
 			mana_cost += shortfall
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -187,7 +187,7 @@ func _play_big_body(id: String) -> bool:
 		return false
 	if body_mana + shortfall > agent.mana:
 		return false
-	var slot: BoardSlot = agent.find_empty_slot()
+	var slot: SlotState = agent.find_empty_slot()
 	if slot == null:
 		return false
 	# Pay sparks: consume what we have (up to spark cost) as non-crit fuel preferred.
@@ -241,7 +241,7 @@ func _play_regular_minions() -> void:
 			var mana_cost: int = agent.effective_minion_mana_cost(mc)
 			if mc.essence_cost > agent.essence or mana_cost > agent.mana:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

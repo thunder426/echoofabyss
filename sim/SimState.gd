@@ -41,18 +41,6 @@ func setup(p_deck_ids: Array[String], e_deck_ids: Array[String],
 	setup_deck("player", p_deck_ids)
 	setup_deck("enemy", e_deck_ids)
 
-	# Pre-allocate board slot placeholders (no scene tree — _ready never fires,
-	# _overlay stays null, so _refresh_visuals() returns early — safe to use)
-	for i in BOARD_MAX:
-		var ps := BoardSlot.new()
-		ps.slot_owner = "player"
-		ps.index      = i
-		player_slots.append(ps)
-		var es := BoardSlot.new()
-		es.slot_owner = "enemy"
-		es.index      = i
-		enemy_slots.append(es)
-
 	combat_manager = CombatManager.new()
 	combat_manager.scene = self
 	combat_manager.minion_vanished.connect(_on_minion_vanished)

@@ -771,9 +771,9 @@ static func _death_bolt() -> void:
 	var data: MinionCardData = state._card_for("player", "void_imp") as MinionCardData
 	var imp := MinionInstance.create(data, "player")
 	state.player_board.append(imp)
-	for slot in state.player_slots:
+	for slot: SlotState in state.player_slots:
 		if slot.is_empty():
-			slot.place_minion(imp)
+			slot.place(imp)
 			break
 	var hp_before := state.enemy_hp
 	state.combat_manager.kill_minion(imp)

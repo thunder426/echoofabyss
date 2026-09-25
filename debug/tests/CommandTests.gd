@@ -10,6 +10,7 @@ static func run_all() -> void:
 	_refusals_change_nothing()
 	_play_minion_player_pays_once()
 	_play_minion_event_order()
+	_slots_are_engine_slot_states()
 	_play_minion_enemy_target_and_discount()
 	_play_minion_fiendish_pact()
 	_play_spell_cast_event_before_resolution()
@@ -108,6 +109,36 @@ static func _play_minion_player_pays_once() -> void:
 	TestHarness.assert_true(state.player_graveyard.has(hound), "card in graveyard")
 	TestHarness.assert_eq(state.player_slots[2].minion.card_data.id, "shadow_hound", "placed in slot 2")
 	TestHarness.assert_eq(state.command_log.size(), 1, "logged once")
+	state.teardown()
+
+## Plan 3.1a (D11): the engine owns plain SlotStates; place / clear stamp
+## slot_index and emit slot_changed so the live view can follow.
+static func _slots_are_engine_slot_states() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("commands / slots are engine SlotStates: place / clear emit slot_changed", state):
+		return
+	var seen: Array = []
+	state.slot_changed.connect(func(side: String, index: int) -> void: seen.append("%s:%d" % [side, index]))
+	TestHarness.assert_true(state.player_slots[0] is SlotState, "player slot is a SlotState")
+	TestHarness.assert_eq(state.player_slots.size(), CombatState.BOARD_MAX, "BOARD_MAX player slots")
+	TestHarness.assert_eq(state.enemy_slots.size(), CombatState.BOARD_MAX, "BOARD_MAX enemy slots")
+	TestHarness.assert_eq(state.enemy_slots[4].side, "enemy", "side stamped")
+	TestHarness.assert_eq(state.enemy_slots[4].index, 4, "index stamped")
+	var hound := _hand_card(state, "player", "shadow_hound")
+	_set_res(state, "player", 5, 3)
+	state.cmd_play_minion("player", hound, 3)
+	var m: MinionInstance = state.player_slots[3].minion
+	TestHarness.assert_true(m != null, "placed in slot 3")
+	TestHarness.assert_eq(m.slot_index, 3, "slot_index stamped by place")
+	TestHarness.assert_true(state.slot_for(m) == state.player_slots[3], "slot_for finds it")
+	TestHarness.assert_true(state.slot_of("player", 3).minion == m, "slot_of reads it")
+	TestHarness.assert_true(state.slot_of("player", 9) == null, "slot_of off-board is null")
+	TestHarness.assert_eq(seen, ["player:3"], "slot_changed once on place")
+	seen.clear()
+	state.combat_manager.kill_minion(m)
+	TestHarness.assert_true(state.player_slots[3].is_empty(), "slot freed on death")
+	TestHarness.assert_true(state.slot_for(m) == null, "slot_for null after death")
+	TestHarness.assert_eq(seen, ["player:3"], "slot_changed once on clear")
 	state.teardown()
 
 static func _play_minion_event_order() -> void:

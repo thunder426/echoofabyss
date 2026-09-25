@@ -121,7 +121,7 @@ func _play_regular_minions() -> void:
 			# Rift Tender: needs 3 empty (itself + spark summon + passive spark slot)
 			if mc.id == "rift_tender" and _empty_slot_count() < 3:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -174,7 +174,7 @@ func _play_spark_minions() -> void:
 			# Leave 1 slot for passive spark
 			if _empty_slot_count() <= 1:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			var mc := inst.card_data as MinionCardData

@@ -67,7 +67,7 @@ static func _base_pool(scope: EffectStep.TargetScope, ctx: EffectContext) -> Arr
 				var idx: int = src.slot_index + offset
 				if idx < 0 or idx >= slots.size():
 					continue
-				var slot: BoardSlot = slots[idx]
+				var slot: SlotState = slots[idx]
 				if slot == null or slot.minion == null:
 					continue
 				out.append(slot.minion)

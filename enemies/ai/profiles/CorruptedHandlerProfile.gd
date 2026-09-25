@@ -167,7 +167,7 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var ess_cost: int = agent.effective_minion_essence_cost(mc)
 			if ess_cost > agent.essence or mc.mana_cost > agent.mana:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -190,7 +190,7 @@ func _play_one_human() -> bool:
 		var ess_cost: int = agent.effective_minion_essence_cost(mc)
 		if ess_cost > agent.essence or mc.mana_cost > agent.mana:
 			continue
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -219,7 +219,7 @@ func _play_one_feral_imp() -> bool:
 		var ess_cost: int = agent.effective_minion_essence_cost(mc)
 		if ess_cost > agent.essence or mc.mana_cost > agent.mana:
 			continue
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

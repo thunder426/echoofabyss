@@ -375,7 +375,7 @@ func _play_regular_minions() -> void:
 			if not is_sentinel and _should_reserve_champion_slot() and _empty_slot_count() <= 2:
 				if _dbg: print("    [AI] SKIP %s: champion slot reserved" % mc.card_name)
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -430,7 +430,7 @@ func _play_spark_minions() -> void:
 			# Reserve an extra slot for champion
 			if _should_reserve_champion_slot() and _empty_slot_count() <= 2:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			var mc := inst.card_data as MinionCardData

@@ -599,8 +599,8 @@ func _formation_both_sides_satisfied(actor: MinionInstance, card: MinionCardData
 	var right_idx: int = actor.slot_index + 1
 	if left_idx < 0 or right_idx >= slots.size():
 		return false
-	var left_slot: BoardSlot = slots[left_idx]
-	var right_slot: BoardSlot = slots[right_idx]
+	var left_slot: SlotState = slots[left_idx]
+	var right_slot: SlotState = slots[right_idx]
 	if left_slot == null or right_slot == null:
 		return false
 	var left_minion: MinionInstance = left_slot.minion
@@ -1391,21 +1391,20 @@ func on_enemy_turn_end_void_unraveling(_ctx: EventContext) -> void:
 ## Move a minion from the enemy board to an empty player board slot without firing death/summon events.
 ## Returns false if the player board has no empty slot.
 func _transfer_to_player_board(m: MinionInstance) -> bool:
-	var target_slot: BoardSlot = null
-	for s: BoardSlot in state.player_slots:
+	var target_slot: SlotState = null
+	for s: SlotState in state.player_slots:
 		if s.is_empty():
 			target_slot = s
 			break
 	if target_slot == null:
 		return false
-	for s: BoardSlot in state.enemy_slots:
-		if s.minion == m:
-			s.remove_minion()
-			break
+	var from_slot: SlotState = state.slot_for(m)
+	if from_slot != null:
+		from_slot.clear()
 	state.enemy_board.erase(m)
 	m.owner = "player"
 	state.player_board.append(m)
-	target_slot.place_minion(m)
+	target_slot.place(m)
 	state.minion_summoned.emit("player", m, target_slot.index)
 	state._refresh_slot_for(m)
 	return true
@@ -2406,13 +2405,11 @@ func _count_void_imps(board: Array[MinionInstance]) -> int:
 func _spawn_void_imp_claw_vfx(minion: MinionInstance, owner_side: String) -> void:
 	if presenter == null:
 		return
-	# Find source position from the minion's board slot
+	# Source position: the minion's slot view (presentation lookup).
 	var source_pos := Vector2.ZERO
-	var slots: Array = state.player_slots if owner_side == "player" else state.enemy_slots
-	for slot in slots:
-		if (slot as BoardSlot).minion == minion:
-			source_pos = (slot as BoardSlot).global_position + (slot as BoardSlot).size / 2.0
-			break
+	var slot_view: Control = presenter._find_slot_for(minion)
+	if slot_view != null:
+		source_pos = slot_view.global_position + slot_view.size / 2.0
 	presenter._spawn_void_imp_claw_vfx_at(source_pos, owner_side)
 
 

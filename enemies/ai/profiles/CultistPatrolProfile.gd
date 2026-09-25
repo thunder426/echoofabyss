@@ -92,7 +92,7 @@ func _play_one_minion_by_type(play_imps: bool) -> bool:
 		var mc := inst.card_data as MinionCardData
 		if mc.essence_cost > agent.essence or mc.mana_cost > agent.mana:
 			continue
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

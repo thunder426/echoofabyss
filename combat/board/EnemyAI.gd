@@ -19,7 +19,7 @@ var _active_profile: CombatProfile = null
 signal ai_turn_finished()
 
 ## Emitted each time the AI summons a minion (lets CombatScene check traps).
-## slot is passed so CombatScene can defer place_minion until after the reveal.
+## slot is passed so CombatScene can reveal the minion on it after the card reveal.
 signal minion_summoned(minion: MinionInstance, slot: BoardSlot)
 
 ## Emitted when the AI casts a spell (lets CombatScene resolve + check traps).
@@ -248,10 +248,9 @@ func _draw_cards(count: int) -> void:
 func consume_minion(minion: MinionInstance) -> void:
 	var spark_val: int = minion.effective_spark_value(state)
 	enemy_board.erase(minion)
-	for slot in enemy_slots:
-		if slot.minion == minion:
-			slot.remove_minion()
-			break
+	var engine_slot: SlotState = state.slot_for(minion)
+	if engine_slot != null:
+		engine_slot.clear()
 	scene._log("  %s consumed as spark fuel." % minion.card_data.card_name, 1)
 	# Fire spark consumed event for passives (void_detonation, champion_vw, etc.)
 	# Use effective value so spirit_resonance-boosted Spirits still fire.
@@ -335,6 +334,10 @@ func commit_minion_play(inst: CardInstance, slot: BoardSlot, chosen_target = nul
 	instance.card_instance = inst
 	enemy_board.append(instance)
 	_pending_slots.append(slot)  # reserve slot without touching its visual
+	# Engine occupancy now (plan 3.1a); the node stays on its empty look until
+	# the reveal lands it (CombatScene._enemy_summon_reveal_then_land).
+	slot.freeze_visuals = true
+	state.slot_of("enemy", slot.index).place(instance)
 	hand.erase(inst)
 	_send_to_graveyard(inst)
 	minion_play_chosen_target = chosen_target

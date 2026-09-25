@@ -66,7 +66,7 @@ step of that refactor must leave it green.
 | L3 | Presentation seam. In rules files the shell (`_scene.`, `ctx.scene.`, `scene.`) may be followed only by `state` or a `[facade]` name, and `presenter.` / `ctx.presenter.` only by a `[presenter]` name (also checked inside CombatState) — both lists in `tools/lint/presentation_allowlist.txt`, which the lint validates against the classes. |
 | L4 | Duck typing in rules files: `has_method(`, and `.get("x")` / `.set("x", …)` / `"x" in obj` on an object handle. Dictionary `.get("key")` is fine. |
 | L5 | A gameplay func defined on both CombatScene and SimState, or a SimState override of a CombatState func — one CombatState body per method. `--report-pairs` lists them. |
-| L6 | `await`, `get_tree(` or `create_timer(` in `CombatState.gd` — the engine never waits (animations hang off its signals). |
+| L6 | `await`, `get_tree(` or `create_timer(` in `CombatState.gd` — the engine never waits (animations hang off its signals); `BoardSlot` named in `CombatState.gd`, `SimState.gd`, `CombatHandlers.gd`, `EffectResolver.gd` or `TargetResolver.gd` — the engine holds `SlotState`, the node is a view (plan 3.1a). |
 | L7 | A second definition, anywhere in the repo, of a state command (`func cmd_*`), the turn engine (`begin_turn` / `end_turn`), trap routing (`_fire_traps_for`), or an AI profile table (a script preloading the `enemies/ai/profiles/` scripts — only `ProfileRegistry` may). |
 
 ## LiveSmoke — headless CombatScene

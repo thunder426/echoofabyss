@@ -102,7 +102,7 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			var mana_cost: int = agent.effective_minion_mana_cost(mc)
 			if ess_cost > agent.essence or mana_cost > agent.mana:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

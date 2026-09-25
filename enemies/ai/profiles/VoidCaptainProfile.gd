@@ -135,7 +135,7 @@ func _play_spark_minion_by_id(target_id: String) -> bool:
 			continue
 		if not _can_afford_spark_card(inst.card_data):
 			return false
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		var mc := inst.card_data as MinionCardData

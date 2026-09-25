@@ -124,13 +124,11 @@ func on_state_environment_changed(_env: EnvironmentCardData) -> void:
 ## Subscriber to CombatState.minion_stats_changed — finds the minion's slot
 ## and triggers a visual re-render.
 func on_state_minion_stats_changed(minion: MinionInstance) -> void:
-	if state == null:
+	if _scene == null:
 		return
-	var slots: Array = state.player_slots if minion.owner == "player" else state.enemy_slots
-	for slot in slots:
-		if slot.minion == minion:
-			slot._refresh_visuals()
-			break
+	var node: BoardSlot = _scene._find_slot_for(minion)
+	if node != null:
+		node._refresh_visuals()
 
 ## Subscriber to CombatState.spell_damage_dealt — spawns the slot flash, damage
 ## popup, and refreshes the slot so the HP label updates IN SYNC with the

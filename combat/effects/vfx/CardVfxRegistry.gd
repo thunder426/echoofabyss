@@ -40,7 +40,7 @@ static func play_summon_aura_pulse(controller: VfxController, card: CardData, sl
 ## Token-summon sigil dispatcher. Returns true if a registered card-id
 ## handler took over (bridge will place the minion + fire ON_*_MINION_SUMMONED
 ## itself via _reveal_after_sigil); false to fall through to the default
-## "place_minion + fire trigger" path in the caller.
+## "show_minion + fire trigger" path in the caller.
 static func try_play_token_summon(vfx_bridge: CombatVFXBridge, card_id: String,
 		instance: MinionInstance, data: MinionCardData, slot: BoardSlot, owner: String) -> bool:
 	if vfx_bridge == null:

@@ -49,12 +49,17 @@ func is_alive() -> bool:
 # Board slots
 # ---------------------------------------------------------------------------
 
-func find_empty_slot() -> BoardSlot:
-	return _ai.find_empty_slot()
+## Engine slots (plan 3.1a): EnemyAI.commit_minion_play takes the engine slot
+## at once, so occupancy alone tells which slots are free.
+func find_empty_slot() -> SlotState:
+	for slot: SlotState in _ai.state._friendly_slots("enemy"):
+		if slot.is_empty():
+			return slot
+	return null
 
 func empty_slot_count() -> int:
 	var count := 0
-	for slot in _ai.enemy_slots:
+	for slot: SlotState in _ai.state._friendly_slots("enemy"):
 		if slot.is_empty():
 			count += 1
 	return count
@@ -63,8 +68,11 @@ func empty_slot_count() -> int:
 # Actions
 # ---------------------------------------------------------------------------
 
-func commit_play_minion(inst: CardInstance, slot: BoardSlot, chosen_target = null) -> bool:
-	return await _ai.commit_minion_play(inst, slot, chosen_target, _take_prepaid())
+func commit_play_minion(inst: CardInstance, slot: SlotState, chosen_target = null) -> bool:
+	if slot == null:
+		return false
+	var node: BoardSlot = _ai.enemy_slots[slot.index]
+	return await _ai.commit_minion_play(inst, node, chosen_target, _take_prepaid())
 
 func commit_play_spell(inst: CardInstance, chosen_target = null, _extra: Dictionary = {}) -> bool:
 	return await _ai.commit_spell_cast(inst, chosen_target, _take_prepaid())

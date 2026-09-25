@@ -580,7 +580,7 @@ func _play_minions_pass() -> void:
 				continue
 			if agent.empty_slot_count() <= reserved:
 				return  # keep slots reserved
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

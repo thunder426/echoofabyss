@@ -167,7 +167,7 @@ func _friendly_slots(owner: String) -> Array:
 
 ## True if `side` has at least one empty board slot.
 func has_empty_slot(side: String) -> bool:
-	for slot: BoardSlot in (player_slots if side == "player" else enemy_slots):
+	for slot: SlotState in (player_slots if side == "player" else enemy_slots):
 		if slot.is_empty():
 			return true
 	return false
@@ -590,7 +590,7 @@ func _summon_token(card_id: String, owner: String, token_atk: int = 0, token_hp:
 ## live combat reaches it only when scene's VFX-rich `_summon_token` is unavailable.
 func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
 	var slots := player_slots if owner == "player" else enemy_slots
-	var slot: BoardSlot = null
+	var slot: SlotState = null
 	for s in slots:
 		if s.is_empty():
 			slot = s
@@ -604,7 +604,7 @@ func _summon_token_pure(card_id: String, owner: String, token_atk: int = 0, toke
 ## or already occupied — that's the "up to 2" semantics the caller relies on.
 ## Mirrors _summon_token_pure's pure-logic path; live combat overrides this via
 ## CombatScene._summon_token_at_slot for VFX.
-func _summon_token_at_slot(card_id: String, owner: String, slot: BoardSlot, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+func _summon_token_at_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
 	if slot == null or not slot.is_empty():
 		return
 	_spawn_token_into_slot(card_id, owner, slot, token_atk, token_hp, token_shield)
@@ -614,7 +614,7 @@ func _summon_token_at_slot(card_id: String, owner: String, slot: BoardSlot, toke
 ## slot) and _summon_token_at_slot (specific slot). CombatScene's VFX-rich
 ## variants do their own placement to drive sigil animations but follow the
 ## same trigger contract.
-func _spawn_token_into_slot(card_id: String, owner: String, slot: BoardSlot, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
+func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, token_atk: int = 0, token_hp: int = 0, token_shield: int = 0) -> void:
 	# Combat-time lookup so clan rules / overrides apply to tokens summoned
 	# mid-fight in sim. Mirrors CombatScene._summon_token's _card_for migration.
 	var base := _card_for(owner, card_id)
@@ -627,7 +627,7 @@ func _spawn_token_into_slot(card_id: String, owner: String, slot: BoardSlot, tok
 	if token_shield > 0: mc.shield_max = token_shield
 	var instance := MinionInstance.create(mc, owner)
 	board.append(instance)
-	slot.place_minion(instance)
+	slot.place(instance)
 	minion_summoned.emit(owner, instance, slot.index)
 	if trigger_manager != null:
 		var event := Enums.TriggerEvent.ON_PLAYER_MINION_SUMMONED if owner == "player" \
@@ -939,25 +939,12 @@ func _sacrifice_minion(minion: MinionInstance) -> void:
 		var sac_ctx := EventContext.make(sac_event, minion.owner)
 		sac_ctx.minion = minion
 		trigger_manager.fire(sac_ctx)
-	# Step 4 — remove from board. Clear the slot unless it's frozen (live combat
-	# leaves frozen slots intact so the death animation can play first).
-	# Use slot.remove_minion() not `slot.minion = null` so the slot's visual
-	# refreshes — a bare field assignment leaves the dead minion's art on the
-	# board until something else triggers a redraw.
-	if minion.owner == "player":
-		player_board.erase(minion)
-		for slot in player_slots:
-			if slot.minion == minion:
-				if not slot.freeze_visuals:
-					slot.remove_minion()
-				break
-	else:
-		enemy_board.erase(minion)
-		for slot in enemy_slots:
-			if slot.minion == minion:
-				if not slot.freeze_visuals:
-					slot.remove_minion()
-				break
+	# Step 4 — remove from board and free the slot. The live view keeps a
+	# frozen node's art until the death animation flushes it (plan 3.1a).
+	_friendly_board(minion.owner).erase(minion)
+	var sac_slot: SlotState = slot_for(minion)
+	if sac_slot != null:
+		sac_slot.clear()
 	_log("  %s was sacrificed" % minion.card_data.card_name, 6)  # DEATH
 
 ## Apply Void Bolt damage to the enemy hero, scaled by current Void Marks.
@@ -1319,10 +1306,47 @@ var _sovereign_transition_turn: int = 0
 var player_board: Array[MinionInstance] = []
 var enemy_board:  Array[MinionInstance] = []
 
-## Live combat binds these from the scene tree in CombatScene._find_nodes().
-## Sim pre-allocates plain BoardSlot.new() in SimState.setup().
-var player_slots: Array[BoardSlot] = []
-var enemy_slots:  Array[BoardSlot] = []
+## Engine-owned occupancy (plan 3.1a, D11): BOARD_MAX plain SlotStates per
+## side, allocated here for both shells. The live slot Panels are views —
+## `slot_changed` tells CombatScene which one to refresh.
+var player_slots: Array[SlotState] = []
+var enemy_slots:  Array[SlotState] = []
+
+## A slot's occupant changed (`SlotState.place` / `clear`).
+signal slot_changed(side: String, index: int)
+
+func _init() -> void:
+	_alloc_slots()
+
+func _alloc_slots() -> void:
+	player_slots.clear()
+	enemy_slots.clear()
+	for i in BOARD_MAX:
+		var ps := SlotState.make("player", i)
+		ps.changed.connect(_on_slot_state_changed)
+		player_slots.append(ps)
+		var es := SlotState.make("enemy", i)
+		es.changed.connect(_on_slot_state_changed)
+		enemy_slots.append(es)
+
+func _on_slot_state_changed(slot: SlotState) -> void:
+	slot_changed.emit(slot.side, slot.index)
+
+## The slot at `index` on `side`, or null when off-board.
+func slot_of(side: String, index: int) -> SlotState:
+	var slots: Array[SlotState] = player_slots if side == "player" else enemy_slots
+	if index < 0 or index >= slots.size():
+		return null
+	return slots[index]
+
+## The slot `minion` occupies on its own side, or null when it is not on the board.
+func slot_for(minion: MinionInstance) -> SlotState:
+	if minion == null:
+		return null
+	for s: SlotState in (player_slots if minion.owner == "player" else enemy_slots):
+		if s.minion == minion:
+			return s
+	return null
 
 # ---------------------------------------------------------------------------
 # Turn, resources, decks, hands, graveyards — both sides (plan 1.3). Live's
@@ -1965,21 +1989,17 @@ var _pending_dmg_source: String = ""
 # hero_damaged / hero_healed here; the presenter hooks play the animations.
 # ---------------------------------------------------------------------------
 
-## A minion left the board through death. Removes it from board + slot (a slot
-## frozen mid-lunge keeps its occupant — the death animation clears it), emits
-## minion_died, then fires ON_CORRUPTION_REMOVED (stacks it held) and
+## A minion left the board through death. Removes it from board + slot (the
+## live view keeps a frozen node's art until the death animation flushes it),
+## emits minion_died, then fires ON_CORRUPTION_REMOVED (stacks it held) and
 ## ON_*_MINION_DIED with the attacker.
 func _on_minion_vanished(minion: MinionInstance) -> void:
-	var slots: Array[BoardSlot] = player_slots if minion.owner == "player" else enemy_slots
-	var dead_slot: BoardSlot = null
-	for slot: BoardSlot in slots:
-		if slot.minion == minion:
-			dead_slot = slot
-			break
+	var dead_slot: SlotState = slot_for(minion)
+	var dead_index: int = dead_slot.index if dead_slot != null else -1
 	_friendly_board(minion.owner).erase(minion)
-	if dead_slot != null and not dead_slot.freeze_visuals:
-		dead_slot.remove_minion()
-	minion_died.emit(minion.owner, minion, dead_slot.index if dead_slot != null else -1)
+	if dead_slot != null:
+		dead_slot.clear()
+	minion_died.emit(minion.owner, minion, dead_index)
 	_log("  %s died" % minion.card_data.card_name, 6)  # DEATH
 	# Live defers on-death effects of minions with an on-death icon VFX until the
 	# icon plays (D3 — resolved inline once Phase 3.0 lands).
@@ -1999,7 +2019,7 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		ctx.attacker = _last_attacker
 		trigger_manager.fire(ctx)
 	if presenter != null:
-		presenter._on_minion_vanished_visual(minion, dead_slot)
+		presenter._on_minion_vanished_visual(minion, dead_index)
 
 ## A hero took damage. Bone Shield absorbs player damage. Fires ON_HERO_DAMAGED /
 ## ON_ENEMY_HERO_DAMAGED on every landed hit (lethal included). The first lethal
@@ -2123,13 +2143,13 @@ func _check_champion_condition(champion: MinionCardData) -> bool:
 
 ## Place the champion card on the first empty player slot, free of cost.
 func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: bool) -> void:
-	for slot: BoardSlot in player_slots:
+	for slot: SlotState in player_slots:
 		if not slot.is_empty():
 			continue
 		var instance := MinionInstance.create(card, "player")
 		instance.card_instance = inst
 		player_board.append(instance)
-		slot.place_minion(instance)
+		slot.place(instance)
 		minion_summoned.emit("player", instance, slot.index)
 		if from_hand:
 			remove_from_hand("player", inst)
@@ -2203,9 +2223,9 @@ func pay_sparks(side: String, cost: int) -> bool:
 			combat_manager.kill_minion(m)
 		else:
 			board.erase(m)
-			for slot: BoardSlot in _friendly_slots(side):
+			for slot: SlotState in _friendly_slots(side):
 				if slot.minion == m:
-					slot.remove_minion()
+					slot.clear()
 					break
 			_log("  %s consumed as spark fuel." % m.card_data.card_name)
 		if trigger_manager != null:
@@ -2237,8 +2257,8 @@ func digest_text() -> String:
 		player_hero.armour, enemy_hero.armour])
 	lines.append("hero_buffs P %s E %s" % [_digest_buffs(player_hero.buffs), _digest_buffs(enemy_hero.buffs)])
 	for side in ["player", "enemy"]:
-		var slots: Array[BoardSlot] = player_slots if side == "player" else enemy_slots
-		for slot: BoardSlot in slots:
+		var slots: Array[SlotState] = player_slots if side == "player" else enemy_slots
+		for slot: SlotState in slots:
 			var m: MinionInstance = slot.minion
 			if m == null:
 				continue
@@ -2441,7 +2461,7 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 	var why: String = _check_card_play(side, inst)
 	if why.is_empty() and not (inst.card_data is MinionCardData):
 		why = "wrong_card_type"
-	var slots: Array[BoardSlot] = player_slots if side == "player" else enemy_slots
+	var slots: Array[SlotState] = player_slots if side == "player" else enemy_slots
 	if why.is_empty() and (slot_index < 0 or slot_index >= slots.size()):
 		why = "bad_slot"
 	if why.is_empty() and not slots[slot_index].is_empty():
@@ -2459,11 +2479,11 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 	if fp_discount > 0:
 		_log("  Fiendish Pact: %s costs %d less Essence." % [mc.card_name, fp_discount], 1)  # PLAYER
 		_consume_fiendish_pact_discount()
-	var slot: BoardSlot = slots[slot_index]
+	var slot: SlotState = slots[slot_index]
 	if not slot.is_empty():
 		# A spark-consumed trigger filled the slot while paying — take the next free one.
 		slot = null
-		for s: BoardSlot in slots:
+		for s: SlotState in slots:
 			if s.is_empty():
 				slot = s
 				break
@@ -2480,7 +2500,7 @@ func cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target =
 			_vw_behemoth_plays += 1
 	var instance := MinionInstance.create(mc, side)
 	instance.card_instance = inst
-	slot.place_minion(instance)
+	slot.place(instance)
 	if side == "enemy":
 		enemy_play_target = target  # read (and cleared) by the ON_ENEMY_MINION_PLAYED handler
 	if trigger_manager != null:
@@ -2911,9 +2931,9 @@ func _consume_minion(side: String, minion: MinionInstance) -> void:
 	elif minion.card_data.id == "bastion_colossus":
 		_vw_bastion_lost["consumed"] += 1
 	_friendly_board(side).erase(minion)
-	for slot: BoardSlot in _friendly_slots(side):
+	for slot: SlotState in _friendly_slots(side):
 		if slot.minion == minion:
-			slot.remove_minion()
+			slot.clear()
 			break
 	_log("  %s consumed as spark fuel." % minion.card_data.card_name, 1 if side == "player" else 2)
 	# Effective value so spirit_resonance-boosted Spirits still count.

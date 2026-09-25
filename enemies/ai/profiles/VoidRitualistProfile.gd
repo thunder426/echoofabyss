@@ -92,7 +92,7 @@ func _play_one_human() -> bool:
 		var ess_cost: int = agent.effective_minion_essence_cost(mc)
 		if ess_cost > agent.essence or mc.mana_cost > agent.mana:
 			continue
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -127,7 +127,7 @@ func _play_one_feral_imp() -> bool:
 			slots_needed = 3 if not champion_summoned else 2  # imp + demon + champion, or imp + demon
 		if agent.empty_slot_count() < slots_needed:
 			return false
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):

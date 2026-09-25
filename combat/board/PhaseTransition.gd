@@ -95,7 +95,7 @@ static func _read_ai_profile(scene: Object) -> String:
 static func _wipe_boards_silently(st: CombatState) -> void:
 	st.player_board.clear()
 	st.enemy_board.clear()
-	for slot: BoardSlot in st.player_slots + st.enemy_slots:
+	for slot: SlotState in st.player_slots + st.enemy_slots:
 		if slot != null and slot.minion != null:
 			slot.minion = null
 

@@ -113,10 +113,9 @@ static func _spawn_resolved(state: SimState, id: String, side: String) -> Minion
 	var board := state.player_board if side == "player" else state.enemy_board
 	var slots := state.player_slots if side == "player" else state.enemy_slots
 	board.append(inst)
-	for slot in slots:
-		if slot.minion == null:
-			slot.minion = inst
-			inst.slot_index = slot.index
+	for slot: SlotState in slots:
+		if slot.is_empty():
+			slot.place(inst)
 			break
 	return inst
 
@@ -129,10 +128,9 @@ static func _spawn(state: SimState, id: String, side: String) -> MinionInstance:
 	var board := state.player_board if side == "player" else state.enemy_board
 	var slots := state.player_slots if side == "player" else state.enemy_slots
 	board.append(inst)
-	for slot in slots:
-		if slot.minion == null:
-			slot.minion = inst
-			inst.slot_index = slot.index
+	for slot: SlotState in slots:
+		if slot.is_empty():
+			slot.place(inst)
 			break
 	return inst
 
@@ -154,15 +152,14 @@ static func _spawn_at(state: SimState, id: String, side: String, slot_index: int
 	if slot_index < 0 or slot_index >= slots.size():
 		push_error("TestHarness: slot_index %d out of range" % slot_index)
 		return null
-	var slot: BoardSlot = slots[slot_index]
+	var slot: SlotState = slots[slot_index]
 	if not slot.is_empty():
 		push_error("TestHarness: slot %d already occupied" % slot_index)
 		return null
 	var inst := MinionInstance.create(data, side)
 	var board := state.player_board if side == "player" else state.enemy_board
 	board.append(inst)
-	slot.minion = inst
-	inst.slot_index = slot.index
+	slot.place(inst)
 	return inst
 
 ## EffectContext for a raw EffectResolver.run() call, bypassing card lifecycle.

@@ -411,7 +411,7 @@ func _play_cheap_minions() -> void:
 			var mana_cost: int = agent.effective_minion_mana_cost(mc)
 			if mc.essence_cost > agent.essence or mana_cost > agent.mana:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -441,7 +441,7 @@ func _play_heralds() -> void:
 			var mc := inst.card_data as MinionCardData
 			if mc.essence_cost > agent.essence:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -458,7 +458,7 @@ func _play_spark_minion_by_id(target_id: String) -> bool:
 			continue
 		if not _can_afford_spark_card(inst.card_data):
 			return false
-		var slot: BoardSlot = agent.find_empty_slot()
+		var slot: SlotState = agent.find_empty_slot()
 		if slot == null:
 			return false
 		var mc := inst.card_data as MinionCardData

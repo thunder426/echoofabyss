@@ -154,7 +154,7 @@ static func apply_logged_command(state: CombatState, rec: Dictionary) -> Command
 		inst = hand[hand_index]
 	var minion_at_slot: MinionInstance = null
 	if slot >= 0 and slot < state._friendly_slots(side).size():
-		minion_at_slot = (state._friendly_slots(side)[slot] as BoardSlot).minion
+		minion_at_slot = (state._friendly_slots(side)[slot] as SlotState).minion
 	match rec["cmd"]:
 		"play_minion":      return state.cmd_play_minion(side, inst, slot, target, extra)
 		"play_spell":       return state.cmd_play_spell(side, inst, target, extra)
@@ -177,7 +177,7 @@ static func _decode_target(state: CombatState, t: Variant) -> Variant:
 	match d.get("kind", ""):
 		"minion":
 			if slot >= 0 and slot < state._friendly_slots(side).size():
-				return (state._friendly_slots(side)[slot] as BoardSlot).minion
+				return (state._friendly_slots(side)[slot] as SlotState).minion
 		"hero":
 			return "%s_hero" % side
 		"trap":

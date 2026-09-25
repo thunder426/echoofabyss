@@ -34,7 +34,10 @@ rule set and the phase that introduces each rule.
       a CombatState func. Allowed exceptions live in tools/lint/l5_allow.txt.
 
   L6  (plan 2A.9) The engine never waits: no `await`, `get_tree(` or
-      `create_timer(` in CombatState.gd.
+      `create_timer(` in CombatState.gd. (plan 3.1a, D11) The engine holds no
+      slot Node: no `BoardSlot` in CombatState.gd, SimState.gd,
+      CombatHandlers.gd, EffectResolver.gd or TargetResolver.gd — slots are
+      `SlotState`.
 
   L7  (plan 2A.9) One engine, defined once repo-wide: each state command
       (`func cmd_*`), the turn engine (`begin_turn`, `end_turn`),
@@ -59,6 +62,13 @@ LINT_DIR = os.path.dirname(os.path.abspath(__file__))
 SCENE = "combat/board/CombatScene.gd"
 STATE = "combat/board/CombatState.gd"
 SIM_STATE = "sim/SimState.gd"
+# L6 (3.1a): files that must not name the BoardSlot view.
+NO_BOARDSLOT_FILES = [
+    STATE, SIM_STATE,
+    "combat/events/CombatHandlers.gd",
+    "combat/effects/EffectResolver.gd",
+    "combat/effects/TargetResolver.gd",
+]
 
 # Files whose shell handle is a member named `_scene`.
 UNDERSCORE_SCENE_FILES = [
@@ -330,6 +340,12 @@ class Linter:
             m = wait_re.search(strip_comment(raw))
             if m:
                 self.err("L6", STATE, i, f"`{m.group(0)}` in the engine — CombatState never waits")
+        # 3.1a / D11: the engine and rules code hold plain SlotState, never the BoardSlot view.
+        slot_re = re.compile(r"\bBoardSlot\b")
+        for rel in NO_BOARDSLOT_FILES:
+            for i, raw in enumerate(read(rel), start=1):
+                if slot_re.search(strip_comment(raw)):
+                    self.err("L6", rel, i, "`BoardSlot` in engine / rules code — use SlotState (the node is a view)")
 
     # -- L7 ------------------------------------------------------------------
     def scan_single_definitions(self) -> None:

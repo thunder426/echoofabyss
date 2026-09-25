@@ -173,7 +173,7 @@ func _play_heralds() -> void:
 			var ess_cost: int = agent.effective_minion_essence_cost(mc)
 			if ess_cost > agent.essence:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
@@ -232,7 +232,7 @@ func _play_spark_minions() -> void:
 				continue
 			if body_mana + shortfall > agent.mana:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			var spark_to_pay: int = mini(sparks, mc.void_spark_cost)
@@ -287,7 +287,7 @@ func _play_regular_minions() -> void:
 			var mana_cost: int = agent.effective_minion_mana_cost(mc)
 			if ess_cost > agent.essence or mana_cost > agent.mana:
 				continue
-			var slot: BoardSlot = agent.find_empty_slot()
+			var slot: SlotState = agent.find_empty_slot()
 			if slot == null:
 				return
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
