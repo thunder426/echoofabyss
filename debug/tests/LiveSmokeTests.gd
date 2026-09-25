@@ -163,7 +163,10 @@ func _live_rules_paths() -> void:
 ## runs with `instant` so nothing animates. Ends with a winner, the presenter
 ## idle and the journal fully played.
 func _ai_vs_ai_fight() -> void:
-	GameManager.next_combat_seed = 7  # a reproducible fight
+	# A reproducible fight: the global RNG picks the encounter's deck variant,
+	# the combat seed does the rest.
+	seed(7)
+	GameManager.next_combat_seed = 7
 	var scene: Node = await _launch(1, "swarm")
 	var st: CombatState = scene.state
 	scene.presenter.instant = true

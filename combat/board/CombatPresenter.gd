@@ -35,7 +35,17 @@ var _spell_pending: Array = []        # captured events of the spell being playe
 const _LOOKAHEAD_STOP: Array = [
 	CombatEvent.Kind.ATTACK_STARTED, CombatEvent.Kind.SPELL_CAST, CombatEvent.Kind.MINION_PLAYED,
 	CombatEvent.Kind.TURN_ENDED, CombatEvent.Kind.TURN_STARTED, CombatEvent.Kind.COMBAT_ENDED,
+	CombatEvent.Kind.COMMAND,
 ]
+
+## The beat between two enemy actions (and once more before its first attack),
+## so consecutive moves read as separate. The enemy decides its turn at once;
+## this is where it is paced.
+const ENEMY_ACTION_DELAY := 0.55
+
+var _enemy_actions: int = 0          # enemy commands played this enemy turn
+var _enemy_attacking: bool = false   # an attack command has played this turn
+var _enemy_last_cmd: String = ""
 
 
 func setup(p_scene: Node, p_state: CombatState) -> void:
@@ -207,8 +217,33 @@ func _play(ev: CombatEvent) -> void:
 				scene._on_defeat()
 		CombatEvent.Kind.VFX:
 			await _play_vfx(ev)
+		CombatEvent.Kind.COMMAND:
+			await _pace_command(ev)
+		CombatEvent.Kind.TURN_STARTED:
+			_enemy_actions = 0
+			_enemy_attacking = false
+			_enemy_last_cmd = ""
 		_:
 			pass
+
+
+## A beat before each enemy action after the first — none after spark fuel, which
+## belongs to the play it pays for — and one more before its first attack after
+## plays (the old play-phase / attack-phase gap).
+func _pace_command(ev: CombatEvent) -> void:
+	if ev.side != "enemy":
+		return
+	var cmd: String = ev.payload.get("cmd", "")
+	var gap: float = 0.0
+	if _enemy_actions > 0 and _enemy_last_cmd != "consume_minion":
+		gap += ENEMY_ACTION_DELAY
+	var attack: bool = cmd == "attack" or cmd == "attack_hero"
+	if attack and not _enemy_attacking and _enemy_actions > 0:
+		gap += ENEMY_ACTION_DELAY
+	_enemy_attacking = _enemy_attacking or attack
+	_enemy_actions += 1
+	_enemy_last_cmd = cmd
+	await _wait(gap)
 
 
 ## Card flight (player, from the popped hand visual) or the enemy reveal, then
@@ -665,6 +700,7 @@ func _emit_ui(ev: CombatEvent) -> void:
 			if ui != null:
 				ui.refresh_hand_spell_costs()
 		CombatEvent.Kind.TURN_STARTED:
+			scene.show_turn_started(ev.side == "player", p.get("turn", 0))
 			for s in scene.player_slots + scene.enemy_slots:
 				(s as BoardSlot)._refresh_visuals()
 			if scene._enemy_hero_panel != null:

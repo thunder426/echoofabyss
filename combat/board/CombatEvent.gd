@@ -30,6 +30,7 @@ enum Kind {
 	SPELL_COUNTER_CHANGED,  # a counter-spell charge was armed or spent
 	CHAMPION_PROGRESS,      # payload.current / payload.total — enemy champion pips
 	CHAMPION_KILLED,
+	COMMAND,  # an accepted command begins (payload.cmd) — the presenter paces enemy actions on it
 }
 
 var seq: int = 0

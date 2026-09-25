@@ -388,29 +388,13 @@ func _on_enemy_trap_slot_hover(idx: int) -> void:
 # Turn events
 # ---------------------------------------------------------------------------
 
-## UI half of a turn start — the state's begin_turn already ran the gameplay
-## (growth, refill, draw, resets, ON_*_TURN_START). Kicks off the enemy's turn.
+## A turn began in the engine. The enemy's turn is decided at once (the
+## presenter paces its actions), but only after everything before it — the
+## player's last plays — has been shown, plus a beat. The UI half of a turn
+## start plays with its TURN_STARTED event (show_turn_started).
 func _on_turn_started(is_player_turn: bool) -> void:
-	if end_turn_essence_button:
-		end_turn_essence_button.disabled = not is_player_turn
-	if end_turn_mana_button:
-		end_turn_mana_button.disabled = not is_player_turn
-	if end_turn_button:
-		end_turn_button.disabled = not is_player_turn
-	_refresh_end_turn_mode()
-	# Update turn counter and remaining deck count
-	if turn_label:
-		turn_label.text = "Turn %d  |  Deck: %d" % [state.turn_number, state.player_deck.size()]
-	if deck_count_label:
-		deck_count_label.text = "%d cards" % state.player_deck.size()
-	if is_player_turn:
-		_refresh_hand_spell_costs()
-		if _relic_bar:
-			_relic_bar.refresh()
+	if is_player_turn or state._combat_ended:
 		return
-	if state._combat_ended:
-		return
-	# The enemy acts only once everything the player did has been shown.
 	await presenter.pump_and_wait_idle()
 	if not is_inside_tree() or state._combat_ended:
 		return
@@ -418,6 +402,30 @@ func _on_turn_started(is_player_turn: bool) -> void:
 	if not is_inside_tree() or state._combat_ended:
 		return
 	enemy_turn.run_turn()
+
+## UI half of a turn start — the presenter calls it as it plays TURN_STARTED
+## (the engine may already be further on: a whole enemy turn resolves at once).
+func show_turn_started(is_player_turn: bool, turn: int) -> void:
+	if end_turn_essence_button:
+		end_turn_essence_button.disabled = not is_player_turn
+	if end_turn_mana_button:
+		end_turn_mana_button.disabled = not is_player_turn
+	if end_turn_button:
+		end_turn_button.disabled = not is_player_turn
+	_refresh_end_turn_mode()
+	if turn_label:
+		turn_label.text = "Turn %d  |  Deck: %d" % [turn, state.player_deck.size()]
+	if deck_count_label:
+		deck_count_label.text = "%d cards" % state.player_deck.size()
+	if is_player_turn:
+		_refresh_hand_spell_costs()
+		if _relic_bar:
+			_relic_bar.refresh()
+
+## True when the player may issue a command: their turn in the engine, its start
+## already shown (the enemy's turn finished playing), no end turn in flight.
+func player_can_act() -> bool:
+	return state.is_player_turn and presenter.view.is_player_turn and not _end_turn_in_progress
 
 ## UI half of a turn end — the state's end_turn fired ON_*_TURN_END and cleaned up.
 ## Also drops any half-made player selection — the F15 phase transition ends
@@ -1129,7 +1137,7 @@ func _on_relic_unhovered() -> void:
 ## Relic bar click. Relics resolve through state.cmd_activate_relic (plan
 ## 2A.6); Blood Chalice first asks for a target and activates once one is picked.
 func _on_relic_activated(index: int) -> void:
-	if not state.is_player_turn or state.relic_runtime == null:
+	if not player_can_act() or state.relic_runtime == null:
 		return
 	if not state.relic_runtime.can_activate(index):
 		return
@@ -1289,7 +1297,7 @@ func _spell_mana_discount() -> int:
 ## Costs are consumed inside _seris_corrupt_apply_target after a valid click so
 ## misclicks / cancels don't waste Flesh.
 func _seris_corrupt_activate() -> void:
-	if not state._has_talent("corrupt_flesh"):
+	if not player_can_act() or not state._has_talent("corrupt_flesh"):
 		return
 	if state._seris_corrupt_used_this_turn:
 		state._log("  Corrupt Flesh already used this turn.", _LogType.PLAYER)

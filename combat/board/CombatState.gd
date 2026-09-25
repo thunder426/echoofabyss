@@ -3108,6 +3108,7 @@ func _log_command(cmd: String, side: String, inst: CardInstance, slot: int, targ
 		hand_index = hand_of(side).find(inst) if inst != null else -1,
 		slot = slot, target = _encode_target(target), extra = rec_extra,
 	})
+	emit_event(CombatEvent.Kind.COMMAND, side, {cmd = cmd, index = command_log.size() - 1})
 	command_recorded.emit(command_log.size() - 1)
 
 ## A command target as plain data: {kind: minion|hero|trap|env, side, slot}.

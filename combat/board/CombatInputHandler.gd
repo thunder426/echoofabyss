@@ -80,7 +80,7 @@ func on_relic_unhovered() -> void:
 ## Handle a hand card click. Spell/minion go through their respective begin_*
 ## chains; trap/environment play immediately.
 func on_hand_card_selected(inst: CardInstance) -> void:
-	if _scene == null or not _scene.state.is_player_turn:
+	if _scene == null or not _scene.player_can_act():
 		return
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
@@ -285,7 +285,7 @@ func on_player_slot_clicked_empty(slot: BoardSlot) -> void:
 ## targeted spell on a friendly minion, targeted minion-on-play, or attacker
 ## selection — in that priority order.
 func on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -> void:
-	if _scene == null or not _scene.state.is_player_turn:
+	if _scene == null or not _scene.player_can_act():
 		return
 	# Seris — Corrupt Flesh activated ability targeting mode.
 	if _scene._seris_corrupt_targeting:
@@ -320,7 +320,7 @@ func on_player_slot_clicked_occupied(_slot: BoardSlot, minion: MinionInstance) -
 ## Click on an occupied enemy slot. Resolves relic targeting, targeted spell,
 ## targeted minion-on-play, or attack — in that priority order. Enforces Guard.
 func on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
-	if _scene == null or not _scene.state.is_player_turn:
+	if _scene == null or not _scene.player_can_act():
 		return
 	# Seris — Corrupt Flesh targeting: enemy clicks cancel (target must be friendly Demon).
 	if _scene._seris_corrupt_targeting:
@@ -494,7 +494,7 @@ func handle_input(event: InputEvent) -> void:
 func on_enemy_hero_button_pressed() -> void:
 	if _scene == null:
 		return
-	if not _scene.state.is_player_turn or _scene.selected_attacker == null:
+	if not _scene.player_can_act() or _scene.selected_attacker == null:
 		return
 	if CombatManager.board_has_taunt(_scene.state.enemy_board):
 		return

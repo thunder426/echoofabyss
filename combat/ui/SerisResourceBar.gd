@@ -231,7 +231,7 @@ func refresh() -> void:
 ## Click handler for the Soul Forge button — the engine's hero-skill command
 ## (the sim's Seris profiles issue the same one).
 func _on_forge_btn_pressed() -> void:
-	if _scene == null:
+	if _scene == null or not _scene.player_can_act():
 		return
 	_scene.state.cmd_hero_skill("player", "soul_forge")
 	refresh()
