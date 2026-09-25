@@ -1,11 +1,11 @@
 ---
 id: "045"
 title: Live/sim unification — Phase 5
-status: active
+status: done
 area: combat
 priority: normal
 started: 2026-09-25
-finished:
+finished: 2026-09-25
 ---
 
 ## Description
@@ -21,7 +21,16 @@ Verify the Phase 4 gates of `design/refactors/LIVE_SIM_UNIFICATION_PLAN.md`, the
 - 2026-09-25: **5.3 / 5.4 — lint and wiring.** L10 (`await get_tree().create_timer` in *VFX.gd ≤ 20) and L11 (names reached through an untyped scene handle must be declared on CombatScene / CombatState — flags the `_player_can_afford_sparks` bug when reintroduced). run_checks runs Parity; `tools/hooks/pre-push` sample; TESTING.md (Parity section, L10/L11, gate time), CLAUDE.md (gate description, L1–L11), `/task-done` note. Verification finding: plan 3.3's input gate (player commands only when the presenter is idle) was never implemented.
 - 2026-09-25: committed 0.644 (5.0 fixes) and 0.645 (parity, lint, docs) — gate green.
 - 2026-09-25: **Owner decision: synchronous enemy turn, presenter paces (fixes live bug 4).** `EnemyTurnRunner` runs the profile on one StateAgent with the base Pacer — play phase, attack phase, `cmd_end_turn("enemy")` resolve at once, as in the sim; `LivePacer` deleted. Every accepted command journals `CombatEvent.Kind.COMMAND` (also a look-ahead stop); `CombatPresenter._pace_command` plays a 0.55 s beat before each enemy action after the first (none after spark fuel) and one more before its first attack. The scene's turn-start UI moved to TURN_STARTED playback (`show_turn_started`); `_on_turn_started` only kicks off the enemy after the presenter is idle + 0.4 s. Input gate `CombatScene.player_can_act()` (engine says player turn, presenter has shown it, no end turn in flight) on hand select, slot / hero clicks, relic bar, Seris skills — lighter than 3.3's "presenter idle" so players keep acting during their own animations. LiveSmoke's seeded fight also seeds the deck-variant pick; it now repeats exactly (551 events × 3). Parity 12 / 12 full runs green under 6× parallel load (was ~4 / 18 F6 failures). Balance unaffected (sim untouched). ARCHITECTURE and the plan updated (Phase 5 done, deviations).
+- 2026-09-25: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Phase 5 shipped in three commits (0.644–0.646), with `tools/run_checks.sh` green before each. The new parity test (`debug/tests/Parity.tscn`) plays 8 fights × 3 seeds on the engine, replays each through the live scene's input handlers, and compares state after every command. Building it exposed five live-only bugs, all fixed:
+- Every spell or minion selection had errored since 0.617.
+- The F15 banish left the slot views full.
+- `cmd_play_minion` re-added a minion its own on-play had banished or killed.
+- The F15 forced end turn was issued by the presenter; it now happens in the engine.
+- An `await`-in-loop GDScript misbehaviour made the enemy stop attacking. The live enemy now decides its turn synchronously and the presenter paces it.
+
+Lint gained L10 and L11; F15 balance moved −1.0 pt.
+Follow-ups: 3.6 owner visual QA (now incl. the presenter-paced enemy turn and the `player_can_act` input gate); optional 4.5 file split; ChoiceModal cancel; missing asset `void_ritualist_portrait.png` (F5 load error); sim-fidelity signal — the AI makes moves a player can't (skipped mandatory target on grafted_butcher, UI-illegal soul_collector target, random-target flesh_rend); the sim's Abyssal Mandate reads the growth pick one turn later than live (player growth is a turn-start curve in sim) — owner call.
