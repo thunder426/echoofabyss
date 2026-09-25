@@ -1564,7 +1564,7 @@ func _register_buff_preludes() -> void:
 
 ## Subscribe to BuffSystem.bus() for corruption_removed (gameplay trigger).
 ## buff_applied is no longer subscribed — VFX-driven buffs flow through
-## _request_buff_apply (called by EffectResolver / HardcodedEffects directly),
+## _show_buff_apply (called by EffectResolver / HardcodedEffects directly),
 ## and silent buffs use emit_vfx=false at the call site so they never need
 ## a VFX listener.
 func _connect_buff_signal() -> void:
@@ -1762,53 +1762,38 @@ func _schedule_sacrifice_unfreeze(slot: BoardSlot, delay: float) -> void:
 ## Drained next frame by _flush_buff_requests.
 var _pending_buff_requests: Dictionary = {}
 
-## When true, EffectResolver's BUFF_ATK/BUFF_HP cases bypass _request_buff_apply
+## When true, EffectResolver's BUFF_ATK/BUFF_HP cases bypass _show_buff_apply
 ## and mutate state immediately + silently (no buff_applied signal, no queued
 ## BuffApplyVFX). Set by presence-aura recompute so its strip+reapply doesn't
 ## flash the standard buff visual on every recompute. Caller spawns its own
 ## cosmetic BuffApplyVFX only on minions whose net stats actually changed.
 var _silent_buff_apply: bool = false
 
-## Public entry from EffectResolver. EffectResolver calls this for every
-## BUFF_ATK / BUFF_HP step instead of mutating state directly. We aggregate
-## the requests by (minion, source_tag) and spawn ONE BuffApplyVFX per bucket
-## next frame; the VFX itself calls BuffSystem.apply at its chevron beat.
-##
-## This means state mutation happens AT the visible moment (chevron + scale
-## pulse + value tween), not at cast time. No more cast-time auto-tween that
-## fights the chevron-time tween.
-##
-## buff_type is the BuffType enum value. is_hp_gain distinguishes BUFF_HP
-## (which uses apply_hp_gain to bump current_health) from ATK_BONUS / HP_BONUS
-## (which use plain apply).
-func _request_buff_apply(minion: MinionInstance, buff_type: int,
-		amount: int, source_tag: String, is_hp_gain: bool) -> void:
-	if minion == null or not is_instance_valid(minion):
+## Presenter hook (plan 3.0): the buff is already applied on the engine; queue
+## its animation. Requests for the same minion + source in one frame merge into
+## one BuffApplyVFX that tweens the labels from the first pre-buff snapshot to
+## the live values at flush. The labels are held at the pre-buff values until
+## the pulse beat, so that beat is where the number visibly changes.
+func _show_buff_apply(minion: MinionInstance, source_tag: String, atk_before: int, hp_before: int) -> void:
+	if minion == null or not is_instance_valid(minion) or vfx_controller == null:
 		return
-	# Pack Frenzy owns its full buff visual — apply state immediately, skip
-	# the generic blessing surge entirely. PackFrenzyVFX handles the tween/chevron.
+	# Pack Frenzy owns its full buff visual (PackFrenzyVFX tween + chevron).
 	if source_tag == "pack_frenzy":
-		if is_hp_gain:
-			BuffSystem.apply_hp_gain(minion, amount, source_tag)
-		else:
-			BuffSystem.apply(minion, buff_type, amount, source_tag)
-		_refresh_slot_for(minion)
 		return
 	var key: String = "%d|%s" % [minion.get_instance_id(), source_tag]
-	var agg: Dictionary = _pending_buff_requests.get(key, {
-		"minion": minion, "source": source_tag, "intents": []
-	})
-	(agg["intents"] as Array).append({
-		"buff_type": buff_type, "amount": amount, "is_hp_gain": is_hp_gain,
-	})
 	var was_empty: bool = _pending_buff_requests.is_empty()
-	_pending_buff_requests[key] = agg
+	if not _pending_buff_requests.has(key):
+		_pending_buff_requests[key] = {"minion": minion, "source": source_tag,
+			"atk_before": atk_before, "hp_before": hp_before}
+	var agg: Dictionary = _pending_buff_requests[key]
+	var slot: BoardSlot = _find_slot_for(minion)
+	if slot != null and slot.minion == minion:
+		slot.hold_stats(agg["atk_before"], agg["hp_before"])
 	if was_empty:
 		call_deferred("_flush_buff_requests")
 
-## Spawn one BuffApplyVFX per bucket. The VFX takes ownership of the buff
-## intents — at its chevron beat it calls BuffSystem.apply for each, which
-## mutates state and fires buff_applied + minion_stats_changed naturally.
+## Spawn one BuffApplyVFX per (minion, source) bucket with the pre-buff
+## snapshot; the VFX tweens the labels to the live values at its pulse beat.
 func _flush_buff_requests() -> void:
 	var pending: Dictionary = _pending_buff_requests
 	_pending_buff_requests = {}
@@ -1822,20 +1807,15 @@ func _flush_buff_requests() -> void:
 		var slot: BoardSlot = _find_slot_for(m)
 		if slot == null or slot.minion != m:
 			continue
-		var atk_d: int = 0
-		var hp_d:  int = 0
-		for intent in agg["intents"]:
-			var bt: int = intent["buff_type"]
-			var amt: int = intent["amount"]
-			var is_hp: bool = intent["is_hp_gain"]
-			if is_hp:
-				hp_d += amt
-			elif bt == Enums.BuffType.ATK_BONUS or bt == Enums.BuffType.TEMP_ATK:
-				atk_d += amt
+		var atk_before: int = agg["atk_before"]
+		var hp_before: int = agg["hp_before"]
+		var atk_d: int = m.effective_atk() - atk_before
+		var hp_d: int = m.current_health - hp_before
 		if atk_d == 0 and hp_d == 0:
+			slot.refresh_stats_only()
 			continue
 		to_spawn.append({"minion": m, "slot": slot, "src": String(agg["source"]),
-			"intents": agg["intents"], "atk_d": atk_d, "hp_d": hp_d})
+			"atk_before": atk_before, "hp_before": hp_before, "atk_d": atk_d, "hp_d": hp_d})
 	if to_spawn.is_empty():
 		return
 	# AI gating — block enemy AI until the LAST VFX in this batch finishes.
@@ -1845,10 +1825,7 @@ func _flush_buff_requests() -> void:
 		var prelude: Callable   = BuffVfxRegistry.build_prelude(s["src"], s["slot"], s["atk_d"], s["hp_d"])
 		var palette: Dictionary = BuffVfxRegistry.get_palette(s["src"])
 		var vfx := BuffApplyVFX.create(s["slot"], s["atk_d"], s["hp_d"], prelude, palette)
-		# Attach source tag to each intent so BuffApplyVFX can pass it to BuffSystem.apply.
-		for intent in s["intents"]:
-			intent["_source_tag"] = s["src"]
-		vfx.set_buff_intents(s["minion"], s["intents"], self)
+		vfx.set_stat_snapshot(s["atk_before"], s["hp_before"])
 		vfx.finished.connect(_on_buff_vfx_finished, CONNECT_ONE_SHOT)
 		vfx_controller.spawn(vfx)
 

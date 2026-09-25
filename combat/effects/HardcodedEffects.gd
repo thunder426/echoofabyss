@@ -168,23 +168,23 @@ func _dark_covenant_passive(ctx: EffectContext) -> void:
 	if has_human:
 		for m in board:
 			if (m.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
-				# Defer to BuffApplyVFX's chevron beat in live combat (state
-				# mutation aligned with visible value tween). Sim falls back to
-				# immediate apply via the null vfx_controller check.
-				if presenter != null and presenter.vfx_controller != null:
-					presenter._request_buff_apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant", false)
-				else:
-					BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
-					state._refresh_slot_for(m)
+				var atk_before: int = m.effective_atk()
+				var hp_before: int = m.current_health
+				BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "dark_covenant")
+				state._refresh_slot_for(m)
+				if presenter != null:
+					presenter._show_buff_apply(m, "dark_covenant", atk_before, hp_before)
 	if has_demon:
 		for m in board:
 			if (m.card_data as MinionCardData).is_race(Enums.MinionType.HUMAN):
 				if had_aura.has(m.get_instance_id()):
 					BuffSystem.apply(m, Enums.BuffType.HP_BONUS, 100, "dark_covenant", false, false)
-				elif presenter != null and presenter.vfx_controller != null:
-					presenter._request_buff_apply(m, Enums.BuffType.HP_BONUS, 100, "dark_covenant", true)
 				else:
+					var atk_before_hp: int = m.effective_atk()
+					var hp_before_hp: int = m.current_health
 					BuffSystem.apply_hp_gain(m, 100, "dark_covenant")
+					if presenter != null:
+						presenter._show_buff_apply(m, "dark_covenant", atk_before_hp, hp_before_hp)
 				state._refresh_slot_for(m)
 	# Humans that lost the aura this tick (no demon present) may have current_health
 	# above their new (lower) effective max — clamp to prevent stale overshoot.

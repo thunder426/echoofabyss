@@ -469,26 +469,28 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 		EffectStep.EffectType.BUFF_ATK:
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
 			var tag_atk: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-			# Defer state mutation to BuffApplyVFX's chevron beat in live combat
-			# so the visible value tween, chevron, and state mutation all align.
-			# Sim has no VFX → mutate immediately as before.
-			# Presence-aura recompute sets _silent_buff_apply to skip the VFX queue
-			# entirely; the caller spawns its own cosmetic VFX only on real deltas.
+			# Mutate now (plan 3.0); the presenter animates pre → post at its own
+			# beat. Presence-aura recompute sets _silent_buff_apply so nothing is
+			# queued — the caller spawns its own cosmetic VFX only on real deltas.
 			var silent: bool = ctx.presenter != null and ctx.presenter._silent_buff_apply
-			if ctx.presenter != null and ctx.presenter.vfx_controller != null and not silent:
-				ctx.presenter._request_buff_apply(target, buff_type, amount, tag_atk, false)
-			else:
-				BuffSystem.apply(target, buff_type, amount, tag_atk, false, not silent)
-				ctx.state._refresh_slot_for(target)
+			var atk_m: MinionInstance = target as MinionInstance
+			var atk_before: int = atk_m.effective_atk() if atk_m != null else 0
+			var hp_before: int = atk_m.current_health if atk_m != null else 0
+			BuffSystem.apply(target, buff_type, amount, tag_atk, false, not silent)
+			ctx.state._refresh_slot_for(target)
+			if atk_m != null and ctx.presenter != null and not silent:
+				ctx.presenter._show_buff_apply(atk_m, tag_atk, atk_before, hp_before)
 
 		EffectStep.EffectType.BUFF_HP:
 			var tag_hp: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
 			var silent_hp: bool = ctx.presenter != null and ctx.presenter._silent_buff_apply
-			if ctx.presenter != null and ctx.presenter.vfx_controller != null and not silent_hp:
-				ctx.presenter._request_buff_apply(target, Enums.BuffType.HP_BONUS, amount, tag_hp, true)
-			else:
-				BuffSystem.apply_hp_gain(target, amount, tag_hp, not silent_hp)
-				ctx.state._refresh_slot_for(target)
+			var hp_m: MinionInstance = target as MinionInstance
+			var atk_before_hp: int = hp_m.effective_atk() if hp_m != null else 0
+			var hp_before_hp: int = hp_m.current_health if hp_m != null else 0
+			BuffSystem.apply_hp_gain(target, amount, tag_hp, not silent_hp)
+			ctx.state._refresh_slot_for(target)
+			if hp_m != null and ctx.presenter != null and not silent_hp:
+				ctx.presenter._show_buff_apply(hp_m, tag_hp, atk_before_hp, hp_before_hp)
 
 		EffectStep.EffectType.BUFF_ARMOUR:
 			# Korrath — armour is a stat on MinionInstance, not a BuffSystem entry.

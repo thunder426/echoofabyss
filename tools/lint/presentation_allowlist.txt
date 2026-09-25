@@ -46,9 +46,9 @@ play_trap_reveals                 # trap card animations; runs each resolve at i
 _on_hero_damaged_visual           # flash / popup; lethal → defeat/victory, F15 transition
 _on_hero_healed_visual
 _on_card_left_hand                # hand-display removal without a play animation
-# Buff application animation (S3 — the BuffApplyVFX applies the buff at its beat;
-# Phase 3.0 moves the mutation back into the engine)
-_request_buff_apply
+# Buff application animation (plan 3.0: the engine applies the buff at once;
+# the hook takes the pre-buff snapshot and BuffApplyVFX tweens the labels at its beat)
+_show_buff_apply
 _silent_buff_apply
 # HUD
 _update_champion_progress

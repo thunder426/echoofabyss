@@ -367,6 +367,23 @@ func animate_hp_change(from_hp: int, to_hp: int) -> void:
 	_hp_label.add_theme_color_override("font_color", Color(0.35, 1.00, 0.50, 1))
 	_run_label_tween(_hp_label, from_hp, to_hp, "hp")
 
+## Hold the ATK / HP labels at the given (pre-buff) values, killing any running
+## value tween — the buff VFX tweens them to the live values at its pulse beat.
+func hold_stats(atk: int, hp: int) -> void:
+	if _atk_label == null or _hp_label == null:
+		return
+	if _atk_value_tween != null and _atk_value_tween.is_valid():
+		_atk_value_tween.kill()
+	_atk_value_tween = null
+	if _hp_value_tween != null and _hp_value_tween.is_valid():
+		_hp_value_tween.kill()
+	_hp_value_tween = null
+	_atk_label.text = str(atk)
+	if minion != null and minion.has_shield() and minion.current_shield > 0:
+		_hp_label.text = "%d+%d" % [hp, minion.current_shield]
+	else:
+		_hp_label.text = str(hp)
+
 ## VFX-anchored: tween ATK from `from_atk` → current effective_atk(). Caller
 ## passes the pre-buff snapshot so the start point is correct regardless of
 ## what the label happens to display.

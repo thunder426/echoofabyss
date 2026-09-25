@@ -88,15 +88,12 @@ var _prelude: Callable = Callable()
 var _palette: Dictionary = {}
 var _slot_rect: Rect2 = Rect2()
 
-# Deferred buff state mutation. Set via set_buff_intents() by CombatScene._flush_buff_requests
-# so that BuffSystem.apply runs at the pulse beat (state mutation aligned with
-# the visible chevron + scale-pulse + value tween). When intents are set,
-# they're applied lazily during _pulse_stat. When unset (legacy path or
-# abort), no state mutation happens here — caller is responsible.
-var _intents_minion: MinionInstance = null
-var _intents: Array = []  # Array[{ buff_type: int, amount: int, is_hp_gain: bool }]
-var _atk_intent_applied: bool = false
-var _hp_intent_applied:  bool = false
+# Pre-buff label values (plan 3.0). The engine has already applied the buff
+# when this VFX spawns; the pulse beat tweens each label from these to the
+# live value. Without a snapshot (cosmetic use) the pulse only pulses.
+var _pre_atk: int = 0
+var _pre_hp: int = 0
+var _has_snapshot: bool = false
 
 
 static func create(slot: Control, atk_delta: int, hp_delta: int,
@@ -112,16 +109,11 @@ static func create(slot: Control, atk_delta: int, hp_delta: int,
 	return vfx
 
 
-## Hand over deferred buff intents. The VFX takes ownership and calls
-## BuffSystem.apply for each at its pulse beat (per stat — atk intents fire
-## with the ATK pulse, hp intents fire with the HP pulse), so state mutation
-## is aligned with the visible chevron + value tween. `scene` is the
-## CombatScene reference used to call _refresh_slot_for after each apply.
-var _scene: Node = null
-func set_buff_intents(minion: MinionInstance, intents: Array, scene: Node = null) -> void:
-	_intents_minion = minion
-	_intents = intents
-	_scene = scene
+## Pre-buff snapshot from CombatScene._flush_buff_requests.
+func set_stat_snapshot(atk_before: int, hp_before: int) -> void:
+	_pre_atk = atk_before
+	_pre_hp = hp_before
+	_has_snapshot = true
 
 
 func _pc(key: String, fallback: Color) -> Color:
@@ -130,62 +122,8 @@ func _pc(key: String, fallback: Color) -> Color:
 	return fallback
 
 
-## Apply any unapplied buff intents matching `is_hp` filter. Called from
-## _pulse_stat at the moment the chevron + tween fire so state mutation
-## lands on the same beat. Subsequent _refresh_slot_for in the BuffSystem
-## emit path lets minion_stats_changed fire naturally.
-func _apply_intents(is_hp: bool) -> void:
-	if _intents_minion == null or not is_instance_valid(_intents_minion):
-		return
-	for intent in _intents:
-		if intent["is_hp_gain"] != is_hp:
-			continue
-		var bt: int = intent["buff_type"]
-		var amt: int = intent["amount"]
-		# Skip if already applied (defensive — guard against double-apply if
-		# this method is called twice for the same stat).
-		if intent.get("_applied", false):
-			continue
-		if intent["is_hp_gain"]:
-			BuffSystem.apply_hp_gain(_intents_minion, amt, _safe_source_tag())
-		else:
-			BuffSystem.apply(_intents_minion, bt, amt, _safe_source_tag())
-		intent["_applied"] = true
-
-
-## Source tag for BuffSystem.apply calls. Stored on the agg dict by
-## CombatScene._request_buff_apply; we don't have direct access here so
-## reuse the slot/source convention: BuffApplyVFX is per-source, so the tag
-## is stable across all intents in this VFX. Caller (CombatScene) records
-## the source on the first intent — pull from there.
-func _safe_source_tag() -> String:
-	if _intents.is_empty():
-		return ""
-	return _intents[0].get("_source_tag", "")
-
-
-## Clear deferred state by force-applying any unapplied intents. Used by
-## abort paths so the buff still lands even if the VFX never reaches its
-## pulse phase (scene change, slot freed, etc.). Without this, the buff
-## would silently fail to apply.
-func _force_apply_remaining_intents() -> void:
-	if _intents_minion == null or not is_instance_valid(_intents_minion):
-		return
-	for intent in _intents:
-		if intent.get("_applied", false):
-			continue
-		var bt: int = intent["buff_type"]
-		var amt: int = intent["amount"]
-		if intent["is_hp_gain"]:
-			BuffSystem.apply_hp_gain(_intents_minion, amt, _safe_source_tag())
-		else:
-			BuffSystem.apply(_intents_minion, bt, amt, _safe_source_tag())
-		intent["_applied"] = true
-
-
 func _play() -> void:
 	if _slot == null or not is_instance_valid(_slot) or get_parent() == null:
-		_force_apply_remaining_intents()
 		finished.emit()
 		queue_free()
 		return
@@ -196,7 +134,6 @@ func _play() -> void:
 	if _prelude.is_valid():
 		await _prelude.call()
 		if not is_inside_tree() or not is_instance_valid(_slot):
-			_force_apply_remaining_intents()
 			finished.emit()
 			queue_free()
 			return
@@ -366,27 +303,17 @@ func _pulse_stat(which: String) -> void:
 	if lbl == null or not is_instance_valid(lbl):
 		return
 
-	# VFX-anchored state mutation + value tween. Apply the deferred buff
-	# intents NOW (state mutation happens at the visible beat), then run the
-	# tween from pre to current. minion_stats_changed fires from BuffSystem.apply
-	# but the slot's smart-snap helpers handle that by tweening to the same
-	# end value (or being yielded to by the active tween).
+	# Value tween at the visible beat: from the pre-buff snapshot (held on the
+	# label by CombatScene._show_buff_apply) to the live value. Without a
+	# snapshot the label already shows the live value and only pulses.
 	var slot_node: BoardSlot = _slot as BoardSlot
 	if slot_node != null and slot_node.minion != null:
 		if which == "atk" and _atk_delta != 0:
-			# Snapshot pre-mutation BEFORE applying intents.
-			var pre_atk: int = slot_node.minion.effective_atk()
-			_apply_intents(false)
-			# Slot color tints / status icons reflect post-mutation state.
-			if _scene != null and _scene.has_method("_refresh_slot_for"):
-				_scene._refresh_slot_for(slot_node.minion)
-			slot_node.animate_atk_change(pre_atk)
+			var from_atk: int = _pre_atk if _has_snapshot else slot_node.minion.effective_atk()
+			slot_node.animate_atk_change(from_atk)
 		elif which == "hp" and _hp_delta != 0:
-			var pre_hp: int = slot_node.minion.current_health
-			_apply_intents(true)
-			if _scene != null and _scene.has_method("_refresh_slot_for"):
-				_scene._refresh_slot_for(slot_node.minion)
-			slot_node.animate_hp_change(pre_hp, slot_node.minion.current_health)
+			var from_hp: int = _pre_hp if _has_snapshot else slot_node.minion.current_health
+			slot_node.animate_hp_change(from_hp, slot_node.minion.current_health)
 
 	lbl.pivot_offset = lbl.size * 0.5
 	var original_color: Color = lbl.get_theme_color("font_color")
