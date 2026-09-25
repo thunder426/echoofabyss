@@ -1,7 +1,7 @@
 ## HardcodedEffects.gd
 ## Executes card effects that cannot be expressed declaratively in EffectStep.
-## Works with both CombatScene (live) and SimState (headless sim) via duck-typing —
-## all state access goes through _scene, same pattern as CombatHandlers.
+## Reads and writes gameplay only through the typed CombatState, like
+## CombatHandlers; presentation follows from the journal (plan 4.4).
 ##
 ## IMPORTANT: All effects MUST be symmetric — they must work correctly when
 ## played by either "player" or "enemy". Use ctx.owner with _friendly_board(),
@@ -10,28 +10,21 @@
 ##
 ## Usage:
 ##   var _hardcoded := HardcodedEffects.new()
-##   _hardcoded.setup(self)   # pass CombatScene or SimState
-##   func _resolve_hardcoded(id, ctx): _hardcoded.resolve(id, ctx)
+##   _hardcoded.setup(state)   # CombatState.setup_combat
+##   _hardcoded.resolve(id, ctx)
 class_name HardcodedEffects
 extends RefCounted
 
-## The scene object — either a CombatScene node or a SimState RefCounted.
-var _scene: Object
-## The combat state — gameplay reads and writes (LIVE_SIM_UNIFICATION_PLAN.md 1.2).
+## The combat state — every gameplay read and write.
 var state: CombatState
-## Presentation: the CombatScene in live, null in sim/tests. A getter — setup()
-## runs before CombatScene assigns itself as the presenter.
-var presenter: Object:
-	get: return state.presenter
 
 ## _LogType enum values matching CombatScene (TURN=0, PLAYER=1, ENEMY=2, DAMAGE=3, HEAL=4, TRAP=5, DEATH=6)
 const _LOG_PLAYER := 1
 const _LOG_ENEMY  := 2
 const _LOG_TRAP   := 5
 
-func setup(scene: Object) -> void:
-	_scene = scene
-	state = scene.state
+func setup(p_state: CombatState) -> void:
+	state = p_state
 
 func _log_side(owner: String) -> int:
 	return _LOG_PLAYER if owner == "player" else _LOG_ENEMY
@@ -121,8 +114,10 @@ func _grafted_butcher(ctx: EffectContext) -> void:
 ## `_enemy_fiendish_pact_pending` on the same scene.
 func _fiendish_pact(ctx: EffectContext) -> void:
 	var ls := _log_side(ctx.owner)
-	var field := "_fiendish_pact_pending" if ctx.owner == "player" else "_enemy_fiendish_pact_pending"
-	_scene.set(field, 2)
+	if ctx.owner == "player":
+		state._fiendish_pact_pending = 2
+	else:
+		state._enemy_fiendish_pact_pending = 2
 	# Display hint: mark every Demon in the caster's hand with essence_delta = -2 (cleared on consume or turn start).
 	var hand: Array[CardInstance] = state.hand_of(ctx.owner)
 	var count := 0
@@ -136,8 +131,7 @@ func _fiendish_pact(ctx: EffectContext) -> void:
 		inst.essence_delta = mini(inst.essence_delta, -2)
 		count += 1
 	_log("  Fiendish Pact: next Demon costs 2 less Essence this turn (%d in hand)." % count, ls)
-	if ctx.owner == "player" and presenter != null:
-		presenter._refresh_hand_spell_costs()
+	state.emit_event(CombatEvent.Kind.HAND_COSTS_CHANGED, ctx.owner)
 
 # ---------------------------------------------------------------------------
 # Environment passives
@@ -320,7 +314,7 @@ func _pack_frenzy(ctx: EffectContext) -> void:
 ## so the cascade + ON_FORMATION_TRIGGERED dispatch lives in one place (next to
 ## the normal Formation handler).
 func _battle_drillmaster_cascade(ctx: EffectContext) -> void:
-	if _scene == null:
+	if state == null:
 		return
 	var handlers: CombatHandlers = state._handlers
 	if handlers == null:

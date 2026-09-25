@@ -1,4 +1,0 @@
-# L1 allow-list: `path:name  # reason`. Empty since plan step 1.3 (the sim-only
-# enemy_*_max fallback branches were replaced by state.grow_*_max). Only add
-# sim-only fallback branches that are unreachable in live — never a real live
-# access — and remove them before the phase ends.

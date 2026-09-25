@@ -80,4 +80,4 @@ func _count_board_feral_imps() -> int:
 	return count
 
 func _is_feral_imp(m: MinionInstance) -> bool:
-	return agent.scene != null and agent.state._minion_has_tag(m, "feral_imp")
+	return agent.state != null and agent.state._minion_has_tag(m, "feral_imp")

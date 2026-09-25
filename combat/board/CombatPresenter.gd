@@ -193,8 +193,7 @@ func _play(ev: CombatEvent) -> void:
 			scene._update_counter_warning()
 			await _wait(0.3)
 		CombatEvent.Kind.RITUAL_FIRED:
-			var capture: Dictionary = scene._pending_ritual_capture
-			scene._pending_ritual_capture = {}
+			var capture: Dictionary = scene._capture_ritual_visual(ev.payload.get("slots", []), ev.payload.get("runes", []))
 			if not capture.is_empty():
 				await scene._run_ritual_visual(capture)
 		CombatEvent.Kind.ATTACK_STARTED:
@@ -674,6 +673,15 @@ func _emit_ui(ev: CombatEvent) -> void:
 		CombatEvent.Kind.RELIC_ACTIVATED:
 			if scene._relic_bar != null:
 				scene._relic_bar.refresh()
+		CombatEvent.Kind.HAND_COSTS_CHANGED:
+			if ev.side == "player" and ui != null:
+				ui.refresh_hand_spell_costs()
+		CombatEvent.Kind.SPELL_COUNTER_CHANGED:
+			scene._update_counter_warning()
+		CombatEvent.Kind.CHAMPION_PROGRESS:
+			scene._update_champion_progress(p.get("current", 0), p.get("total", 0))
+		CombatEvent.Kind.CHAMPION_KILLED:
+			scene._on_champion_killed()
 		_:
 			pass
 

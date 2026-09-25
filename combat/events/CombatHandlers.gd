@@ -1,31 +1,24 @@
 ## CombatHandlers.gd
 ## All trigger handler logic for combat events.
-## Works with both CombatScene (live) and SimState (headless sim) via duck-typing.
+## Reads and writes gameplay only through the typed CombatState; presentation
+## follows from the journal events the state appends (plan 4.4).
 ##
-## Usage:
-##   var _handlers := CombatHandlers.new()
-##   _handlers.setup(self)   # pass CombatScene or SimState as scene
-##   trigger_manager.register(event, _handlers.method_name, priority)
+## Usage (CombatSetup.setup):
+##   var h := CombatHandlers.new()
+##   h.setup(state)
+##   trigger_manager.register(event, h.method_name, priority)
 class_name CombatHandlers
 extends RefCounted
 
-## The scene object — either a CombatScene node or a SimState RefCounted.
-## All data access goes through this reference so both contexts work identically.
-var _scene: Object
-## The combat state — gameplay reads and writes (LIVE_SIM_UNIFICATION_PLAN.md 1.2).
+## The combat state — every gameplay read and write.
 var state: CombatState
-## Presentation: the CombatScene in live, null in sim/tests. Null-check every call;
-## names are listed in tools/lint/presentation_allowlist.txt [presenter].
-var presenter: Object:
-	get: return state.presenter
 
 ## Log-side constants matching CombatScene._LogType enum values.
 const _LOG_PLAYER := 0
 const _LOG_ENEMY  := 1
 
-func setup(scene: Object) -> void:
-	_scene = scene
-	state = scene.state
+func setup(p_state: CombatState) -> void:
+	state = p_state
 
 # ---------------------------------------------------------------------------
 # ON_PLAYER_TURN_START
@@ -46,7 +39,7 @@ func on_minion_turn_start_passives(_ctx: EventContext) -> void:
 	for m in state.player_board.duplicate():
 		var mc := m.card_data as MinionCardData
 		if mc and not mc.on_turn_start_effect_steps.is_empty():
-			var ectx    := EffectContext.make(_scene, "player")
+			var ectx    := EffectContext.make(state, "player")
 			ectx.source = m
 			EffectResolver.run(mc.on_turn_start_effect_steps, ectx)
 
@@ -65,7 +58,7 @@ func on_minion_turn_end_passives(ctx: EventContext) -> void:
 	for m in board.duplicate():
 		var mc := m.card_data as MinionCardData
 		if mc and not mc.on_turn_end_effect_steps.is_empty():
-			var ectx    := EffectContext.make(_scene, owner)
+			var ectx    := EffectContext.make(state, owner)
 			ectx.source = m
 			ectx.source_card_id = mc.id
 			EffectResolver.run(mc.on_turn_end_effect_steps, ectx)
@@ -89,7 +82,7 @@ func _run_env_passives_for_turn(event_type: int) -> void:
 		var env_owner: String = entry["owner"]
 		if env_owner != turn_owner and not env.fires_on_enemy_turn:
 			continue
-		var ctx := EffectContext.make(_scene, env_owner)
+		var ctx := EffectContext.make(state, env_owner)
 		EffectResolver.run(env.passive_effect_steps, ctx)
 
 ## Returns [{env, owner}, ...] for every active environment across both sides.
@@ -140,8 +133,8 @@ func on_card_drawn_void_echo(ctx: EventContext) -> void:
 		var inst := CardInstance.create(copy)
 		hand.append(inst)
 		state._void_echo_fired_this_turn = true
-		if presenter != null and presenter.hand_display:
-			presenter.hand_display.add_card_generated(inst)
+		state.card_generated.emit("player", inst)
+		state.emit_event(CombatEvent.Kind.CARD_GENERATED, "player", {inst = inst})
 		_log("  Void Echo: Void Imp drawn — free copy added to hand.", _LOG_PLAYER)
 
 ## Reset void_echo once-per-turn flag at player turn start.
@@ -465,7 +458,7 @@ func on_attack_fire_riders(ctx: EventContext) -> void:
 		var steps: Array = rider.get("effect_steps", [])
 		if steps.is_empty():
 			continue
-		var ectx := EffectContext.make(_scene, attacker.owner)
+		var ectx := EffectContext.make(state, attacker.owner)
 		ectx.source         = attacker
 		ectx.source_card_id = rider.get("source_tag", "")
 		# Bind chosen_target for minion defenders; hero defenders go through
@@ -525,7 +518,7 @@ func fire_unconsumed_formations_cascade(side: String) -> void:
 		var card := actor.card_data as MinionCardData
 		actor.formation_fired = true
 		if not card.formation_effect_steps.is_empty():
-			var ectx := EffectContext.make(_scene, actor.owner)
+			var ectx := EffectContext.make(state, actor.owner)
 			ectx.source = actor
 			ectx.source_card_id = card.id
 			EffectResolver.run(card.formation_effect_steps, ectx)
@@ -565,7 +558,7 @@ func _try_fire_formation(actor: MinionInstance, partner: MinionInstance) -> void
 		return
 	actor.formation_fired = true
 	if not card.formation_effect_steps.is_empty():
-		var ectx := EffectContext.make(_scene, actor.owner)
+		var ectx := EffectContext.make(state, actor.owner)
 		ectx.source = actor
 		ectx.source_card_id = card.id
 		EffectResolver.run(card.formation_effect_steps, ectx)
@@ -650,7 +643,7 @@ func on_minion_summoned_friendly_aura(ctx: EventContext) -> void:
 		var mc := src.card_data as MinionCardData
 		if mc == null or mc.on_friendly_summon_aura_steps.is_empty():
 			continue
-		var ectx := EffectContext.make(_scene, src.owner)
+		var ectx := EffectContext.make(state, src.owner)
 		ectx.source         = src
 		ectx.source_card_id = mc.id
 		ectx.trigger_minion = summoned
@@ -675,7 +668,7 @@ func on_formation_triggered_card_auras(ctx: EventContext) -> void:
 		var mc := src.card_data as MinionCardData
 		if mc == null or mc.on_formation_triggered_aura_steps.is_empty():
 			continue
-		var ectx := EffectContext.make(_scene, src.owner)
+		var ectx := EffectContext.make(state, src.owner)
 		ectx.source         = src
 		ectx.source_card_id = mc.id
 		ectx.trigger_minion = actor
@@ -719,7 +712,7 @@ func on_minion_died_death_effect(ctx: EventContext) -> void:
 func _resolve_on_death(minion: MinionInstance) -> void:
 	var card := minion.card_data as MinionCardData
 	if not card.on_death_effect_steps.is_empty():
-		var eff_ctx    := EffectContext.make(_scene, minion.owner)
+		var eff_ctx    := EffectContext.make(state, minion.owner)
 		eff_ctx.source = minion
 		EffectResolver.run(card.on_death_effect_steps, eff_ctx)
 	# Runtime-granted on-death summon effects (e.g. Sovereign's Edict)
@@ -742,7 +735,7 @@ func on_minion_killed_on_kill_steps(ctx: EventContext) -> void:
 	var steps: Array = (attacker.card_data as MinionCardData).on_kill_effect_steps
 	if steps.is_empty():
 		return
-	var eff_ctx         := EffectContext.make(_scene, attacker.owner)
+	var eff_ctx         := EffectContext.make(state, attacker.owner)
 	eff_ctx.source      = attacker
 	eff_ctx.source_card_id = attacker.card_data.id
 	eff_ctx.dead_minion = ctx.minion
@@ -785,7 +778,7 @@ func on_minion_died_environment(ctx: EventContext) -> void:
 		var env: EnvironmentCardData = entry["env"]
 		if env.on_player_minion_died_steps.is_empty():
 			continue
-		var eff_ctx         := EffectContext.make(_scene, dead_owner)
+		var eff_ctx         := EffectContext.make(state, dead_owner)
 		eff_ctx.dead_minion = ctx.minion
 		EffectResolver.run(env.on_player_minion_died_steps, eff_ctx)
 
@@ -970,7 +963,7 @@ func on_player_minion_played_effect(ctx: EventContext) -> void:
 	if mc.id == "void_netter" and ctx.target is MinionInstance:
 		state.emit_event(CombatEvent.Kind.VFX, "player", {name = "void_netter", source = minion, target = ctx.target})
 	if not mc.on_play_effect_steps.is_empty():
-		var ectx           := EffectContext.make(_scene, "player")
+		var ectx           := EffectContext.make(state, "player")
 		ectx.source        = minion
 		ectx.source_card_id = mc.id
 		ectx.chosen_target = ctx.target
@@ -993,7 +986,7 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 	if mc.id == "void_netter" and chosen is MinionInstance:
 		state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "void_netter", source = minion, target = chosen})
 	if not mc.on_play_effect_steps.is_empty():
-		var ectx                         := EffectContext.make(_scene, "enemy")
+		var ectx                         := EffectContext.make(state, "enemy")
 		ectx.source                      = minion
 		ectx.source_card_id              = mc.id
 		if chosen is MinionInstance:
@@ -1001,8 +994,6 @@ func on_enemy_minion_played_effect(ctx: EventContext) -> void:
 		else:
 			ectx.chosen_object = chosen
 		EffectResolver.run(mc.on_play_effect_steps, ectx)
-		if presenter != null:
-			presenter._update_counter_warning()
 
 ## Generic presence aura recompute. Fires on any minion summon/death/sacrifice on either
 ## side. Walks both boards, finds every minion with non-empty presence_aura_steps, groups
@@ -1064,22 +1055,20 @@ func _refresh_presence_auras_for_side(side: String, leaving: MinionInstance) -> 
 		pre_hp_cap[m] = m.card_data.health + BuffSystem.sum_type(m, Enums.BuffType.HP_BONUS)
 	# Silent strip+reapply: state mutates immediately, no buff_applied signal, no
 	# queued BuffApplyVFX. EffectResolver routes BUFF_ATK/BUFF_HP through the
-	# silent branch when presenter._silent_buff_apply is true (sim: always silent-free).
-	var prev_silent: bool = presenter._silent_buff_apply if presenter != null else false
-	if presenter != null:
-		presenter._silent_buff_apply = true
+	# silent branch while state._silent_buff_apply is true.
+	var prev_silent: bool = state._silent_buff_apply
+	state._silent_buff_apply = true
 	# Strip-then-apply (not interleaved) so cross-target counting stays consistent.
 	for tag in strip_tags.keys():
 		for m in board:
 			BuffSystem.remove_source(m, tag)
 	for tag in groups.keys():
 		var entry: Dictionary = groups[tag]
-		var ctx2 := EffectContext.make(_scene, side)
+		var ctx2 := EffectContext.make(state, side)
 		ctx2.source         = entry["src"]
 		ctx2.source_card_id = (entry["src"] as MinionInstance).card_data.id
 		EffectResolver.run(entry["steps"], ctx2)
-	if presenter != null:
-		presenter._silent_buff_apply = prev_silent
+	state._silent_buff_apply = prev_silent
 	# Compute deltas and spawn cosmetic BuffApplyVFX only for minions whose net
 	# stats actually changed (e.g. a 2nd Elder just summoned → existing imps go
 	# from +100 to +200, real +100 delta worth animating). Zero-delta minions
@@ -1124,15 +1113,14 @@ func on_board_changed_pack_instinct(ctx: EventContext) -> void:
 	if is_summon \
 			and feral_imps.size() >= 2 \
 			and ctx.minion != null \
-			and state._minion_has_tag(ctx.minion, "feral_imp") \
-			and presenter != null:
+			and state._minion_has_tag(ctx.minion, "feral_imp"):
 		state.emit_event(CombatEvent.Kind.VFX, "enemy", {name = "pack_chain", minion = ctx.minion})
 	# ATK-increase popup on every imp that gained ATK this tick (only on summon —
 	# death events should silently lose the buff without drawing attention).
 	# The buff is ALREADY applied (game state uses new ATK immediately); the VFX
 	# helper holds the visual ATK label at the OLD value and flips it in sync
 	# with the chain animation.
-	if is_summon and presenter != null:
+	if is_summon:
 		for m in feral_imps:
 			var old_atk: int = int(pre_atk.get(m, m.effective_atk()))
 			if m.effective_atk() > old_atk:
@@ -1974,10 +1962,7 @@ func on_enemy_turn_end_captain_orders(_ctx: EventContext) -> void:
 			_log("  Captain's Orders: %s's crit consumed — %d damage to enemy hero." % [m.card_data.card_name, dmg], _LOG_ENEMY)
 		state._refresh_slot_for(m)
 		# Track for crit counter
-		var key := "_enemy_crits_consumed"
-		var cur = _scene.get(key)
-		if cur != null:
-			_scene.set(key, (cur as int) + 1)
+		state._enemy_crits_consumed += 1
 
 ## dark_channeling (Fight 13 — Void Ritualist Prime): when enemy casts a
 ## damage-dealing spell, consume 1 crit stack from a random friendly minion.
@@ -2268,10 +2253,9 @@ func on_enemy_died_champion_ch(ctx: EventContext) -> void:
 
 ## ── Shared champion helpers ─────────────────────────────────────────────────
 
-## Champion progress pips on the enemy hero panel (live only).
+## Champion progress pips on the enemy hero panel (the presenter shows them).
 func _show_champion_progress(current: int, total: int) -> void:
-	if presenter != null:
-		presenter._update_champion_progress(current, total)
+	state.emit_event(CombatEvent.Kind.CHAMPION_PROGRESS, "enemy", {current = current, total = total})
 
 func _summon_enemy_champion(card_id: String) -> void:
 	# Mark the champion summoned first — a second qualifying event inside the
@@ -2302,8 +2286,7 @@ func _summon_enemy_champion(card_id: String) -> void:
 
 func _on_enemy_champion_killed() -> void:
 	_log("  ★ Champion slain!", _LOG_ENEMY)
-	if presenter != null:
-		presenter._on_champion_killed()
+	state.emit_event(CombatEvent.Kind.CHAMPION_KILLED, "enemy")
 
 # ---------------------------------------------------------------------------
 # Shared helpers

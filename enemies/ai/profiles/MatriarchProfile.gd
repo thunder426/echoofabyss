@@ -63,7 +63,7 @@ func _should_cast_pack_frenzy() -> bool:
 ## Returns true when the encounter has the ancient_frenzy passive active,
 ## meaning Pack Frenzy also grants Lifedrain to all Feral Imps.
 func _has_ancient_frenzy() -> bool:
-	if agent.scene == null:
+	if agent.state == null:
 		return false
 	var passives: Array[String] = agent.state.enemy_passives
 	if passives == null:

@@ -19,8 +19,6 @@ const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
 var state: CombatState = CombatState.new()
 ## Plays the journal (plan 3.2): one animation per event, lagging ViewState, UI refresh.
 var presenter: CombatPresenter = null
-## The rune panels captured by _on_ritual_firing, consumed at RITUAL_FIRED playback.
-var _pending_ritual_capture: Dictionary = {}
 ## Emitted by _on_buff_vfx_finished when the last BuffApplyVFX of a batch ends.
 signal buff_vfx_batch_done()
 
@@ -566,7 +564,6 @@ func _ready() -> void:
 	# The one setup path (plan 4.1): seed, heroes, passives, decks, opening hands,
 	# triggers and relics. The presenter plays everything it journaled.
 	state.setup_combat(CombatConfig.from_game_manager())
-	state.presenter = self
 	presenter = CombatPresenter.new()
 	presenter.name = "Presenter"
 	add_child(presenter)
@@ -1392,13 +1389,6 @@ func _schedule_sacrifice_unfreeze(slot: BoardSlot, delay: float) -> void:
 ##     "intents": Array[{ "buff_type": int, "amount": int, "is_hp_gain": bool }] }
 ## Drained next frame by _flush_buff_requests.
 var _pending_buff_requests: Dictionary = {}
-
-## When true, EffectResolver's BUFF_ATK/BUFF_HP cases bypass _show_buff_apply
-## and mutate state immediately + silently (no buff_applied signal, no queued
-## BuffApplyVFX). Set by presence-aura recompute so its strip+reapply doesn't
-## flash the standard buff visual on every recompute. Caller spawns its own
-## cosmetic BuffApplyVFX only on minions whose net stats actually changed.
-var _silent_buff_apply: bool = false
 
 ## Presenter hook (plan 3.0): the buff is already applied on the engine; queue
 ## its animation. Requests for the same minion + source in one frame merge into
@@ -2388,29 +2378,25 @@ func _runes_satisfy(runes: Array, required: Array[int]) -> bool:
 ## Presenter hook — CombatState._fire_ritual, called before the runes are
 ## consumed: snapshot the rune panels + art now; the presenter runs the merge
 ## VFX on them at RITUAL_FIRED playback.
-func _on_ritual_firing(ritual: RitualData) -> void:
-	_pending_ritual_capture = _capture_ritual_visual(ritual)
-
-## Identify which player rune slots `ritual` consumes (mirroring
-## CombatState._fire_ritual's exact-then-wildcard pick order) and snapshot their
-## panels, glow colours and art. Empty when the VFX can't be anchored (no
-## bridge, panels not resolved, malformed ritual).
-func _capture_ritual_visual(ritual: RitualData) -> Dictionary:
-	if vfx_bridge == null or vfx_controller == null or ritual == null or trap_slot_panels.is_empty():
+## Snapshot the player rune panels a ritual consumed (RITUAL_FIRED's `slots`, in
+## pick order, and the `runes` that sat there): panels, glow colours and art.
+## Empty when the VFX can't be anchored (no bridge, panels not resolved).
+func _capture_ritual_visual(slot_indices: Array, runes: Array) -> Dictionary:
+	if vfx_bridge == null or vfx_controller == null or trap_slot_panels.is_empty():
 		return {}
-	var consumed_indices: Array[int] = _pick_player_ritual_rune_indices(ritual)
-	if consumed_indices.size() < 2:
+	if slot_indices.size() < 2 or slot_indices.size() != runes.size():
 		return {}
 	var slots: Array = []
 	var colors: Array = []
 	var arts: Array = []
-	for i in consumed_indices:
-		if i < 0 or i >= trap_slot_panels.size() or i >= active_traps.size():
+	for k in slot_indices.size():
+		var i: int = slot_indices[k]
+		if i < 0 or i >= trap_slot_panels.size():
 			return {}
 		var panel: Panel = trap_slot_panels[i] as Panel
 		if panel == null or not panel.is_inside_tree():
 			return {}
-		var trap: TrapCardData = active_traps[i] as TrapCardData
+		var trap: TrapCardData = runes[k] as TrapCardData
 		slots.append(panel)
 		colors.append(trap.rune_glow_color)
 		var art: Texture2D = null
@@ -2433,34 +2419,6 @@ func _run_ritual_visual(capture: Dictionary) -> void:
 		for i in trap_slot_panels.size():
 			trap_env_display.stop_rune_glow(i)
 
-## Mirror of CombatState._fire_ritual's rune-pick algorithm — returns the
-## indices into `active_traps` that will be consumed, in pick order. Kept
-## lightweight (no state mutation) so the VFX can highlight the right slots
-## without coupling to the state mutator.
-func _pick_player_ritual_rune_indices(ritual: RitualData) -> Array[int]:
-	var consumed: Array[int] = []
-	for req in ritual.required_runes:
-		var found := false
-		for i in active_traps.size():
-			if i in consumed:
-				continue
-			var trap := active_traps[i] as TrapCardData
-			if trap.is_rune and not trap.is_wildcard_rune and trap.rune_type == req:
-				consumed.append(i)
-				found = true
-				break
-		if not found:
-			for i in active_traps.size():
-				if i in consumed:
-					continue
-				var trap := active_traps[i] as TrapCardData
-				if trap.is_rune and trap.is_wildcard_rune:
-					consumed.append(i)
-					break
-	return consumed
-
-
-## Create a StyleBoxFlat with uniform border/corner settings.
 func _create_stylebox(bg: Color, border: Color, corner_radius: int = 4, border_width: int = 2) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color     = bg

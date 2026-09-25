@@ -47,11 +47,6 @@ var mana: int:
 	get: return _get_mana()
 	set(v): _set_mana(v)
 
-## Scene reference — passed to ConditionResolver / EffectResolver.
-## Typed as Object (historically a Node live, a RefCounted in sim).
-var scene: Object:
-	get: return _get_scene()
-
 ## The combat state — read gameplay fields through this (typed).
 var state: CombatState:
 	get: return _get_state()
@@ -214,7 +209,6 @@ func _get_essence() -> int: return 0
 func _set_essence(_v: int) -> void: pass
 func _get_mana() -> int: return 0
 func _set_mana(_v: int) -> void: pass
-func _get_scene() -> Object: return null
 func _get_state() -> CombatState: return null
 func _get_friendly_hp() -> int: return 0
 func _get_opponent_hp() -> int: return 0

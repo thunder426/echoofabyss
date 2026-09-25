@@ -28,7 +28,7 @@ func _should_cast_pack_frenzy() -> bool:
 	return feral_count >= SURVIVAL_IMP_MIN
 
 func _has_ancient_frenzy() -> bool:
-	if agent.scene == null:
+	if agent.state == null:
 		return false
 	var passives: Array[String] = agent.state.enemy_passives
 	if passives == null:

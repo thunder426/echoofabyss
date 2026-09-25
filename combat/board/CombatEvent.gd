@@ -25,6 +25,11 @@ enum Kind {
 	FLESH_CHANGED, FORGE_CHANGED, RELIC_ACTIVATED, HERO_SKILL, ATTACK_STARTED,
 	LOG, PHASE_TRANSITION, COMBAT_ENDED,
 	VFX,  # card-specific animation requested by rules code: payload.name + args
+	# UI resync points (plan 4.4 — rules code no longer calls the presenter):
+	HAND_COSTS_CHANGED,     # a hand card's cost delta changed (side = hand owner)
+	SPELL_COUNTER_CHANGED,  # a counter-spell charge was armed or spent
+	CHAMPION_PROGRESS,      # payload.current / payload.total — enemy champion pips
+	CHAMPION_KILLED,
 }
 
 var seq: int = 0

@@ -175,7 +175,7 @@ func _estimate_enemy_burst() -> int:
 			if m.state == Enums.MinionState.EXHAUSTED and m.attack_count == 0:
 				total_atk += m.effective_atk()  # count them as attackers too
 	# If enemy could cast Pack Frenzy (2M with ancient_frenzy, 3M without), add +250 per feral imp
-	if feral_count > 0 and agent.scene:
+	if feral_count > 0 and agent.state:
 		var enemy_mana: int = agent.state.mana_of(agent.state._opponent_of(agent.side))
 		# Pack Frenzy costs 3M (2M with ancient_frenzy discount)
 		if enemy_mana >= 2:
@@ -376,7 +376,7 @@ func _play_minions_by_id(ids: Array[String]) -> void:
 			if not await agent.commit_play_minion(inst, slot, pick_on_play_target(mc)):
 				return
 			# Track Void Imp on-play damage (100 per imp, fired via DAMAGE_HERO effect step)
-			if mc.id == "void_imp" and agent.scene:
+			if mc.id == "void_imp" and agent.state:
 				var prev: int = agent.state._void_imp_dmg
 				agent.state._void_imp_dmg = prev + 100
 			placed = true
@@ -402,13 +402,13 @@ func _play_spells_by_id(ids: Array[String]) -> void:
 			# Track abyssal_plague: count board before/after to measure kills
 			var pre_board := agent.opponent_board.size() if spell.id == "abyssal_plague" else 0
 			# Set dmg source label BEFORE resolving so _on_hero_damaged picks it up
-			if agent.scene and spell.id == "void_bolt":
+			if agent.state and spell.id == "void_bolt":
 				var casts: int = agent.state._void_bolt_spell_casts
 				agent.state._void_bolt_spell_casts = casts + 1
 				agent.state._pending_dmg_source = "void_bolt_spell"
 			if not await agent.commit_play_spell(inst, pick_spell_target(spell)):
 				return
-			if agent.scene and spell.id == "abyssal_plague":
+			if agent.state and spell.id == "abyssal_plague":
 				var kills: int = pre_board - agent.opponent_board.size()
 				var fires: int = agent.state._abyssal_plague_fires
 				agent.state._abyssal_plague_fires = fires + 1

@@ -88,13 +88,6 @@ signal spell_damage_dealt(target: MinionInstance, damage: int, school: int)
 ## directly for animation timing; this signal is for logic listeners.
 signal minion_died(side: String, minion: MinionInstance, slot_index: int)
 
-## Presentation seam (LIVE_SIM_UNIFICATION_PLAN.md 1.1). Live combat sets this
-## to the CombatScene in _ready; sim and tests leave it null. Rules code reads
-## and writes gameplay data on the state and calls presentation only through
-## `presenter`, null-checked — the names it may call are listed in
-## tools/lint/presentation_allowlist.txt ([presenter]) and checked by lint L3.
-var presenter: Object = null
-
 ## Ordered journal of gameplay events (plan 3.1). Every mutation appends one
 ## through emit_event; the presenter (3.2) drains it one event at a time and
 ## plays one animation per event against a lagging ViewState. Sim ignores it.
@@ -110,20 +103,10 @@ func emit_event(kind: int, side: String, payload: Dictionary = {}) -> CombatEven
 	journaled.emit(ev)
 	return ev
 
-## Self-alias so `<shell>.state` works on every shell — CombatScene composes a
-## sim and test states are one.
-var state: CombatState:
-	get: return self
-
-## Facade for `EffectContext.scene` and for the [facade] names in
-## tools/lint/presentation_allowlist.txt: gameplay whose live version is still
-## VFX-bound (Void Bolt projectile before damage, corruption popup capture,
-## ritual VFX, sacrifice / token-summon animations). Returns the presenter in
-## live and the state itself in sim/tests, so
-## the same call resolves to CombatScene's VFX-rich override live and the pure
-## body here otherwise. Phase 3.0 makes those bodies synchronous and this goes.
-func _get_scene_facade() -> Object:
-	return presenter if presenter != null else self
+## Presence-aura recompute (CombatHandlers) sets this while it strips and
+## re-applies its buffs: EffectResolver's BUFF_ATK / BUFF_HP then journal a
+## silent BUFF_APPLIED (the handler requests its own cosmetic VFX).
+var _silent_buff_apply: bool = false
 
 ## Logging convenience — handlers, effects, and combat code call `state._log(msg)`
 ## without needing a scene reference or knowing whether a UI exists. Signal
@@ -364,7 +347,7 @@ func _remove_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 			BuffSystem.remove_one_source(m, tag)
 			_refresh_slot_for(m)
 	if not rune.aura_on_remove_steps.is_empty():
-		var ctx := EffectContext.make(_get_scene_facade(), owner)
+		var ctx := EffectContext.make(self, owner)
 		EffectResolver.run(rune.aura_on_remove_steps, ctx)
 
 ## Collect distinct source_tag values from a rune's aura_effect_steps. Steps may be
@@ -395,7 +378,7 @@ func _register_env_rituals(env: EnvironmentCardData) -> void:
 ## whose environment is leaving.
 func _unregister_env_aura(env: EnvironmentCardData, owner: String = "player") -> void:
 	if not env.on_replace_effect_steps.is_empty():
-		EffectResolver.run(env.on_replace_effect_steps, EffectContext.make(_get_scene_facade(), owner))
+		EffectResolver.run(env.on_replace_effect_steps, EffectContext.make(self, owner))
 
 ## Unregister all environment-ritual handlers (when env is replaced/cleared).
 func _unregister_env_rituals() -> void:
@@ -469,8 +452,7 @@ func _consume_fiendish_pact_discount() -> void:
 			continue
 		if inst.card_data is MinionCardData and (inst.card_data as MinionCardData).is_race(Enums.MinionType.DEMON):
 			inst.essence_delta = 0
-	if presenter != null:
-		presenter._refresh_hand_spell_costs()
+	emit_event(CombatEvent.Kind.HAND_COSTS_CHANGED, "player")
 
 ## Seris — called at the start of each player spell cast. Computes the Void
 ## Amplification damage bonus from friendly-Demon Corruption stacks at this moment
@@ -495,7 +477,7 @@ func _pre_player_spell_cast(_spell: SpellCardData) -> void:
 func _resolve_spell_effect(effect_id: String, target: MinionInstance, owner: String = "player") -> void:
 	if _hardcoded == null:
 		return
-	var ctx := EffectContext.make(_get_scene_facade(), owner)
+	var ctx := EffectContext.make(self, owner)
 	ctx.chosen_target = target
 	_hardcoded.resolve(effect_id, ctx)
 
@@ -514,7 +496,7 @@ func _post_player_spell_cast(spell: SpellCardData, target: MinionInstance) -> vo
 			# If the original target is dead / gone, per design the recast fizzles but Flesh is still spent.
 			if target == null or (is_instance_valid(target) and target.current_health > 0):
 				if not spell.effect_steps.is_empty():
-					var ctx := EffectContext.make(_get_scene_facade(), "player")
+					var ctx := EffectContext.make(self, "player")
 					ctx.chosen_target = target
 					ctx.source_card_id = spell.id
 					EffectResolver.run(spell.effect_steps, ctx)
@@ -538,7 +520,7 @@ func cast_player_targeted_spell(spell: SpellCardData, target, extra_cast_data: D
 	emit_event(CombatEvent.Kind.SPELL_CAST, "player", {spell = spell, target = target})
 	_pre_player_spell_cast(spell)
 	if not spell.effect_steps.is_empty():
-		var ctx := EffectContext.make(_get_scene_facade(), "player")
+		var ctx := EffectContext.make(self, "player")
 		if target is MinionInstance or target == null:
 			ctx.chosen_target = minion_target
 		else:
@@ -564,7 +546,7 @@ func cast_player_hero_spell(spell: SpellCardData) -> void:
 	for step in spell.effect_steps:
 		var s := EffectStep.from_dict(step) if step is Dictionary else step as EffectStep
 		if s and s.effect_type == EffectStep.EffectType.DAMAGE_MINION:
-			var ctx := EffectContext.make(_get_scene_facade(), "player")
+			var ctx := EffectContext.make(self, "player")
 			if ConditionResolver.check_all(s.conditions, ctx, null):
 				base_dmg += s.amount
 				if s.bonus_amount != 0 and not s.bonus_conditions.is_empty():
@@ -800,7 +782,7 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	if rune.aura_trigger >= 0 and not rune.aura_effect_steps.is_empty():
 		var trigger: int = rune.aura_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_trigger as Enums.TriggerEvent)
 		var h := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(_get_scene_facade(), owner)
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.from_rune = true
 			ctx.source_rune = rune
@@ -817,7 +799,7 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 	if rune.aura_secondary_trigger >= 0 and not rune.aura_secondary_steps.is_empty():
 		var sec_trigger: int = rune.aura_secondary_trigger if owner == "player" else Enums.mirror_trigger(rune.aura_secondary_trigger as Enums.TriggerEvent)
 		var h2 := func(event_ctx: EventContext):
-			var ctx := EffectContext.make(_get_scene_facade(), owner)
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = event_ctx.minion
 			ctx.source_rune = rune
 			EffectResolver.run(rune.aura_secondary_steps, ctx)
@@ -839,14 +821,14 @@ func _apply_rune_aura(rune: TrapCardData, owner: String = "player") -> void:
 		if rune.aura_trigger == Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED:
 			backfill_owner = _opponent_of(owner)
 		for m in _friendly_board(backfill_owner):
-			var ctx := EffectContext.make(_get_scene_facade(), owner)
+			var ctx := EffectContext.make(self, owner)
 			ctx.trigger_minion = m
 			ctx.from_rune = true
 			ctx.source_rune = rune
 			EffectResolver.run(rune.aura_effect_steps, ctx)
 	# Bespoke on-place steps — escape hatch for non-standard placement behavior.
 	if not rune.aura_on_place_steps.is_empty():
-		var ctx := EffectContext.make(_get_scene_facade(), owner)
+		var ctx := EffectContext.make(self, owner)
 		EffectResolver.run(rune.aura_on_place_steps, ctx)
 	if not entries.is_empty():
 		# Track owner alongside rune_id so _remove_rune_aura can target the
@@ -865,10 +847,6 @@ func _is_minion_summoned_trigger(trigger: int) -> bool:
 ## instance is consumed at most once (tracked by index, removed in reverse).
 ## Emits `traps_changed` for "player" so live UI refreshes the slot panel.
 func _fire_ritual(ritual: RitualData) -> void:
-	# The presenter snapshots the rune panels now (before consumption) and
-	# plays the merge VFX fire-and-forget (plan 3.0).
-	if presenter != null:
-		presenter._on_ritual_firing(ritual)
 	_player_ritual_count += 1
 	var consumed_indices: Array[int] = []
 	for req in ritual.required_runes:
@@ -891,6 +869,12 @@ func _fire_ritual(ritual: RitualData) -> void:
 				if trap.is_rune and trap.is_wildcard_rune:
 					consumed_indices.append(i)
 					break
+	# The event carries the slots in pick order and the runes themselves: the
+	# presenter plays the merge over those panels after the display has emptied.
+	var picked: Array[int] = consumed_indices.duplicate()
+	var picked_runes: Array[TrapCardData] = []
+	for i in picked:
+		picked_runes.append(active_traps[i] as TrapCardData)
 	# Remove consumed runes in reverse index order so earlier indices stay valid
 	consumed_indices.sort()
 	consumed_indices.reverse()
@@ -900,8 +884,8 @@ func _fire_ritual(ritual: RitualData) -> void:
 		active_traps.remove_at(i)
 	_update_trap_display_for("player")
 	_log("★ RITUAL — %s!" % ritual.ritual_name, 1)  # PLAYER
-	emit_event(CombatEvent.Kind.RITUAL_FIRED, "player", {ritual = ritual, consumed = consumed_indices})
-	var ritual_ctx := EffectContext.make(_get_scene_facade(), "player")
+	emit_event(CombatEvent.Kind.RITUAL_FIRED, "player", {ritual = ritual, slots = picked, runes = picked_runes})
+	var ritual_ctx := EffectContext.make(self, "player")
 	EffectResolver.run(ritual.effect_steps, ritual_ctx)
 	# Fire ON_RITUAL_FIRED so registry-based handlers (ritual_surge) can respond
 	if trigger_manager != null:
@@ -923,7 +907,7 @@ func _sacrifice_minion(minion: MinionInstance, source_tag: String = "") -> void:
 	# Step 1 — declarative ON LEAVE steps run while the minion is still on its slot.
 	var card_data := minion.card_data as MinionCardData
 	if card_data != null and not card_data.on_leave_effect_steps.is_empty():
-		var leave_ctx := EffectContext.make(_get_scene_facade(), minion.owner)
+		var leave_ctx := EffectContext.make(self, minion.owner)
 		leave_ctx.source         = minion
 		leave_ctx.source_card_id = card_data.id
 		EffectResolver.run(card_data.on_leave_effect_steps, leave_ctx)
@@ -1064,7 +1048,7 @@ func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInsta
 		trap_fired.emit(owner, trap, slot_idx)
 		emit_event(CombatEvent.Kind.TRAP_FIRED, owner, {trap = trap, slot = slot_idx})
 		# Resolve inline (B12); the presenter plays the reveal from TRAP_FIRED.
-		var ctx := EffectContext.make(_get_scene_facade(), owner)
+		var ctx := EffectContext.make(self, owner)
 		ctx.trigger_minion = triggering_minion
 		EffectResolver.run(trap.effect_steps, ctx)
 
@@ -1075,7 +1059,7 @@ func _fire_traps_for(owner: String, trigger: int, triggering_minion: MinionInsta
 func cast_enemy_spell(spell: SpellCardData, chosen, extra_cast_data: Dictionary = {}) -> void:
 	emit_event(CombatEvent.Kind.SPELL_CAST, "enemy", {spell = spell, target = chosen})
 	if not spell.effect_steps.is_empty():
-		var ectx := EffectContext.make(_get_scene_facade(), "enemy")
+		var ectx := EffectContext.make(self, "enemy")
 		ectx.source_card_id = spell.id
 		ectx.extra_cast_data = extra_cast_data
 		if chosen is MinionInstance:
@@ -2359,7 +2343,7 @@ func setup_combat(config: CombatConfig) -> void:
 	setup_deck("player", config.player_deck_ids)
 	setup_deck("enemy", config.enemy_deck_ids)
 	combat_manager = CombatManager.new()
-	combat_manager.scene = self
+	combat_manager.state = self
 	combat_manager.minion_vanished.connect(_on_minion_vanished)
 	combat_manager.hero_damaged.connect(_on_hero_damaged)
 	combat_manager.hero_healed.connect(_on_hero_healed)
@@ -2742,9 +2726,9 @@ func cmd_play_environment(side: String, inst: CardInstance) -> CommandResult:
 				env_ctx.card = env
 				trigger_manager.fire(env_ctx)
 	if not env.on_enter_effect_steps.is_empty():
-		EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(_get_scene_facade(), side))
+		EffectResolver.run(env.on_enter_effect_steps, EffectContext.make(self, side))
 	if not env.passive_effect_steps.is_empty():
-		EffectResolver.run(env.passive_effect_steps, EffectContext.make(_get_scene_facade(), side))
+		EffectResolver.run(env.passive_effect_steps, EffectContext.make(self, side))
 	return CommandResult.accepted()
 
 ## `attacker` (on `side`'s board) attacks the opposing minion `target`.
@@ -2835,7 +2819,7 @@ func cmd_activate_relic(index: int, target = null) -> CommandResult:
 		return CommandResult.accepted()
 	if relic_effects == null:
 		relic_effects = RelicEffects.new()
-		relic_effects.setup(_get_scene_facade())
+		relic_effects.setup(self)
 	relic_effects.resolve(effect_id)
 	return CommandResult.accepted()
 

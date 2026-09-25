@@ -202,8 +202,7 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 							inst_to_mod.essence_delta += step.amount
 						_:
 							push_warning("MOD_LAST_ADDED_COST: unknown or empty 'resource' '%s' (expected 'mana' or 'essence')" % step.resource)
-					if ctx.presenter != null:
-						ctx.presenter._refresh_hand_spell_costs()
+					ctx.state.emit_event(CombatEvent.Kind.HAND_COSTS_CHANGED, ctx.owner)
 			return
 
 		EffectStep.EffectType.MOD_HAND_CARDS_COST:
@@ -245,16 +244,17 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 					inst.mana_delta += step.amount
 				else:
 					inst.essence_delta += step.amount
-			if ctx.presenter != null:
-				ctx.presenter._refresh_hand_spell_costs()
+			ctx.state.emit_event(CombatEvent.Kind.HAND_COSTS_CHANGED, ctx.owner)
 			return
 
 		EffectStep.EffectType.COUNTER_SPELL:
 			if ConditionResolver.check_all(step.conditions, ctx, null):
 				var opponent := "player" if ctx.owner == "enemy" else "enemy"
-				var key := "_player_spell_counter" if opponent == "player" else "_enemy_spell_counter"
-				var current: int = ctx.scene.get(key) if ctx.scene.get(key) != null else 0
-				ctx.scene.set(key, current + 1)
+				if opponent == "player":
+					ctx.state._player_spell_counter += 1
+				else:
+					ctx.state._enemy_spell_counter += 1
+				ctx.state.emit_event(CombatEvent.Kind.SPELL_COUNTER_CHANGED, opponent)
 			return
 
 		EffectStep.EffectType.CANCEL_OPPONENT_SPELL:
@@ -279,10 +279,10 @@ static func _execute(step: EffectStep, ctx: EffectContext) -> void:
 			# Spell Taxer — increments the opponent-side spell-tax counter. Each stack
 			# adds +1 Mana to the opponent's spells on their next turn.
 			if ConditionResolver.check_all(step.conditions, ctx, null):
-				var opponent: String = ctx.state._opponent_of(ctx.owner)
-				var tax_key: String = "_spell_tax_for_%s_turn" % opponent
-				var cur = ctx.scene.get(tax_key)
-				ctx.scene.set(tax_key, (cur if cur != null else 0) + 1)
+				if ctx.state._opponent_of(ctx.owner) == "player":
+					ctx.state._spell_tax_for_player_turn += 1
+				else:
+					ctx.state._spell_tax_for_enemy_turn += 1
 			return
 
 		EffectStep.EffectType.COPY_OWNER_RUNES_TO_HAND:
@@ -470,9 +470,9 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 			var buff_type := Enums.BuffType.ATK_BONUS if step.permanent else Enums.BuffType.TEMP_ATK
 			var tag_atk: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
 			# Mutate now (plan 3.0); the BUFF_APPLIED event carries pre → post and the
-			# presenter animates it. Presence-aura recompute sets _silent_buff_apply
+			# presenter animates it. Presence-aura recompute sets state._silent_buff_apply
 			# so the event is silent — the caller requests its own cosmetic VFX.
-			var silent: bool = ctx.presenter != null and ctx.presenter._silent_buff_apply
+			var silent: bool = ctx.state._silent_buff_apply
 			var atk_m: MinionInstance = target as MinionInstance
 			var atk_before: int = atk_m.effective_atk() if atk_m != null else 0
 			var hp_before: int = atk_m.current_health if atk_m != null else 0
@@ -484,7 +484,7 @@ static func _apply(step: EffectStep, target, amount: int, ctx: EffectContext) ->
 
 		EffectStep.EffectType.BUFF_HP:
 			var tag_hp: String = step.source_tag if step.source_tag != "" else ctx.source_card_id
-			var silent_hp: bool = ctx.presenter != null and ctx.presenter._silent_buff_apply
+			var silent_hp: bool = ctx.state._silent_buff_apply
 			var hp_m: MinionInstance = target as MinionInstance
 			var atk_before_hp: int = hp_m.effective_atk() if hp_m != null else 0
 			var hp_before_hp: int = hp_m.current_health if hp_m != null else 0
@@ -696,7 +696,7 @@ static func _build_damage_info(step: EffectStep, ctx: EffectContext, amount: int
 static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, school: int = Enums.DamageSchool.VOID_CORRUPTION) -> int:
 	if ctx.owner != "player":
 		return base
-	if ctx.scene == null or not ctx.state._path_of_corruption_active:
+	if ctx.state == null or not ctx.state._path_of_corruption_active:
 		return base
 	if not Enums.has_school(school, Enums.DamageSchool.VOID_CORRUPTION):
 		return base
@@ -704,11 +704,10 @@ static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, s
 	if target is MinionInstance:
 		buff_holder = target
 	elif target is String:
-		var state: CombatState = ctx.state if ctx.state.state != null else ctx.scene
 		if target == "enemy_hero":
-			buff_holder = state.enemy_hero
+			buff_holder = ctx.state.enemy_hero
 		elif target == "player_hero":
-			buff_holder = state.player_hero
+			buff_holder = ctx.state.player_hero
 	if buff_holder == null:
 		return base
 	# count_type, not sum_type — Corruption entries store the per-stack ATK penalty
@@ -723,7 +722,7 @@ static func _path_of_corruption_amplify(base: int, target, ctx: EffectContext, s
 static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> void:
 	if ctx.owner != "player":
 		return
-	if ctx.scene == null or not ctx.state._path_of_corruption_active:
+	if ctx.state == null or not ctx.state._path_of_corruption_active:
 		return
 	if target is MinionInstance:
 		var m: MinionInstance = target
@@ -731,11 +730,10 @@ static func _path_of_corruption_apply_corruption(target, ctx: EffectContext) -> 
 			return
 		ctx.state._corrupt_minion(m)
 	elif target is String:
-		var state: CombatState = ctx.state if ctx.state.state != null else ctx.scene
 		if target == "enemy_hero":
-			state._corrupt_hero("enemy")
+			ctx.state._corrupt_hero("enemy")
 		elif target == "player_hero":
-			state._corrupt_hero("player")
+			ctx.state._corrupt_hero("player")
 
 ## Apply dark_channeling spell damage multiplier (enemy-only, flag set by handler).
 static func _dark_channeling_dmg(base: int, ctx: EffectContext) -> int:

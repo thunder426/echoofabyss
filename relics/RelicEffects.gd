@@ -1,19 +1,14 @@
 ## RelicEffects.gd
-## Executes relic activated effects. Works with both CombatScene (live) and
-## SimState (headless) via duck-typing — same pattern as HardcodedEffects.
+## Executes relic activated effects on the typed CombatState, like
+## HardcodedEffects.
 class_name RelicEffects
 extends RefCounted
 
-var _scene: Object
-## The combat state — gameplay reads and writes (LIVE_SIM_UNIFICATION_PLAN.md 1.2).
+## The combat state — every gameplay read and write.
 var state: CombatState
-## Presentation: the CombatScene in live, null in sim/tests. Null-check every call.
-var presenter: Object:
-	get: return state.presenter
 
-func setup(scene: Object) -> void:
-	_scene = scene
-	state = scene.state
+func setup(p_state: CombatState) -> void:
+	state = p_state
 
 ## Execute a relic effect by its effect_id. Returns true if the effect fired.
 func resolve(effect_id: String) -> bool:

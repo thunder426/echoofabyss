@@ -93,7 +93,7 @@ func _count_board_feral_imps() -> int:
 	return count
 
 func _minion_has_tag(m: MinionInstance, tag: String) -> bool:
-	return agent.scene != null and agent.state._minion_has_tag(m, tag)
+	return agent.state != null and agent.state._minion_has_tag(m, tag)
 
 ## Check if flux siphon would help: have mana to spare AND a minion in hand
 ## that costs more essence than we currently have.

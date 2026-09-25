@@ -238,7 +238,7 @@ func refresh_spell_costs(discount: int) -> void:
 ## Update gold condition-glow on cards whose bonus conditions are currently met
 ## AND the player can afford to play them.
 func refresh_condition_glows(scene: Node, essence: int, mana: int) -> void:
-	var ctx := EffectContext.make(scene, "player")
+	var ctx := EffectContext.make(scene.state, "player")
 	for visual in _card_visuals:
 		if visual.card_inst == null or visual.card_inst.card_data == null:
 			visual.set_condition_glow(false)

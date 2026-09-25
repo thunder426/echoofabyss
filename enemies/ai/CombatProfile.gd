@@ -346,7 +346,7 @@ func can_cast_spell(spell: SpellCardData) -> bool:
 		"has_3_feral_imps":
 			var imp_count := 0
 			for m in agent.friendly_board:
-				if agent.scene and agent.state._minion_has_tag(m, "feral_imp"):
+				if agent.state and agent.state._minion_has_tag(m, "feral_imp"):
 					imp_count += 1
 			return imp_count >= 3
 		"always":
@@ -642,7 +642,7 @@ func _play_traps_pass() -> void:
 
 ## Returns true if total opponent board ATK >= friendly hero HP (lethal threat).
 func _opponent_threatens_lethal() -> bool:
-	if agent.scene == null:
+	if agent.state == null:
 		return false
 	var total_atk: int = 0
 	for m in agent.opponent_board:
@@ -878,7 +878,7 @@ func _pick_threat_reduction_target(attacker: MinionInstance) -> MinionInstance:
 func _pick_best_friendly_with_tag(tag: String) -> MinionInstance:
 	var best: MinionInstance = null
 	for m: MinionInstance in agent.friendly_board:
-		if agent.scene != null and agent.state._minion_has_tag(m, tag):
+		if agent.state != null and agent.state._minion_has_tag(m, tag):
 			if best == null or m.effective_atk() > best.effective_atk():
 				best = m
 	return best
@@ -1163,7 +1163,7 @@ func _spell_can_kill(spell: SpellCardData, target: MinionInstance) -> bool:
 					if step.multiplier_board == "friendly" else agent.opponent_board
 				estimated = step.amount * board.size()
 			"void_marks":
-				if agent.scene != null:
+				if agent.state != null:
 					estimated = step.amount * agent.state.enemy_void_marks
 		if estimated >= target.current_health:
 			return true

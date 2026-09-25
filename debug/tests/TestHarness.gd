@@ -153,7 +153,7 @@ static func _spawn_at(state: CombatState, id: String, side: String, slot_index: 
 static func make_ctx(state: CombatState, owner: String, source: MinionInstance = null,
 		chosen_target: MinionInstance = null, extra_cast_data: Dictionary = {}) -> EffectContext:
 	var ctx := EffectContext.new()
-	ctx.scene = state
+	ctx.state = state
 	ctx.owner = owner
 	ctx.source = source
 	ctx.chosen_target = chosen_target

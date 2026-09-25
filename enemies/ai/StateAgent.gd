@@ -24,7 +24,6 @@ func setup(s: CombatState, p_side: String, p_pacer: Pacer = null) -> void:
 # ---------------------------------------------------------------------------
 
 func _get_state() -> CombatState: return _state
-func _get_scene() -> Object: return _state
 func _get_friendly_board() -> Array[MinionInstance]: return _state._friendly_board(side)
 func _get_opponent_board() -> Array[MinionInstance]: return _state._opponent_board(side)
 func _get_hand() -> Array[CardInstance]: return _state.hand_of(side)

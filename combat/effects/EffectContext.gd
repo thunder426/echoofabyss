@@ -4,19 +4,9 @@
 class_name EffectContext
 extends RefCounted
 
-## The combat facade: the CombatScene in live, the state itself in sim/tests
-## (CombatState._get_scene_facade). Rules code uses it only for the [facade]
-## calls in tools/lint/presentation_allowlist.txt — gameplay goes through
-## `state`, presentation through `presenter`.
-var scene: Object = null
-
-## The combat state — every gameplay read and write.
-var state: CombatState:
-	get: return scene.state
-
-## Presentation: the CombatScene in live, null in sim/tests. Null-check before use.
-var presenter: Object:
-	get: return scene.state.presenter
+## The combat state — every gameplay read and write. Rules code never sees the
+## shell; presentation follows from the journal (plan 4.4).
+var state: CombatState = null
 
 ## Who owns this effect — "player" or "enemy".
 var owner: String = "player"
@@ -75,8 +65,8 @@ var extra_cast_data: Dictionary = {}
 # Factory
 # ---------------------------------------------------------------------------
 
-static func make(scene: Object, owner: String) -> EffectContext:
+static func make(p_state: CombatState, owner: String) -> EffectContext:
 	var ctx       := EffectContext.new()
-	ctx.scene     = scene
+	ctx.state     = p_state
 	ctx.owner     = owner
 	return ctx

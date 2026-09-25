@@ -4,25 +4,20 @@
 See design/refactors/LIVE_SIM_UNIFICATION_PLAN.md, section 5.3, for the full
 rule set and the phase that introduces each rule.
 
-  L1  Rules code reaching through the combat shell (`_scene.x`, `scene.x`,
-      `ctx.scene.x`, `.get/.set/.has_method("x")`) must name something the
-      LIVE shell (CombatScene) actually has. A name that only exists on
-      CombatState works in tests (which run on a bare CombatState) and crashes
-      or silently no-ops in the real game. `<shell>.state.x` must name
-      something on CombatState. CombatSetup registry "stats" keys must exist on
-      CombatState (they are written with `state.set`).
+  L1  (plan 0.3; 4.4) Rules code (RULES_FILES: CombatState, CombatSetup, the
+      handlers, effects, resolvers, EffectContext, CombatManager, MinionInstance,
+      PhaseTransition) holds no combat shell: no `_scene`, `ctx.scene`, `_fx` or
+      `scene.`. CombatSetup registry "stats" keys must exist on CombatState
+      (they are written with `state.set`).
 
   L2  Gameplay randomness goes through the engine RNG (`state.rng_pick`,
       `rng_shuffle`, `rng_range`, `rng_index`), never the global RNG, so a seed
       reproduces a fight. Cosmetic VFX randomness is out of scope. A line may
       opt out with the comment `# lint: allow-rng (<reason>)`.
 
-  L3  Presentation seam (plan 1.1). In rules files a shell handle (`_scene.`,
-      `scene.`, `ctx.scene.`, `_fx.`) may only be followed by `state` or a
-      [facade] name, and `presenter.` / `ctx.presenter.` only by a [presenter]
-      name, from tools/lint/presentation_allowlist.txt. [facade] names must be
-      a func on both CombatScene and CombatState; [presenter] names must exist
-      on CombatScene.
+  L3  (plan 1.1; 4.4) Rules code never calls presentation: no `presenter` /
+      `ctx.presenter`. Every mutation journals a CombatEvent; the presenter
+      plays it.
 
   L4  No duck typing in rules files: `has_method(` anywhere, and
       `.get("x")` / `.set("x", …)` / `"x" in <handle>` on an object handle (shell, presenter,
@@ -62,7 +57,6 @@ import re
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-LINT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SCENE = "combat/board/CombatScene.gd"
 STATE = "combat/board/CombatState.gd"
@@ -74,29 +68,29 @@ NO_BOARDSLOT_FILES = [
     "combat/effects/TargetResolver.gd",
 ]
 
-# Files whose shell handle is a member named `_scene`.
-UNDERSCORE_SCENE_FILES = [
+# Rules code: the engine and everything it runs. Since plan 4.4 none of it
+# holds the combat shell or the presenter — gameplay goes through the typed
+# CombatState, presentation follows from the journal.
+SETUP = "combat/events/CombatSetup.gd"
+RULES_FILES = [
+    STATE, SETUP,
     "combat/events/CombatHandlers.gd",
     "combat/effects/HardcodedEffects.gd",
     "relics/RelicEffects.gd",
-]
-# Files whose shell handle is `scene` (a member, a local alias of ctx.scene,
-# or a parameter) and/or `ctx.scene`.
-SCENE_FILES = [
     "combat/effects/EffectResolver.gd",
     "combat/effects/ConditionResolver.gd",
     "combat/effects/TargetResolver.gd",
+    "combat/effects/EffectContext.gd",
     "combat/board/CombatManager.gd",
     "combat/board/MinionInstance.gd",
+    "combat/board/PhaseTransition.gd",
 ]
-SETUP = "combat/events/CombatSetup.gd"
-RULES_FILES = UNDERSCORE_SCENE_FILES + SCENE_FILES
 
 # Rules counted toward the exit code (L3/L4 since plan step 1.2, L5 since 1.6,
 # L6/L7 since 2A.9).
 ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"}
 
-# L3: handles that resolve to the combat shell / facade, and to the presenter.
+# L1 / L3: handles that would resolve to the combat shell, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
 PRESENTER_HANDLES = ["ctx.presenter", "presenter"]
 # L4: receivers that are objects, never Dictionaries, in rules code.
@@ -116,21 +110,9 @@ RNG_FILES = [
 RNG_RE = re.compile(r"(?<![\w.])(randi|randf|randi_range|randf_range|pick_random|shuffle)\(|\.(pick_random|shuffle)\(")
 RNG_ALLOW = "lint: allow-rng"
 
-# Object / Node / Node2D members reachable on CombatScene without a declaration.
-BUILTINS = {
-    "get", "set", "has_method", "call", "callv", "call_deferred", "emit_signal",
-    "connect", "disconnect", "is_connected", "has_signal", "get_script",
-    "is_inside_tree", "get_tree", "get_node", "get_node_or_null", "has_node",
-    "add_child", "remove_child", "get_parent", "get_children", "queue_free",
-    "get_viewport", "get_viewport_rect", "create_tween", "is_queued_for_deletion",
-    "get_global_mouse_position", "global_position", "position", "name",
-    "set_meta", "get_meta", "has_meta", "free", "is_instance_valid",
-}
-
 DECL_RE = re.compile(
     r"^(?:@\w+(?:\([^)]*\))?\s+)*(?:static\s+)?(?:var|func|signal|const|enum)\s+(\w+)"
 )
-GETSET_NAME_RE = r'\.(?:get|set|has_method)\(\s*"(\w+)"'
 
 
 def read(rel: str) -> list[str]:
@@ -145,21 +127,6 @@ def declared(rel: str) -> set[str]:
         if m:
             names.add(m.group(1))
     return names
-
-
-def load_allow(name: str) -> set[tuple[str, str]]:
-    """Allow-list rows are `path:name  # reason`."""
-    path = os.path.join(LINT_DIR, name)
-    rows: set[tuple[str, str]] = set()
-    if not os.path.exists(path):
-        return rows
-    for raw in open(path, encoding="utf-8"):
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        file_part, _, name_part = line.rpartition(":")
-        rows.add((file_part.strip(), name_part.strip()))
-    return rows
 
 
 def strip_comment(line: str) -> str:
@@ -181,22 +148,6 @@ def strip_comment(line: str) -> str:
     return "".join(out)
 
 
-def load_sections(name: str) -> dict[str, list[tuple[int, str]]]:
-    """`[section]` headers followed by one name per line (`#` comments)."""
-    out: dict[str, list[tuple[int, str]]] = {}
-    current = ""
-    for i, raw in enumerate(open(os.path.join(LINT_DIR, name), encoding="utf-8"), start=1):
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current = line[1:-1]
-            out.setdefault(current, [])
-        else:
-            out.setdefault(current, []).append((i, line))
-    return out
-
-
 def gd_files() -> list[str]:
     """Every project .gd file (repo-relative), skipping dot-dirs, tasks/ and addons/."""
     out: list[str] = []
@@ -215,58 +166,21 @@ def declared_funcs(rel: str) -> set[str]:
 
 class Linter:
     def __init__(self) -> None:
-        self.scene = declared(SCENE) | BUILTINS
         self.state = declared(STATE)
-        self.allow = load_allow("l1_allow.txt")
-        sections = load_sections("presentation_allowlist.txt")
-        self.presenter_names = {n for _, n in sections.get("presenter", [])}
-        self.facade_names = {n for _, n in sections.get("facade", [])}
-        self._allowlist_sections = sections
         self.errors: list[str] = []
 
     def err(self, rule: str, rel: str, lineno: int, msg: str) -> None:
         self.errors.append(f"{rule} {rel}:{lineno}: {msg}")
 
     # -- L1 ------------------------------------------------------------------
-    def check_shell_name(self, rel: str, lineno: int, name: str, via: str) -> None:
-        if name in self.scene or (rel, name) in self.allow:
-            return
-        if name in self.state:
-            self.err("L1", rel, lineno,
-                     f"{via}{name} exists on CombatState but not on CombatScene "
-                     f"(works in sim/tests, breaks live) — use .state.{name}")
-        else:
-            self.err("L1", rel, lineno, f"{via}{name} is not declared on any combat shell")
-
-    def check_state_name(self, rel: str, lineno: int, name: str) -> None:
-        if name in self.state or (rel, "state." + name) in self.allow:
-            return
-        self.err("L1", rel, lineno, f".state.{name} is not declared on CombatState")
-
-    def scan_file(self, rel: str, handles: list[str]) -> None:
-        alt = "|".join(re.escape(h) for h in handles)
-        # `<handle>.state.<name>` — must be on CombatState.
-        state_re = re.compile(rf"(?<![\w.])(?:{alt})\.state\.(\w+)")
-        # `<handle>.<name>` (not followed by `(` for get/set/has_method, handled below)
-        direct_re = re.compile(rf"(?<![\w.])(?:{alt})\.(\w+)")
-        # `<handle>.get/set/has_method("name")`
-        str_re = re.compile(rf"(?<![\w.])(?:{alt}){GETSET_NAME_RE}")
-        state_str_re = re.compile(rf"(?<![\w.])(?:{alt})\.state{GETSET_NAME_RE}")
+    def scan_shell(self, rel: str) -> None:
+        """Plan 4.4: rules code has no shell — no `_scene`, `ctx.scene`, `_fx` or
+        `scene.` anywhere (the B1 class: a name the live shell lacks)."""
+        shell_re = re.compile(r"(?<![\w.])(?:ctx\.scene|_scene|_fx)\b|(?<![\w.])scene\.")
         for i, raw in enumerate(read(rel), start=1):
-            line = strip_comment(raw)
-            for m in state_re.finditer(line):
-                name = m.group(1)
-                if name not in ("get", "set", "has_method"):
-                    self.check_state_name(rel, i, name)
-            for m in state_str_re.finditer(line):
-                self.check_state_name(rel, i, m.group(1))
-            for m in direct_re.finditer(line):
-                name = m.group(1)
-                if name in ("get", "set", "has_method"):
-                    continue
-                self.check_shell_name(rel, i, name, ".")
-            for m in str_re.finditer(line):
-                self.check_shell_name(rel, i, m.group(1), '.get/set("')
+            m = shell_re.search(strip_comment(raw))
+            if m:
+                self.err("L1", rel, i, f"`{m.group(0)}` — rules code has no combat shell; use the typed state")
 
     def scan_setup_stats(self) -> None:
         in_stats = False
@@ -287,50 +201,22 @@ class Linter:
                 in_stats = False
 
     # -- L3 / L4 --------------------------------------------------------------
-    def check_allowlist(self) -> None:
-        rel = "tools/lint/presentation_allowlist.txt"
-        scene_funcs, state_funcs = declared_funcs(SCENE), declared_funcs(STATE)
-        for lineno, name in self._allowlist_sections.get("presenter", []):
-            if name not in self.scene:
-                self.err("L3", rel, lineno, f"[presenter] {name} is not declared on CombatScene")
-        for lineno, name in self._allowlist_sections.get("facade", []):
-            if name not in scene_funcs or name not in state_funcs:
-                self.err("L3", rel, lineno,
-                         f"[facade] {name} must be a func on both CombatScene and CombatState")
-
     def scan_seam(self, rel: str) -> None:
-        shell = "|".join(re.escape(h) for h in SHELL_HANDLES)
         pres = "|".join(re.escape(h) for h in PRESENTER_HANDLES)
         objs = "|".join(re.escape(h) for h in OBJECT_HANDLES)
-        shell_re = re.compile(rf"(?<![\w.])(?:{shell})\.(\w+)")
-        pres_re = re.compile(rf"(?<![\w.])(?:{pres})\.(\w+)")
+        pres_re = re.compile(rf"(?<![\w.])(?:{pres})\b")
         duck_re = re.compile(rf"(?<![\w.])(?:{objs})\.(?:get|set)\(\s*\"(\w+)\"")
         in_re = re.compile(rf"\"(\w+)\"\s+in\s+(?:{objs})\b")
         for i, raw in enumerate(read(rel), start=1):
             line = strip_comment(raw)
-            for m in shell_re.finditer(line):
-                name = m.group(1)
-                if name in ("state", "get", "set", "has_method") or name in self.facade_names:
-                    continue
-                self.err("L3", rel, i, f"shell.{name} — use state.{name} (gameplay), "
-                         f"presenter.{name} (presentation, null-checked) or add it to [facade]")
-            for m in pres_re.finditer(line):
-                if m.group(1) not in self.presenter_names:
-                    self.err("L3", rel, i, f"presenter.{m.group(1)} is not in [presenter]")
+            if pres_re.search(line):
+                self.err("L3", rel, i, "presenter — rules code never calls presentation; journal an event (state.emit_event)")
             if "has_method(" in line:
                 self.err("L4", rel, i, "has_method( — duck typing; call a typed member")
             for m in duck_re.finditer(line):
                 self.err("L4", rel, i, f'.get/.set("{m.group(1)}") on an object — use the typed member')
             for m in in_re.finditer(line):
                 self.err("L4", rel, i, f'"{m.group(1)}" in <object> — use the typed member')
-
-    def scan_presenter_calls(self, rel: str) -> None:
-        """CombatState itself may call only [presenter] names on `presenter`."""
-        pres_re = re.compile(r"(?<![\w.])presenter\.(\w+)")
-        for i, raw in enumerate(read(rel), start=1):
-            for m in pres_re.finditer(strip_comment(raw)):
-                if m.group(1) not in self.presenter_names:
-                    self.err("L3", rel, i, f"presenter.{m.group(1)} is not in [presenter]")
 
     # -- L5 ------------------------------------------------------------------
     def scan_pairs(self) -> None:
@@ -416,15 +302,10 @@ class Linter:
 
     def run(self) -> int:
         self.scan_rng()
-        for rel in UNDERSCORE_SCENE_FILES:
-            self.scan_file(rel, ["_scene"])
-        for rel in SCENE_FILES:
-            self.scan_file(rel, ["ctx.scene", "scene"])
-        self.scan_setup_stats()
-        self.check_allowlist()
         for rel in RULES_FILES:
+            self.scan_shell(rel)
             self.scan_seam(rel)
-        self.scan_presenter_calls(STATE)
+        self.scan_setup_stats()
         self.scan_pairs()
         self.scan_engine_waits()
         self.scan_single_definitions()
