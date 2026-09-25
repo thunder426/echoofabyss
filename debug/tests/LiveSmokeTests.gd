@@ -11,6 +11,7 @@ extends Node
 
 const COMBAT_SCENE := "res://combat/board/CombatScene.tscn"
 const TURN_TIMEOUT_MS := 20000
+const FIGHT_TIMEOUT_MS := 90000
 
 var _fails: int = 0
 
@@ -22,6 +23,7 @@ func _ready() -> void:
 	await _f1_enemy_turn_completes()
 	await _f13_vrp_champion_progress()
 	await _live_rules_paths()
+	await _ai_vs_ai_fight()
 	print("LiveSmoke: %s (%d failed)" % ["OK" if _fails == 0 else "FAILED", _fails])
 	get_tree().quit(_fails)
 
@@ -155,6 +157,37 @@ func _live_rules_paths() -> void:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+## A whole fight in the real scene (plan 3.5): the player is a StateAgent on
+## the default player profile, the enemy the scene's own EnemyAI; the presenter
+## runs with `instant` so nothing animates. Ends with a winner, the presenter
+## idle and the journal fully played.
+func _ai_vs_ai_fight() -> void:
+	var scene: Node = await _launch(1, "swarm")
+	var st: CombatState = scene.state
+	scene.presenter.instant = true
+	var agent := StateAgent.new()
+	agent.setup(st, "player")
+	var profile: CombatProfile = ProfileRegistry.make("player", "default")
+	profile.setup(agent)
+	var t0: int = Time.get_ticks_msec()
+	var turns: int = 0
+	while st.winner.is_empty() and not scene._combat_ended and Time.get_ticks_msec() - t0 < FIGHT_TIMEOUT_MS:
+		if st.is_player_turn:
+			await profile.play_phase()
+			if st.winner.is_empty():
+				await profile.attack_phase()
+			if st.winner.is_empty() and st.is_player_turn:
+				await scene.presenter.pump_and_wait_idle()
+				st.cmd_end_turn("player")
+				turns += 1
+		await get_tree().process_frame
+	_check(not st.winner.is_empty(), "fight: a winner within %d s (player turns %d, hp %d / %d)" % [FIGHT_TIMEOUT_MS / 1000, turns, st.player_hp, st.enemy_hp])
+	await scene.presenter.pump_and_wait_idle()
+	_check(scene.presenter.is_idle() and scene.presenter.cursor == st.journal.size(),
+		"fight: presenter idle with the journal fully played (%d / %d)" % [scene.presenter.cursor, st.journal.size()])
+	print("LiveSmoke: AI-vs-AI fight completed (%s wins, turn %d, %d events)" % [st.winner, st.turn_number, st.journal.size()])
+	await _teardown(scene)
 
 func _launch(encounter: int, deck_preset: String) -> Node:
 	GameManager.start_new_run()

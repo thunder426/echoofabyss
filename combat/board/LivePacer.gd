@@ -20,4 +20,4 @@ func after_action(_kind: String) -> void:
 	await scene.presenter.pump_and_wait_idle()
 	if not is_instance_valid(scene) or not scene.is_inside_tree():
 		return
-	await scene.get_tree().create_timer(ACTION_DELAY).timeout
+	await scene.get_tree().create_timer(ACTION_DELAY * BaseVfx.time_scale).timeout

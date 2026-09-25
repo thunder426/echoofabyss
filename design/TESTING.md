@@ -20,7 +20,7 @@ Project-relative paths in the table below are clickable.
 |---|---|---|---|---|
 | [tools/run_checks.sh](#run_checkssh--the-refactor-gate) | **The gate**: import → engine lint → compile every script → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR` | Yes | Yes | ~40s |
 | [Engine lint](#engine-lint--toolslintlint_enginepy) | Static checks: live-shell name drift (L1), global RNG (L2), presentation seam (L3), duck typing (L4), duplicated gameplay bodies (L5) | Yes (Python) | Yes | <1s |
-| [LiveSmoke](#livesmoke--headless-combatscene) | Boots the real `CombatScene` headless and plays an enemy turn | Yes | Yes | ~8s |
+| [LiveSmoke](#livesmoke--headless-combatscene) | Boots the real `CombatScene` headless: an enemy turn, the F13 champion, the live rules paths and a whole AI-vs-AI fight through the presenter | Yes | Yes | ~30s |
 | [RunAllTests](#runalltests--layered-test-suite) | Layered correctness tests (4 layers, ~500 assertions) | Yes | Yes | ~10s |
 | [BalanceSimBatch](#balancesimbatch--full-balance-matrix) | Full balance matrix across acts/decks/relics | Yes | No (prints stats) | 5–15 min |
 | [Baseline tool](#baseline-tool--regression-fingerprint) | Bit-exact regression detection across refactors | Yes (Python wrapper) | Yes (diff vs prior capture) | Same as BalanceSimBatch |
@@ -68,6 +68,7 @@ step of that refactor must leave it green.
 | L5 | A gameplay func defined on both CombatScene and SimState, or a SimState override of a CombatState func — one CombatState body per method. `--report-pairs` lists them. |
 | L6 | `await`, `get_tree(` or `create_timer(` in `CombatState.gd` — the engine never waits (animations hang off its signals); `BoardSlot` named in `CombatState.gd`, `SimState.gd`, `CombatHandlers.gd`, `EffectResolver.gd` or `TargetResolver.gd` — the engine holds `SlotState`, the node is a view (plan 3.1a). |
 | L7 | A second definition, anywhere in the repo, of a state command (`func cmd_*`), the turn engine (`begin_turn` / `end_turn`), trap routing (`_fire_traps_for`), or an AI profile table (a script preloading the `enemies/ai/profiles/` scripts — only `ProfileRegistry` may). |
+| L8 | Gameplay mutation in presentation code (`combat/effects/*VFX.gd`, `combat/effects/vfx/*.gd`, `combat/ui/*.gd` except `CheatPanel`, and `BoardSlot` / `CombatPresenter` / `CombatUI` / `CombatInputHandler` / `TrapEnvDisplay` / `LargePreview` / `Targeting` / `CounterWarning`): `BuffSystem.apply*`, `SlotState.place(`, `combat_manager.`, `trigger_manager.fire`, `EffectResolver.run`, `state.<field> =`, board `append` / `erase`, `current_health` writes. Rules code journals an event; the presenter plays it (plan 3.5). |
 
 ## LiveSmoke — headless CombatScene
 

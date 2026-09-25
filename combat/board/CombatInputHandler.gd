@@ -396,7 +396,9 @@ func tear_down_trap_env_targeting() -> void:
 	_active_trap_env_connections.clear()
 
 ## Cyclone resolve — left-click on a trap or env slot while a Cyclone-style
-## spell is pending: pay cost, remove the trap/env, fire ON_PLAYER_SPELL_CAST.
+## spell is pending: the chosen trap / environment goes to cmd_play_spell as
+## the spell's chosen object (its DESTROY step removes it); the presenter plays
+## the cast.
 func on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 	if _scene == null:
 		return
@@ -405,35 +407,21 @@ func on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 	if _scene.pending_play_card == null or not _scene.pending_play_card.card_data is SpellCardData:
 		return
 	var spell := _scene.pending_play_card.card_data as SpellCardData
-	if not _scene._pay_card_cost(0, _scene._effective_spell_cost(spell)):
-		if _scene.hand_display:
-			_scene.hand_display.deselect_current()
+	var target: Variant = null
+	if trap_idx >= 0 and trap_idx < _scene.active_traps.size():
+		target = _scene.active_traps[trap_idx]
+	elif env_data != null and _scene.active_environment == env_data:
+		target = env_data
+	if target == null:
 		return
-	_scene.turn_manager.remove_from_hand(_scene.pending_play_card)
+	var inst: CardInstance = _scene.pending_play_card
 	_scene.pending_play_card = null
 	tear_down_trap_env_targeting()
 	if _scene.hand_display:
 		_scene.hand_display.deselect_current()
-	if trap_idx >= 0 and trap_idx < _scene.active_traps.size():
-		var trap: TrapCardData = _scene.active_traps[trap_idx]
-		_scene._log("You cast: %s → %s" % [spell.card_name, trap.card_name])
-		if trap.is_rune:
-			_scene._remove_rune_aura(trap)
-		_scene.active_traps.erase(trap)
-		_scene._update_trap_display()
-		_scene._log("  Cyclone: %s removed." % trap.card_name, 1)  # PLAYER
-	elif env_data != null and _scene.active_environment == env_data:
-		_scene._log("You cast: %s → %s" % [spell.card_name, _scene.active_environment.card_name])
-		_scene._log("  Cyclone: %s dispelled." % _scene.active_environment.card_name, 1)  # PLAYER
-		_scene._unregister_env_rituals()
-		_scene.active_environment = null
-		_scene._update_environment_display()
-	_scene._show_card_cast_anim(spell, false, func() -> void:
-		var spell_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_SPELL_CAST, "player")
-		spell_ctx.card = spell
-		if _scene.trigger_manager != null:
-			_scene.trigger_manager.fire(spell_ctx)
-	)
+	var r: CommandResult = _scene.state.cmd_play_spell("player", inst, target)
+	if not r.ok:
+		_scene._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
 
 ## Fired when player clicks the enemy hero panel while relic targeting is active.
 func on_relic_target_hero_input(event: InputEvent) -> void:

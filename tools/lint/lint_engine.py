@@ -44,6 +44,12 @@ rule set and the phase that introduces each rule.
       trap routing (`_fire_traps_for`), and the AI profile table (a script that
       preloads the enemies/ai/profiles/ scripts — ProfileRegistry).
 
+  L8  (plan 3.5) Presentation never mutates: in the VFX, UI, presenter and
+      input files no BuffSystem.apply*, SlotState.place(, combat_manager.,
+      trigger_manager.fire, EffectResolver.run, `state.<field> =`,
+      player_board / enemy_board append / erase, or current_health writes
+      (CheatPanel, a debug tool, is exempt).
+
 Rules not yet enforced (see ENFORCED) are still computed; `--all` prints them,
 but they do not count toward the exit code.
 
@@ -90,7 +96,7 @@ RULES_FILES = UNDERSCORE_SCENE_FILES + SCENE_FILES
 
 # Rules counted toward the exit code (L3/L4 since plan step 1.2, L5 since 1.6,
 # L6/L7 since 2A.9).
-ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7"}
+ENFORCED = {"L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"}
 
 # L3: handles that resolve to the combat shell / facade, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
@@ -347,6 +353,26 @@ class Linter:
                 if slot_re.search(strip_comment(raw)):
                     self.err("L6", rel, i, "`BoardSlot` in engine / rules code — use SlotState (the node is a view)")
 
+    # -- L8 ------------------------------------------------------------------
+    def scan_presentation_mutation(self) -> None:
+        import glob
+        files = sorted(glob.glob(os.path.join(ROOT, "combat/effects/*VFX.gd"))
+                       + glob.glob(os.path.join(ROOT, "combat/effects/vfx/*.gd"))
+                       + glob.glob(os.path.join(ROOT, "combat/ui/*.gd")))
+        rels = [os.path.relpath(f, ROOT) for f in files if not f.endswith("CheatPanel.gd")]
+        rels += ["combat/board/%s.gd" % n for n in ("BoardSlot", "CombatPresenter", "CombatUI",
+                 "CombatInputHandler", "TrapEnvDisplay", "LargePreview", "Targeting", "CounterWarning")]
+        bad = re.compile(r"BuffSystem\.apply|\.place\(|combat_manager\.|trigger_manager\.fire|EffectResolver\.run"
+                         r"|\bstate\.\w+\s*=[^=]|player_board\.(append|erase)|enemy_board\.(append|erase)"
+                         r"|current_health\s*[-+]?=[^=]")
+        for rel in rels:
+            if not os.path.exists(os.path.join(ROOT, rel)):
+                continue
+            for i, raw in enumerate(read(rel), start=1):
+                m = bad.search(strip_comment(raw))
+                if m:
+                    self.err("L8", rel, i, f"`{m.group(0).strip()}` in presentation code — journal an event, the presenter plays it")
+
     # -- L7 ------------------------------------------------------------------
     def scan_single_definitions(self) -> None:
         func_re = re.compile(r"^\s*(?:static\s+)?func\s+(cmd_\w+|begin_turn|end_turn|_fire_traps_for)\s*\(")
@@ -404,6 +430,7 @@ class Linter:
         self.scan_pairs()
         self.scan_engine_waits()
         self.scan_single_definitions()
+        self.scan_presentation_mutation()
         return sum(1 for e in self.errors if e.split(" ", 1)[0] in ENFORCED)
 
 
