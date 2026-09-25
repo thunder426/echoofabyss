@@ -2070,7 +2070,7 @@ func _on_hero_healed(target: String, amount: int) -> void:
 	emit_event(CombatEvent.Kind.HERO_HEALED, target, {amount = amount, hp = player_hp if target == "player" else enemy_hp})
 
 # ---------------------------------------------------------------------------
-# Gameplay helpers that lived on CombatScene / the old SimState (plan 1.4)
+# Gameplay helpers that used to live on the shells (plan 1.4)
 # ---------------------------------------------------------------------------
 
 ## Summon a 100/100 Void Spark on the player board (void_spark_on_friendly_death).

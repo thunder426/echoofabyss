@@ -1,21 +1,16 @@
 ## CombatScene.gd
-## Root script for the combat scene.
-## Wires together TurnManager, CombatManager, BoardSlots, and the UI.
-## Handles player input (selecting cards, selecting targets, attacking).
+## The live combat shell: presenter + input + wiring (plan 4). Every gameplay
+## field and rule is on `state` (CombatState, built by setup_combat); player
+## input goes through its cmd_* commands; the presenter plays the journal. The
+## scene owns the node refs, transient selection state, the animation bodies the
+## presenter awaits, and the helpers (input, UI, targeting, VFX bridge) that
+## read `state` directly.
 extends Node2D
 
 const CARD_VISUAL_SCENE := preload("res://combat/ui/CardVisual.tscn")
 const DAMAGE_FONT: Font = preload("res://assets/fonts/cinzel/Cinzel-Bold.ttf")
 
-# ---------------------------------------------------------------------------
-# Node references — resolved automatically in _find_nodes()
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Pure data layer — fields below are forwarded to a shared CombatState so the
-# headless simulator (SimState extends CombatState) and live combat operate on
-# the same shape. See design/refactors/COMBAT_STATE_MANIFEST.md.
-# ---------------------------------------------------------------------------
+## The combat engine — every gameplay read and write.
 var state: CombatState = CombatState.new()
 ## Plays the journal (plan 3.2): one animation per event, lagging ViewState, UI refresh.
 var presenter: CombatPresenter = null

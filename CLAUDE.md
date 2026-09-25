@@ -47,6 +47,6 @@ Both run headless via `godot --headless --path . <scene>`.
 
 ## Adding New Trigger Handlers
 
-Register via `TriggerManager.register_handler(TriggerEvent.X, callable, priority)` inside `CombatSetup.gd` only — `SimTriggerSetup.gd` delegates talent/hero/enemy-passive registration to `CombatSetup.setup()`. No duplicate registration needed.
+Register via `tm.register(Enums.TriggerEvent.X, callable, priority)` inside `CombatSetup.setup(state)` (or its `_REGISTRY` for talents / passives) only — `CombatState.setup_combat` runs it for live, sim and tests alike. No mirroring anywhere else.
 
-In handler/effect bodies, read and write gameplay through the typed `state` (`state.player_board`, `state._refresh_slot_for(m)`, `ctx.state.draw_cards(...)`), call presentation only as `if presenter != null: presenter.x(...)` (names allow-listed in `tools/lint/presentation_allowlist.txt`), and never duck-type the shell (`has_method`, `.get("x")`). `tools/run_checks.sh` lints this (L1–L5).
+In handler/effect bodies, read and write gameplay through the typed `state` (`state.player_board`, `state._refresh_slot_for(m)`, `ctx.state.draw_cards(...)`). Rules code never touches the scene or the presenter: anything the screen must show is a journal event (`state.emit_event(CombatEvent.Kind.X, side, payload)`, card-specific animation as a `VFX` event) that `CombatPresenter` plays. Never duck-type (`has_method`, `.get("x")` on an object). `tools/run_checks.sh` lints this (L1–L9) and must be green before a version commit.
