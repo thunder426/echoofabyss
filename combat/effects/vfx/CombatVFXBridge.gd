@@ -1188,8 +1188,6 @@ func _animate_minion_death_body(slot: BoardSlot, pos: Vector2, dead_minion: Mini
 				vfx_controller.spawn(death_vfx)
 			await death_vfx.impact_hit
 			if not is_inside_tree(): return
-		# Resolve deferred on-death effects now that the icon has faded
-		resolve_deferred_on_death(dead_minion)
 
 ## Returns true if a minion has any on-death effects (steps or granted).
 func minion_has_on_death(minion: MinionInstance) -> bool:
@@ -1202,16 +1200,6 @@ func minion_has_on_death(minion: MinionInstance) -> bool:
 	if not minion.granted_on_death_effects.is_empty():
 		return true
 	return false
-
-## Resolve on-death effects that were deferred for the icon VFX.
-func resolve_deferred_on_death(minion: MinionInstance) -> void:
-	if _scene == null:
-		return
-	_scene._pending_on_death_vfx.erase(minion)
-	if not is_inside_tree():
-		return
-	if _scene._handlers != null:
-		_scene._handlers._resolve_on_death(minion)
 
 ## Fire death animations queued during freeze_visuals. Called by VfxController
 ## (via scene's wrapper) after a damaging spell VFX finishes, and by

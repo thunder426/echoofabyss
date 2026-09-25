@@ -2001,10 +2001,8 @@ func _on_minion_vanished(minion: MinionInstance) -> void:
 		dead_slot.clear()
 	minion_died.emit(minion.owner, minion, dead_index)
 	_log("  %s died" % minion.card_data.card_name, 6)  # DEATH
-	# Live defers on-death effects of minions with an on-death icon VFX until the
-	# icon plays (D3 — resolved inline once Phase 3.0 lands).
-	if presenter != null:
-		presenter._defer_on_death_vfx(minion)
+	# On-death effects resolve inline in the death trigger (D3); the presenter
+	# plays the death animation and on-death icon before what follows.
 	if trigger_manager != null:
 		var pre_corruption: int = BuffSystem.count_type(minion, Enums.BuffType.CORRUPTION)
 		if pre_corruption > 0:

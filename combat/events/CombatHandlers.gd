@@ -710,17 +710,12 @@ func on_minion_died_death_effect(ctx: EventContext) -> void:
 	var minion := ctx.minion
 	if minion == null or not (minion.card_data is MinionCardData):
 		return
-	# In live combat, on-death effects for minions with VFX are deferred until
-	# after the death animation + on-death icon finishes.  The animation pipeline
-	# calls resolve_deferred_on_death() when the icon fades.
-	var pending: Array = presenter._pending_on_death_vfx if presenter != null else []
-	if minion in pending:
-		return
+	# Resolves inline on both shells (D3, plan 3.0): the presenter orders the
+	# death animation + on-death icon before the effects' own visuals.
 	_resolve_on_death(minion)
 
 
 ## Resolves a minion's on-death effects (steps + granted summons).
-## Called immediately for sim / non-VFX deaths, or deferred after icon VFX.
 func _resolve_on_death(minion: MinionInstance) -> void:
 	var card := minion.card_data as MinionCardData
 	if not card.on_death_effect_steps.is_empty():

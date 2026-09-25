@@ -269,11 +269,6 @@ var _anim_def_slot: BoardSlot = null
 # Each entry is {slot: BoardSlot, pos: Vector2, minion: MinionInstance} — position captured when slot is still in-place.
 var _deferred_death_slots: Array = []
 
-# Minions whose on-death effects are deferred until after the death animation +
-# on-death icon VFX finishes.  CombatHandlers.on_minion_died_death_effect skips
-# these; _animate_minion_death resolves them after the icon fades.
-var _pending_on_death_vfx: Array[MinionInstance] = []
-
 # Card the player is currently trying to play (dragged or clicked from hand)
 var pending_play_card: CardInstance = null
 
@@ -2802,9 +2797,6 @@ func _on_minion_vanished_visual(minion: MinionInstance, slot_index: int) -> void
 ## Presenter hook — CombatState._on_minion_vanished (before the death triggers).
 ## Minions with an on-death icon VFX resolve their on-death effects after the
 ## icon plays; CombatHandlers.on_minion_died_death_effect skips the ones queued here.
-func _defer_on_death_vfx(minion: MinionInstance) -> void:
-	if _minion_has_on_death(minion):
-		_pending_on_death_vfx.append(minion)
 
 ## Subscriber to CombatState.hp_changed — refreshes the appropriate hero panel
 ## whenever HP mutates. Lets us drop scattered `_hero_panel.update(...)` calls
@@ -4053,21 +4045,13 @@ func _sweep_dead_minions() -> void:
 				slot.show_empty()
 
 ## Death animation system delegated to vfx_bridge. Scene keeps thin wrappers
-## so external callers (VfxController via _combat._flush_deferred_deaths,
-## CombatHandlers via _scene._minion_has_on_death) don't need to know about
-## the bridge. State (_active_death_anims, _deferred_death_slots,
-## _pending_on_death_vfx, _pending_sacrifice_ghost_delay) stays on scene
+## so external callers (VfxController via _combat._flush_deferred_deaths)
+## don't need to know about the bridge. State (_active_death_anims,
+## _deferred_death_slots, _pending_sacrifice_ghost_delay) stays on scene
 ## since multiple non-VFX paths write to it.
 func _animate_minion_death(slot: BoardSlot, pos: Vector2, dead_minion: MinionInstance = null) -> void:
 	if vfx_bridge != null:
 		await vfx_bridge.animate_minion_death(slot, pos, dead_minion)
-
-func _minion_has_on_death(minion: MinionInstance) -> bool:
-	return vfx_bridge != null and vfx_bridge.minion_has_on_death(minion)
-
-func _resolve_deferred_on_death(minion: MinionInstance) -> void:
-	if vfx_bridge != null:
-		vfx_bridge.resolve_deferred_on_death(minion)
 
 func _flush_deferred_deaths() -> void:
 	if vfx_bridge != null:
