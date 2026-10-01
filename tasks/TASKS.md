@@ -3,7 +3,6 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-- ["045"](045-live-sim-unification-phase-5.md) — Live/sim unification — Phase 5 (combat, started 2026-09-25)
 - ["043"](043-live-sim-unification-phase-3.md) — Live/sim unification — Phase 3 (combat, started 2026-09-24)
 
 ## Backlog
@@ -18,9 +17,21 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["031"](031-art-pass-korrath-runic-knight.md) — Art pass — korrath_runic_knight (art)
 - ["032"](032-art-pass-korrath-abyssal-breaker.md) — Art pass — korrath_abyssal_breaker (art)
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
+- ["047"](047-enemy-decks-into-repo.md) — Move enemy decks from user:// into the repo (content)
+- ["048"](048-presenter-softlock-guard.md) — Stop the presenter from soft-locking combat on a stuck animation (ui)
+- ["049"](049-combatstate-refcount-cycles.md) — Break CombatState reference cycles so each fight is freed (combat)
+- ["050"](050-effectresolver-side-bugs.md) — Route trap / environment removal through one engine API (F15 leak, unjournaled destroy, owner lookup) (combat)
+- ["051"](051-ai-profiles-no-direct-state-writes.md) — Stop AI profiles writing CombatState outside cmd_* (and de-duplicate spark cost) (combat)
+- ["052"](052-save-robustness.md) — Make saves versioned, atomic and complete (meta)
+- ["053"](053-gate-debug-tools-in-release.md) — Gate the cheat panel and test config out of release builds (meta)
+- ["054"](054-handler-log-type-constants.md) — Fix CombatHandlers log-type constants (off by one vs CombatLog.LogType) (combat)
+- ["055"](055-rules-code-gamemanager-leak-stale-comments.md) — Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments (combat)
+- ["056"](056-groom-architecture-roadmap.md) — Groom the architecture roadmap into tasks (architecture)
 
 ## Done
 - ["044"](044-live-sim-unification-phase-4.md) — Live/sim unification — Phase 4 (combat, 2026-09-25 → 2026-09-25)
+- ["045"](045-live-sim-unification-phase-5.md) — Live/sim unification — Phase 5 (combat, 2026-09-25 → 2026-09-25)
+- ["046"](046-minion-hp-labels-journal-events.md) — Minion HP labels driven by journal events, not live state (ui, 2026-09-25 → 2026-09-25)
 - ["040"](040-live-sim-unification-phase-0.md) — Live/sim unification — Phase 0 (foundations + hotfixes) (combat, 2026-09-23 → 2026-09-23)
 - ["041"](041-live-sim-unification-phase-1.md) — Live/sim unification — Phase 1 (rules code addresses state) (combat, 2026-09-23 → 2026-09-23)
 - ["042"](042-live-sim-unification-phase-2a.md) — Live/sim unification — Phase 2A (engine commands, shared turn engine, trap routing) (combat, 2026-09-23 → 2026-09-23)
