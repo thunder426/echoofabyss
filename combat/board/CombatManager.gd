@@ -272,7 +272,7 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 	if state != null:
 		state.emit_event(CombatEvent.Kind.DAMAGE_DEALT, minion.owner, {kind = "minion", minion = minion,
 				amount = last_post_armour_damage, absorbed = shield_before - minion.current_shield,
-				hp_before = hp_before, hp_after = minion.current_health, school = school,
+				hp_before = hp_before, hp_after = minion.current_health, shield_after = minion.current_shield, school = school,
 				source = info.get("source", Enums.DamageSource.SPELL), source_minion = info.get("attacker", null),
 				source_card = str(info.get("source_card", "")), is_crit = state._last_attack_was_crit})
 	if damage > 0:

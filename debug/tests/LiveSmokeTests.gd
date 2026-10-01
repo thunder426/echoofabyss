@@ -23,6 +23,7 @@ func _ready() -> void:
 	await _f1_enemy_turn_completes()
 	await _f13_vrp_champion_progress()
 	await _live_rules_paths()
+	await _hp_labels_lag_the_engine()
 	await _ai_vs_ai_fight()
 	print("LiveSmoke: %s (%d failed)" % ["OK" if _fails == 0 else "FAILED", _fails])
 	get_tree().quit(_fails)
@@ -152,6 +153,39 @@ func _live_rules_paths() -> void:
 	_check(st.enemy_hp == chalice_hp - 500, "live: Blood Chalice hit the enemy hero (%d → %d)" % [chalice_hp, st.enemy_hp])
 	await _drain(scene)
 	print("LiveSmoke: live rules paths completed")
+	await _teardown(scene)
+
+## Task 046: the slot labels are the presenter's lagging view of the engine. A
+## token summoned and struck in one synchronous resolution shows its summon-time
+## HP when its summon plays, and the post-hit HP only once the attack has played.
+func _hp_labels_lag_the_engine() -> void:
+	var scene: Node = await _launch(1, "swarm")
+	var st: CombatState = scene.state
+	var at_summon: Dictionary = {}   # side → [label text, the event's hp]
+	scene.presenter.event_played.connect(func(ev: CombatEvent) -> void:
+		if ev.kind == CombatEvent.Kind.TOKEN_SUMMONED:
+			var node: BoardSlot = scene.slot_node(ev.side, ev.payload.get("slot", -1))
+			at_summon[ev.side] = [node._hp_label.text if node != null else "?", str(ev.payload.get("hp", -1))]
+	)
+	# No awaits between these: the presenter starts deferred, so the whole
+	# summon + strike + counter is journaled before its first event plays.
+	var hound: MinionInstance = st._summon_token("shadow_hound", "enemy", 0, 500)
+	var imp: MinionInstance = st._summon_token("void_imp", "player")
+	var imp_hp: int = imp.current_health
+	scene.state.combat_manager.resolve_minion_attack(hound, imp)
+	_check(hound.current_health < 500 and imp.current_health <= 0,
+		"labels: the engine resolved the strike at once (hound %d, imp %d)" % [hound.current_health, imp.current_health])
+	await _drain(scene)
+	var e: Array = at_summon.get("enemy", ["?", "?"])
+	var pl: Array = at_summon.get("player", ["?", "?"])
+	_check(e[0] == "500" and e[1] == "500", "labels: the hound showed 500 HP when its summon played (label %s, event %s)" % e)
+	_check(pl[0] == str(imp_hp) and pl[1] == str(imp_hp),
+		"labels: the imp showed %d HP when its summon played, not the live 0 (label %s, event %s)" % [imp_hp, pl[0], pl[1]])
+	await get_tree().create_timer(0.3).timeout  # the HP tween's tail
+	var hound_node: BoardSlot = scene._find_slot_for(hound)
+	var shown: String = hound_node._hp_label.text if hound_node != null else "?"
+	_check(shown == str(hound.current_health),
+		"labels: the hound shows %d HP once the attack played (got %s)" % [hound.current_health, shown])
 	await _teardown(scene)
 
 # ---------------------------------------------------------------------------

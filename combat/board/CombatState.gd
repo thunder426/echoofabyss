@@ -120,7 +120,15 @@ func _log(msg: String, log_type: int = 1) -> void:  # default = CombatLog.LogTyp
 func _refresh_slot_for(minion: MinionInstance) -> void:
 	if minion != null:
 		minion_stats_changed.emit(minion)
-		emit_event(CombatEvent.Kind.MINION_STATS_CHANGED, minion.owner, {minion = minion, atk = minion.effective_atk(), hp = minion.current_health, shield = minion.current_shield})
+		emit_event(CombatEvent.Kind.MINION_STATS_CHANGED, minion.owner, {minion = minion}.merged(minion_stat_payload(minion)))
+
+## The stats a slot shows for `m` at this point in the journal — merged into the
+## summon / slot / stats events so the presenter's lagging view (task 046) starts
+## right even though the engine has already resolved everything that follows.
+static func minion_stat_payload(m: MinionInstance) -> Dictionary:
+	if m == null:
+		return {}
+	return {atk = m.effective_atk(), hp = m.current_health, shield = m.current_shield}
 
 ## Trap/rune display refresh hook for a specific side ("player"/"enemy").
 ## Scene's `_update_trap_display_for(owner)` facade delegates here; subscribers
@@ -601,7 +609,7 @@ func _spawn_token_into_slot(card_id: String, owner: String, slot: SlotState, tok
 	board.append(instance)
 	# The event precedes the placement so the presenter can play the entrance first.
 	emit_event(CombatEvent.Kind.CHAMPION_SUMMONED if mc.is_champion else CombatEvent.Kind.TOKEN_SUMMONED, owner,
-			{minion = instance, card = mc, slot = slot.index})
+			{minion = instance, card = mc, slot = slot.index}.merged(minion_stat_payload(instance)))
 	slot.place(instance)
 	minion_summoned.emit(owner, instance, slot.index)
 	_log("  %s summoned!" % mc.card_name, 1)  # PLAYER
@@ -1313,7 +1321,7 @@ func _alloc_slots() -> void:
 
 func _on_slot_state_changed(slot: SlotState) -> void:
 	slot_changed.emit(slot.side, slot.index)
-	emit_event(CombatEvent.Kind.SLOT_CHANGED, slot.side, {slot = slot.index, minion = slot.minion})
+	emit_event(CombatEvent.Kind.SLOT_CHANGED, slot.side, {slot = slot.index, minion = slot.minion}.merged(minion_stat_payload(slot.minion)))
 
 ## The slot at `index` on `side`, or null when off-board.
 func slot_of(side: String, index: int) -> SlotState:
@@ -2134,7 +2142,7 @@ func _summon_champion_card(card: MinionCardData, inst: CardInstance, from_hand: 
 		var instance := MinionInstance.create(card, "player")
 		instance.card_instance = inst
 		player_board.append(instance)
-		emit_event(CombatEvent.Kind.CHAMPION_SUMMONED, "player", {minion = instance, card = card, slot = slot.index, from_hand = from_hand})
+		emit_event(CombatEvent.Kind.CHAMPION_SUMMONED, "player", {minion = instance, card = card, slot = slot.index, from_hand = from_hand}.merged(minion_stat_payload(instance)))
 		slot.place(instance)
 		minion_summoned.emit("player", instance, slot.index)
 		if from_hand:
@@ -2570,7 +2578,7 @@ func _cmd_play_minion(side: String, inst: CardInstance, slot_index: int, target 
 			_vw_behemoth_plays += 1
 	var instance := MinionInstance.create(mc, side)
 	instance.card_instance = inst
-	emit_event(CombatEvent.Kind.MINION_PLAYED, side, {minion = instance, card = mc, slot = slot.index, inst = inst, target = target})
+	emit_event(CombatEvent.Kind.MINION_PLAYED, side, {minion = instance, card = mc, slot = slot.index, inst = inst, target = target}.merged(minion_stat_payload(instance)))
 	slot.place(instance)
 	if side == "enemy":
 		enemy_play_target = target  # read (and cleared) by the ON_ENEMY_MINION_PLAYED handler

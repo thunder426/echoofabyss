@@ -1344,7 +1344,7 @@ func _transfer_to_player_board(m: MinionInstance) -> bool:
 	state.enemy_board.erase(m)
 	m.owner = "player"
 	state.player_board.append(m)
-	state.emit_event(CombatEvent.Kind.MINION_SUMMONED, "player", {minion = m, slot = target_slot.index})
+	state.emit_event(CombatEvent.Kind.MINION_SUMMONED, "player", {minion = m, slot = target_slot.index}.merged(CombatState.minion_stat_payload(m)))
 	target_slot.place(m)
 	state.minion_summoned.emit("player", m, target_slot.index)
 	state._refresh_slot_for(m)

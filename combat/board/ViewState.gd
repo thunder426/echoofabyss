@@ -3,7 +3,10 @@
 ## hybrid). Updated only by CombatPresenter as it consumes journal events, so
 ## a panel never shows a value before the animation that explains it. Board
 ## slots are not modelled here: they render the MinionInstance the presenter
-## hands them at playback, with stat labels driven by event before/after values.
+## hands them at playback, with the ATK / HP labels on the slot's own shown
+## stats (BoardSlot.shown_atk / shown_hp / shown_shield — set from the summon
+## / slot event's snapshot, moved by damage / heal / buff / stats-changed
+## events as they play; never the live minion, task 046).
 class_name ViewState
 extends RefCounted
 

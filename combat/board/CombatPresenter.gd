@@ -19,6 +19,8 @@ class_name CombatPresenter
 extends Node
 
 signal idle
+## One event played and applied (tests watch the screen at a given event).
+signal event_played(ev: CombatEvent)
 
 var scene: Node = null
 var state: CombatState = null
@@ -28,6 +30,10 @@ var instant: bool = false
 
 var _draining: bool = false
 var _start_queued: bool = false
+## Minions whose HP an early-played event already showed (instance id → that
+## event's seq): the older HP snapshots that sit before it in the journal must
+## not rewind the label while the cursor catches up (task 046).
+var _ahead: Dictionary = {}
 var _consumed: Dictionary = {}        # seq → true: played early by a look-ahead
 var _flights: Dictionary = {}         # CardInstance.instance_id → {visual, hand_index}
 var _spell_pending: Array = []        # captured events of the spell being played
@@ -98,12 +104,16 @@ func _drain() -> void:
 		var early: bool = _consumed.has(ev.seq)
 		if early:
 			_consumed.erase(ev.seq)
+			var am: MinionInstance = ev.payload.get("minion", null) as MinionInstance
+			if am != null and _ahead.get(am.get_instance_id(), -1) == ev.seq:
+				_ahead.erase(am.get_instance_id())
 		if not early and not instant and is_inside_tree() and scene != null and is_instance_valid(scene):
 			await _play(ev)
 			if not is_inside_tree() or scene == null or not is_instance_valid(scene):
 				break
 		view.apply(ev)
 		_emit_ui(ev)
+		event_played.emit(ev)
 	_draining = false
 	idle.emit()
 
@@ -146,6 +156,17 @@ func _peek_window(limit: int = 60) -> Array:
 
 func _consume(ev: CombatEvent) -> void:
 	_consumed[ev.seq] = true
+	var hp_event: bool = ev.kind == CombatEvent.Kind.MINION_HEALED \
+			or (ev.kind == CombatEvent.Kind.DAMAGE_DEALT and ev.payload.get("kind", "") == "minion")
+	if hp_event:
+		var m: MinionInstance = ev.payload.get("minion", null) as MinionInstance
+		if m != null:
+			_ahead[m.get_instance_id()] = maxi(_ahead.get(m.get_instance_id(), -1), ev.seq)
+
+
+## True while an HP event for `m` later than `seq` has already been shown.
+func _hp_shown_ahead(m: MinionInstance, seq: int) -> bool:
+	return m != null and _ahead.get(m.get_instance_id(), -1) > seq
 
 
 static func _is_minion_damage(ev: CombatEvent, m: MinionInstance) -> bool:
@@ -154,6 +175,14 @@ static func _is_minion_damage(ev: CombatEvent, m: MinionInstance) -> bool:
 
 static func _is_hero_damage(ev: CombatEvent, side: String) -> bool:
 	return ev.kind == CombatEvent.Kind.DAMAGE_DEALT and ev.payload.get("kind", "") == "hero" and ev.side == side
+
+
+## The minion stat snapshot a summon / slot event carries (CombatState.minion_stat_payload).
+static func _stats_of(ev: CombatEvent) -> Dictionary:
+	var p: Dictionary = ev.payload
+	if not p.has("hp"):
+		return {}
+	return {atk = p.get("atk", 0), hp = p.get("hp", 0), shield = p.get("shield", 0)}
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +204,7 @@ func _play(ev: CombatEvent) -> void:
 		CombatEvent.Kind.MINION_HEALED:
 			var node: BoardSlot = scene._find_slot_for(ev.payload.get("minion", null))
 			if node != null:
-				node.refresh_stats_only()
+				node.animate_hp_change(ev.payload.get("hp_before", 0), ev.payload.get("hp_after", 0))
 		CombatEvent.Kind.BUFF_APPLIED:
 			await _play_buffs(ev)
 		CombatEvent.Kind.CORRUPTION_APPLIED:
@@ -256,20 +285,21 @@ func _play_minion_played(ev: CombatEvent) -> void:
 		return
 	var card: MinionCardData = m.card_data as MinionCardData
 	var total_cost: int = card.essence_cost + card.mana_cost
+	var stats: Dictionary = _stats_of(ev)
 	if ev.side == "player":
 		var flight: Dictionary = take_flight(ev.payload.get("inst", null))
 		if not flight.is_empty():
 			await scene._animate_card_to_slot(flight["visual"], node, flight["hand_index"], total_cost, card.is_champion,
-					func() -> void: node.show_minion(m))
+					func() -> void: node.show_minion(m, stats))
 		else:
-			node.show_minion(m)
+			node.show_minion(m, stats)
 			await scene._animate_enemy_landing(node, total_cost, card.is_champion)
 	else:
 		await scene._show_enemy_summon_reveal(card)
 		if not is_inside_tree():
 			return
 		AudioManager.play_sfx("res://assets/audio/sfx/minions/minion_summon.wav", -20.0)
-		node.show_minion(m)
+		node.show_minion(m, stats)
 		await scene._animate_enemy_landing(node, total_cost, card.is_champion)
 		if is_inside_tree():
 			CardVfxRegistry.play_enemy_summon_reveal_extra(scene.vfx_controller, m, node, state.enemy_passives)
@@ -284,18 +314,19 @@ func _play_summon(ev: CombatEvent) -> void:
 	if m == null or node == null:
 		return
 	var card: MinionCardData = m.card_data as MinionCardData
+	var stats: Dictionary = _stats_of(ev)
 	if scene.vfx_bridge != null and card.is_champion and ev.kind != CombatEvent.Kind.MINION_SUMMONED:
 		node.freeze_visuals = true
-		node.show_minion(m)
+		node.show_minion(m, stats)
 		await scene.vfx_bridge.champion_summon_sequence(card, m, node)
 		return
 	if scene.vfx_bridge != null and CardVfxRegistry.has_token_summon(card.id):
 		node.freeze_visuals = true
-		node.show_minion(m)
+		node.show_minion(m, stats)
 		await CardVfxRegistry.play_token_summon(scene.vfx_bridge, card.id, m, card, node, ev.side)
 		return
 	node.freeze_visuals = false
-	node.show_minion(m)
+	node.show_minion(m, stats)
 
 
 ## Death / sacrifice ghost. The node still shows the minion (its slot-clear
@@ -332,7 +363,7 @@ func _play_damage(ev: CombatEvent) -> void:
 		return
 	scene._flash_slot(node)
 	scene._spawn_damage_popup(node.get_global_rect().get_center(), p.get("amount", 0), p.get("is_crit", false), p.get("school", Enums.DamageSchool.NONE))
-	node.animate_hp_change(p.get("hp_before", 0), p.get("hp_after", 0))
+	node.animate_hp_change(p.get("hp_before", 0), p.get("hp_after", 0), p.get("shield_after", -1))
 
 
 ## Consecutive buff events play as one batch (one BuffApplyVFX per minion +
@@ -350,7 +381,15 @@ func _play_buffs(first: CombatEvent) -> void:
 		var p: Dictionary = ev.payload
 		if p.get("silent", false):
 			continue
-		scene._show_buff_apply(p.get("minion", null), p.get("source_tag", ""), p.get("atk_before", 0), p.get("hp_before", 0))
+		var bm: MinionInstance = p.get("minion", null)
+		var hp_before: int = p.get("hp_before", 0)
+		var hp_after: int = p.get("hp_after", 0)
+		if _hp_shown_ahead(bm, ev.seq):
+			var bnode: BoardSlot = scene._find_slot_for(bm)
+			if bnode != null:
+				hp_before = bnode.shown_hp
+				hp_after = bnode.shown_hp
+		scene._show_buff_apply(bm, p.get("source_tag", ""), p.get("atk_before", 0), hp_before, p.get("atk_after", 0), hp_after)
 		any = true
 	if not any:
 		return
@@ -481,7 +520,7 @@ func _play_captured_event(e: CombatEvent) -> void:
 		CombatEvent.Kind.MINION_HEALED:
 			var node: BoardSlot = scene._find_slot_for(e.payload.get("minion", null))
 			if node != null:
-				node.refresh_stats_only()
+				node.animate_hp_change(e.payload.get("hp_before", 0), e.payload.get("hp_after", 0))
 		_:
 			pass
 
@@ -539,12 +578,10 @@ func _play_attack(ev: CombatEvent) -> void:
 		return
 	var damage: int = hit_d.payload.get("amount", 0) if hit_d != null else 0
 	var counter: int = hit_a.payload.get("amount", 0) if hit_a != null else 0
-	var d_delta: int = (hit_d.payload.get("hp_before", 0) - hit_d.payload.get("hp_after", 0)) if hit_d != null else 0
-	var a_delta: int = (hit_a.payload.get("hp_before", 0) - hit_a.payload.get("hp_after", 0)) if hit_a != null else 0
 	var is_crit: bool = hit_d.payload.get("is_crit", false) if hit_d != null else false
 	atk_node.set_highlight(BoardSlot.HighlightMode.SELECTED)
 	def_node.set_highlight(BoardSlot.HighlightMode.INVALID)
-	await scene._play_attack_anim(atk_node, def_node, damage, attacker, defender, is_crit, counter, d_delta, a_delta)
+	await scene._play_attack_anim(atk_node, def_node, damage, attacker, defender, is_crit, counter, hit_d, hit_a)
 	if is_inside_tree():
 		atk_node.clear_highlight()
 		def_node.clear_highlight()
@@ -690,9 +727,19 @@ func _emit_ui(ev: CombatEvent) -> void:
 					ui.refresh_hand_spell_costs()
 		CombatEvent.Kind.SLOT_CHANGED:
 			_apply_slot(ev)
+		CombatEvent.Kind.DAMAGE_DEALT:
+			if p.get("kind", "") == "minion":
+				_apply_minion_stats(ev, -1, p.get("hp_after", 0), p.get("shield_after", -1))
+		CombatEvent.Kind.MINION_HEALED:
+			_apply_minion_stats(ev, -1, p.get("hp_after", 0), -1)
 		CombatEvent.Kind.MINION_STATS_CHANGED:
-			var node: BoardSlot = scene._find_slot_for(p.get("minion", null))
-			if node != null:
+			var sm: MinionInstance = p.get("minion", null)
+			var node: BoardSlot = scene._find_slot_for(sm)
+			if node != null and node.minion == sm:
+				if _hp_shown_ahead(sm, ev.seq):
+					node.set_shown_stats(p.get("atk", 0), node.shown_hp, node.shown_shield, false)
+				else:
+					node.set_shown_stats(p.get("atk", 0), p.get("hp", 0), p.get("shield", 0), false)
 				node._refresh_visuals()
 		CombatEvent.Kind.MINION_DIED, CombatEvent.Kind.MINION_SACRIFICED, CombatEvent.Kind.MINION_CONSUMED:
 			if ev.side == "player" and scene.hand_display != null:
@@ -721,6 +768,21 @@ func _emit_ui(ev: CombatEvent) -> void:
 			pass
 
 
+## The view side of a minion's HP change (`ev`): its slot's shown stats move to
+## the event's after values (an animation, if one played, already tweened
+## there). -1 keeps the current shown value; an HP already shown by a later
+## event stays.
+func _apply_minion_stats(ev: CombatEvent, atk: int, hp: int, shield: int) -> void:
+	var m: MinionInstance = ev.payload.get("minion", null)
+	var node: BoardSlot = scene._find_slot_for(m)
+	if node == null or node.minion != m:
+		return
+	if _hp_shown_ahead(m, ev.seq):
+		hp = node.shown_hp
+		shield = -1
+	node.set_shown_stats(node.shown_atk if atk < 0 else atk, hp, node.shown_shield if shield < 0 else shield)
+
+
 ## Mirror the engine's slot occupancy onto the view node. Idempotent: the
 ## play / summon / death events that precede a slot change have usually shown
 ## or emptied the node already.
@@ -734,4 +796,4 @@ func _apply_slot(ev: CombatEvent) -> void:
 			node.show_empty()
 	elif node.minion != m:
 		node.freeze_visuals = false
-		node.show_minion(m)
+		node.show_minion(m, _stats_of(ev))

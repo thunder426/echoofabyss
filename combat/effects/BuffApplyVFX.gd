@@ -88,11 +88,14 @@ var _prelude: Callable = Callable()
 var _palette: Dictionary = {}
 var _slot_rect: Rect2 = Rect2()
 
-# Pre-buff label values (plan 3.0). The engine has already applied the buff
-# when this VFX spawns; the pulse beat tweens each label from these to the
-# live value. Without a snapshot (cosmetic use) the pulse only pulses.
+# Pre- / post-buff label values (plan 3.0, task 046) from the BUFF_APPLIED
+# events. The engine has already applied the buff (and whatever followed) when
+# this VFX spawns; the pulse beat tweens each label from the before to the
+# after value. Without a snapshot (cosmetic use) the pulse only pulses.
 var _pre_atk: int = 0
 var _pre_hp: int = 0
+var _post_atk: int = 0
+var _post_hp: int = 0
 var _has_snapshot: bool = false
 
 
@@ -109,10 +112,12 @@ static func create(slot: Control, atk_delta: int, hp_delta: int,
 	return vfx
 
 
-## Pre-buff snapshot from CombatScene._flush_buff_requests.
-func set_stat_snapshot(atk_before: int, hp_before: int) -> void:
+## Before / after snapshot from CombatScene._flush_buff_requests.
+func set_stat_snapshot(atk_before: int, hp_before: int, atk_after: int, hp_after: int) -> void:
 	_pre_atk = atk_before
 	_pre_hp = hp_before
+	_post_atk = atk_after
+	_post_hp = hp_after
 	_has_snapshot = true
 
 
@@ -304,16 +309,18 @@ func _pulse_stat(which: String) -> void:
 		return
 
 	# Value tween at the visible beat: from the pre-buff snapshot (held on the
-	# label by CombatScene._show_buff_apply) to the live value. Without a
-	# snapshot the label already shows the live value and only pulses.
+	# label by CombatScene._show_buff_apply) to the after value. Without a
+	# snapshot the label already shows the slot's shown value and only pulses.
 	var slot_node: BoardSlot = _slot as BoardSlot
 	if slot_node != null and slot_node.minion != null:
 		if which == "atk" and _atk_delta != 0:
-			var from_atk: int = _pre_atk if _has_snapshot else slot_node.minion.effective_atk()
-			slot_node.animate_atk_change(from_atk)
+			var from_atk: int = _pre_atk if _has_snapshot else slot_node.shown_atk
+			var to_atk: int = _post_atk if _has_snapshot else slot_node.shown_atk
+			slot_node.animate_atk_change(from_atk, to_atk)
 		elif which == "hp" and _hp_delta != 0:
-			var from_hp: int = _pre_hp if _has_snapshot else slot_node.minion.current_health
-			slot_node.animate_hp_change(from_hp, slot_node.minion.current_health)
+			var from_hp: int = _pre_hp if _has_snapshot else slot_node.shown_hp
+			var to_hp: int = _post_hp if _has_snapshot else slot_node.shown_hp
+			slot_node.animate_hp_change(from_hp, to_hp)
 
 	lbl.pivot_offset = lbl.size * 0.5
 	var original_color: Color = lbl.get_theme_color("font_color")

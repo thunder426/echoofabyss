@@ -874,10 +874,12 @@ var _pending_buff_requests: Dictionary = {}
 
 ## Presenter hook (plan 3.0): the buff is already applied on the engine; queue
 ## its animation. Requests for the same minion + source in one frame merge into
-## one BuffApplyVFX that tweens the labels from the first pre-buff snapshot to
-## the live values at flush. The labels are held at the pre-buff values until
-## the pulse beat, so that beat is where the number visibly changes.
-func _show_buff_apply(minion: MinionInstance, source_tag: String, atk_before: int, hp_before: int) -> void:
+## one BuffApplyVFX that tweens the labels from the first event's before values
+## to the last event's after values (never the live stats — the engine may have
+## moved on, task 046). The labels are held at the pre-buff values until the
+## pulse beat, so that beat is where the number visibly changes.
+func _show_buff_apply(minion: MinionInstance, source_tag: String, atk_before: int, hp_before: int,
+		atk_after: int, hp_after: int) -> void:
 	if minion == null or not is_instance_valid(minion) or vfx_controller == null:
 		return
 	# Pack Frenzy owns its full buff visual (PackFrenzyVFX tween + chevron).
@@ -889,14 +891,16 @@ func _show_buff_apply(minion: MinionInstance, source_tag: String, atk_before: in
 		_pending_buff_requests[key] = {"minion": minion, "source": source_tag,
 			"atk_before": atk_before, "hp_before": hp_before}
 	var agg: Dictionary = _pending_buff_requests[key]
+	agg["atk_after"] = atk_after
+	agg["hp_after"] = hp_after
 	var slot: BoardSlot = _find_slot_for(minion)
 	if slot != null and slot.minion == minion:
 		slot.hold_stats(agg["atk_before"], agg["hp_before"])
 	if was_empty:
 		call_deferred("_flush_buff_requests")
 
-## Spawn one BuffApplyVFX per (minion, source) bucket with the pre-buff
-## snapshot; the VFX tweens the labels to the live values at its pulse beat.
+## Spawn one BuffApplyVFX per (minion, source) bucket with the before / after
+## snapshot; the VFX tweens the labels to the after values at its pulse beat.
 func _flush_buff_requests() -> void:
 	var pending: Dictionary = _pending_buff_requests
 	_pending_buff_requests = {}
@@ -912,13 +916,16 @@ func _flush_buff_requests() -> void:
 			continue
 		var atk_before: int = agg["atk_before"]
 		var hp_before: int = agg["hp_before"]
-		var atk_d: int = m.effective_atk() - atk_before
-		var hp_d: int = m.current_health - hp_before
+		var atk_after: int = agg["atk_after"]
+		var hp_after: int = agg["hp_after"]
+		var atk_d: int = atk_after - atk_before
+		var hp_d: int = hp_after - hp_before
 		if atk_d == 0 and hp_d == 0:
 			slot.refresh_stats_only()
 			continue
 		to_spawn.append({"minion": m, "slot": slot, "src": String(agg["source"]),
-			"atk_before": atk_before, "hp_before": hp_before, "atk_d": atk_d, "hp_d": hp_d})
+			"atk_before": atk_before, "hp_before": hp_before, "atk_after": atk_after, "hp_after": hp_after,
+			"atk_d": atk_d, "hp_d": hp_d})
 	if to_spawn.is_empty():
 		return
 	_active_buff_vfx_count = to_spawn.size()
@@ -926,7 +933,7 @@ func _flush_buff_requests() -> void:
 		var prelude: Callable   = BuffVfxRegistry.build_prelude(s["src"], s["slot"], s["atk_d"], s["hp_d"])
 		var palette: Dictionary = BuffVfxRegistry.get_palette(s["src"])
 		var vfx := BuffApplyVFX.create(s["slot"], s["atk_d"], s["hp_d"], prelude, palette)
-		vfx.set_stat_snapshot(s["atk_before"], s["hp_before"])
+		vfx.set_stat_snapshot(s["atk_before"], s["hp_before"], s["atk_after"], s["hp_after"])
 		vfx.finished.connect(_on_buff_vfx_finished, CONNECT_ONE_SHOT)
 		vfx_controller.spawn(vfx)
 
@@ -1774,16 +1781,14 @@ func _restore_slot_from_lunge(slot: BoardSlot, orig_parent: Control, orig_index:
 	slot.freeze_visuals = false
 	slot._refresh_visuals()
 
+## Lunge from `atk_slot` into `def_slot`. `hit_d` / `hit_a` are the defender's
+## and the counter's DAMAGE_DEALT events (the presenter consumed them): their
+## before / after values drive the HP labels at the hit — never the live HP,
+## which later events in the same resolution may have moved on (task 046).
 func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 		attacker: MinionInstance = null, defender: MinionInstance = null,
 		is_crit: bool = false, counter_damage: int = 0,
-		damage_hp_delta: int = -1, counter_hp_delta: int = -1) -> void:
-	# Defaults: if caller doesn't supply HP deltas, fall back to the popup damage
-	# (preserves old behavior for any non-attack-resolution caller).
-	if damage_hp_delta < 0:
-		damage_hp_delta = damage
-	if counter_hp_delta < 0:
-		counter_hp_delta = counter_damage
+		hit_d: CombatEvent = null, hit_a: CombatEvent = null) -> void:
 	var atk_rect  := atk_slot.get_global_rect()
 	var def_rect  := def_slot.get_global_rect()
 	var direction := (def_rect.get_center() - atk_rect.get_center()).normalized()
@@ -1813,30 +1818,24 @@ func _play_attack_anim(atk_slot: BoardSlot, def_slot: BoardSlot, damage: int,
 			if attacker != null and attacker.card_data is MinionCardData:
 				atk_school = (attacker.card_data as MinionCardData).attack_damage_school
 			_spawn_damage_popup(def_rect.get_center(), damage, is_crit, atk_school)
-			# Combat damage already applied by the time the lunge tween reaches
-			# this callback — current_health is post-damage. Reconstruct pre-HP
-			# using the HP delta (clamped to pre_hp), not the popup damage which
-			# may exceed it on overkill.
-			if defender != null:
-				var from_hp: int = defender.current_health + damage_hp_delta
-				def_slot.animate_hp_change(from_hp, defender.current_health)
+			if hit_d != null:
+				def_slot.animate_hp_change(hit_d.payload.get("hp_before", 0), hit_d.payload.get("hp_after", 0),
+						hit_d.payload.get("shield_after", -1))
 		if counter_damage > 0:
 			_flash_slot(atk_slot)
 			var def_school: int = Enums.DamageSchool.NONE
 			if defender != null and defender.card_data is MinionCardData:
 				def_school = (defender.card_data as MinionCardData).attack_damage_school
 			_spawn_damage_popup(atk_slot.get_global_rect().get_center(), counter_damage, false, def_school)
-			if attacker != null:
-				var atk_from_hp: int = attacker.current_health + counter_hp_delta
-				atk_slot.animate_hp_change(atk_from_hp, attacker.current_health)
+			if hit_a != null:
+				atk_slot.animate_hp_change(hit_a.payload.get("hp_before", 0), hit_a.payload.get("hp_after", 0),
+						hit_a.payload.get("shield_after", -1))
 	)
 	tw.tween_property(atk_slot, "position", atk_rect.position, 0.16)
 	tw.tween_callback(func() -> void:
 		_restore_slot_from_lunge(atk_slot, orig_parent, orig_index, placeholder)
 		def_slot.freeze_visuals = false
 		def_slot._refresh_visuals()
-		if attacker: state._refresh_slot_for(attacker)
-		if defender: state._refresh_slot_for(defender)
 	)
 	await tw.finished
 
