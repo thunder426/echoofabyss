@@ -229,10 +229,12 @@ Player chooses whether to visit — skipping is valid.
 ### Service Slots
 2 randomly selected from 7 services per shop visit.
 
+Hero HP does not carry between fights: every fight starts at full `player_hp_max`. So the shop sells no healing. Second Wind replaced HP Restoration in v0.34.
+
 | Service | Cost | Weight | Available First Shop? |
 |---|---|---|---|
 | Card Removal | 3 Shards | 3 | ❌ |
-| HP Restoration | 1 Shard | 3 | ✅ |
+| Second Wind | 4 Shards | 3 | ❌ |
 | Refresh Shop | 1 Shard | 3 | ✅ |
 | Random Card | 1 Shard | 3 | ✅ |
 | Max HP Increase | 4 Shards | 2 | ❌ |
@@ -246,7 +248,7 @@ Player chooses whether to visit — skipping is valid.
 | Service | Effect |
 |---|---|
 | Card Removal | Remove one card from deck permanently |
-| HP Restoration | Restore 500 HP |
+| Second Wind | If defeated, revive and restart the same fight at full HP (one use) |
 | Refresh Shop | Reroll all 4 card slots and both service slots |
 | Random Card | Add a random card from any available pool to deck |
 | Max HP Increase | Permanently increase max HP by 300 |
@@ -269,7 +271,7 @@ Player chooses whether to visit — skipping is valid.
 | Service | Probability per slot |
 |---|---|
 | Card Removal | 19% |
-| HP Restoration | 19% |
+| Second Wind | 19% |
 | Refresh Shop | 19% |
 | Random Card | 19% |
 | Max HP Increase | 12% |
@@ -283,10 +285,9 @@ Player arrives with exactly 2 Shards. Items costing more than 2 Shards are remov
 
 **Removed from first shop:**
 - Champion cards from card slots
-- Card Removal, Max HP Increase, Expand Core Unit, Add Core Unit Variant from service pool
+- Card Removal, Second Wind, Max HP Increase, Expand Core Unit, Add Core Unit Variant from service pool
 
 **Available services in first shop:**
-- HP Restoration (1 Shard)
 - Refresh Shop (1 Shard)
 - Random Card (1 Shard)
 

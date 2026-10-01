@@ -45,7 +45,7 @@ Declared in `project.godot` `[autoload]`. All accessible globally by name.
 
 | Singleton | File | Role |
 |-----------|------|------|
-| `GameManager` | `shared/scripts/GameManager.gd` | Run state (acts, fights, void shards), player HP persistence, `go_to_scene()` transitions + auto-save |
+| `GameManager` | `shared/scripts/GameManager.gd` | Run state (acts, fights, void shards, max HP — every fight starts at full HP), `go_to_scene()` transitions + auto-save |
 | `UserProfile` | `shared/scripts/UserProfile.gd` | Profile load/save (decks, unlocks, high scores) |
 | `CardDatabase` | `cards/data/CardDatabase.gd` | All card definitions + token cards, `get_card(id)` |
 | `RelicDatabase` | `relics/RelicDatabase.gd` | All relic definitions, `get_offer_for_act(act)` |

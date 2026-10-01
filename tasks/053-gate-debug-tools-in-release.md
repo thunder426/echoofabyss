@@ -41,11 +41,11 @@ So in a release build, one key press gives the player an instant win and permane
 - **References to `debug/`:** non-debug code reaches it only through the autoload line and the `TestConfig.*` reads in CombatScene (:234, :1033-1095). There is no `preload` or `load` of `res://debug`, and no debug `class_name` is used outside `debug/`.
 - **Existing patterns:** `OS.is_debug_build()` is used once (VfxSequence.gd:203), and there is no dev-tools project setting. CheatPanel is already exempt from L8 (lint_engine.py:290).
 
-## Open decision (owner)
+## Decision (owner, 2026-09-30)
 
-- **The export filter:**
-  - commit an `export_presets.cfg`, which means changing the .gitignore rule; or
-  - keep presets local and document the `debug/*` exclude in TESTING.md.
+- **Commit `export_presets.cfg`.** Remove its line from `.gitignore` (:4-5), so the `debug/*` exclude is versioned and every machine gets it.
+  - Godot 4 keeps export credentials in `.godot/export_credentials.cfg`, which is already ignored. Still, read the preset before its first commit and make sure it holds no secrets or machine-specific absolute paths.
+  - No export templates are installed on the dev Mac yet. Install the 4.6 templates before the release check below.
 
 ## Proposed fix
 
@@ -60,7 +60,7 @@ So in a release build, one key press gives the player an instant win and permane
 
    Don't rely on feature-tag overrides for autoload entries; it's unverified that Godot honours them.
 5. **Make the `start_new_run` fallback debug-only.** In release, `_ready` returns before `setup_combat` (`current_enemy` may be null) and uses `call_deferred` to change scene to the main menu, with an error.
-6. **Export filter:** exclude `debug/*`, per the decision above.
+6. **Export filter:** create a release preset with `exclude_filter="debug/*"`, delete the `.gitignore` rule and commit the preset (see Decision). Document the preset in TESTING.md.
 7. **Optional:** mark a fight "tainted" when the cheat panel acts, so parity and replay tooling skip it.
 
 ## Verification
@@ -86,3 +86,4 @@ So in a release build, one key press gives the player an instant win and permane
   - Added the ESC guard.
   - Noted the deliberate `.gitignore` of export presets.
   - `--no-debug` isn't a valid check.
+- 2026-09-30: owner decision: commit `export_presets.cfg` and remove the `.gitignore` rule. Export templates still need installing.

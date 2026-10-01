@@ -32,17 +32,17 @@ Do this together with 054. Both edit the same lines of CombatHandlers.gd, and th
    - CombatUI.gd: the section header at :32 and every "Subscriber to CombatState.…" header (:36, :51, :85, :92, :102, :112, :118, :124). The presenter calls these methods; nothing subscribes.
    - ARCHITECTURE.md:21 ("Signal X → refresh UI Y") and :319 ("L1–L9"; it is L1–L11 now, more after 050 and 051).
    - RelicRuntime.gd:5 ("from GameManager.player_relics") and CombatScene.gd:170.
-4. **UI reads GameManager instead of the combat config** (scope to decide):
-   - PipBar.gd:194-198
-   - SerisResourceBar.gd:47-48
-   - CombatUiStyle.gd:32, :173, :206, :214
-   - PlayerHeroPanel.gd:64, :98
-   - EnemyHeroPanel.gd:86, :179-181
-   - BoardSlot.gd:547
+## Out of scope (owner, 2026-09-30)
 
-## Open decision (owner)
+About 7 combat UI files read hero / talent info from `GameManager` instead of `state` or the `CombatConfig`:
+- PipBar.gd:194-198
+- SerisResourceBar.gd:47-48
+- CombatUiStyle.gd:32, :173, :206, :214
+- PlayerHeroPanel.gd:64, :98
+- EnemyHeroPanel.gd:86, :179-181
+- BoardSlot.gd:547
 
-- **Item 4:** include the UI readers here (they should read `state` or the `CombatConfig`), or split them into a separate task. They aren't rules code, so the lint below won't cover them either way.
+In normal play they show the same values, so they are left out of this task. They are recorded under roadmap item C5 (`ARCHITECTURE_ROADMAP.md`), for task 056 to groom.
 
 ## Proposed fix
 
@@ -52,7 +52,6 @@ Do this together with 054. Both edit the same lines of CombatHandlers.gd, and th
 4. **Lint:** extend L1's rules-code scan with the regex `(?<![\w.])(GameManager|UserProfile|TestConfig)\.`.
    - L1 lives in `tools/lint/lint_engine.py`: `RULES_FILES` is at :89-102, and `scan_shell` (:215-222) already strips comments.
    - CombatConfig.gd reads GameManager by design (`from_game_manager`, :40-67) and stays outside `RULES_FILES`.
-5. Item 4, if in scope.
 
 ## Verification
 
@@ -68,3 +67,4 @@ Do this together with 054. Both edit the same lines of CombatHandlers.gd, and th
   - Corrected line numbers and added the missed stale comments (EffectStep:18, the CombatUI headers, ARCHITECTURE.md:21/:319, RelicRuntime:5).
   - Listed the other UI GameManager readers as an open scope decision.
   - Bundled with 054.
+- 2026-09-30: owner decision: the UI readers are out of scope, moved to roadmap C5.

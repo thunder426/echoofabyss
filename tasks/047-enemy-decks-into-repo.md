@@ -37,14 +37,14 @@ Deck pick: `EncounterDecks.gd:134` and `:142` use the global `randi()`, not the 
 
 Existing data-loss bug: `save_deck` (:160-174) and `set_deck_profile` (:177-186) drop a deck's `limited` field. Editing F8–F11 in the builder strips `void_wind`. Once the file is in git, that becomes a silent content regression.
 
-## Open decision (owner)
+## Decision (owner, 2026-09-30)
 
-- Is the Mac copy the canonical one? The original note said "AppData" (Windows), and the file has CRLF endings. If a Windows copy exists, compare the two before committing.
+- **The Mac copy is canonical.** Every test and balance run on this machine has read it since April. A byte-identical backup, with the timestamp kept, is at `~/Documents/Personal/echoofabyss_backup/encounter_decks_2026-09-30.json`.
 
 ## Proposed fix
 
-1. Back up the current file now. It is the only copy.
-2. Commit it as `res://enemies/data/encounter_decks.json` with LF endings, and make it the only source `EncounterDecks.load_data()` reads.
+1. ~~Back up the current file.~~ Done 2026-09-30 (see Decision).
+2. Commit the Mac copy as `res://enemies/data/encounter_decks.json` with LF endings, and make it the only source `EncounterDecks.load_data()` reads.
    - Drop the user:// layer. A stale local file would shadow the repo copy and keep results machine-dependent.
    - Delete the local file after the move.
 3. Point EnemyDeckBuilder's writes at the res:// file. This works in editor runs only, because res:// is read-only in an export. Fix `save_deck` / `set_deck_profile` so they keep `limited`.
@@ -90,3 +90,4 @@ Existing data-loss bug: `save_deck` (:160-174) and `set_deck_profile` (:177-186)
   - Completed the reader list.
   - Added the `limited`-field data-loss bug.
   - Extended the test to `limited` ids and f15_p2.
+- 2026-09-30: owner decision: the Mac copy is canonical. Backed it up outside user://.

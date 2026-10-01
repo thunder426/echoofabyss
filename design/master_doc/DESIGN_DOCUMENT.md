@@ -629,8 +629,8 @@ RelicRuntime + RelicEffects are shared between CombatScene (live) and CombatSim 
 ### Run State (GameManager)
 | Field | Description |
 |---|---|
-| `player_hp_max` | Max hero HP (default 3000) |
-| `player_hp` | Current HP — persists between fights |
+| `player_hp_max` | Max hero HP (default 3000). Every fight starts at full HP; HP does not carry between fights |
+| `has_revive` | Second Wind bought: on defeat, restart the same fight at full HP (consumed on use) |
 | `core_unit_limit` | Max copies of core unit in deck (default 4) |
 | `player_deck` | Array of card IDs in current deck |
 | `player_relics` | Relic IDs collected this run |

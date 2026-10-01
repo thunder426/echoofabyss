@@ -36,7 +36,7 @@ There are three unversioned JSON persisters:
 7. **`player_hp` is saved but never used.**
    - Combat reads `player_hp_max` (CombatConfig.gd:45).
    - The only writers are ShopScene.gd:320-321 and the revive (CombatScene.gd:1663), and nothing writes HP back after a fight.
-   - But DESIGN_DOCUMENT.md:633 says "Current HP — persists between fights", and ARCHITECTURE.md:48 claims "player HP persistence".
+   - The design docs claimed HP persists between fights. They were corrected on 2026-09-30 (see Decision).
 
 ### SavedDecks is worse
 
@@ -48,13 +48,11 @@ On a parse error `load_all()` returns `{}` (:17-18). `save_deck()` (:32-35) then
 - RunAllTests has 5 layers (DamageType, CardEffect, TriggerHandler, Command, Scenario; RunAllTests.gd:11-31) and no meta layer.
 - Only LiveSmoke (:19) and Parity (:60) set `saving_disabled`.
 
-## Open decision (owner)
+## Decision (owner, 2026-09-30)
 
-- **HP between fights.** Two options:
-  - Implement persistence, as DESIGN_DOCUMENT.md says. This is a major balance change: every sim assumes full HP each fight, and there is no healing economy. It would need its own task and a balance pass.
-  - Delete `player_hp` and fix both docs.
-
-  052 handles only the save side: keep the field round-tripping until this is decided.
+- **HP does not carry between fights.** Every fight starts at full `player_hp_max`, which is what the code has done since v0.34 replaced the shop's HP Restoration with Second Wind.
+  - The docs were updated on 2026-09-30: DESIGN_DOCUMENT.md §17 run state, ARCHITECTURE.md's GameManager row, and REWARD_SYSTEM_DESIGN.md's service tables.
+  - This task deletes the `player_hp` field.
 
 ## Proposed fix
 
@@ -77,6 +75,10 @@ On a parse error `load_all()` returns `{}` (:17-18). `save_deck()` (:32-35) then
    - Saving the id, not only the seed, survives pool edits between versions.
 6. **Validate ids on load:** drop unknown card, relic and talent ids with a warning, and write the cleaned save back.
 7. **Make `SAVE_PATH` overridable** (a var or a setter) so tests can use a temp path.
+8. **Delete `player_hp`** (see Decision):
+   - remove it from GameManager (`:25`, including its "persists between fights" comment), `reset_all`, the save dict and `load_profile`;
+   - remove the writes in ShopScene.gd:320-321 (Max HP Increase keeps raising `player_hp_max`) and CombatScene.gd:1663 (the revive restart);
+   - the v1 → v2 migration drops the key.
 
 ## Verification
 
@@ -101,3 +103,4 @@ On a parse error `load_all()` returns `{}` (:17-18). `save_deck()` (:32-35) then
   - `player_hp` is now an open owner decision: the design doc says HP persists, the code doesn't.
   - Added the SavedDecks wipe-on-parse-error bug, the immediate New Run save, the missed `reset_all` fields, the float casts and the const `SAVE_PATH`.
   - The deck id is saved alongside 047's run seed.
+- 2026-09-30: owner decision: no HP carry-over. The design docs are updated; step 8 deletes `player_hp`.

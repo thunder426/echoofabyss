@@ -120,7 +120,12 @@ Branch metadata is also split across `HeroData.talent_branch_ids`, `TalentDataba
 2. `HeroData` gains core unit, copy rules, deck-builder pools, hero skills and the resource-bar widget id.
 3. One query: `GameManager.active_pools()` (or `HeroDatabase.pools_for(hero, talents)`). Reward, shop, collection, deck builder and GameManager call it; all copies are deleted.
 4. Card pool and act gate declared on the card (or in a per-pool file next to its cards) instead of in far-away tables.
-5. `PipBar` picks widgets from the combat config / HeroData, not from `GameManager` (~:194-198).
+5. `PipBar` picks widgets from the combat config / HeroData, not from `GameManager` (~:194-198). The same applies to the other combat UI that reads hero / talent info from `GameManager` (verified 2026-09-30; moved here from task 055):
+   - SerisResourceBar ~:47-48
+   - CombatUiStyle ~:32, :173, :206, :214
+   - PlayerHeroPanel ~:64, :98
+   - EnemyHeroPanel ~:86, :179-181
+   - BoardSlot ~:547
 
 **Candidate tasks.** C1 (M) BranchData + `active_pools()` + delete copies (fixes the Korrath/Shop/Collection divergence). C2 (S) HeroData carries core unit, copy rules and skills. C3 (M) pool/gate on the card, CardDatabase split per pool (see D5). C4 (S) test: every hero has ≥1 branch; every branch's pools are non-empty and resolve.
 
