@@ -683,7 +683,7 @@ func _emit_ui(ev: CombatEvent) -> void:
 	match ev.kind:
 		CombatEvent.Kind.LOG:
 			if ui != null:
-				ui.on_state_combat_log(p.get("msg", ""), p.get("log_type", 1))
+				ui.on_state_combat_log(p.get("msg", ""), p.get("log_type", Enums.LogType.PLAYER))
 		CombatEvent.Kind.HERO_HP_CHANGED:
 			if ui != null:
 				ui.on_state_hp_changed(ev.side, p.get("hp", 0), p.get("hp_max", 0), p.get("delta", 0))

@@ -156,4 +156,4 @@ func _relic_damage_random_enemy(amount: int) -> void:
 # ---------------------------------------------------------------------------
 
 func _log(msg: String) -> void:
-	state._log(msg, 1)  # _LOG_PLAYER = 1
+	state._log(msg, Enums.LogType.PLAYER)

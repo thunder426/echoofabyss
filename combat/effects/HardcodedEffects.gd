@@ -18,10 +18,10 @@ extends RefCounted
 ## The combat state — every gameplay read and write.
 var state: CombatState
 
-## _LogType enum values matching CombatScene (TURN=0, PLAYER=1, ENEMY=2, DAMAGE=3, HEAL=4, TRAP=5, DEATH=6)
-const _LOG_PLAYER := 1
-const _LOG_ENEMY  := 2
-const _LOG_TRAP   := 5
+## Log line types (Enums.LogType) this file uses.
+const _LOG_PLAYER := Enums.LogType.PLAYER
+const _LOG_ENEMY  := Enums.LogType.ENEMY
+const _LOG_TRAP   := Enums.LogType.TRAP
 
 func setup(p_state: CombatState) -> void:
 	state = p_state

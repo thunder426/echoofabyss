@@ -354,7 +354,7 @@ func on_enemy_slot_clicked(_slot: BoardSlot, minion: MinionInstance) -> void:
 	_scene.state._log("Your %s attacks enemy %s" % [_scene.selected_attacker.card_data.card_name, minion.card_data.card_name])
 	var r: CommandResult = _scene.state.cmd_attack("player", _scene.selected_attacker, minion)
 	if not r.ok:
-		_scene.state._log("  Attack refused: %s." % r.reason, 1)  # PLAYER
+		_scene.state._log("  Attack refused: %s." % r.reason, Enums.LogType.PLAYER)
 	_scene.selected_attacker = null
 	_scene._clear_all_highlights()
 	_scene._enemy_hero_panel.show_attackable(false)
@@ -421,7 +421,7 @@ func on_trap_env_input(event: InputEvent, trap_idx: int, env_data) -> void:
 		_scene.hand_display.deselect_current()
 	var r: CommandResult = _scene.state.cmd_play_spell("player", inst, target)
 	if not r.ok:
-		_scene.state._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
+		_scene.state._log("  %s: %s." % [spell.card_name, r.reason], Enums.LogType.PLAYER)
 
 ## Fired when player clicks the enemy hero panel while relic targeting is active.
 func on_relic_target_hero_input(event: InputEvent) -> void:
@@ -455,7 +455,7 @@ func on_enemy_hero_spell_input(event: InputEvent) -> void:
 	# The engine validates, pays and casts at the enemy hero; the presenter plays it.
 	var r: CommandResult = _scene.state.cmd_play_spell("player", inst, "enemy_hero")
 	if not r.ok:
-		_scene.state._log("  %s: %s." % [spell.card_name, r.reason], 1)  # PLAYER
+		_scene.state._log("  %s: %s." % [spell.card_name, r.reason], Enums.LogType.PLAYER)
 
 ## Global _input — F12 / C toggles cheat menu, ESC closes it, right-click cancels
 ## the current pending action (relic targeting → card targeting → attacker).
@@ -508,4 +508,4 @@ func on_enemy_hero_button_pressed() -> void:
 	_scene.state._log("Your %s attacks Enemy Hero" % attacker.card_data.card_name)
 	var r: CommandResult = _scene.state.cmd_attack_hero("player", attacker)
 	if not r.ok:
-		_scene.state._log("  Attack refused: %s." % r.reason, 1)  # PLAYER
+		_scene.state._log("  Attack refused: %s." % r.reason, Enums.LogType.PLAYER)

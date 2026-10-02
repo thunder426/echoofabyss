@@ -673,7 +673,19 @@ static func _swarm_discipline() -> void:
 	TestHarness.assert_eq(data.health, 200, "HP base 200 (100 + 100 from talent)")
 	# ATK unchanged (talent is HP-only)
 	TestHarness.assert_eq(data.atk, 100, "ATK unchanged at 100")
+	# The handler's log line is journaled as a PLAYER line (task 054: the
+	# handler constants were off by one, rendering it in the TURN colour).
+	_fire_player_summon(state, TestHarness.spawn_friendly(state, "void_imp"))
+	TestHarness.assert_eq(_log_type_of(state, "Swarm Discipline"), Enums.LogType.PLAYER, "log line is a PLAYER line")
 	state.teardown()
+
+## The log_type of the last journaled LOG line containing `text`, or -1.
+static func _log_type_of(state: CombatState, text: String) -> int:
+	for i in range(state.journal.size() - 1, -1, -1):
+		var ev: CombatEvent = state.journal[i]
+		if ev.kind == CombatEvent.Kind.LOG and (ev.payload.get("msg", "") as String).contains(text):
+			return int(ev.payload["log_type"])
+	return -1
 
 # ---------------------------------------------------------------------------
 # piercing_void — talent_override on Void Imp swaps on-play steps to
@@ -1929,6 +1941,7 @@ static func _captain_orders_consumes_crit_and_dmg() -> void:
 	TestHarness.assert_false(BuffSystem.has_type(a, Enums.BuffType.CRITICAL_STRIKE), "crit consumed")
 	TestHarness.assert_eq(hp_before - state.player_hp, atk, "player hero took minion's ATK as dmg")
 	TestHarness.assert_eq(state._enemy_crits_consumed, crits_before + 1, "crits_consumed counter +1")
+	TestHarness.assert_eq(_log_type_of(state, "Captain's Orders"), Enums.LogType.ENEMY, "log line is an ENEMY line")
 	state.teardown()
 
 # ---------------------------------------------------------------------------

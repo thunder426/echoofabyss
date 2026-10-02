@@ -1,11 +1,11 @@
 ---
 id: "054"
 title: Fix CombatHandlers log-type constants (off by one vs CombatLog.LogType)
-status: backlog
+status: done
 area: combat
 priority: normal
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -61,3 +61,16 @@ The rest of the rules code is already correct:
   - `CombatScene._LogType` does exist.
   - Other rules code is already correct, so step 3 is clean-up, not a bug hunt.
   - Bundled with 055.
+- 2026-10-02: implemented, steps 1–4.
+  - `LogType` moved to `Enums.LogType`; CombatLog keeps `const LogType := Enums.LogType` (and matches on `Enums.LogType.*`), so CombatScene's `_LogType` alias and CheatPanel are unchanged.
+  - CombatHandlers: `_LOG_PLAYER` / `_LOG_ENEMY` are `Enums.LogType.PLAYER` / `.ENEMY` (were 0 / 1), plus `_log_side(owner)`, used at the inline conditional and the four owner-picked sides.
+  - The 52 bare-integer log types in CombatState (46), CombatInputHandler (4), PhaseTransition and RelicEffects are enum names, as are `CombatState._log`'s default, the presenter's LOG default and HardcodedEffects' constants. Stale comments fixed: CombatLog header, CombatScene `_LogType`, HardcodedEffects, CombatState:43.
+  - Probes: Swarm Discipline's handler line journals as PLAYER, Captain's Orders' as ENEMY (`_log_type_of` helper in TriggerHandlerTests). With the old constants restored both fail (got 0 and 1).
+  - Gate green: lint 0, 1121 tests, LiveSmoke OK, Parity 24/24. Fingerprint Acts 1–4 identical to `9c3603f`.
+  - Visual check in a live fight (handler lines in the player / enemy colours) is left to the owner.
+- 2026-10-02: closed.
+
+## Summary
+
+CombatHandlers' log lines now journal the right type (its constants were 0 / 1 against `CombatLog.LogType`'s PLAYER = 1 / ENEMY = 2, so player lines showed in the TURN colour and enemy lines in the PLAYER colour). `LogType` lives in `Enums`, and rules code names it everywhere instead of bare integers; two journal probes guard it. Colour only: BalanceSimBatch Acts 1–4 identical.
+Follow-ups: the owner's visual check in a live fight.

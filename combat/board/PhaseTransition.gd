@@ -71,7 +71,7 @@ static func _do_transition(st: CombatState) -> void:
 	st.enemy_profile_id = SOVEREIGN_P2_PROFILE
 	st.enemy_profile_changed.emit(SOVEREIGN_P2_PROFILE)
 
-	st._log("THE SOVEREIGN REAWAKENS — Phase 2 begins.", 2)  # ENEMY
+	st._log("THE SOVEREIGN REAWAKENS — Phase 2 begins.", Enums.LogType.ENEMY)
 
 # ---------------------------------------------------------------------------
 # Helpers

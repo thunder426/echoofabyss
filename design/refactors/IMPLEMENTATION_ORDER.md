@@ -57,7 +57,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
    Removes the CLAUDE.md pointer that would send 065 and 068 to the stale file.
 4. [x] **[081](../../tasks/081-delete-unreachable-passive-content-spirit-conscription.md)** Delete unreachable passive content (spirit_conscription, champion_duel, dead passive arm, stale AI hardcoded-id check) · *low, S*  
    Hard prerequisite of 104. It removes the dead arm, tooltip entries and header that 062, 068 and 072 would otherwise edit, and four probes 137 would otherwise move.
-5. [ ] **[054](../../tasks/054-handler-log-type-constants.md)** Fix CombatHandlers log-type constants (off by one vs CombatLog.LogType) · *normal, S*  
+5. [x] **[054](../../tasks/054-handler-log-type-constants.md)** Fix CombatHandlers log-type constants (off by one vs CombatLog.LogType) · *normal, S*  
    Same session as 055.
 6. [ ] **[055](../../tasks/055-rules-code-gamemanager-leak-stale-comments.md)** Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments · *normal, S*  
    Hard prerequisite of 086, 089 and 103.

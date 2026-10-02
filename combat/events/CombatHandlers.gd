@@ -13,9 +13,9 @@ extends RefCounted
 ## The combat state — every gameplay read and write.
 var state: CombatState
 
-## Log-side constants matching CombatScene._LogType enum values.
-const _LOG_PLAYER := 0
-const _LOG_ENEMY  := 1
+## Log line types (Enums.LogType) for each side's lines.
+const _LOG_PLAYER := Enums.LogType.PLAYER
+const _LOG_ENEMY  := Enums.LogType.ENEMY
 
 func setup(p_state: CombatState) -> void:
 	state = p_state
@@ -720,7 +720,7 @@ func _resolve_on_death(minion: MinionInstance) -> void:
 		var summon_id: String = eff.get("summon_id", "")
 		if not summon_id.is_empty():
 			state._summon_token(summon_id, minion.owner, 0, 0)
-			_log("  %s dies — summons a %s." % [minion.card_data.card_name, summon_id], _LOG_ENEMY if minion.owner == "enemy" else _LOG_PLAYER)
+			_log("  %s dies — summons a %s." % [minion.card_data.card_name, summon_id], _log_side(minion.owner))
 
 ## Shared handler — fires the killer's on_kill_effect_steps (declarative primitive on
 ## MinionCardData). Runs on both ON_ENEMY_MINION_DIED and ON_PLAYER_MINION_DIED; ctx.attacker
@@ -1382,7 +1382,7 @@ func on_spark_consumed_void_detonation(ctx: EventContext) -> void:
 	var spark_val: int = ctx.damage if ctx.damage > 0 else 1
 	var opponent: String = state._opponent_of(ctx.owner)
 	var opponent_board: Array[MinionInstance] = state._opponent_board(ctx.owner)
-	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
+	var side: int = _log_side(ctx.owner)
 	var dmg_per_spark: int = 200 if _champion_va_is_alive() else 100
 	for i in spark_val:
 		for m: MinionInstance in opponent_board.duplicate():
@@ -1419,7 +1419,7 @@ func on_turn_end_hollow_sentinel(ctx: EventContext) -> void:
 				buffed += 1
 		if buffed > 0:
 			state._hollow_sentinel_buffs += 1
-			var side: int = _LOG_ENEMY if entry.owner == "enemy" else _LOG_PLAYER
+			var side: int = _log_side(entry.owner)
 			_log("  Hollow Sentinel: %d Void Sparks gain +100 ATK." % buffed, side)
 
 ## ── Champion: Rift Stalker ─────────────────────────────────────────────────
@@ -1499,7 +1499,7 @@ func on_spark_consumed_champion_va(ctx: EventContext) -> void:
 	var total: int = state._champion_va_sparks_consumed
 	var pips: int = mini(total, _VA_PIPS)
 	_show_champion_progress(pips, _VA_PIPS)
-	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
+	var side: int = _log_side(ctx.owner)
 	_log("  Champion progress: %d / %d sparks consumed." % [mini(total, _VA_THRESHOLD), _VA_THRESHOLD], side)
 	if total >= _VA_THRESHOLD:
 		_summon_enemy_champion("champion_void_aberration")
@@ -1536,7 +1536,7 @@ func on_enemy_spark_card_champion_vh(ctx: EventContext) -> void:
 	var total: int = state._champion_vh_spark_cards_played
 	var pips: int = mini(total, _VH_PIPS)
 	_show_champion_progress(pips, _VH_PIPS)
-	var side: int = _LOG_ENEMY if ctx.owner == "enemy" else _LOG_PLAYER
+	var side: int = _log_side(ctx.owner)
 	_log("  Champion progress: %d / %d spark-cost cards played." % [mini(total, _VH_THRESHOLD), _VH_THRESHOLD], side)
 	if total >= _VH_THRESHOLD:
 		_summon_enemy_champion("champion_void_herald")
@@ -2254,6 +2254,10 @@ func _champion_ch_is_alive() -> bool:
 		if (m as MinionInstance).card_data.id == "champion_corrupted_handler":
 			return true
 	return false
+
+## The log line type for `owner`'s side.
+func _log_side(owner: String) -> int:
+	return _LOG_ENEMY if owner == "enemy" else _LOG_PLAYER
 
 func _log(msg: String, side: int = _LOG_PLAYER) -> void:
 	state._log(msg, side)

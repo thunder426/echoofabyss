@@ -2,16 +2,13 @@
 ## Owns the combat log UI: append messages with a type, render with the right
 ## colour, cap the visible history at MAX entries, auto-scroll to the bottom.
 ##
-## CombatScene keeps a thin _log() facade that forwards to write(). External
-## callers (HardcodedEffects, CombatHandlers, RelicEffects, EnemyAI, CheatPanel)
-## continue to use _scene._log(msg, type) — they don't need to know this exists.
-##
-## LogType values match the integer constants those external callers pass
-## (PLAYER = 1, etc.) — keep the enum order stable.
+## Rules code logs through state._log(msg, Enums.LogType.X); the presenter
+## plays each LOG journal event into write(). LogType is Enums.LogType (rules
+## code mustn't depend on this UI helper); CombatScene aliases it as _LogType.
 class_name CombatLog
 extends RefCounted
 
-enum LogType { TURN, PLAYER, ENEMY, DAMAGE, HEAL, TRAP, DEATH }
+const LogType := Enums.LogType
 
 const MAX := 80
 
@@ -24,7 +21,7 @@ func setup(scene: Node) -> void:
 	if scene.has_node("UI/CombatLogPanel/LogScroll/LogContainer"):
 		_container = scene.get_node("UI/CombatLogPanel/LogScroll/LogContainer")
 
-func write(msg: String, type: int = LogType.PLAYER) -> void:
+func write(msg: String, type: int = Enums.LogType.PLAYER) -> void:
 	if _container == null:
 		return
 	var lbl := Label.new()
@@ -42,11 +39,11 @@ func write(msg: String, type: int = LogType.PLAYER) -> void:
 
 func _color_for(type: int) -> Color:
 	match type:
-		LogType.TURN:   return Color(0.50, 0.50, 0.62, 1)
-		LogType.PLAYER: return Color(0.50, 0.82, 1.00, 1)
-		LogType.ENEMY:  return Color(1.00, 0.55, 0.40, 1)
-		LogType.DAMAGE: return Color(1.00, 0.38, 0.38, 1)
-		LogType.HEAL:   return Color(0.35, 0.90, 0.55, 1)
-		LogType.TRAP:   return Color(1.00, 0.85, 0.15, 1)
-		LogType.DEATH:  return Color(0.65, 0.45, 0.75, 1)
+		Enums.LogType.TURN:   return Color(0.50, 0.50, 0.62, 1)
+		Enums.LogType.PLAYER: return Color(0.50, 0.82, 1.00, 1)
+		Enums.LogType.ENEMY:  return Color(1.00, 0.55, 0.40, 1)
+		Enums.LogType.DAMAGE: return Color(1.00, 0.38, 0.38, 1)
+		Enums.LogType.HEAL:   return Color(0.35, 0.90, 0.55, 1)
+		Enums.LogType.TRAP:   return Color(1.00, 0.85, 0.15, 1)
+		Enums.LogType.DEATH:  return Color(0.65, 0.45, 0.75, 1)
 	return Color(0.9, 0.9, 0.9, 1)

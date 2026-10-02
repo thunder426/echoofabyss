@@ -4,6 +4,10 @@
 class_name Enums
 extends RefCounted
 
+## Combat log line type — the colour CombatLog renders it in. Rules code passes
+## it to state._log (journaled as LOG.log_type); CombatLog aliases it.
+enum LogType { TURN, PLAYER, ENEMY, DAMAGE, HEAL, TRAP, DEATH }
+
 enum CardType {
 	MINION,
 	SPELL,

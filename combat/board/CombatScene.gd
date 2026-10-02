@@ -1911,9 +1911,8 @@ func _spawn_damage_popup(screen_center: Vector2, damage: int, is_crit: bool = fa
 # Enemy attack visuals
 # ---------------------------------------------------------------------------
 
-# LogType / _log() are facades that delegate to CombatLog. Kept on the scene
-# so the dozens of internal call sites and ~5 external callers (handlers,
-# effects, relics, EnemyAI, CheatPanel) don't need to know about the move.
+# Enums.LogType under the scene's old name, for its own UI log lines and the
+# CheatPanel's.
 const _LogType := CombatLog.LogType
 
 func _highlight_empty_player_slots() -> void:
