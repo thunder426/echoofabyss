@@ -143,7 +143,7 @@ Cards declare an `Array[EffectStep]` resolved by `EffectResolver`. Imperative-on
 | `combat/effects/EffectContext.gd` | Per-resolution context: `state` (typed CombatState), owner, source, chosen target / object, flesh spent, extra cast data. `EffectContext.make(state, owner)`. |
 | `combat/effects/ConditionResolver.gd` | Evaluates conditional steps (`IF minion has X keyword, THEN apply Y`). |
 | `combat/effects/TargetResolver.gd` | Resolves scope+filter into actual minion targets. |
-| `combat/effects/HardcodedEffects.gd` | String-dispatch imperative card effects. Symmetric (player/enemy via `ctx.owner`). Used only when `effect_steps` is empty. |
+| `combat/effects/HardcodedEffects.gd` | String-dispatch imperative card effects. Mostly symmetric (player/enemy via `ctx.owner`); the player-only exceptions are in task 082's (A0) verdict table. Used only when `effect_steps` is empty. |
 | `combat/effects/SacrificeSystem.gd` | Sacrifice mechanic + tracking. |
 
 When adding a new card, prefer declarative `effect_steps`. Add to HardcodedEffects only when truly necessary.
@@ -158,7 +158,7 @@ Every passive, relic, talent, trap, and on-play hook registers as a handler on `
 |---|---|
 | `combat/events/TriggerManager.gd` | Per-combat event bus. `register(event, callable, priority)` (ordered insert), `fire(ctx)`, `dump_order()`. Safe for handlers that mutate during iteration. |
 | `combat/events/EventContext.gd` | Event payload (event type, source, targets, extra dict). |
-| `combat/events/CombatHandlers.gd` | All handler implementations. Symmetric — uses `ctx.owner` and `_opponent_of()`, never hardcodes "player"/"enemy". |
+| `combat/events/CombatHandlers.gd` | All handler implementations. Target: side-neutral via `ctx.owner` and `_opponent_of()`. About 78 lines still name a side; the player-only paths are in task 082's (A0) verdict table (invariants #2–#3). |
 | `combat/events/CombatSetup.gd` | The one handler registration, for every shell (`static setup(state)`): TriggerManager + handlers, trap routes, the BuffSystem bus bridge, always-on handlers, registry-driven talents / hero passives / enemy passives and their stat overrides; `apply_passive` / `unapply_passive` for the F15 swap. |
 
 Event types are `Enums.TriggerEvent` values (ON_PLAYER_TURN_START, ON_MINION_DIED, ON_DAMAGE_DEALT, …).
@@ -329,8 +329,10 @@ All in `shared/scripts/Enums.gd`:
 These rules are the load-bearing invariants of the codebase. Breaking them tends to break sim, PvP-readiness, or both.
 
 1. **One engine.** Every gameplay field and rule lives on `CombatState`, built by `setup_combat(CombatConfig)`. `CombatScene` is presenter + input + wiring; the sim and the tests drive a plain CombatState. Never put gameplay data on the scene; never let rules code reach the scene or UI nodes.
-2. **Symmetric handlers.** Every trigger handler uses `ctx.owner` and `_opponent_of()` — never hardcoded `"player"` / `"enemy"`. Future-proofs for PvP.
-3. **Symmetric effects.** Every card effect must work for either side as owner.
+2. **Symmetric handlers.** Every trigger handler uses `ctx.owner` and `_opponent_of()` — never hardcoded `"player"` / `"enemy"`. PvP and mirror matches are planned (owner, 2026-10-01).
+3. **Symmetric effects.** Every card effect must work for either side as owner. No mechanic is one-sided by design: relics, talents and hero passives, Flesh / Forge / Void Marks and rituals must all work for either side. Who has what is decided by data and config, never by an `if owner == "player"` in rules code.
+
+   **Not yet true (2026-10-01).** #2 and #3 are the target, not the current state. Rules code still has player-only paths: turn-start passives, attack PRE/POST, the trap routes, legacy board passives, talents, relics, Flesh / Forge, Void Marks and rituals. Several of these are reachable bugs today. Task 082 (A0) keeps the verdict table, and roadmap workstream A (`design/refactors/ARCHITECTURE_ROADMAP.md`, tasks 082–093) fixes them. New code must still follow #2 and #3; don't copy an existing player-only path as a pattern.
 4. **Sim parity.** Both sides act only through `state.cmd_*` (live input, the live enemy, the sim agents, the tests), so a fight replays from its `command_log`. Rules code mutates only `state` and never calls presentation; a gameplay method has one body, on CombatState, which nothing extends (lint L5). AI decisions never wait on the screen: agents run on the base `Pacer` and the presenter paces playback. The parity test (`debug/tests/Parity.tscn`) replays sim fights through the live scene's input and compares state after every command.
 5. **Declarative first.** New cards use `effect_steps` (`EffectStep` resources). Add to `HardcodedEffects.gd` only when imperative logic is unavoidable.
 6. **Damage tagging is opt-in.** Set `damage_school` only when the card has deliberate flavor. `NONE` is correct for generic spells. Talents retag at the call site.
@@ -341,4 +343,4 @@ These rules are the load-bearing invariants of the codebase. Breaking them tends
 11. **Typed access, no duck typing.** In handlers/effects gameplay is `state.x` / `ctx.state.x` — no shell handle (L1), no presenter (L3), never by string (`has_method`, `.get("x")`, `"x" in obj` — L4 in rules code, L9 across combat/board, combat/events, non-VFX combat/effects, relics, sim and enemies/ai).
 12. **Engine-owned RNG.** Gameplay randomness uses `state.rng_pick / rng_shuffle / rng_range / rng_index`, never global `randi()/shuffle()/pick_random()`. VFX may use the global RNG. Lint L2 enforces it.
 
-The live/sim unification refactor ([LIVE_SIM_UNIFICATION_PLAN.md](../refactors/LIVE_SIM_UNIFICATION_PLAN.md)) is through Phase 5: one engine (`CombatState`, one `setup_combat` path, one `CombatSetup`), commands for both drivers, the journal + presenter, no shell / presenter access from rules code, and the parity test, live smoke and lint L1–L11 as tripwires; SimState, SimTriggerSetup, TurnManager, LivePacer and the scene's state forwarders are gone. Left: the owner's visual QA (3.6, now incl. the presenter-paced enemy turn), the optional D6 file split (4.5), and a ChoiceModal cancel.
+The live/sim unification refactor ([LIVE_SIM_UNIFICATION_PLAN.md](../refactors/LIVE_SIM_UNIFICATION_PLAN.md)) is through Phase 5: one engine (`CombatState`, one `setup_combat` path, one `CombatSetup`), commands for both drivers, the journal + presenter, no shell / presenter access from rules code, and the parity test, live smoke and lint L1–L11 as tripwires; SimState, SimTriggerSetup, TurnManager, LivePacer and the scene's state forwarders are gone. Left: the owner's visual QA (3.6, now incl. the presenter-paced enemy turn), and a ChoiceModal cancel. The optional D6 file split (4.5) is superseded by roadmap item B5 (CommandProcessor extraction), which the 2026-10-01 grooming pass deferred.
