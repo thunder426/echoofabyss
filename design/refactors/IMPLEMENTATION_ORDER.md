@@ -14,20 +14,19 @@
 3. **Chain the seeded runs.** One commit's "after" run is the next commit's "before" run. BalanceSimBatch defaults to Acts 1–2; ask for Acts 3–4 explicitly whenever a task touches fights 7–15.
 4. **Retune checkpoint after P3.** P1–P3 move the balance in both directions: 066 and 064 make enemies weaker, while 062, 063, 067 and 072 make them stronger. Retune once, as its own commit, before P4. Every later behaviour-neutral task compares against that post-retune fingerprint. 129 steps 9–10, 131 phase b and 086 phases 4–5 change behaviour again, so they may need a second, smaller retune.
 5. **`tools/run_checks.sh` stays green on every commit**, as CLAUDE.md requires.
-6. **Back up first:**
-   - copy the `user://encounter_decks.json` file now; it is the only copy of the enemy decks until 047 lands;
-   - back up `user://` before 052's save migration runs on this machine.
+6. **Back up `user://`** before 052's save migration runs on this machine. (The enemy decks have been in the repo since 047.)
+7. **Keep the fingerprints.** Save each seeded run as `.fingerprints/<short-sha>/act<N>.txt` (gitignored; Godot skips dot-directories), so the next session can chain from it without re-running the ~6-minute Act 4 batch.
 
 ## At a glance
 
 | Phase | Theme | Tickets, in order |
 |---|---|---|
-| P1 | Lock the baseline and clear dead weight | 080 → 047 → 079 → 081 → 054 → 055 → 073 |
+| P1 | Lock the baseline and clear dead weight | 080 → 049 → 047 → 079 → 081 → 054 → 055 → 073 |
 | P2 | Combat bugs every run hits (attack, death, champions) | 057 → 059 → 060 → 061 → 066 → 067 |
 | P3 | Rules-path bugs, Act 4 boss AI, symmetry audit | 050 → 058 → 143 → 064 → 062 → 063 → 065 → 072 → 082 |
 | P4 | Run, save and shop bugs (meta lane) | 074 → 075 → 124 → 128 → 052 → 077 → 078 → 076 |
 | P5 | Display bugs: the view follows the journal (E1, E7) | 069 → 071 → 068 → 070 → 113 |
-| P6 | Free each fight and widen what Parity sees | 132 → 049 → 137 → 141 → 051 → 133 → 135 |
+| P6 | Free each fight and widen what Parity sees | 132 → ~~049~~ (done in P1) → 137 → 141 → 051 → 133 → 135 |
 | P7 | Presenter guard, release gate, lint hardening, AI probes | 048 → 053 → 140 → 139 → 120 |
 | P8 | Content validation and ratchets | 104 → 106 → 105 → 088 → 087 → 111 |
 | P9 | Look-ahead engine core (F1, F2, I6, I2, I1, I3) | 114 → 115 → 116 → 134 → 130 → 129 → 131 |
@@ -66,7 +65,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 
 > **Notes.** 049 was pulled in after 080 (2026-10-02). Every sim fight leaked its CombatState: one `--act 2 --runs 200` reached 19 GB in 87 s, and four acts in parallel ran the dev Mac out of memory. After 049 an act peaks at ~78 MB. 049's fingerprint is identical except a corrected S.Corr `Clog` extra in Act 1, so the P1 chain starts from the post-049 runs. Everything except 073 is behaviour-neutral.
 
-> **Done 2026-10-02.** Every neutral ticket left Acts 1–4 byte-identical. 047 changed the variants Parity and LiveSmoke play: Parity now walks every F1–F4 variant, and LiveSmoke plays `f1_c` (task 047's log has the before / after picks). 073's delta is in its task file. **P2's baseline** is the seeded Acts 1–4 run at the "Task 073 (2/2)" commit. 047's step 5 changes the variants that live play, Parity and LiveSmoke pick; BalanceSimBatch is unaffected because it runs every variant. Record which variants they now pick so a later Parity failure isn't misread. The fingerprint taken after 073 is the baseline for P2. Until 047 lands, keep a manual copy of the user:// deck file, because it is the only copy.
+> **Done 2026-10-02.** Every neutral ticket left Acts 1–4 byte-identical. 047 changed the variants Parity and LiveSmoke play: Parity now walks every F1–F4 variant, and LiveSmoke plays `f1_c` (task 047's log has the before / after picks); BalanceSimBatch is unaffected because it runs every variant. 073's delta is in its task file. **P2's baseline** is the seeded Acts 1–4 run at the "Task 073 (2/2)" commit (`6d58afb`).
 
 
 ### P2 — Combat bugs every run hits (attack, death, champions)
@@ -88,7 +87,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 13. [ ] **[067](../../tasks/067-f15-avatar-abyss-card-counter-resets.md)** F15 Avatar of the Abyss: its card counter resets to 0 at the phase 1 → 2 transition, against its documented intent · *normal, S*  
    Delta --act 4. Hard prerequisite of 095; it lands before 125, whose probe it feeds, and before 068's Avatar tooltip.
 
-> **Notes.** Chain the seeded runs: one commit's 'after' run is the next commit's 'before' run. Owner defaults to confirm before starting: for 057, a defender or attacker that leaves the board during PRE means the attack is spent (no strike, no counter); for 067, the counter carries over into phase 2 (a grooming ruling, not an owner decision).
+> **Notes.** Chain the seeded runs: one commit's 'after' run is the next commit's 'before' run. Owner rulings, confirmed 2026-10-02: for 057, a defender or attacker that leaves the board during PRE means the attack is spent (no strike, no counter); for 067, the counter carries over into phase 2.
 
 
 ### P3 — Rules-path bugs, Act 4 boss AI, symmetry audit
@@ -383,8 +382,8 @@ Each task records a default; confirm or override it before its phase.
 
 | Before | Decision | Default in the task |
 |---|---|---|
-| P2 | 057: the defender (or attacker) leaves the board during PRE | The attack is spent: no strike, no counter |
-| P2 | 067: the Avatar's card counter at the phase change | It carries over into phase 2 (a grooming ruling, not yet yours) |
+| P2 | 057: the defender (or attacker) leaves the board during PRE | The attack is spent: no strike, no counter (**confirmed 2026-10-02**) |
+| P2 | 067: the Avatar's card counter at the phase change | It carries over into phase 2 (**confirmed 2026-10-02**) |
 | P3 | 065: Energy Conversion overflow | Kept as temporary excess (DESIGN_DOCUMENT.md:151), not capped at `mana_max` |
 | P4 | Should "destroy" (`kill_minion`, e.g. Death Trap) bypass Deathless? | No task yet |
 | P4 | The Act 1 boss can never unlock a card; Nyx'ael's unlock isn't implemented | No task yet |
@@ -442,3 +441,4 @@ PvP readiness arrives at ticket 87, because roadmap §11 puts presentation (P10)
 | 2026-10-01 | First version, from the post-grooming ordering analysis (three lenses, merged and checked by script). |
 | 2026-10-02 | P1 done (8 tickets incl. 049). |
 | 2026-10-02 | 049 pulled forward from P6 into P1 (after 080): the sim leak made the full-size fingerprints impossible. Checked: `push_error` prints `ERROR:`, not `SCRIPT ERROR:` (the P8 / Risks question), so run_checks.sh's grep misses it; a test must assert it. |
+| 2026-10-02 | Review before P2: dropped the stale 047 backup and duplicate baseline text, listed 049 under P1 in the table, recorded the confirmed 057 / 067 rulings, added rule 7 (keep the fingerprints). |

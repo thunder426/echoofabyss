@@ -15,3 +15,6 @@ Thumbs.db
 
 # Python bytecode (tools/lint)
 __pycache__/
+
+# Seeded BalanceSimBatch fingerprints (IMPLEMENTATION_ORDER.md rule 7)
+.fingerprints/
