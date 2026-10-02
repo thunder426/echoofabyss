@@ -1779,7 +1779,6 @@ var _relic_cost_reduction: int = 0     ## Dark Mirror: reduce next card cost
 # ---------------------------------------------------------------------------
 
 var _vp_pre_crit_stacks: int = 0
-var _spirit_conscription_fired: bool = false
 var crit_multiplier: float = 2.0
 var enemy_crit_multiplier: float = 0.0  ## Per-side override; 0 = use global
 var _enemy_crits_consumed: int = 0

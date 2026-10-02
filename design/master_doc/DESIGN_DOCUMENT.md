@@ -405,7 +405,6 @@ Units summoned by rituals do **not** fire On-Play effects. Passive abilities, Gu
 - Void Bolt spell with `piercing_void`: +1 Mark
 - Void Imp Wizard on-play: +1 Mark
 - Void Channeler passive: +1 extra Mark per Void Bolt damage event
-- Abyssal Sacrificer passive: +1 Mark when a Void Imp dies
 - Mark the Target spell: +2 Marks directly
 - Mark Convergence spell: doubles current Mark count
 
@@ -750,10 +749,12 @@ Deck identity principle: zero signature card overlap. Abyss_cultist+corruption_w
 |---|---|---|---|---|
 | 10 | Void Scout | 5000 | void_scout | void_might, void_precision, champion_void_scout |
 | 11 | Void Warband | 5000 | void_warband | void_might, spirit_resonance, champion_void_warband |
-| 12 | Void Captain | 6200 | void_captain | void_might, captain_orders |
-| 13 | Void Ritualist Prime | 7000 | void_ritualist_prime | void_might, dark_channeling |
-| 14 | Void Champion | 7800 | void_champion | void_might, champion_duel |
-| 15 | Abyss Sovereign *(final boss, Phase 1)* | 3000 | abyss_sovereign | void_might, abyssal_mandate, dark_channeling |
+| 12 | Void Captain | 5000 | void_captain | void_might, captain_orders, champion_void_captain |
+| 13 | Void Ritualist Prime | 5000 | void_ritualist_prime | void_might, dark_channeling, ritualist_spark_free, champion_void_ritualist_prime |
+| 14 | Void Champion | 5000 | void_champion | void_might, mana_for_spark, champion_void_champion |
+| 15 | Abyss Sovereign *(final boss, Phase 1)* | 3000 | abyss_sovereign | void_might, abyssal_mandate, dark_channeling, champion_abyss_sovereign |
+
+`enemies/data/EncounterTable.gd` is the source for these rows. F15 Phase 2 (`PhaseTransition.gd`): 3000 HP, deck `f15_p2`, profile `abyss_sovereign_p2`, passives void_might, abyss_awakened, champion_abyss_sovereign.
 
 ### Act 4 Enemy Passives
 | ID | Effect |
@@ -761,10 +762,12 @@ Deck identity principle: zero signature card overlap. Abyss_cultist+corruption_w
 | void_might | At enemy turn start, grant 1 random friendly minion +1 Critical Strike |
 | void_precision | After an enemy minion deals crit damage, grant it +200 ATK permanently |
 | spirit_resonance | Spirits with crit have +1 effective spark_value. Consuming a crit-Spirit spawns a 100/100 Void Spark |
-| captain_orders | Crit multiplier is 2.5× instead of 2× |
+| captain_orders | Throne's Command costs 1 less spark. At the end of the enemy turn, each friendly minion with Critical Strike spends one stack to deal its ATK to the player's hero |
 | dark_channeling | When enemy casts a spell, consume 1 crit from a random friendly minion to cast the spell at 1.5× damage |
 | abyssal_mandate | (F15 Phase 1) The player's most recent resource-growth choice grants the enemy a matching discount for one enemy turn: Essence → all enemy minions cost −2 Essence; Mana → all enemy spells cost −2 Mana. Discount clears at end of the enemy turn. |
-| champion_duel | Enemy minions with Critical Strike have Spell Immune |
+| ritualist_spark_free | (F13) Enemy spells cost 0 sparks |
+| mana_for_spark | (F14) A spark shortfall is paid in Mana, 1 per missing spark |
+| abyss_awakened | (F15 Phase 2) At enemy turn start every enemy minion gains 1 Critical Strike, or 2 while Avatar of the Abyss lives |
 
 ### Champion Units
 

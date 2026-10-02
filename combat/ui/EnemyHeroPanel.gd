@@ -808,13 +808,6 @@ func _setup_champion_progress_tooltip(_parent: Node) -> void:
 			"aura": "Whenever a Void Spark is summoned, deal 200 damage to enemy hero.",
 			"on_death": "",
 		},
-		"champion_duel": {
-			"name": "Void Duel",
-			"condition": "Always active",
-			"stats": "",
-			"aura": "Enemy minions with Critical Strike have Spell Immune.",
-			"on_death": "",
-		},
 		"champion_rift_stalker": {
 			"name": "Rift Stalker",
 			"condition": "Void Sparks have dealt 1500 damage",

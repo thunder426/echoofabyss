@@ -791,10 +791,6 @@ func _apply_board_passive_on_death(passive_id: String, passive_owner: MinionInst
 			_log("  Abyssal Tide: deal 200 damage to enemy hero.", _LOG_PLAYER)
 			state.combat_manager.apply_hero_damage("enemy",
 					CombatManager.make_damage_info(200, Enums.DamageSource.SPELL, Enums.DamageSchool.NONE, null, "abyssal_tide"))
-		"void_mark_on_void_imp_death":
-			if _is_void_imp(dead):
-				_log("  Abyssal Sacrificer: %s died → 1 Void Mark." % dead.card_data.card_name, _LOG_PLAYER)
-				state._apply_void_mark(1)
 		"soul_taskmaster_gain_atk":
 			if (dead.card_data as MinionCardData).is_race(Enums.MinionType.DEMON) and dead != passive_owner:
 				BuffSystem.apply(passive_owner, Enums.BuffType.ATK_BONUS, 50, "soul_taskmaster_stack", false, false)
@@ -1929,25 +1925,8 @@ func on_enemy_attack_void_precision_post(ctx: EventContext) -> void:
 		state._refresh_slot_for(attacker)
 		_log("  Void Precision: %s gains +200 ATK from critical strike." % attacker.card_data.card_name, _LOG_ENEMY)
 
-## spirit_conscription (Fight 11 — Void Warband): once per turn, when enemy
-## plays a Void Spirit clan minion, summon a 100/100 Void Spark.
-func on_enemy_turn_reset_spirit_conscription(_ctx: EventContext) -> void:
-	state._spirit_conscription_fired = false
-
-func on_enemy_summon_spirit_conscription(ctx: EventContext) -> void:
-	var minion: MinionInstance = ctx.minion
-	if minion == null or minion.owner != "enemy":
-		return
-	if not _has_tag(minion, "void_spirit"):
-		return
-	if state._spirit_conscription_fired:
-		return
-	state._spirit_conscription_fired = true
-	state._summon_token("void_spark", "enemy", 100, 100)
-	_log("  Spirit Conscription: a Void Spark joins the enemy ranks.", _LOG_ENEMY)
-
 ## captain_orders (Fight 12 — Void Captain):
-##   1. Throne's Command costs 1 less spark (handled in CombatProfile._effective_spark_cost)
+##   1. Throne's Command costs 1 less spark (handled in CombatState.spark_cost_of)
 ##   2. At end of enemy turn, consume 1 crit from each friendly minion and deal
 ##      that minion's ATK as damage to enemy hero.
 func on_enemy_turn_end_captain_orders(_ctx: EventContext) -> void:
@@ -2005,28 +1984,6 @@ func _spell_deals_damage(spell: SpellCardData) -> bool:
 			if et == EffectStep.EffectType.DAMAGE_HERO or et == EffectStep.EffectType.DAMAGE_MINION:
 				return true
 	return false
-
-## champion_duel (Fight 14 — Void Champion): enemy minions with Critical Strike
-## have SPELL_IMMUNE. We check on crit grant and crit consumption.
-## Implemented via ON_ENEMY_TURN_START (refresh after void_might grants) and
-## ON_ENEMY_ATTACK (refresh after crit consumed by attack).
-func on_enemy_turn_champion_duel_refresh(_ctx: EventContext) -> void:
-	_refresh_champion_duel_immunity()
-
-func on_enemy_attack_champion_duel_refresh(_ctx: EventContext) -> void:
-	# Small delay not needed — just refresh all after attack resolves
-	_refresh_champion_duel_immunity()
-
-func _refresh_champion_duel_immunity() -> void:
-	for m: MinionInstance in state.enemy_board:
-		var has_crit := m.has_critical_strike()
-		var has_immune := m.has_spell_immune()
-		if has_crit and not has_immune:
-			BuffSystem.apply(m, Enums.BuffType.GRANT_SPELL_IMMUNE, 1, "champion_duel", false, false)
-			state._refresh_slot_for(m)
-		elif not has_crit and has_immune:
-			BuffSystem.remove_source(m, "champion_duel")
-			state._refresh_slot_for(m)
 
 # ---------------------------------------------------------------------------
 # Enemy champion passives (Act 1)

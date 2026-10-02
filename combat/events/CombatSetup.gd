@@ -478,13 +478,6 @@ const _REGISTRY: Dictionary = {
 		],
 		"stats":    {}
 	},
-	"spirit_conscription": {
-		"triggers": [
-			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START,      "method": "on_enemy_turn_reset_spirit_conscription", "priority": 0 },
-			{ "event": Enums.TriggerEvent.ON_ENEMY_MINION_SUMMONED, "method": "on_enemy_summon_spirit_conscription",     "priority": 6 },
-		],
-		"stats":    { "_spirit_conscription_fired": false }
-	},
 	"captain_orders": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_END, "method": "on_enemy_turn_end_captain_orders", "priority": 40 }],
 		"stats":    {}
@@ -492,13 +485,6 @@ const _REGISTRY: Dictionary = {
 	"dark_channeling": {
 		"triggers": [{ "event": Enums.TriggerEvent.ON_ENEMY_SPELL_CAST, "method": "on_enemy_spell_dark_channeling", "priority": 0 }],
 		"stats":    { "_dark_channeling_active": false, "_dark_channeling_multiplier": 1.0 }
-	},
-	"champion_duel": {
-		"triggers": [
-			{ "event": Enums.TriggerEvent.ON_ENEMY_TURN_START, "method": "on_enemy_turn_champion_duel_refresh",  "priority": 10 },
-			{ "event": Enums.TriggerEvent.ON_ENEMY_ATTACK,     "method": "on_enemy_attack_champion_duel_refresh", "priority": 98 },
-		],
-		"stats":    {}
 	},
 	# F15 Phase 1 — Abyssal Mandate: the player's resource growth choice is
 	# echoed back as an enemy-turn discount. Grow Essence → enemy minions cost

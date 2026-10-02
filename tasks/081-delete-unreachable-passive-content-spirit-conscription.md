@@ -1,11 +1,11 @@
 ---
 id: "081"
 title: Delete unreachable passive content (spirit_conscription, champion_duel, dead passive arm, stale AI hardcoded-id check)
-status: backlog
+status: done
 area: content
 priority: low
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -123,7 +123,14 @@ The F14 row is wrong because of `champion_duel`, and the rows around it drifted 
   - The snapshot is easier to edit by hand than to regenerate: a regenerating run fails once by design.
   - Corrected the history: `champion_duel` left F14 in v0.44 (`d89baee`), not v0.39. `spirit_conscription` left F11 in v0.39 (`35989e6`).
   - Added the stale Act 4 HP and passive rows in DESIGN_DOCUMENT.md, and the Abyssal Sacrificer line (:408).
+- 2026-10-02: implemented as proposed, steps 1–6. Line numbers still matched at `65b761c`.
+  - Deleted the two registry entries, the five handlers, `_spirit_conscription_fired`, the four probes with their calls and section comments (the :1441 header now reads "Act 3–4 champions"), the two tooltip entries, and the `void_mark_on_void_imp_death` arm. 062 hasn't landed, so the arm went here. CombatProfile: `if hid == "brood_call":`.
+  - handler_order.txt: removed the four entries by hand; the word diff is exactly those four.
+  - Comments: ScenarioTests S16; CombatHandlers' captain_orders note now points at `CombatState.spark_cost_of`. VoidChampionProfile: rewrote only the false spell-immunity claims in the header and the `_spark_spell_priority` comment (passives from EncounterTable, Throne's Command = mass crit). AI logic untouched; task 072 keeps the tuning.
+  - DESIGN_DOCUMENT.md: dropped the Abyssal Sacrificer Void Mark source; F12–F14 at 5000 HP with their full passive lists; F15 with `champion_abyss_sovereign` plus a phase-2 note; `captain_orders` row fixed; `champion_duel` row replaced by `ritualist_spark_free`, `mana_for_spark` and `abyss_awakened`, each checked against the code.
+  - Verification: the grep is empty except `design/refactors/archive/` and RuneTempoPlayerProfile's legitimate `_play_spells_by_id(["void_summoning"])` (the task's pattern over-matches a card play). Gate green: lint 0 (L1 clean on registry stats), 1119 tests (the six deleted probe assertions), LiveSmoke OK, Parity 24/24. Fingerprint Acts 1–4 identical to `06a2689`.
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Deleted the unreachable `spirit_conscription` and `champion_duel` passives (registry, handlers, state field, probes, snapshot entries, tooltips), the dead `void_mark_on_void_imp_death` arm and the stale `void_summoning` AI check, and corrected the stale comments and DESIGN_DOCUMENT's Act 4 encounter and passive tables from the code. Behaviour-neutral: BalanceSimBatch Acts 1–4 identical.

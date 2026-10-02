@@ -267,10 +267,6 @@ func add_enemy_passive_hover_icon(parent: HBoxContainer, ui_root: Node) -> void:
 			"name": "Champion: Corrupted Handler",
 			"desc": "Summoned after 3 Void Sparks created. AURA: Whenever a Void Spark is summoned, deal 200 damage to enemy hero."
 		},
-		"champion_duel": {
-			"name": "Champion: Void Duel",
-			"desc": "Enemy minions with Critical Strike have Spell Immune."
-		},
 		"corrupted_death": {
 			"name": "Corrupted Death",
 			"desc": "Void-Touched Imp costs 1 less Essence."

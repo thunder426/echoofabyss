@@ -108,15 +108,11 @@ static func run_all() -> void:
 	_as_summons_when_threshold_met_in_phase_2()
 	_as_aura_doubles_abyss_awakened()
 	_as_aura_inactive_when_dead()
-	_champion_duel_sync_on_turn_start()
-	_champion_duel_revokes_when_crit_lost()
 	_void_empowerment_normalizes_spark()
 	_void_detonation_passive_base_100()
 	_void_detonation_passive_va_alive_200()
 	_spirit_resonance_summons_spark()
 	_spirit_resonance_ignores_non_crit_spirit()
-	_spirit_conscription_summons_spark()
-	_spirit_conscription_once_per_turn()
 	_captain_orders_consumes_crit_and_dmg()
 	_dark_channeling_consumes_crit_on_damage_spell()
 	_dark_channeling_ignores_non_damage_spell()
@@ -1438,7 +1434,7 @@ static func _ch_no_resummon_after_summoned() -> void:
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# Act 3–4 champions + champion_duel
+# Act 3–4 champions
 # ---------------------------------------------------------------------------
 
 ## Fire ON_ENEMY_SPARK_CONSUMED with damage = spark_value.
@@ -1836,35 +1832,6 @@ static func _as_aura_inactive_when_dead() -> void:
 	state.teardown()
 
 # ---------------------------------------------------------------------------
-# champion_duel (F14 shared) — keep GRANT_SPELL_IMMUNE synced with CRITICAL_STRIKE
-# on enemy minions. Refreshed on ON_ENEMY_TURN_START and ON_ENEMY_ATTACK.
-# ---------------------------------------------------------------------------
-
-static func _champion_duel_sync_on_turn_start() -> void:
-	var state := TestHarness.build_state({"enemy_passives": ["champion_duel"]})
-	if not TestHarness.begin_test("champion_duel / turn start grants GRANT_SPELL_IMMUNE to crit-having minions", state):
-		return
-	var a := TestHarness.spawn_enemy(state, "rabid_imp")
-	BuffSystem.apply(a, Enums.BuffType.CRITICAL_STRIKE, 1, "test", false, false)
-	_fire_enemy_turn_start(state)
-	TestHarness.assert_true(BuffSystem.has_type(a, Enums.BuffType.GRANT_SPELL_IMMUNE), "crit minion now spell-immune")
-	state.teardown()
-
-static func _champion_duel_revokes_when_crit_lost() -> void:
-	var state := TestHarness.build_state({"enemy_passives": ["champion_duel"]})
-	if not TestHarness.begin_test("champion_duel / minion losing crit also loses GRANT_SPELL_IMMUNE", state):
-		return
-	var a := TestHarness.spawn_enemy(state, "rabid_imp")
-	BuffSystem.apply(a, Enums.BuffType.CRITICAL_STRIKE, 1, "test", false, false)
-	_fire_enemy_turn_start(state)
-	TestHarness.assert_true(BuffSystem.has_type(a, Enums.BuffType.GRANT_SPELL_IMMUNE), "has immune pre-revoke")
-	# Remove crit source, then refresh via an attack event
-	BuffSystem.remove_source(a, "test")
-	_fire_enemy_attack(state, a)
-	TestHarness.assert_false(BuffSystem.has_type(a, Enums.BuffType.GRANT_SPELL_IMMUNE), "immune revoked after crit lost")
-	state.teardown()
-
-# ---------------------------------------------------------------------------
 # Act 3–4 non-champion enemy passives
 # ---------------------------------------------------------------------------
 
@@ -1941,43 +1908,6 @@ static func _spirit_resonance_ignores_non_crit_spirit() -> void:
 	var board_before := state.enemy_board.size()
 	_fire_spark_consumed(state, 1, spirit)
 	TestHarness.assert_eq(state.enemy_board.size(), board_before, "no spark summoned")
-	state.teardown()
-
-# ---------------------------------------------------------------------------
-# spirit_conscription — 1/turn, when enemy plays a Void Spirit minion, summon Void Spark.
-# ---------------------------------------------------------------------------
-
-static func _spirit_conscription_summons_spark() -> void:
-	# KNOWN BUG (double dead-code): spirit_conscription handler gates on the
-	# minion_tag "void_spirit", but NO minion in CardDatabase has that tag.
-	# Additionally, "spirit_conscription" is registered in CombatSetup._REGISTRY
-	# but not assigned to any encounter (EncounterTable passives /
-	# GameManager). So the passive can never fire in game.
-	# Either the tag must be added to Spirit-clan minions and the passive
-	# assigned to an enemy profile, or the whole passive should be retired
-	# (same cleanup pattern as feral_instinct in Batch 2).
-	var state := TestHarness.build_state({"enemy_passives": ["spirit_conscription"]})
-	if not TestHarness.begin_test("spirit_conscription / void_spirit tag does not exist (KNOWN BUG: dead passive)", state):
-		return
-	var spirit := TestHarness.spawn_enemy(state, "void_rift_lord")  # SPIRIT type but no void_spirit tag
-	var tags: Array = (spirit.card_data as MinionCardData).minion_tags
-	TestHarness.assert_false("void_spirit" in tags, "void_rift_lord has no void_spirit tag (confirms dead passive)")
-	# Fire the summon — handler should early-return, nothing summoned.
-	var board_before := state.enemy_board.size()
-	_fire_enemy_summon(state, spirit)
-	TestHarness.assert_eq(state.enemy_board.size(), board_before, "no spark summoned (handler silently gates)")
-
-static func _spirit_conscription_once_per_turn() -> void:
-	# This test is unreachable until spirit_conscription is either retired or
-	# the void_spirit tag is added to real minions. Skipped-by-assertion-failure
-	# is the wrong signal, so we just no-op with a placeholder pass so the
-	# probe stays registered and surfaces the moment someone revives the passive.
-	var state := TestHarness.build_state({"enemy_passives": ["spirit_conscription"]})
-	if not TestHarness.begin_test("spirit_conscription / once-per-turn (awaiting tag/retirement)", state):
-		return
-	# No-op assertion — documents that this probe is parked pending resolution
-	# of the spirit_conscription dead-code issue above.
-	TestHarness.assert_true(true, "probe parked until spirit_conscription issue resolved")
 	state.teardown()
 
 # ---------------------------------------------------------------------------

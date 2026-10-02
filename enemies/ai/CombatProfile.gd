@@ -363,7 +363,7 @@ func _spell_needs_board_slot(spell: SpellCardData) -> bool:
 			return true
 		if (step as Dictionary).get("type", "") == "HARDCODED":
 			var hid: String = (step as Dictionary).get("hardcoded_id", "")
-			if hid in ["brood_call", "void_summoning"]:
+			if hid == "brood_call":
 				return true
 	return false
 

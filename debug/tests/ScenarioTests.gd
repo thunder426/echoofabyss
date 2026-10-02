@@ -470,7 +470,7 @@ static func _act3_rift_stalker_immune_aura() -> void:
 	TestHarness.assert_clean_finish(result, "swarm v rift_stalker")
 
 # ---------------------------------------------------------------------------
-# S16 — Act 4: void_warband encounter (spirit_resonance + spirit_conscription + champion_vw).
+# S16 — Act 4: void_warband encounter (void_might + spirit_resonance + champion_void_warband).
 # ---------------------------------------------------------------------------
 
 static func _act4_void_warband_spirit_ecology() -> void:

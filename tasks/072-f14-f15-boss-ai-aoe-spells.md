@@ -132,6 +132,7 @@ Gate:
   - Re-check added F14's `mana_for_spark` gap in the same loop.
   - Throne's Command grants no spell immunity: `champion_duel` isn't an F14 passive.
   - The draft bug-2 probe asserted Void Bolt is cast with lethal out of reach. It isn't, because the fixed check then skips the lethal pass. The probe now sets HP to exactly the reachable damage.
+- 2026-10-02: task 081 landed first and rewrote VoidChampionProfile.gd's header (passives from EncounterTable, no spell-immunity claims) and the `_spark_spell_priority` comment. Step 4's first bullet is done; AbyssSovereignPhase2Profile.gd:11-12 is still stale.
 
 ## Summary
 

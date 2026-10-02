@@ -1,21 +1,19 @@
 ## VoidChampionProfile.gd
 ## AI profile for the Void Champion encounter (Act 4, Fight 14).
 ##
-## Passive: void_might (shared) + champion_duel (enemy minions with any
-## Critical Strike stacks are granted SPELL_IMMUNE; when a crit is consumed,
-## immunity is removed). This makes crit both an offensive AND defensive tool.
+## Passives (EncounterTable): void_might (shared), mana_for_spark (a spark
+## shortfall is paid in Mana, 1 per missing spark) and champion_void_champion.
+## Crit grants no spell immunity here: Void Duel, the passive that did, left F14 in
+## v0.44 and was deleted (task 081). Task 072 revisits this profile's tuning.
 ##
-## Strategy: Spread crits across the board for maximum spell immunity coverage.
-## Throne's Command (mass crit) is the top spark priority — it grants
-## spell immunity to the entire board. Herald targets the highest-HP
-## friendly WITHOUT crit, ensuring new minions get protection first.
-## Bastion Colossus is exceptionally strong here: 600/800 Guard that
-## self-grants 2 crit stacks = instant spell immunity on summon.
+## Strategy: Spread crits across the board. Throne's Command (mass crit) is the
+## top spark priority. Herald targets the highest-HP friendly WITHOUT crit.
+## Bastion Colossus: 600/800 Guard that self-grants 2 crit stacks.
 ##
 ## Play order:
-##   1. Regular spirits + heralds (crits via herald spread protection)
+##   1. Regular spirits + heralds (crits via herald spread)
 ##   2. Regular mana spells
-##   3. Spark-cost spells (Throne's Command = mass spell immunity)
+##   3. Spark-cost spells (Throne's Command = mass crit)
 ##   4. Spark-cost minions (Bastion Colossus self-crits)
 ##
 ## Resource growth:
@@ -23,7 +21,7 @@
 class_name VoidChampionProfile
 extends VoidScoutProfile
 
-## Throne's Command = mass crit = mass spell immunity. Highest priority.
+## Throne's Command = mass crit. Highest priority.
 ## Dimensional Breach is not damage, handled separately via combo routine.
 func _spark_spell_priority(id: String) -> int:
 	match id:
