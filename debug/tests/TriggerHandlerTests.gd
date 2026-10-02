@@ -213,6 +213,9 @@ static func run_all() -> void:
 	# Matron of Flesh kill credit (task 059)
 	_matron_no_flesh_for_own_death()
 	_matron_no_flesh_for_friendly_deaths()
+	# Crit rides on the strike only (task 060)
+	_crit_only_on_the_strike()
+	_crit_on_hero_strike_only_with_stack()
 
 # ---------------------------------------------------------------------------
 # Fleshbind passive — +1 Flesh on Demon death
@@ -3578,4 +3581,60 @@ static func _matron_no_flesh_for_friendly_deaths() -> void:
 	TestHarness.assert_false(state.is_on_board(vti), "Matron killed the VTI")
 	TestHarness.assert_false(state.is_on_board(spark), "the VTI's AoE killed the spark")
 	TestHarness.assert_eq(state.player_flesh, 1, "+1 Flesh for the kill only")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Crit rides on the strike's own DamageInfo, not the whole attack (task 060)
+# ---------------------------------------------------------------------------
+
+## F12 Void Captain: an enemy crit runs the champion's post-crit aura (2 × 100 to
+## random player targets) inside the attack. Only the strike is a crit; the
+## counter and the aura hits are not.
+static func _crit_only_on_the_strike() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_void_captain"]})
+	if not TestHarness.begin_test("crit / only the strike is a crit: not the counter or the Void Captain aura hits", state):
+		return
+	TestHarness.spawn_enemy(state, "champion_void_captain")
+	var attacker := TestHarness.spawn_enemy(state, "void_imp")
+	BuffSystem.apply(attacker, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike", false, false)
+	attacker.current_health = 5000  # survives the counter, so _check_post_crit runs the aura
+	var defender := TestHarness.spawn_friendly(state, "void_imp")
+	defender.current_health = 5000
+	var start: int = state.journal.size()
+	state.combat_manager.resolve_minion_attack(attacker, defender)
+	var hits: Array[CombatEvent] = []
+	for i in range(start, state.journal.size()):
+		var ev: CombatEvent = state.journal[i]
+		if ev.kind == CombatEvent.Kind.DAMAGE_DEALT:
+			hits.append(ev)
+	TestHarness.assert_true(hits.size() >= 4, "strike, counter and two aura hits journaled (got %d)" % hits.size())
+	if hits.is_empty():
+		state.teardown()
+		return
+	TestHarness.assert_true(hits[0].payload.get("minion") == defender, "the first hit is the strike on the defender")
+	TestHarness.assert_eq(hits[0].payload.get("is_crit", false), true, "the strike is a crit")
+	var later_crits: int = 0
+	for k in range(1, hits.size()):
+		if hits[k].payload.get("is_crit", false):
+			later_crits += 1
+	TestHarness.assert_eq(later_crits, 0, "no later hit is a crit")
+	state.teardown()
+
+## A minion's hero strike is a crit only when it spends a Critical Strike stack.
+static func _crit_on_hero_strike_only_with_stack() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("crit / a hero strike is a crit only with a Critical Strike stack", state):
+		return
+	var critter := TestHarness.spawn_enemy(state, "void_imp")
+	BuffSystem.apply(critter, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike", false, false)
+	var plain := TestHarness.spawn_enemy(state, "void_imp")
+	var flags: Array = []
+	for attacker: MinionInstance in [critter, plain]:
+		var start: int = state.journal.size()
+		state.combat_manager.resolve_minion_attack_hero(attacker, "player")
+		for i in range(start, state.journal.size()):
+			var ev: CombatEvent = state.journal[i]
+			if ev.kind == CombatEvent.Kind.DAMAGE_DEALT and ev.payload.get("kind", "") == "hero":
+				flags.append(ev.payload.get("is_crit", false))
+	TestHarness.assert_eq(flags, [true, false], "crit with the stack, not without")
 	state.teardown()

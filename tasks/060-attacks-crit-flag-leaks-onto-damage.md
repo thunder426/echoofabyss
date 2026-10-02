@@ -1,11 +1,11 @@
 ---
 id: "060"
 title: An attack's crit flag leaks onto every damage event nested inside it (crit popups on non-crit hits)
-status: backlog
+status: done
 area: combat
 priority: normal
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -69,7 +69,14 @@ Carry crit on the strike's own damage info.
 ## Work log
 
 - 2026-10-01: filed by task 056 (grooming pass 1) from unit I's straight-to-task bug 4 (roadmap §I item 1). Re-checked at `404b51c`: the flag is read at CombatManager.gd:277 and CombatState.gd:2020 and cleared only at :154 / :187. Narrowed the fix to "crit rides on the strike's DamageInfo"; deleting the flag and moving the F14 counter stay with task 129. The probe gives the attacker high HP, because `_post_crit` skips a dead attacker (:418).
+- 2026-10-02: started (P2 ticket 3), on top of 057 / 059.
+  - Fix as proposed. `_attack_damage_info(amount, attacker, is_crit = false)` sets `info.is_crit`; `resolve_minion_attack(_hero)` reads `state._last_attack_was_crit` into a local right after `_apply_crit` and passes it to the strike and the pierce carry (the counter keeps the default `false`). `_deal_damage` and `CombatState._on_hero_damaged` read `info.is_crit`. The flag's set and clears are unchanged, for the F14 handler (task 129 deletes it).
+  - Probes: TriggerHandlerTests `crit /` ×2. "Only the strike is a crit" (F12 Void Captain aura) fails on the old code with 3 later crits (the counter and both aura hits); the hero-strike probe passes on both and guards the new path.
+  - Gate: run_checks green (lint 0, 197 scripts, 1157 tests, LiveSmoke OK, Parity 24/24).
+  - Fingerprint (`--runs 200 --seed 7`, Acts 1–4) vs `5e11897`: byte-identical (neutral, journal payloads only).
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+An attack's crit now rides on the strike's own DamageInfo (`info.is_crit`, also on its pierce carry), and the journal's minion and hero DAMAGE_DEALT read it from there, so the counter, death and POST triggers and F12's Void Captain aura hits are no longer shown as crits. Behaviour-neutral: the seeded fingerprint is byte-identical.
+Follow-ups: task 129 deletes `_last_attack_was_crit` (still set and cleared for the F14 Void Champion counter); task 134 makes `is_crit` a typed DamageInfo field.

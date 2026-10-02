@@ -2025,7 +2025,7 @@ func _on_hero_damaged(target: String, info: Dictionary) -> void:
 		return
 	var amount: int = info.get("amount", 0)
 	var school: int = info.get("school", Enums.DamageSchool.NONE)
-	var is_crit: bool = _last_attack_was_crit
+	var is_crit: bool = info.get("is_crit", false)  # only a crit strike's own hit (task 060)
 	var outcome: String = ""
 	var hp_before: int = player_hp if target == "player" else enemy_hp
 	if target == "player":

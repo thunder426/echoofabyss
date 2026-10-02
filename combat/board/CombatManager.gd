@@ -94,6 +94,9 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 		_spend_attack(attacker)
 		return
 	var atk_damage := _apply_crit(attacker)
+	# Crit rides on the strike's own DamageInfo (and its pierce carry), not on the
+	# whole attack: the counter and nested hits aren't crits (task 060).
+	var is_crit: bool = state != null and state._last_attack_was_crit
 
 	# ETHEREAL: defender takes 50% reduced physical damage from minion attacks
 	var ethereal_prevented := 0
@@ -103,7 +106,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 
 	var pre_hp := defender.current_health
 	var pre_shield := defender.current_shield
-	_deal_damage(defender, _attack_damage_info(atk_damage, attacker))
+	_deal_damage(defender, _attack_damage_info(atk_damage, attacker, is_crit))
 	var landed_damage: int = last_post_armour_damage
 	last_attack_hp_delta = maxi(0, pre_hp - defender.current_health)
 	# Effective damage = post-Ethereal amount that reached the body (0 if Immune).
@@ -129,7 +132,7 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 		var excess := maxi(0, landed_damage - total_effective_hp)
 		if excess > 0:
 			var target_owner := "player" if defender.owner == "player" else "enemy"
-			apply_hero_damage(target_owner, _attack_damage_info(excess, attacker))
+			apply_hero_damage(target_owner, _attack_damage_info(excess, attacker, is_crit))
 
 	# Rift Warden siphon: if any friendly minion has rift_warden_siphon passive,
 	# deal ETHEREAL prevented damage to the enemy hero
@@ -182,8 +185,9 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 		_spend_attack(attacker)  # a PRE trigger removed the attacker (task 057)
 		return
 	var damage := _apply_crit(attacker)
+	var is_crit: bool = state != null and state._last_attack_was_crit
 	if damage > 0:
-		apply_hero_damage(target_owner, _attack_damage_info(damage, attacker))
+		apply_hero_damage(target_owner, _attack_damage_info(damage, attacker, is_crit))
 		if attacker.has_lifedrain():
 			hero_healed.emit(attacker.owner, damage)
 		if attacker.has_siphon():
@@ -304,7 +308,7 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 				amount = last_post_armour_damage, absorbed = shield_before - minion.current_shield,
 				hp_before = hp_before, hp_after = minion.current_health, shield_after = minion.current_shield, school = school,
 				source = info.get("source", Enums.DamageSource.SPELL), source_minion = info.get("attacker", null),
-				source_card = str(info.get("source_card", "")), is_crit = state._last_attack_was_crit})
+				source_card = str(info.get("source_card", "")), is_crit = info.get("is_crit", false)})
 	if damage > 0:
 		if minion.current_health <= 0:
 			if minion.has_deathless():
@@ -348,8 +352,10 @@ func apply_damage_to_minion(minion: MinionInstance, info: Dictionary) -> void:
 ## — declarative on the card, override-friendly via talent_overrides. NONE on the
 ## card falls back to PHYSICAL (the historical default for basic attacks).
 ## Counters set attacker = the defender, since *that* minion's effective_atk drives
-## the counter damage and its school should tag the counter.
-func _attack_damage_info(amount: int, attacker: MinionInstance) -> Dictionary:
+## the counter damage and its school should tag the counter. `is_crit` marks the
+## strike (and its pierce carry) when it spent a Critical Strike stack; the
+## journal's DAMAGE_DEALT reads it from here (task 060).
+func _attack_damage_info(amount: int, attacker: MinionInstance, is_crit: bool = false) -> Dictionary:
 	var card_id: String = ""
 	var school: Enums.DamageSchool = Enums.DamageSchool.PHYSICAL
 	if attacker != null and attacker.card_data != null:
@@ -357,7 +363,9 @@ func _attack_damage_info(amount: int, attacker: MinionInstance) -> Dictionary:
 		var declared: Enums.DamageSchool = (attacker.card_data as MinionCardData).attack_damage_school
 		if declared != Enums.DamageSchool.NONE:
 			school = declared
-	return make_damage_info(amount, Enums.DamageSource.MINION, school, attacker, card_id)
+	var info := make_damage_info(amount, Enums.DamageSource.MINION, school, attacker, card_id)
+	info["is_crit"] = is_crit
+	return info
 
 
 ## Instantly kill a minion, bypassing shield and health checks.
