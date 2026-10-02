@@ -5,7 +5,6 @@ extends Node
 
 ## Fights in each act (Acts 1–3: 3 fights, Act 4: 6 fights).
 const ACT_SIZES: Array[int] = [3, 3, 3, 6]
-const TOTAL_ACTS  := 4
 const TOTAL_FIGHTS := 15
 ## 1-based indices of the boss fight in each act.
 const BOSS_INDICES: Array[int] = [3, 6, 9, 15]
@@ -32,12 +31,6 @@ var has_revive: bool = false
 var current_hero: String = "lord_vael"
 ## Faction chosen on HeroSelectScene; used by DeckBuilderScene to pre-filter cards
 var current_faction: String = "abyss_order"
-
-# --- Resources (in-combat, reset each combat) ---
-var abyss_essence: int = 0
-var abyss_essence_max: int = 1
-var mana: int = 0
-var mana_max: int = 1
 
 # --- Deck & Cards ---
 var player_deck: Array[String] = []   # card IDs
@@ -79,8 +72,6 @@ func start_new_run() -> void:
 	run_node_index = 1
 	player_relics = []
 	relic_bonus_charges = {}
-	abyss_essence_max = 1
-	mana_max = 1
 	player_hp_max = 3000
 	player_hp = player_hp_max
 	core_unit_limit = 4

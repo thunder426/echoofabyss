@@ -91,3 +91,4 @@ Existing data-loss bug: `save_deck` (:160-174) and `set_deck_profile` (:177-186)
   - Added the `limited`-field data-loss bug.
   - Extended the test to `limited` ids and f15_p2.
 - 2026-09-30: owner decision: the Mac copy is canonical. Backed it up outside user://.
+- 2026-10-01: task 080 deleted MapScene, so its two readers (MapScene.gd:63, :136) are gone. Scope unchanged.

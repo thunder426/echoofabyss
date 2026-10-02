@@ -1,11 +1,11 @@
 ---
 id: "080"
 title: Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow
-status: backlog
+status: done
 area: meta
 priority: normal
-started:
-finished:
+started: 2026-10-01
+finished: 2026-10-01
 ---
 
 ## Description
@@ -111,7 +111,10 @@ Q8: "**Delete it now.** The run stays linear (git history keeps the file). Fix A
   - Traced every `go_to_scene` in game code for the new scene flow.
   - Added the EncounterLoadingScene → CombatScene save exception.
   - `last_boss_unlocks` stays (QN4, task 078).
+- 2026-10-01: implemented. Deleted the three MapScene files, its AudioManager entry, `TOTAL_ACTS` and the four in-combat resource fields (plus their two writes in `start_new_run`); reworded the TalentSelectScene header. Re-traced every `go_to_scene` at `671afc0` (unchanged from the groomed list) and rewrote ARCHITECTURE.md's scene flow: linear block diagram, reward routing, defeat, Continue, and the EncounterLoadingScene → CombatScene save exception; dropped the MapScene file-table row. Added the reader-gone note to task 047. Both verification greps return 0 hits. Gate green: lint 0, 197 scripts, 1109 tests, LiveSmoke OK, Parity 24/24. No rules, sim or AI code changed, so no balance run was needed. The manual editor walk-through is still to do.
+- 2026-10-01: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Deleted the unreachable MapScene (scene, script, uid, AudioManager entry), the dead `GameManager.TOTAL_ACTS` and the four in-combat resource fields, and rewrote ARCHITECTURE.md's scene flow from the real `go_to_scene` calls (linear run, reward routing, defeat / Second Wind, Continue, the threaded-load save exception). Behaviour-neutral; gate green (1109 tests, Parity 24/24).
+Follow-ups: the manual New Run → boss → relic → talents → Continue walk-through in the editor (owner). Tasks 077 / 078 / 123 update the scene-flow text again when they land.

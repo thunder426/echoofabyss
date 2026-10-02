@@ -59,13 +59,20 @@ Main scene: `res://ui/MainMenu.tscn`. Engine: Godot 4.6, GL Compatibility, 1920�
 
 ## Scene flow
 
+The run is linear: one fight after another, no map.
+
 ```
-MainMenu → HeroSelectScene → DeckBuilderScene → TalentSelectScene
-       → MapScene → EncounterLoadingScene → CombatScene
-       → RewardScene (→ RelicRewardScene / ShopScene) → MapScene → …
+MainMenu → HeroSelectScene → TalentSelectScene → DeckBuilderScene (first visit only)
+       → EncounterLoadingScene (↔ DeckViewerScene) → CombatScene
+       → RewardScene → [ShopScene | RelicRewardScene → TalentSelectScene] → EncounterLoadingScene → …
+MainMenu → CollectionScene → MainMenu
 ```
 
-`GameManager.go_to_scene()` handles every transition and auto-saves.
+- **Reward routing** (`RewardScene._finish`): act complete → RelicRewardScene → TalentSelectScene (spend the act's point) → EncounterLoadingScene; next fight is an act boss → ShopScene → EncounterLoadingScene; otherwise straight to EncounterLoadingScene. EncounterLoadingScene itself bounces to TalentSelectScene while points are unspent. Winning the last fight shows a "RUN COMPLETE" panel instead, whose button returns to MainMenu.
+- **Defeat:** the game-over button returns to MainMenu, or with Second Wind (`GameManager.has_revive`) restarts the same CombatScene once at full HP.
+- **Continue** (MainMenu): DeckBuilderScene if the deck isn't built, else TalentSelectScene if points are unspent, else EncounterLoadingScene. EscMenu returns to MainMenu from any scene.
+
+`GameManager.go_to_scene()` handles every transition and auto-saves, except EncounterLoadingScene → CombatScene: it loads the combat scene threaded (so the spinner animates), then calls `UserProfile.save()` and `change_scene_to_packed` itself.
 
 ## Combat architecture
 
@@ -293,7 +300,6 @@ Talents implement effects by registering handlers in `CombatSetup`. Per the dama
 | Deck builder | `ui/DeckBuilderScene.gd` |
 | Card collection viewer | `ui/CollectionScene.gd` |
 | Read-only deck preview | `ui/DeckViewerScene.gd` |
-| Map / encounter selection | `map/MapScene.gd` |
 | Pre-fight loading screen | `map/EncounterLoadingScene.gd` |
 | Card reward selection | `rewards/RewardScene.gd` |
 | Shop | `shop/ShopScene.gd` |

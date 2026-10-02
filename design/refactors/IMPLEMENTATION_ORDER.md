@@ -49,7 +49,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 
 **Tickets:** 080 → 047 → 079 → 081 → 054 → 055 → 073
 
-1. [ ] **[080](../../tasks/080-delete-unreachable-mapscene-dead-gamemanager-resource.md)** Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow · *normal, S*  
+1. [x] **[080](../../tasks/080-delete-unreachable-mapscene-dead-gamemanager-resource.md)** Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow · *normal, S*  
    It goes first because it removes two of 047's EncounterDecks readers (MapScene.gd:63/:136) and drops MapScene's ACT_SIZES/BOSS_INDICES reads from 124's site list. Keep last_boss_unlocks, which 078 reads.
 2. [ ] **[047](../../tasks/047-enemy-decks-into-repo.md)** Move enemy decks from user:// into the repo · *high, M*  
    Afterwards, capture the seeded Acts 1-4 fingerprint (BalanceSimBatch --runs 200 --seed 7).

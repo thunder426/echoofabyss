@@ -1,7 +1,8 @@
 ## TalentSelectScene.gd
 ## Programmatic talent selection UI.
 ## Shows 3 branch columns x 4 tier rows.
-## Player spends all pending talent_points then returns to MapScene.
+## Player spends all pending talent_points, then continues to DeckBuilderScene
+## (first visit) or EncounterLoadingScene.
 extends Node
 
 const _BTN_NORMAL  := "res://assets/art/buttons/button_normal.png"

@@ -9,7 +9,6 @@ const SCENE_MUSIC: Dictionary = {
 	"res://ui/HeroSelectScene.tscn": "res://assets/audio/ost/main_screen.mp3",
 	"res://ui/DeckBuilderScene.tscn": "res://assets/audio/ost/deck_build_screen.mp3",
 	"res://talents/TalentSelectScene.tscn": "res://assets/audio/ost/deck_build_screen.mp3",
-	"res://map/MapScene.tscn": "res://assets/audio/ost/deck_build_screen.mp3",
 	"res://shop/ShopScene.tscn": "res://assets/audio/ost/shop.mp3",
 }
 

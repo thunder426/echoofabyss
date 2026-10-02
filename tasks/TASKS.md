@@ -49,7 +49,6 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["077"](077-continuing-saved-run-skips-pending-card.md) — Continuing a saved run skips a pending card reward, shop or relic reward (and loses the act's talent point) (meta)
 - ["078"](078-show-cards-boss-kill-permanently-unlocked.md) — Show the cards a boss kill permanently unlocked (ui)
 - ["079"](079-delete-card-library-md-carddatabase-gd.md) — Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth (content)
-- ["080"](080-delete-unreachable-mapscene-dead-gamemanager-resource.md) — Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow (meta)
 - ["081"](081-delete-unreachable-passive-content-spirit-conscription.md) — Delete unreachable passive content (spirit_conscription, champion_duel, dead passive arm, stale AI hardcoded-id check) (content)
 - ["082"](082-side-symmetry-audit-verdict-table-player.md) — Side-symmetry audit: verdict table for every player-only rules path, plus an enemy-content guard test (architecture)
 - ["083"](083-side-constants-sidestate-part-1-hand.md) — Side constants + SideState, part 1: hand, deck, graveyard, essence/mana behind state.side(s) (combat)
@@ -116,6 +115,7 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Done
 - ["056"](056-groom-architecture-roadmap.md) — Groom the architecture roadmap into tasks (architecture, 2026-09-30 → 2026-10-01)
+- ["080"](080-delete-unreachable-mapscene-dead-gamemanager-resource.md) — Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow (meta, 2026-10-01 → 2026-10-01)
 - ["044"](044-live-sim-unification-phase-4.md) — Live/sim unification — Phase 4 (combat, 2026-09-25 → 2026-09-25)
 - ["045"](045-live-sim-unification-phase-5.md) — Live/sim unification — Phase 5 (combat, 2026-09-25 → 2026-09-25)
 - ["046"](046-minion-hp-labels-journal-events.md) — Minion HP labels driven by journal events, not live state (ui, 2026-09-25 → 2026-09-25)
