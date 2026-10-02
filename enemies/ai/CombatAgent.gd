@@ -2,8 +2,8 @@
 ## Perspective-agnostic interface between a CombatProfile and the underlying game state.
 ## "Friendly" = the side this agent controls.  "Opponent" = the other side.
 ##
-## Subclasses: StateAgent (a side of a CombatState, via state commands — sim
-## and tests) and EnemyAgent (the live EnemyAI node, until Phase 3.4).
+## Subclass: StateAgent (a side of a CombatState, via state commands) — the
+## sim, the tests and the live enemy (EnemyTurnRunner) all use it.
 ## All default method implementations are no-ops or sensible defaults so that the
 ## base class compiles cleanly; override what you need.
 class_name CombatAgent
@@ -196,6 +196,12 @@ func can_place_trap(trap: TrapCardData) -> bool:
 
 ## Returns true if the opponent has an active Rune or Environment card.
 func opponent_has_rune_or_environment() -> bool:
+	return false
+
+## True while this side's champion is still to come: it has a `champion_*`
+## passive and hasn't summoned the champion. Profiles keep a board slot free
+## for it (CombatProfile._reserved_slots). Base: no champion.
+func has_pending_champion() -> bool:
 	return false
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,6 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-- ["073"](073-player-sim-bots-side-blind-reserved.md) — Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has (ai, started 2026-10-02)
 - ["043"](043-live-sim-unification-phase-3.md) — Live/sim unification — Phase 3 (combat, started 2026-09-24)
 
 ## Backlog
@@ -112,6 +111,7 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["049"](049-combatstate-refcount-cycles.md) — Break CombatState reference cycles so each fight is freed (combat, 2026-10-02 → 2026-10-02)
 - ["054"](054-handler-log-type-constants.md) — Fix CombatHandlers log-type constants (off by one vs CombatLog.LogType) (combat, 2026-10-02 → 2026-10-02)
 - ["055"](055-rules-code-gamemanager-leak-stale-comments.md) — Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments (combat, 2026-10-02 → 2026-10-02)
+- ["073"](073-player-sim-bots-side-blind-reserved.md) — Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has (ai, 2026-10-02 → 2026-10-02)
 - ["079"](079-delete-card-library-md-carddatabase-gd.md) — Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth (content, 2026-10-02 → 2026-10-02)
 - ["081"](081-delete-unreachable-passive-content-spirit-conscription.md) — Delete unreachable passive content (spirit_conscription, champion_duel, dead passive arm, stale AI hardcoded-id check) (content, 2026-10-02 → 2026-10-02)
 - ["056"](056-groom-architecture-roadmap.md) — Groom the architecture roadmap into tasks (architecture, 2026-09-30 → 2026-10-01)

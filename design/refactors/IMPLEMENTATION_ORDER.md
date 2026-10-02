@@ -61,10 +61,12 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
    Same session as 055.
 6. [x] **[055](../../tasks/055-rules-code-gamemanager-leak-stale-comments.md)** Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments · *normal, S*  
    Hard prerequisite of 086, 089 and 103.
-7. [ ] **[073](../../tasks/073-player-sim-bots-side-blind-reserved.md)** Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has · *normal, S*  
+7. [x] **[073](../../tasks/073-player-sim-bots-side-blind-reserved.md)** Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has · *normal, S*  
    Two commits. Commit 1, the Void Execution tag fix, is neutral. Commit 2, the side-blind reserved slot, moves the swarm, voidbolt_burst and death_circle rows in every act; record that delta.
 
-> **Notes.** 049 was pulled in after 080 (2026-10-02). Every sim fight leaked its CombatState: one `--act 2 --runs 200` reached 19 GB in 87 s, and four acts in parallel ran the dev Mac out of memory. After 049 an act peaks at ~78 MB. 049's fingerprint is identical except a corrected S.Corr `Clog` extra in Act 1, so the P1 chain starts from the post-049 runs. Everything except 073 is behaviour-neutral. 047's step 5 changes the variants that live play, Parity and LiveSmoke pick; BalanceSimBatch is unaffected because it runs every variant. Record which variants they now pick so a later Parity failure isn't misread. The fingerprint taken after 073 is the baseline for P2. Until 047 lands, keep a manual copy of the user:// deck file, because it is the only copy.
+> **Notes.** 049 was pulled in after 080 (2026-10-02). Every sim fight leaked its CombatState: one `--act 2 --runs 200` reached 19 GB in 87 s, and four acts in parallel ran the dev Mac out of memory. After 049 an act peaks at ~78 MB. 049's fingerprint is identical except a corrected S.Corr `Clog` extra in Act 1, so the P1 chain starts from the post-049 runs. Everything except 073 is behaviour-neutral.
+
+> **Done 2026-10-02.** Every neutral ticket left Acts 1–4 byte-identical. 047 changed the variants Parity and LiveSmoke play: Parity now walks every F1–F4 variant, and LiveSmoke plays `f1_c` (task 047's log has the before / after picks). 073's delta is in its task file. **P2's baseline** is the seeded Acts 1–4 run at the "Task 073 (2/2)" commit. 047's step 5 changes the variants that live play, Parity and LiveSmoke pick; BalanceSimBatch is unaffected because it runs every variant. Record which variants they now pick so a later Parity failure isn't misread. The fingerprint taken after 073 is the baseline for P2. Until 047 lands, keep a manual copy of the user:// deck file, because it is the only copy.
 
 
 ### P2 — Combat bugs every run hits (attack, death, champions)
@@ -438,4 +440,5 @@ PvP readiness arrives at ticket 87, because roadmap §11 puts presentation (P10)
 | Date | Change |
 |---|---|
 | 2026-10-01 | First version, from the post-grooming ordering analysis (three lenses, merged and checked by script). |
+| 2026-10-02 | P1 done (8 tickets incl. 049). |
 | 2026-10-02 | 049 pulled forward from P6 into P1 (after 080): the sim leak made the full-size fingerprints impossible. Checked: `push_error` prints `ERROR:`, not `SCRIPT ERROR:` (the P8 / Risks question), so run_checks.sh's grep misses it; a test must assert it. |

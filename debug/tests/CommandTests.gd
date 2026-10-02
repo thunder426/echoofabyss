@@ -38,6 +38,8 @@ static func run_all() -> void:
 	await _profile_play_pays_once()
 	await _agent_spark_fuel_is_credited()
 	_default_bot_void_execution_needs_a_human()
+	_reserved_slot_is_for_own_champion()
+	await _player_bot_fills_the_last_slot()
 	_teardown_frees_the_fight()
 	await _sim_run_frees_the_fight()
 
@@ -771,6 +773,37 @@ static func _default_bot_void_execution_needs_a_human() -> void:
 	TestHarness.assert_false(prof.can_cast_spell(ve), "held with only a Demon")
 	TestHarness.spawn_friendly(state, "abyss_cultist")
 	TestHarness.assert_true(prof.can_cast_spell(ve), "cast with a friendly Human")
+	state.teardown()
+
+## A side keeps a slot free only for its own champion. The base used to read
+## the enemy's champion passives whatever side the agent played (task 073).
+static func _reserved_slot_is_for_own_champion() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_rogue_imp_pack"]})
+	if not TestHarness.begin_test("agents / a side reserves a slot for its own pending champion only", state):
+		return
+	var bot: CombatProfile = ProfileRegistry.make("player", "swarm")
+	bot.setup(TestHarness.agent_for(state, "player"))
+	TestHarness.assert_eq(bot._reserved_slots(), 0, "player bot: the enemy's champion reserves nothing")
+	var enemy: CombatProfile = ProfileRegistry.make("enemy", "feral_pack")
+	enemy.setup(TestHarness.agent_for(state, "enemy"))
+	TestHarness.assert_eq(enemy._reserved_slots(), 1, "enemy: 1 slot while its champion is to come")
+	state._champion_summon_count = 1
+	TestHarness.assert_eq(enemy._reserved_slots(), 0, "enemy: none once it's summoned")
+	state.teardown()
+
+static func _player_bot_fills_the_last_slot() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_rogue_imp_pack"]})
+	if not TestHarness.begin_test("agents / swarm bot plays into the 5th slot while the enemy champion is pending", state):
+		return
+	for i in 4:
+		TestHarness.spawn_friendly(state, "void_imp")
+	state.player_hand.clear()
+	_hand_card(state, "player", "abyssal_brute")  # not an imp / hound: goes through _play_minions_pass
+	_set_res(state, "player", 4, 0)
+	var bot: CombatProfile = ProfileRegistry.make("player", "swarm")
+	bot.setup(TestHarness.agent_for(state, "player"))
+	await bot.play_phase()
+	TestHarness.assert_eq(state.player_board.size(), 5, "Brute played into the last slot")
 	state.teardown()
 
 # ---------------------------------------------------------------------------

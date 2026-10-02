@@ -76,8 +76,8 @@ func play_phase() -> void:
 ## Reserve one board slot specifically for Soul Forge when we have enough Flesh
 ## to press the button. This prevents _play_minions_pass from filling the board
 ## and locking the button out. Only active on Seris with soul_forge unlocked.
-## Note: player profiles (unlike enemy profiles) don't reserve slots for champions,
-## so we don't need to call the parent implementation here.
+## The base reserves only for this side's own pending champion, and the player
+## side has none, so there's nothing to add from the parent.
 func _reserved_slots() -> int:
 	if not agent.state._has_talent("soul_forge"):
 		return 0

@@ -2,7 +2,7 @@
 ## CombatAgent for one side of a CombatState (LIVE_SIM_UNIFICATION_PLAN.md
 ## 2A.5). Every action is a state command (cmd_*) — the engine validates it
 ## and pays its cost — followed by the pacer. The sim runs both sides on this;
-## live's enemy moves onto it in Phase 3.4 (until then: EnemyAgent → EnemyAI).
+## live runs the enemy on it (EnemyTurnRunner).
 class_name StateAgent
 extends CombatAgent
 
@@ -33,6 +33,18 @@ func _get_mana() -> int: return _state.mana_of(side)
 func _set_mana(v: int) -> void: _state.set_mana(side, v)
 func _get_friendly_hp() -> int: return _state.player_hp if side == "player" else _state.enemy_hp
 func _get_opponent_hp() -> int: return _state.enemy_hp if side == "player" else _state.player_hp
+
+## Only the enemy side has champion state today (enemy_passives and
+## _champion_summon_count), so the player side never waits for one. The side
+## is read here, not in a profile; task 122 folds this into the side-aware
+## agent API.
+func has_pending_champion() -> bool:
+	if side != "enemy" or _state._champion_summon_count > 0:
+		return false
+	for p: String in _state.enemy_passives:
+		if p.begins_with("champion_"):
+			return true
+	return false
 
 func is_alive() -> bool:
 	return _state.winner.is_empty()

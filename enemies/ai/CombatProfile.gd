@@ -545,15 +545,11 @@ func _play_spells_relief_pass() -> void:
 
 ## How many board slots to keep free for champion/ritual summons.
 ## Override in profiles that need space for triggered summons.
+## Board slots to keep free: one while this side's own champion is still to
+## come. (It used to read the enemy's champion whatever side it played, so the
+## player bots held a slot for the enemy's champion — task 073.)
 func _reserved_slots() -> int:
-	# Default: reserve 1 slot if champion hasn't been summoned yet
-	if agent.state._champion_summon_count > 0:
-		return 0
-	# Check if this encounter even has a champion passive
-	for p: String in agent.state.enemy_passives:
-		if p.begins_with("champion_"):
-			return 1
-	return 0
+	return 1 if agent.has_pending_champion() else 0
 
 ## Place minions until board is full or no affordable minions remain.
 ## Respects _reserved_slots() to keep room for champion/ritual summons.

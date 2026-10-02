@@ -1,11 +1,11 @@
 ---
 id: "073"
 title: Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has
-status: active
+status: done
 area: ai
 priority: normal
 started: 2026-10-02
-finished:
+finished: 2026-10-02
 ---
 
 ## Description
@@ -107,7 +107,27 @@ Gate:
   - Swarm is hit only partly (imps and hounds bypass the reservation).
   - The fix keeps the reservation for a side's own champion instead of exempting the player side (owner Q1/Q2).
 - 2026-10-02: commit 1 (bug 2). `DefaultPlayerProfile`'s Void Execution rule is `has_friendly_type` / `HUMAN`. New probe `agents / default bot: Void Execution only with a friendly Human` (held on an empty board and with only a Demon, cast with Abyss Cultist); the Human case fails with the old rule. No preset profile extends DefaultPlayerProfile. Gate green (1124 tests); BalanceSimBatch `--act 1` identical to `364370d`.
+- 2026-10-02: commit 2 (bug 1). `CombatAgent.has_pending_champion()` (base false); `StateAgent` answers it for the enemy side only (a `champion_*` passive, `_champion_summon_count == 0`), so the side literal lives in the agent. `CombatProfile._reserved_slots()` = `1 if agent.has_pending_champion() else 0`, so the enemy behaves exactly as before. SerisPlayerProfile's comment reworded; the stale "EnemyAgent" mentions in the CombatAgent / StateAgent headers fixed (the live enemy runs on a StateAgent).
+  - Probes: `agents / a side reserves a slot for its own pending champion only` (swarm on the player agent 0; feral_pack on the enemy agent 1, then 0 once summoned) and `agents / swarm bot plays into the 5th slot while the enemy champion is pending` (4 imps + Abyssal Brute, Essence 4 → 5 minions). With the old method: 1 and 4 minions, both fail.
+  - Gate green: lint 0, 1128 tests, LiveSmoke OK (its `default`-bot fight unchanged), Parity 24/24.
+  - BalanceSimBatch `--runs 200 --seed 7` delta vs `c5d6d50` (mean win% over each preset × fight's relic / variant rows; only rows that moved):
+
+    | Act | Preset | Fight | Before | After | Δ |
+    |---|---|---|---|---|---|
+    | 1 | Swarm | F1 / F2 / F3 | 62.7 / 87.7 / 81.0 | 61.7 / 86.2 / 81.5 | −1.0 / −1.5 / +0.5 |
+    | 1 | DeathCircle | F1 / F2 / F3 | 46.3 / 74.8 / 51.0 | 45.8 / 75.3 / 52.0 | −0.5 / +0.5 / +1.0 |
+    | 2 | Swarm | F4 / F5 / F6 | 82.2 / 88.4 / 89.5 | 87.1 / 92.6 / 90.4 | +4.8 / +4.2 / +0.9 |
+    | 2 | DeathCircle | F4 / F5 / F6 | 71.6 / 68.1 / 73.4 | 71.6 / 68.8 / 74.1 | 0.0 / +0.6 / +0.8 |
+    | 3 | Swarm | F7 / F8 / F9 | 98.2 / 59.9 / 66.4 | 98.2 / 60.6 / 71.9 | 0.0 / +0.7 / +5.5 |
+    | 3 | DeathCircle | F7 / F8 / F9 | 94.4 / 82.3 / 64.8 | 94.1 / 82.9 / 66.8 | −0.3 / +0.6 / +1.9 |
+    | 4 | Swarm | F10–F15 | 48.9 / 70.8 / 87.7 / 57.3 / 55.8 / 31.8 | 60.4 / 77.6 / 90.5 / 59.4 / 67.1 / 39.5 | +11.5 / +6.8 / +2.8 / +2.1 / +11.2 / +7.7 |
+    | 4 | DeathCircle | F10–F15 | 64.6 / 81.1 / 95.2 / 56.1 / 74.2 / 15.7 | 66.8 / 84.0 / 95.8 / 55.7 / 77.2 / 16.3 | +2.2 / +2.9 / +0.6 / −0.4 / +2.9 / +0.7 |
+
+    Voidbolt (spell_burn) barely moves: turns / HP shift on a few F4, F9, F11, F12, F14 and F15 rows, win rate ±0.5 at most. S.Flesh / S.Forge / S.Corr rows, extras included, are byte-identical in every act, as predicted. The swarm bot gained most where fights run long and its board fills (Act 4).
+  - This run (at the 073 commit) is the P2 baseline.
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+The player sim bots no longer misplay. The `default` bot casts Void Execution with a friendly Human (its rule tested a tag no card has), and a side keeps a board slot free only for its own pending champion (`CombatAgent.has_pending_champion`), so the swarm, spell_burn and rune_tempo bots stop holding a slot for the enemy's champion. Commit 1 is neutral; commit 2 raises the Swarm preset's win rate up to +11.5 points in Act 4 (DeathCircle up to +2.9), with the Seris presets byte-identical.
+Follow-ups: task 122 folds `has_pending_champion` into its side-aware agent API; task 104's allowlist entry for the `human` tag isn't needed.
