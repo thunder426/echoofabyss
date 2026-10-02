@@ -1338,6 +1338,13 @@ func slot_for(minion: MinionInstance) -> SlotState:
 			return s
 	return null
 
+## True while `minion` is on its side's board. Checks the slot as well as the board
+## array: a minion being played sits in its slot before it joins the array
+## (ON_*_MINION_PLAYED fires in between). Damage and death skip a minion that has
+## left, so it can't die twice (task 057).
+func is_on_board(minion: MinionInstance) -> bool:
+	return minion != null and (slot_for(minion) != null or _friendly_board(minion.owner).has(minion))
+
 # ---------------------------------------------------------------------------
 # Turn, resources, decks, hands, graveyards — both sides (plan 1.3). Every
 # shell reads them here. Mutators the UI shows (spend / gain / convert) emit
@@ -1980,6 +1987,10 @@ var _pending_dmg_source: String = ""
 ## emits minion_died, then fires ON_CORRUPTION_REMOVED (stacks it held) and
 ## ON_*_MINION_DIED with the attacker.
 func _on_minion_vanished(minion: MinionInstance) -> void:
+	# A minion that already left the board can't die again (task 057). CombatManager
+	# doesn't emit for one; this guards any other path.
+	if not is_on_board(minion):
+		return
 	var dead_slot: SlotState = slot_for(minion)
 	var dead_index: int = dead_slot.index if dead_slot != null else -1
 	# The event precedes the slot clear so the presenter can animate the departing minion.

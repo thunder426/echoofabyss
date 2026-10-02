@@ -205,6 +205,11 @@ static func run_all() -> void:
 	_path_of_corruption_amplifies_damage_hero_step()
 	_path_of_corruption_applies_corruption_to_enemy_hero_post_spell()
 	_path_of_corruption_does_not_amplify_void_bolt_but_applies_stack()
+	# Attack / death integrity — a minion dies once (task 057)
+	_death_trigger_kills_attacker_once()
+	_pre_kills_defender_attack_spent()
+	_pre_removes_attacker_hero_attack_spent()
+	_dead_minion_takes_no_damage_dies_once()
 
 # ---------------------------------------------------------------------------
 # Fleshbind passive — +1 Flesh on Demon death
@@ -338,15 +343,16 @@ static func _soul_forge_counter() -> void:
 	state.teardown()
 
 static func _fiend_offering() -> void:
-	# Fleshbind now fires on BOTH ON_PLAYER_MINION_SACRIFICED and
-	# ON_PLAYER_MINION_DIED (registered in CombatSetup.gd). So the sequence is:
+	# Fleshbind fires on ON_PLAYER_MINION_SACRIFICED (and on DIED, but sacrifice
+	# is not death). So the sequence is:
 	#   3 (start)
 	#   → fiend_offering spends 2 → 1
 	#   → fleshbind on SACRIFICED → 2
-	#   → kill_minion fires DIED → fleshbind again → 3
-	# Net: 3 (-2 offering +1 sac fleshbind +1 died fleshbind) = 3.
+	#   → kill_minion on the sacrificed (off-board) Fiend does nothing (task 057;
+	#     it used to fire DIED and tick Fleshbind a second time)
+	# Net: 3 (-2 offering +1 sac fleshbind) = 2.
 	var state := TestHarness.seris_state(["soul_forge", "fiend_offering"])
-	if not TestHarness.begin_test("fiend_offering / Lesser Demon summon, -2 Flesh + 2 Fleshbind ticks", state):
+	if not TestHarness.begin_test("fiend_offering / Lesser Demon summon, -2 Flesh + 1 Fleshbind tick", state):
 		return
 	state.player_flesh = 3
 	var demon := TestHarness.spawn_friendly(state, "grafted_fiend")
@@ -358,8 +364,7 @@ static func _fiend_offering() -> void:
 			has_lesser = true
 			break
 	TestHarness.assert_true(has_lesser, "Lesser Demon on board")
-	# 3 start -2 offering +1 sac fleshbind +1 died fleshbind = 3
-	TestHarness.assert_eq(state.player_flesh, 3, "Flesh net: 3 -2 +1 +1 = 3")
+	TestHarness.assert_eq(state.player_flesh, 2, "Flesh net: 3 -2 +1 = 2")
 	state.teardown()
 
 static func _forge_momentum() -> void:
@@ -3444,4 +3449,96 @@ static func _handler_order_snapshot() -> void:
 		TestHarness.assert_true(same, "dispatch order unchanged")
 	MinionInstance.corruption_inverts_on_friendly_demons = false
 	MinionInstance.iron_resolve_active = false
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Attack / death integrity — a minion dies once (task 057)
+# ---------------------------------------------------------------------------
+
+## Journal events of `kind` about `m` (payload.minion) from index `start` on.
+static func _events_for(state: CombatState, start: int, kind: int, m: MinionInstance) -> Array[int]:
+	var out: Array[int] = []
+	for i in range(start, state.journal.size()):
+		var ev: CombatEvent = state.journal[i]
+		if ev.kind == kind and ev.payload.get("minion") == m:
+			out.append(i)
+	return out
+
+## Fight 2: the attacker kills a Void-Touched Imp and its on-death AoE kills the
+## attacker. The counter used to hit the corpse: a second death, +2 Fleshbind.
+static func _death_trigger_kills_attacker_once() -> void:
+	var state := TestHarness.seris_state()
+	if not TestHarness.begin_test("attack / a death trigger kills the attacker once: no counter on the corpse", state):
+		return
+	var imp := TestHarness.spawn_friendly(state, "void_imp")
+	var vti := TestHarness.spawn_enemy(state, "void_touched_imp")
+	vti.current_health = 100
+	var flesh_before: int = state.player_flesh
+	var start: int = state.journal.size()
+	state.combat_manager.resolve_minion_attack(imp, vti)
+	TestHarness.assert_false(state.is_on_board(imp), "the VTI's on-death AoE killed the attacker")
+	var deaths: Array[int] = _events_for(state, start, CombatEvent.Kind.MINION_DIED, imp)
+	TestHarness.assert_eq(deaths.size(), 1, "one MINION_DIED for the attacker")
+	if deaths.size() > 0:
+		TestHarness.assert_eq(_events_for(state, deaths[0], CombatEvent.Kind.DAMAGE_DEALT, imp).size(), 0,
+				"no damage on the corpse")
+	TestHarness.assert_eq(state.player_flesh, flesh_before + 1, "Fleshbind: +1 Flesh for one Demon death")
+	state.teardown()
+
+## Korrath: Runeforge Strike places the 3rd rune in PRE, Grand Ritual: Chaos kills
+## the defender. The attack is spent: no strike on the corpse, no counter, and the
+## Critical Strike stack is kept (crit applies after PRE).
+static func _pre_kills_defender_attack_spent() -> void:
+	var state := TestHarness.korrath_state(["runeforge_strike", "runic_absorption", "grand_ritual_chaos"])
+	if not TestHarness.begin_test("attack / PRE kills the defender: the attack is spent, crit kept", state):
+		return
+	state.active_traps.append(CardDatabase.get_card("void_rune"))
+	state.active_traps.append(CardDatabase.get_card("blood_rune"))
+	var knight := TestHarness.spawn_friendly(state, "abyssal_knight")
+	BuffSystem.apply(knight, Enums.BuffType.CRITICAL_STRIKE, 1, "critical_strike", false, false)
+	var brood := TestHarness.spawn_enemy(state, "brood_imp")
+	brood.current_health = 50
+	var start: int = state.journal.size()
+	state.combat_manager.resolve_minion_attack(knight, brood)
+	TestHarness.assert_false(state.is_on_board(brood), "Grand Ritual: Chaos killed the defender in PRE")
+	TestHarness.assert_eq(_events_for(state, start, CombatEvent.Kind.MINION_DIED, brood).size(), 1,
+			"one MINION_DIED for the defender")
+	TestHarness.assert_eq(_events_for(state, start, CombatEvent.Kind.DAMAGE_DEALT, knight).size(), 0,
+			"no counter on the attacker")
+	TestHarness.assert_eq(knight.attack_count, 1, "the attack is spent")
+	TestHarness.assert_eq(knight.state, Enums.MinionState.EXHAUSTED, "the attacker is exhausted")
+	TestHarness.assert_true(BuffSystem.has_type(knight, Enums.BuffType.CRITICAL_STRIKE), "Critical Strike stack kept")
+	TestHarness.assert_true(state._last_attacker == null, "attack bookkeeping cleared")
+	state.teardown()
+
+## A PRE trigger that removes the attacker spends a hero attack too: no hero damage.
+static func _pre_removes_attacker_hero_attack_spent() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("attack / PRE removes the attacker: the hero attack is spent", state):
+		return
+	var imp := TestHarness.spawn_friendly(state, "void_imp")
+	state.trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_ATTACK_PRE, func(ctx: EventContext) -> void:
+		state.combat_manager.kill_minion(ctx.minion), 0)
+	var hp_before: int = state.enemy_hp
+	state.combat_manager.resolve_minion_attack_hero(imp, "enemy")
+	TestHarness.assert_eq(state.enemy_hp, hp_before, "no hero damage")
+	TestHarness.assert_eq(imp.attack_count, 1, "the attack is spent")
+	state.teardown()
+
+## Guard unit check: damage and kill on a minion that already died do nothing.
+static func _dead_minion_takes_no_damage_dies_once() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("attack / a dead minion takes no damage and can't die again", state):
+		return
+	var imp := TestHarness.spawn_enemy(state, "void_imp")
+	var died: Array = []
+	state.trigger_manager.register(Enums.TriggerEvent.ON_ENEMY_MINION_DIED, func(ctx: EventContext) -> void:
+		died.append(ctx.minion), 0)
+	state.combat_manager.kill_minion(imp)
+	var start: int = state.journal.size()
+	state.combat_manager._deal_damage(imp, CombatManager.make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.ARCANE))
+	state.combat_manager.kill_minion(imp)
+	TestHarness.assert_eq(_events_for(state, start, CombatEvent.Kind.DAMAGE_DEALT, imp).size(), 0, "no damage on the corpse")
+	TestHarness.assert_eq(_events_for(state, start, CombatEvent.Kind.MINION_DIED, imp).size(), 0, "no second MINION_DIED")
+	TestHarness.assert_eq(died.count(imp), 1, "ON_ENEMY_MINION_DIED fired once")
 	state.teardown()

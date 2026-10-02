@@ -3,6 +3,7 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
+- ["057"](057-minion-that-dies-mid-attack-dies.md) — A minion that dies mid-attack dies twice (on-death effects and death triggers run again) (combat, started 2026-10-02)
 - ["043"](043-live-sim-unification-phase-3.md) — Live/sim unification — Phase 3 (combat, started 2026-09-24)
 
 ## Backlog
@@ -22,7 +23,6 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["051"](051-ai-profiles-no-direct-state-writes.md) — Stop AI profiles writing CombatState outside cmd_* (and de-duplicate spark cost) (combat)
 - ["052"](052-save-robustness.md) — Make saves versioned, atomic and complete (meta)
 - ["053"](053-gate-debug-tools-in-release.md) — Gate the cheat panel and test config out of release builds (meta)
-- ["057"](057-minion-that-dies-mid-attack-dies.md) — A minion that dies mid-attack dies twice (on-death effects and death triggers run again) (combat)
 - ["058"](058-imp-talisman-three-latent-sites-bypass.md) — Imp Talisman (and three latent sites) bypass _card_for: Vael gets an un-boosted Void Imp (combat)
 - ["059"](059-matron-flesh-gains-flesh-own-death.md) — Matron of Flesh gains Flesh for its own death and for friendly deaths during its attack (combat)
 - ["060"](060-attacks-crit-flag-leaks-onto-damage.md) — An attack's crit flag leaks onto every damage event nested inside it (crit popups on non-crit hits) (combat)

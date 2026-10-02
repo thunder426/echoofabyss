@@ -10,6 +10,7 @@ static func run_all() -> void:
 	_refusals_change_nothing()
 	_play_minion_player_pays_once()
 	_play_minion_event_order()
+	_play_minion_played_handler_can_damage_it()
 	_slots_are_engine_slot_states()
 	_journal_buff_applied_before_after()
 	_journal_order_spell_kill_on_death_summon()
@@ -216,6 +217,24 @@ static func _play_minion_event_order() -> void:
 	TestHarness.assert_eq(seen.get("played_on_board"), false, "PLAYED: not yet in board array")
 	TestHarness.assert_eq(seen.get("played_in_slot"), true, "PLAYED: already in its slot")
 	TestHarness.assert_eq(seen.get("summoned_on_board"), true, "SUMMONED: on the board")
+	state.teardown()
+
+## Task 057: damage skips a minion that is off the board, but a minion being played
+## is in its slot (not yet the board array) when PLAYED fires, so it still takes damage.
+static func _play_minion_played_handler_can_damage_it() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("commands / play_minion: a PLAYED handler can damage the minion being played", state):
+		return
+	state.trigger_manager.register(Enums.TriggerEvent.ON_PLAYER_MINION_PLAYED, func(ctx: EventContext) -> void:
+		state.combat_manager.apply_damage_to_minion(ctx.minion,
+				CombatManager.make_damage_info(100, Enums.DamageSource.SPELL, Enums.DamageSchool.ARCANE)), 0)
+	var hound := _hand_card(state, "player", "shadow_hound")
+	_set_res(state, "player", 5, 3)
+	state.cmd_play_minion("player", hound, 0)
+	var m: MinionInstance = state.player_slots[0].minion
+	TestHarness.assert_true(m != null, "placed in slot 0")
+	if m != null:
+		TestHarness.assert_eq(m.current_health, m.card_data.health - 100, "took 100 while being played")
 	state.teardown()
 
 static func _play_minion_enemy_target_and_discount() -> void:

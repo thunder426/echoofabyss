@@ -87,6 +87,12 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 		atk_ctx.minion = attacker
 		atk_ctx.defender = defender
 		state.trigger_manager.fire(atk_ctx)
+	# A PRE trigger can take either minion off the board (Runeforge Strike → Grand
+	# Ritual: Chaos kills the defender). The attack is spent: no strike, no POST, no
+	# pierce, no counter, and the crit stack is kept (task 057).
+	if state != null and not (state.is_on_board(attacker) and state.is_on_board(defender)):
+		_spend_attack(attacker)
+		return
 	var atk_damage := _apply_crit(attacker)
 
 	# ETHEREAL: defender takes 50% reduced physical damage from minion attacks
@@ -104,9 +110,10 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	last_attack_damage = atk_damage if not defender.has_immune() else 0
 
 	# Korrath — fire ON_PLAYER_ATTACK_POST after defender damage resolves, before
-	# pierce/counter. AB-residual handlers run here; if defender died, AB lands on
-	# a dead minion harmlessly (ON_ENEMY_MINION_DIED already fired from _deal_damage,
-	# so Shattering Doom snapshotted the pre-POST AB total, by design).
+	# pierce/counter. AB-residual handlers run here; if the strike killed the
+	# defender, AB lands on a dead minion harmlessly (ON_ENEMY_MINION_DIED already
+	# fired from _deal_damage, so Shattering Doom snapshotted the pre-POST AB total,
+	# by design). A defender that PRE removed never gets here (spent attack above).
 	if attacker.owner == "player" and state != null and state.trigger_manager != null:
 		var post_ctx := EventContext.make(Enums.TriggerEvent.ON_PLAYER_ATTACK_POST, "player")
 		post_ctx.minion = attacker
@@ -129,20 +136,26 @@ func resolve_minion_attack(attacker: MinionInstance, defender: MinionInstance) -
 	if ethereal_prevented > 0:
 		_rift_warden_siphon(defender, ethereal_prevented)
 
-	# Counter-attack: attacker takes defender's ATK
-	var counter_damage := defender.effective_atk()
-	if attacker.has_ethereal():
-		counter_damage -= counter_damage / 2
-	var attacker_pre_hp := attacker.current_health
-	var attacker_pre_shield := attacker.current_shield
-	_deal_damage(attacker, _attack_damage_info(counter_damage, defender))
-	last_counter_hp_delta = maxi(0, (attacker_pre_hp + attacker_pre_shield) - (attacker.current_health + attacker.current_shield))
-	last_counter_damage = counter_damage if not attacker.has_immune() else 0
+	# Counter-attack: attacker takes defender's ATK — unless the strike's death
+	# triggers already killed the attacker (Void-Touched Imp's on-death AoE).
+	var attacker_on_board: bool = state == null or state.is_on_board(attacker)
+	last_counter_hp_delta = 0
+	last_counter_damage = 0
+	if attacker_on_board:
+		var counter_damage := defender.effective_atk()
+		if attacker.has_ethereal():
+			counter_damage -= counter_damage / 2
+		var attacker_pre_hp := attacker.current_health
+		var attacker_pre_shield := attacker.current_shield
+		_deal_damage(attacker, _attack_damage_info(counter_damage, defender))
+		last_counter_hp_delta = maxi(0, (attacker_pre_hp + attacker_pre_shield) - (attacker.current_health + attacker.current_shield))
+		last_counter_damage = counter_damage if not attacker.has_immune() else 0
 
 	if attacker.has_lifedrain() and atk_damage > 0:
 		hero_healed.emit(attacker.owner, atk_damage)
 
-	if attacker.has_siphon() and atk_damage > 0:
+	# Siphon heals the minion itself, so not a dead one (the counter may have killed it).
+	if attacker.has_siphon() and atk_damage > 0 and (state == null or state.is_on_board(attacker)):
 		_siphon_self_heal(attacker, atk_damage)
 
 	attacker.attack_count += 1
@@ -165,6 +178,9 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 		atk_ctx.minion = attacker
 		atk_ctx.defender = defender_sentinel
 		state.trigger_manager.fire(atk_ctx)
+	if state != null and not state.is_on_board(attacker):
+		_spend_attack(attacker)  # a PRE trigger removed the attacker (task 057)
+		return
 	var damage := _apply_crit(attacker)
 	if damage > 0:
 		apply_hero_damage(target_owner, _attack_damage_info(damage, attacker))
@@ -185,6 +201,16 @@ func resolve_minion_attack_hero(attacker: MinionInstance, target_owner: String) 
 	if state != null:
 		state._last_attacker = null
 		state._last_attack_was_crit = false
+
+## An attack whose attacker or target left the board during the PRE triggers. It
+## still counts as the minion's attack, but nothing lands (task 057).
+func _spend_attack(attacker: MinionInstance) -> void:
+	attacker.attack_count += 1
+	attacker.state = Enums.MinionState.EXHAUSTED
+	state._log("  %s's attack is spent: its target or itself left the board." % attacker.card_data.card_name,
+			Enums.LogType.PLAYER if attacker.owner == "player" else Enums.LogType.ENEMY)
+	state._last_attacker = null
+	state._last_attack_was_crit = false
 # ---------------------------------------------------------------------------
 # Damage application
 # ---------------------------------------------------------------------------
@@ -243,6 +269,10 @@ func _apply_armour_math(target: Object, damage: int) -> int:
 ## if HP reaches 0. Source/school are stashed for downstream resistances and triggers.
 func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 	last_post_armour_damage = 0
+	# A minion that already died or left the board takes no more damage, so its
+	# death can't fire twice (task 057). Bare CombatManager tests have no state.
+	if state != null and (minion.current_health <= 0 or not state.is_on_board(minion)):
+		return
 	var damage: int = info.get("amount", 0)
 	if damage <= 0:
 		return
@@ -333,6 +363,8 @@ func _attack_damage_info(amount: int, attacker: MinionInstance) -> Dictionary:
 ## Instantly kill a minion, bypassing shield and health checks.
 ## Fires minion_vanished so On Death effects and board cleanup happen normally.
 func kill_minion(minion: MinionInstance) -> void:
+	if state != null and not state.is_on_board(minion):
+		return  # already dead or gone: no second death (task 057)
 	if state != null and state._try_save_from_death(minion):
 		return
 	minion.current_health = 0

@@ -1,11 +1,11 @@
 ---
 id: "057"
 title: A minion that dies mid-attack dies twice (on-death effects and death triggers run again)
-status: backlog
+status: done
 area: combat
 priority: high
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -37,7 +37,7 @@ So every death listener runs twice: the minion's own on-death steps (`_resolve_o
      - `counter_damage = defender.effective_atk()` (:133) lets a minion that died before the strike hit the Knight.
    - BalanceSimBatch has no Korrath preset (`_PRESET_CONFIG`, BalanceSimBatch.gd:22-90), so no sim covers this path.
 
-(Deck contents come from `user://encounter_decks.json`; task 047 moves them into the repo.)
+(Deck contents: `EncounterDecks` in the repo since task 047.)
 
 ### Same class, smaller
 
@@ -103,7 +103,22 @@ New probes in `debug/tests/TriggerHandlerTests.gd`. Count events from `state.jou
 ## Work log
 
 - 2026-10-01: filed by task 056 (grooming pass 1) from unit F's straight-to-task bug 3 (roadmap §F/§I). Re-checked the trace at `404b51c`: no alive or board check in `_deal_damage`, `kill_minion` or `_on_minion_vanished`. Added the Siphon-heals-a-corpse case. `is_on_board` is defined on slot or board because played minions sit in their slot before joining the board array.
+- 2026-10-02: started (P2 ticket 1). Owner confirmed the default: a PRE trigger that removes the defender or the attacker spends the attack.
+  - Checked first: nothing outside `_deal_damage` / `kill_minion` drives a board minion's HP to ≤ 0 (no negative HP content; HP-buff removal doesn't lower `current_health`), so the HP half of the `_deal_damage` guard can't strand a live minion. `_transfer_to_player_board` updates `owner`, so `is_on_board` holds for a transferred spark.
+  - Fix as proposed (steps 1–7). `kill_minion` checks only `is_on_board`, not HP: a kill bypasses health checks. The spent-attack exit is `CombatManager._spend_attack` (attack_count, EXHAUSTED, a LOG line, clear `_last_attacker` / `_last_attack_was_crit`); it doesn't emit the unheard `attack_resolved` (task 132 deletes it). The counter block resets `last_counter_*` to 0 when skipped (no readers outside CombatManager).
+  - Probes: TriggerHandlerTests `attack /` ×4 (VTI death trigger, PRE kills the defender, PRE removes a hero attacker, dead-minion guard) and CommandTests `_play_minion_played_handler_can_damage_it`. All four TriggerHandler probes fail on the old engine (10 assertions: 2 MINION_DIED, +2 Flesh, a counter on the Knight, the crit stack spent, 100 hero damage from a dead attacker).
+  - `_fiend_offering` asserted the bug: it sacrificed a Grafted Fiend and then called `kill_minion` on the off-board corpse, expecting a second Fleshbind tick (3 → 3). Sacrifice is not death; the probe now expects 3 − 2 + 1 = 2.
+  - Not changed, noted for task 086: the enemy path (`_cmd_attack`) returns `target_gone` / `attacker_gone` after ON_ENEMY_ATTACK without spending the attack, while the player's PRE path now spends it.
+  - Gate: run_checks green (lint 0, 197 scripts, 1146 tests, LiveSmoke OK, Parity 24/24).
+  - Fingerprint (`--runs 200 --seed 7`) vs `6d58afb`, saved in `.fingerprints/057/`:
+    - Act 1: two f2_c rows (DeathCircle win 74.0 → 73.5%; S.Forge HP −2).
+    - Act 2: the biggest mover is F4 (the Patrol detonating corruption was another double-death source): DeathCircle f4_a/f4_b win −0.5 to −1.5 pts, S.Forge f4_b ±0.5, S.Corr f4_b unchanged; F5 S.Corr ±1 pt, S.Forge +0.5; F6 within 0.5 pt.
+    - Act 3: one diagnostic counter (BehL b255 → b254).
+    - Act 4: S.Corr rows only. F11 win within ±1 pt (MS+BC 75.0 → 74.0%), F12 HP +4, F15 HP within ±7; the Behemoth / Bastion death-cause counters and DCrit drop slightly (no death counted twice).
+    - Less movement in the F2 Seris rows than the grooming expected: the VTI-kills-the-attacker trace is rare in the sim.
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+A minion now dies once. Damage and `kill_minion` skip a minion that is dead or off the board (`CombatState.is_on_board`: slot or board array), `_on_minion_vanished` guards too, and an attack whose defender or attacker leaves the board during PRE is spent (attack_count, EXHAUSTED, crit stack kept; no strike, POST, pierce or counter). The counter and Siphon skip an attacker the strike's death triggers already killed. Balance delta is small (≤ 1.5 pts, mostly F4 and Act 4 S.Corr rows). The stale `_fiend_offering` probe, which asserted a sacrificed Fiend could still die, now expects one Fleshbind tick.
+Follow-ups: task 086 should make the enemy path spend an attack whose target is gone after ON_ENEMY_ATTACK (today it returns `target_gone` without spending); task 131 replaces `is_on_board` with `MinionInstance.zone`.
