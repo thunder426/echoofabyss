@@ -46,7 +46,6 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["076"](076-talent-undo-last-choice-after-abyss.md) — Talent 'Undo Last Choice' after Abyss Convergence keeps its 2 Echo Runes; re-picking adds 2 more (meta)
 - ["077"](077-continuing-saved-run-skips-pending-card.md) — Continuing a saved run skips a pending card reward, shop or relic reward (and loses the act's talent point) (meta)
 - ["078"](078-show-cards-boss-kill-permanently-unlocked.md) — Show the cards a boss kill permanently unlocked (ui)
-- ["079"](079-delete-card-library-md-carddatabase-gd.md) — Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth (content)
 - ["081"](081-delete-unreachable-passive-content-spirit-conscription.md) — Delete unreachable passive content (spirit_conscription, champion_duel, dead passive arm, stale AI hardcoded-id check) (content)
 - ["082"](082-side-symmetry-audit-verdict-table-player.md) — Side-symmetry audit: verdict table for every player-only rules path, plus an enemy-content guard test (architecture)
 - ["083"](083-side-constants-sidestate-part-1-hand.md) — Side constants + SideState, part 1: hand, deck, graveyard, essence/mana behind state.side(s) (combat)
@@ -114,6 +113,7 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 ## Done
 - ["047"](047-enemy-decks-into-repo.md) — Move enemy decks from user:// into the repo (content, 2026-10-02 → 2026-10-02)
 - ["049"](049-combatstate-refcount-cycles.md) — Break CombatState reference cycles so each fight is freed (combat, 2026-10-02 → 2026-10-02)
+- ["079"](079-delete-card-library-md-carddatabase-gd.md) — Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth (content, 2026-10-02 → 2026-10-02)
 - ["056"](056-groom-architecture-roadmap.md) — Groom the architecture roadmap into tasks (architecture, 2026-09-30 → 2026-10-01)
 - ["080"](080-delete-unreachable-mapscene-dead-gamemanager-resource.md) — Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow (meta, 2026-10-01 → 2026-10-01)
 - ["044"](044-live-sim-unification-phase-4.md) — Live/sim unification — Phase 4 (combat, 2026-09-25 → 2026-09-25)

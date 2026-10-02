@@ -1,6 +1,6 @@
 # Card Description Style Guide
 
-All card descriptions in `CARD_LIBRARY.md` and `CardDatabase.gd` must follow these rules:
+All card descriptions in `cards/data/CardDatabase.gd` (and the design-doc drafts they come from) must follow these rules:
 
 ## Targeting
 

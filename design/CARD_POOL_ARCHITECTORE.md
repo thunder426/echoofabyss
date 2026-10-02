@@ -128,17 +128,19 @@ When designing a new hero’s core pool:
 
 ## 6. Current Pool Inventory (as of v0.6)
 
+Pool membership lives in `_card_pools` in `cards/data/CardDatabase.gd`, the source of truth for card data. This section names the pools; it doesn't list their cards.
+
 ### Core Pools
 
 **Neutral**
 
-- `neutral_core` — Neutral Core (CARD_LIBRARY.md § 6)
+- `neutral_core` — Neutral Core
 
 **Abyss Order**
 
-- `abyss_core` — Faction Core (CARD_LIBRARY.md § 1)
-- `korrath_core` — Korrath Hero Core *(to be designed)*
-- `seris_core` — Seris Hero Core *(to be designed)*
+- `abyss_core` — Faction Core
+- `korrath_core` — Korrath Hero Core
+- `seris_core` — Seris Hero Core
 
 **Free Cities**
 
@@ -149,23 +151,23 @@ When designing a new hero’s core pool:
 
 **Abyss Order — Vael**
 
-- `vael_common` — Common Support (CARD_LIBRARY.md § 2)
-- `vael_piercing_void` — Talent-Specific Support, requires `piercing_void` (CARD_LIBRARY.md § 3)
-- `vael_endless_tide` — Talent-Specific Support, requires `imp_evolution` (CARD_LIBRARY.md § 4)
-- `vael_rune_master` — Talent-Specific Support, requires `rune_caller` (CARD_LIBRARY.md § 5)
+- `vael_common` — Common Support
+- `vael_piercing_void` — Talent-Specific Support, requires `piercing_void`
+- `vael_endless_tide` — Talent-Specific Support, requires `imp_evolution`
+- `vael_rune_master` — Talent-Specific Support, requires `rune_caller`
 
-**Abyss Order — Korrath** *(to be designed)*
+**Abyss Order — Korrath**
 
 - `korrath_common` — Common Support
 - Three talent-specific support pools — one per branch:
   - `korrath_iron_vanguard` (gated behind `iron_formation` T0)
-  - `korrath_runic_knight` (gated behind `runeforge_strike` T0)
-  - `korrath_abyssal_breaker` (gated behind `corrupting_presence` T0)
+  - `korrath_runic_knight` (gated behind `runeforge_strike` T0) *(to be designed)*
+  - `korrath_abyssal_breaker` (gated behind `corrupting_presence` T0) *(to be designed)*
 
-**Abyss Order — Seris** *(to be designed)*
+**Abyss Order — Seris**
 
 - `seris_common` — Common Support
-- Three talent-specific support pools — one per branch (Fleshcraft, Demon Forge, Corruption Engine)
+- Three talent-specific support pools — one per branch: `seris_fleshcraft`, `seris_demon_forge`, `seris_corruption`
 
 ### Enemy-Only Pools (out of scope for this architecture)
 

@@ -57,7 +57,7 @@ func resolve(effect_id: String) -> bool:
 				var spark: MinionInstance = board[board.size() - 1]
 				BuffSystem.apply(spark, Enums.BuffType.GRANT_GUARD, 1, "relic_guardian", false, false)
 				state._refresh_slot_for(spark)
-			_log("  Relic: Soul Anchor — summoned a 300/300 Void Spark with Guard!")
+			_log("  Relic: Soul Anchor — summoned a 200/300 Void Spark with Guard!")
 			return true
 
 		"relic_cost_reduction":

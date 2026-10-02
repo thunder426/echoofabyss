@@ -178,7 +178,7 @@ This is the optional "D6 file split" (4.5) left over from `LIVE_SIM_UNIFICATION_
 
 Branch metadata is also split across `HeroData.talent_branch_ids`, `TalentDatabase` DISPLAY_NAMES / DESCRIPTIONS (~:65-92) and `DeckBuilderScene.DECK_BUILDER_POOLS_BY_HERO` / `_EXTRA_COPY_RULES` (~:18-22, :60-64). Pools (`_card_pools`, CardDatabase ~:3459) and act gates (~:3596) sit ~3,000 lines from the cards they gate.
 
-**Adding a 4th hero touches about 18 files:** HeroDatabase, TalentDatabase (3 places), CardDatabase (cards, pools, act gates), CardModRules, CombatSetup `_REGISTRY`, CombatHandlers, CombatState (fields plus the `cmd_hero_skill` list), PresetDecks, DeckBuilderScene (2), RewardScene, ShopScene (2), GameManager, ProfileRegistry plus a player profile, PipBar/resource-bar UI, BalanceSimBatch configs, VFX registries and CARD_LIBRARY.md.
+**Adding a 4th hero touches about 17 files** (18 before task 079 deleted CARD_LIBRARY.md): HeroDatabase, TalentDatabase (3 places), CardDatabase (cards, pools, act gates), CardModRules, CombatSetup `_REGISTRY`, CombatHandlers, CombatState (fields plus the `cmd_hero_skill` list), PresetDecks, DeckBuilderScene (2), RewardScene, ShopScene (2), GameManager, ProfileRegistry plus a player profile, PipBar/resource-bar UI, BalanceSimBatch configs and VFX registries.
 
 **Direction.**
 1. `BranchData` resource/record `{id, hero_id, display_name, description, t0_talent, pool_ids}`, owned by `TalentDatabase` (or `HeroData.branches`).
@@ -236,7 +236,7 @@ Branch metadata is also split across `HeroData.talent_branch_ids`, `TalentDataba
 - The only load-time check is `_validate_spell_damage_schools` (CardDatabase ~:3670). It lists `"DAMAGE_ANY"`, which is not an EffectType, and ignores VOID_BOLT, nested `attack_rider_steps` and override steps.
 - ~560 card-id string literals in logic (~280 in `combat/`, ~275 across 33 files in `enemies/ai/`); ~217 `.id ==` comparisons. Renaming a card silently disables its rules and AI branches.
 - **The effect vocabulary grows by one entry per card or hero.** 45 `EffectType` values, ~10 hero-tagged and ~6 used by a single card; `EffectStep` is a 37-field union. A new type means editing the enum, a field, `from_dict`, the 754-line resolver match and AI scoring. ~35 condition names bake a threshold into the name (`flesh_gte_1/2/3`, `flesh_lt_2/3`), mostly used once.
-- `CARD_LIBRARY.md` (the "source of truth") is missing 24 of the database's cards: Avatar of the Abyss plus 23 Korrath cards. Nothing checks that the two agree.
+- `CARD_LIBRARY.md` (the "source of truth") is missing 24 of the database's cards: Avatar of the Abyss plus 23 Korrath cards. Nothing checks that the two agree. *Resolved 2026-10-02 by task 079 (Q6): the file is deleted; CardDatabase.gd is the source of truth.*
 - `talent_overrides` replace whole fields, so higher tiers repeat the lower tiers' data (e.g. abyssal_knight ~:428-451). Editing T0 means updating every copy.
 
 **Direction.**
@@ -252,10 +252,10 @@ Branch metadata is also split across `HeroData.talent_branch_ids`, `TalentDataba
 4. **Effect handler registry.** `EffectType → Callable` table (one small function per effect type, grouped by family in separate files) instead of the 754-line match. New types register themselves.
 5. **Parameterised conditions** (`{"flesh_gte": 2}`) instead of one name per threshold.
 6. **Ids as data, not literals.** Where logic branches on a card id, prefer a tag or flag on the card (`is_champion_trigger`, `minion_tags`) so renames are safe; keep literals only in content definitions.
-7. **Doc drift.** Generate the CARD_LIBRARY tables from CardDatabase, or add a test that every CardDatabase card appears in CARD_LIBRARY.md (and name KORRATH_HERO_DESIGN as a co-source).
+7. **Doc drift.** Generate the CARD_LIBRARY tables from CardDatabase, or add a test that every CardDatabase card appears in CARD_LIBRARY.md (and name KORRATH_HERO_DESIGN as a co-source). *Superseded by Q6: task 079 deleted the file; no sync test.*
 8. **Override inheritance.** `talent_overrides` tiers inherit from the lower tier and override only the fields they change.
 
-**Candidate tasks.** D1 (S–M) content-lint test. D2 (M) parse-once + strict `from_dict`. D3 (S) loud failures. D4 (L) effect handler registry. D5 (M) CardDatabase split per pool (locality; not `.tres`, which isn't worth it for a solo dev). D6 (S) CARD_LIBRARY sync check. D7 (S) parameterised conditions. D8 (S) override inheritance.
+**Candidate tasks.** D1 (S–M) content-lint test. D2 (M) parse-once + strict `from_dict`. D3 (S) loud failures. D4 (L) effect handler registry. D5 (M) CardDatabase split per pool (locality; not `.tres`, which isn't worth it for a solo dev). D6 (S) CARD_LIBRARY sync check (replaced by task 079: the file is deleted). D7 (S) parameterised conditions. D8 (S) override inheritance.
 
 **Groomed 2026-10-01 → tasks.**
 - D1 → task 104: a ContentTests layer for loaded data plus lint L14 for source text (card-id literals, dispatch vocabularies). It also takes G6.
@@ -282,10 +282,10 @@ Branch metadata is also split across `HeroData.talent_branch_ids`, `TalentDataba
 - Nothing mutates step dicts or EffectStep fields at runtime, so parse-once can be byte-identical.
 - The validator skipping VOID_BOLT and rider steps is harmless or by design. A second load-time check already exists: the duplicate-id warning.
 - Only 1 card (abyssal_knight) repeats tier data in `talent_overrides`.
-- CARD_LIBRARY.md is missing 24 names (25 ids).
+- CARD_LIBRARY.md is missing 24 names (25 ids). *(Deleted by task 079.)*
 - A D1 prototype found 0 typos or dangling ids today, so D1 guards future renames rather than fixing current ones.
 
-**Decisions.** Is CARD_LIBRARY.md still the source of truth, or does CardDatabase become the source with the doc generated from it?
+**Decisions.** Is CARD_LIBRARY.md still the source of truth, or does CardDatabase become the source with the doc generated from it? *Answered (Q6): CardDatabase.gd; CARD_LIBRARY.md deleted by task 079 (2026-10-02).*
 
 ---
 
@@ -632,7 +632,7 @@ All eight were answered by the owner on 2026-10-01 (grooming pass 1).
 | Q3 | Accept balance shifts when enemy-side triggers start firing? | A, 050 | **Yes.** One mechanic per task; each task records its BalanceSimBatch delta in its summary; retune afterwards if needed. |
 | Q4 | Champions: a module each, or a data spec table? | B2 | **A data spec table if at least 80% of champions fit it;** the outliers get a small module. |
 | Q5 | Shop `vael_common`: always, or only as a fallback? Collection shows all heroes? | C1 | **Always:** the hero's common pool (vael / seris / korrath) is offered alongside the unlocked branch pools. **The Collection shows every hero's cards,** grouped by hero, then pool. |
-| Q6 | CARD_LIBRARY.md vs CardDatabase: which is the source of truth, and generate the other? | D6 | **CardDatabase.gd is the source of truth; delete CARD_LIBRARY.md.** The file has had one commit (the 2026-04-28 import) and is missing all of Korrath and the Avatar. Every column it has is a CardData field, and nobody noticed the gap for five months. Design intent stays in the hero and faction design docs; browsing is the Collection's job (Q5). The deletion also fixes CLAUDE.md, CARD_DESCRIPTION_STYLE.md and CARD_POOL_ARCHITECTORE.md, which point at it. ARCHITECTURE.md invariant #10 already says this. |
+| Q6 | CARD_LIBRARY.md vs CardDatabase: which is the source of truth, and generate the other? | D6 | **CardDatabase.gd is the source of truth; delete CARD_LIBRARY.md.** The file has had one commit (the 2026-04-28 import) and is missing all of Korrath and the Avatar. Every column it has is a CardData field, and nobody noticed the gap for five months. Design intent stays in the hero and faction design docs; browsing is the Collection's job (Q5). The deletion also fixes CLAUDE.md, CARD_DESCRIPTION_STYLE.md and CARD_POOL_ARCHITECTORE.md, which point at it. ARCHITECTURE.md invariant #10 already says this. Done 2026-10-02 (task 079). |
 | Q7 | Scored AI: delete or promote? Will the AI ever look ahead? | G4, I2 | **Look-ahead is planned.** Keep `BoardEvaluator` + `ScoringWeights` as the seed of its evaluation function (with a test); delete `ScoredCombatProfile` and the 4 scored profiles. Task 049, I1 and I2 become prerequisites, and profiles must be synchronous and read only through `CombatAgent`. |
 | Q8 | MapScene: revive (branching map) or delete? | H4 | **Delete it now.** The run stays linear (git history keeps the file). Fix ARCHITECTURE.md's scene flow. |
 

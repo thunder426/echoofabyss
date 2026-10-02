@@ -1,11 +1,11 @@
 ---
 id: "079"
 title: Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth
-status: backlog
+status: done
 area: content
 priority: normal
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -102,7 +102,12 @@ Q6: "CardDatabase.gd is the source of truth; delete CARD_LIBRARY.md." Move the f
   - Every reference was confirmed by grep.
   - The library's token notes were checked against the code. Soul Anchor is 200/300, not 300/300. Void Demon has two more summoners at 100/100.
   - The rules notes (sacrifice vs death, spell graveyard) were checked. Both are either already in code comments or obsolete, so nothing beyond the token notes moves.
+- 2026-10-02: implemented.
+  - Token notes above `_TOKEN_DEFS`, written from the code at `06a2689`: Void Spark 100/100 from most summoners, Soul Rune 100/100 × the rune-aura multiplier, Flesh Rune 300/300, Soul Anchor 200/300 + Guard; Void Demon never at its 200/200 base (Void Spawning / Bound Offering 100/100, Void Summoning 300/300 or 400/400 with a Human, Demon Ascendant and, found while checking, the enemy `ritual_sacrifice` passive 500/500); Lesser Demon (Fiend Offering) and Forged Demon (Soul Forge, Abyssal Forge auras); Void Imp isn't a token. Fixed the two stale location comments and the Soul Anchor log text (300/300 → 200/300).
+  - `git rm` CARD_LIBRARY.md. CLAUDE.md: dropped it from the master docs, step 1 of "Adding New Cards" points at the hero / faction design docs, and `design/KORRATH_HERO_DESIGN` joins the feature docs (not renamed). CARD_DESCRIPTION_STYLE.md:3 reworded. CARD_POOL_ARCHITECTORE.md §6: a pointer to `_card_pools`, the five `CARD_LIBRARY.md § N` suffixes dropped, "to be designed" removed where `_card_pools` has cards (korrath_core / common, seris_core / common, the three Seris branch pools, named by id), kept on korrath_runic_knight and korrath_abyssal_breaker. Roadmap lines annotated as resolved rather than rewritten.
+  - Verification: `git grep CARD_LIBRARY -- . ':!tasks'` hits only the roadmap's and the implementation order's records; no dangling `§` pointers. Gate green (1125 tests, LiveSmoke OK, Parity 24/24); Act 1 fingerprint identical to `06a2689`.
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Deleted CARD_LIBRARY.md; CardDatabase.gd is the only card source of truth, as ARCHITECTURE.md invariant #10 already said. The library's useful token notes, corrected against the code, now sit above `_TOKEN_DEFS`; CLAUDE.md, CARD_DESCRIPTION_STYLE.md, CARD_POOL_ARCHITECTORE.md and the roadmap no longer point at it. Behaviour-neutral (comments plus one log string).

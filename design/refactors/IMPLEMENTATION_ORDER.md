@@ -53,7 +53,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
    It goes first because it removes two of 047's EncounterDecks readers (MapScene.gd:63/:136) and drops MapScene's ACT_SIZES/BOSS_INDICES reads from 124's site list. Keep last_boss_unlocks, which 078 reads.
 2. [x] **[047](../../tasks/047-enemy-decks-into-repo.md)** Move enemy decks from user:// into the repo · *high, M*  
    Afterwards, capture the seeded Acts 1-4 fingerprint (BalanceSimBatch --runs 200 --seed 7).
-3. [ ] **[079](../../tasks/079-delete-card-library-md-carddatabase-gd.md)** Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth · *normal, S*  
+3. [x] **[079](../../tasks/079-delete-card-library-md-carddatabase-gd.md)** Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth · *normal, S*  
    Removes the CLAUDE.md pointer that would send 065 and 068 to the stale file.
 4. [ ] **[081](../../tasks/081-delete-unreachable-passive-content-spirit-conscription.md)** Delete unreachable passive content (spirit_conscription, champion_duel, dead passive arm, stale AI hardcoded-id check) · *low, S*  
    Hard prerequisite of 104. It removes the dead arm, tooltip entries and header that 062, 068 and 072 would otherwise edit, and four probes 137 would otherwise move.

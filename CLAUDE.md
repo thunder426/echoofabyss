@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Engine: Godot 4.6, GL Compatibility renderer, 1920×1080
 - Godot project root = repo root. Config: `project.godot`. Main scene: `res://ui/MainMenu.tscn`.
-- Master design docs: `design/master_doc/` — `DESIGN_DOCUMENT.md`, `CARD_LIBRARY.md`, `ARCHITECTURE.md`, `CARD_DESCRIPTION_STYLE.md`.
-- Feature design docs (read before touching the relevant subsystem): `design/DAMAGE_TYPE_SYSTEM.md`, `design/TRAP_RUNE_RITUAL_SYSTEM.md`, `design/REWARD_SYSTEM_DESIGN.md`, `design/SERIS_HERO_DESIGN.md`, `design/DAGAN_HERO_DESIGN.md`, `design/FACTION_FREE_CITIES_DESIGN.md`, `design/CARD_FRAME_DESIGN_REGULATION.md`, `design/CASTING_GLYPH_DESIGN.md`.
+- Master design docs: `design/master_doc/` — `DESIGN_DOCUMENT.md`, `ARCHITECTURE.md`, `CARD_DESCRIPTION_STYLE.md`.
+- Feature design docs (read before touching the relevant subsystem): `design/DAMAGE_TYPE_SYSTEM.md`, `design/TRAP_RUNE_RITUAL_SYSTEM.md`, `design/REWARD_SYSTEM_DESIGN.md`, `design/SERIS_HERO_DESIGN.md`, `design/KORRATH_HERO_DESIGN`, `design/DAGAN_HERO_DESIGN.md`, `design/FACTION_FREE_CITIES_DESIGN.md`, `design/CARD_FRAME_DESIGN_REGULATION.md`, `design/CASTING_GLYPH_DESIGN.md`.
 
 ## Where things live
 
@@ -35,7 +35,7 @@ Both run headless via `godot --headless --path . <scene>`.
 
 ## Adding New Cards
 
-1. Define card data in `CARD_LIBRARY.md` (source of truth).
+1. Design the card in its hero or faction design doc (e.g. `design/SERIS_HERO_DESIGN.md`). `cards/data/CardDatabase.gd` is the source of truth for card data; there is no separate card table.
 2. Add a new `CardData` subclass instance in `cards/data/CardDatabase.gd`.
 3. If the card has art, use the `/add-art` skill to wire up `art_path` (and `battlefield_art_path` for minions).
 4. Use declarative `effect_steps` (EffectStep objects) — avoid adding to HardcodedEffects.gd.

@@ -24,6 +24,22 @@ var _override_cache: Dictionary = {}
 #         shield (optional, default 0), tags (optional), art (optional),
 #         essence_cost (optional, default 0 — set for hand-only tokens like
 #         order_footman that get added to hand and played at a real cost).
+#
+# A SUMMON step's token_atk / token_hp (or _summon_token's atk / hp) overrides
+# the table's stats. Where summons differ from it (`git grep '"void_spark"'`
+# etc. lists every summoner):
+#   void_spark   — 100/100 from most summoners (Void Spark on friendly death, the
+#                  spark minions and enemy spark passives). Soul Rune: 100/100 ×
+#                  the rune-aura multiplier. Flesh Rune: 300/300. Soul Anchor
+#                  relic: 200/300 with Guard.
+#   void_demon   — nothing uses the 200/200 base. Void Spawning, Bound Offering:
+#                  100/100. Void Summoning: 300/300, or 400/400 with a friendly
+#                  Human. Demon Ascendant ritual (Blood + Dominion) and the enemy
+#                  ritual_sacrifice passive: 500/500.
+#   lesser_demon — Seris Fiend Offering: a sacrificed Grafted Fiend, paid with 2 Flesh.
+#   forged_demon — Seris Soul Forge counter (CombatState._summon_forged_demon).
+#                  With Abyssal Forge it gets one random aura, or all three for 5 Flesh.
+# Void Imp isn't a token: summon effects reuse the `void_imp` card.
 # ---------------------------------------------------------------------------
 const _TOKEN_DEFS: Array[Dictionary] = [
 	{"id": "void_spark", "name": "Void Spark", "atk": 100, "hp": 100, "type": "SPIRIT", "faction": "abyss_order", "desc": "", "spark_value": 1, "art": "res://assets/art/minions/abyss_order/void_spark.png"},
@@ -2077,7 +2093,7 @@ func _register_wanderer_cards() -> void:
 	all.append(nyx_ael)
 
 	# --- Tokens (not in player deck, summoned by effects) ---
-	# Defined compactly via _TOKEN_DEFS at the bottom of this file; appended there.
+	# Defined in _TOKEN_DEFS at the top of this file; appended at the bottom.
 
 	# --- Void Bolt card ecosystem (Mana-cost, Lord Vael void_bolt branch) ---
 
@@ -2391,7 +2407,7 @@ func _register_wanderer_cards() -> void:
 	# --- Ritual token (Special Summoned by ritual effects, not in any deck) ---
 	# ---------------------------------------------------------------------------
 
-	# All tokens are registered via _TOKEN_DEFS below.
+	# All tokens are registered via _TOKEN_DEFS (top of this file).
 
 	# ---------------------------------------------------------------------------
 	# --- Ritual Environments (Abyss Order — core set) ---
