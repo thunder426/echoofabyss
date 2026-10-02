@@ -2386,15 +2386,46 @@ func _on_corruption_removed_bus(target: Object, stacks: int) -> void:
 	trigger_manager.fire(ctx)
 	_refresh_slot_for(minion)
 
-## Drop the global-bus subscription and reset the per-fight MinionInstance
-## globals so nothing leaks into the next fight (sim batches run thousands).
+## End the fight (task 049). Godot frees a RefCounted by its reference count
+## alone, so every back-reference to this state is a cycle that keeps the whole
+## fight — journal, boards, decks — alive, and a sim batch runs thousands:
+## the helpers' `state` fields, the trigger / ritual / rune-aura lambdas that
+## capture self or the handlers, the drivers' growth hooks and their lambdas
+## on this state's signals. Also drops the global-bus subscription and resets
+## the MinionInstance globals this fight set. Idempotent (tests and drivers may
+## both call it); the journal, command_log, boards and counters stay readable.
 func teardown() -> void:
 	var bus: Object = BuffSystem.bus()
 	var cb := Callable(self, "_on_corruption_removed_bus")
 	if bus != null and bus.is_connected("corruption_removed", cb):
 		bus.disconnect("corruption_removed", cb)
-	MinionInstance.corruption_inverts_on_friendly_demons = false
-	MinionInstance.iron_resolve_active = false
+	if MinionInstance.flags_owner_id == get_instance_id():
+		MinionInstance.corruption_inverts_on_friendly_demons = false
+		MinionInstance.iron_resolve_active = false
+		MinionInstance.flags_owner_id = 0
+	if trigger_manager != null:
+		trigger_manager.clear()
+	_env_ritual_handlers.clear()
+	_rune_aura_handlers.clear()
+	growth_hooks.clear()
+	if combat_manager != null:
+		combat_manager.state = null
+		combat_manager = null
+	if _hardcoded != null:
+		_hardcoded.state = null
+		_hardcoded = null
+	if _handlers != null:
+		_handlers.state = null
+		_handlers = null
+	if relic_effects != null:
+		relic_effects.state = null
+		relic_effects = null
+	if diagnostics != null:
+		diagnostics._state = null
+		diagnostics = null
+	for sig: Dictionary in get_signal_list():
+		for conn: Dictionary in get_signal_connection_list(sig["name"]):
+			disconnect(sig["name"], conn["callable"])
 
 ## Begin combat: both sides at 1 Essence / 1 Mana max (written to the backing
 ## fields — not a growth choice), then the player's first turn. Opening hands

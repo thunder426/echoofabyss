@@ -29,6 +29,7 @@ func _ready() -> void:
 	TriggerHandlerTestsScript.run_all()
 	await CommandTestsScript.run_all()
 	await ScenarioTestsScript.run_all()
+	TestHarnessScript.teardown_all()
 
 	print("\n=== %s ===" % TestHarnessScript.summary())
 	get_tree().quit(TestHarnessScript.fail_count())

@@ -19,7 +19,6 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["033"](033-audit-korrath-card-descriptions.md) — Audit description style for all new Korrath cards (content)
 - ["047"](047-enemy-decks-into-repo.md) — Move enemy decks from user:// into the repo (content)
 - ["048"](048-presenter-softlock-guard.md) — Stop the presenter from soft-locking combat on a stuck animation (ui)
-- ["049"](049-combatstate-refcount-cycles.md) — Break CombatState reference cycles so each fight is freed (combat)
 - ["050"](050-effectresolver-side-bugs.md) — Route trap / environment removal through one engine API (F15 leak, unjournaled destroy, owner lookup) (combat)
 - ["051"](051-ai-profiles-no-direct-state-writes.md) — Stop AI profiles writing CombatState outside cmd_* (and de-duplicate spark cost) (combat)
 - ["052"](052-save-robustness.md) — Make saves versioned, atomic and complete (meta)
@@ -114,6 +113,7 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["143"](143-per-copy-cost-deltas-ignored-minions-spells.md) — Per-copy cost discounts are shown but not charged for minions and spells (Squire of the Order → Abyssal Knight) (combat)
 
 ## Done
+- ["049"](049-combatstate-refcount-cycles.md) — Break CombatState reference cycles so each fight is freed (combat, 2026-10-02 → 2026-10-02)
 - ["056"](056-groom-architecture-roadmap.md) — Groom the architecture roadmap into tasks (architecture, 2026-09-30 → 2026-10-01)
 - ["080"](080-delete-unreachable-mapscene-dead-gamemanager-resource.md) — Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow (meta, 2026-10-01 → 2026-10-01)
 - ["044"](044-live-sim-unification-phase-4.md) — Live/sim unification — Phase 4 (combat, 2026-09-25 → 2026-09-25)

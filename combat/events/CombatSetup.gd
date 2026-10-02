@@ -608,6 +608,7 @@ static func setup(st: CombatState) -> void:
 	# for sim batches where CombatSetup is reused across many state instances.
 	MinionInstance.corruption_inverts_on_friendly_demons = "corrupt_flesh" in talents
 	MinionInstance.iron_resolve_active = "iron_resolve" in talents
+	MinionInstance.flags_owner_id = st.get_instance_id()
 
 	# ── Conditional: registry-driven registration and stat overrides ──────────
 	for id in talents:       apply_passive(id, st)

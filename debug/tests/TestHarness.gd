@@ -25,7 +25,17 @@ static var _failures: Array = []   ## Array[{label, detail}]
 static var _current_state: CombatState = null
 static var _current_label: String = ""
 
+## Every state build_state made, as [WeakRef, generation] — the begin_test count
+## when it was built. A test that never calls teardown() would otherwise leak
+## its fight and leave it on the BuffSystem bus, where later tests' corruption
+## removals reach it (task 049). Weak, so a state torn down by its test is
+## still freed at once.
+static var _built: Array = []
+static var _generation: int = 0
+
 static func begin_test(label: String, state: CombatState = null) -> bool:
+	_teardown_finished(state)
+	_generation += 1
 	_current_label = label
 	_current_state = state
 	if filter_substr != "" and not label.to_lower().contains(filter_substr.to_lower()):
@@ -70,7 +80,34 @@ static func build_state(opts: Dictionary = {}) -> CombatState:
 	config.enemy_hp = opts.get("enemy_hp", 2000)
 	var state := CombatState.new()
 	state.setup_combat(config)
+	_built.append([weakref(state), _generation])
 	return state
+
+## Tear down the states built before the previous begin_test, except `keep`. A
+## test builds its state just before its begin_test or just after it, so a state
+## built since the previous begin_test may still be in use; an older one belongs
+## to a test that has finished. (Never torn down later than that: teardown only
+## resets the MinionInstance flags its own setup set.)
+static func _teardown_finished(keep: CombatState) -> void:
+	var live: Array = []
+	for entry: Array in _built:
+		var st: CombatState = (entry[0] as WeakRef).get_ref()
+		if st == null:
+			continue
+		if st == keep or int(entry[1]) >= _generation:
+			live.append(entry)
+		else:
+			st.teardown()
+	_built = live
+
+## Tear down every state build_state made (end of the suite).
+static func teardown_all() -> void:
+	for entry: Array in _built:
+		var st: CombatState = (entry[0] as WeakRef).get_ref()
+		if st != null:
+			st.teardown()
+	_built.clear()
+	_current_state = null
 
 static func _str_array(a: Variant) -> Array[String]:
 	var out: Array[String] = []

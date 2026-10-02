@@ -293,12 +293,9 @@ func run(
 			if f != null:
 				f.store_string(JSON.stringify(replay, "\t"))
 				f.close()
-	# Disconnect the global-bus subscription and reset the MinionInstance globals
-	# so nothing bleeds into the next sim run.
-	state.teardown()
 	var _seris_sf: int = state._debug_soul_forge_fires
 	var _seris_cf: int = state._debug_corrupt_flesh_fires
-	return {
+	var out: Dictionary = {
 		"winner":       state.winner if not state.winner.is_empty() else "draw",
 		"seed":         rng_seed,
 		"digest":       digest_text.hash(),
@@ -349,6 +346,11 @@ func run(
 		"sovereign_phase_reached":   state._sovereign_phase,
 		"sovereign_transition_turn": state._sovereign_transition_turn,
 	}
+	# After the result is read (teardown drops diagnostics): break the fight's
+	# reference cycles so it is freed, drop the global-bus subscription and reset
+	# the MinionInstance globals — a sim batch runs thousands of fights.
+	state.teardown()
+	return out
 
 # ---------------------------------------------------------------------------
 # Run N simulations and aggregate

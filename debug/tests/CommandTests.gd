@@ -37,6 +37,8 @@ static func run_all() -> void:
 	_encounter_table_is_the_one_source()
 	await _profile_play_pays_once()
 	await _agent_spark_fuel_is_credited()
+	_teardown_frees_the_fight()
+	await _sim_run_frees_the_fight()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -752,3 +754,63 @@ static func _encounter_table_is_the_one_source() -> void:
 			"F%d sim passives = live passives" % e["index"])
 	TestHarness.assert_true("champion_abyss_sovereign" in EncounterTable.passives_for_profile("abyss_sovereign"),
 		"F15 sim now has the Sovereign champion passive")
+
+# ---------------------------------------------------------------------------
+# Lifecycle (task 049) — Godot frees a RefCounted by its count alone, so any
+# helper, lambda or signal connection that points back at the state keeps the
+# whole fight (journal, boards, decks) alive. teardown() must break them all;
+# a sim batch runs thousands of fights. The state is never passed to
+# begin_test: TestHarness._current_state would keep it alive.
+# ---------------------------------------------------------------------------
+
+static func _teardown_frees_the_fight() -> void:
+	if not TestHarness.begin_test("lifecycle / teardown frees the state and its helpers (every cycle exercised)", null):
+		return
+	# abyss_convergence registers grand-ritual lambdas that capture the handlers.
+	var state := TestHarness.build_state({"talents": ["abyss_convergence"]})
+	_set_res(state, "player", 0, 10)
+	TestHarness.assert_true(state.cmd_play_trap("player", _hand_card(state, "player", "blood_rune")).ok, "rune placed (aura lambdas)")
+	TestHarness.assert_true(state.cmd_play_environment("player", _hand_card(state, "player", "abyssal_summoning_circle")).ok,
+		"ritual environment played (ritual lambdas)")
+	state.relic_runtime = RelicRuntime.new()
+	state.relic_runtime.setup(["dark_mirror"])
+	for rs: RelicRuntime.RelicState in state.relic_runtime.relics:
+		rs.cooldown_remaining = 0
+	TestHarness.assert_true(state.cmd_activate_relic(0).ok, "relic used (RelicEffects)")
+	_add_driver_lambdas(state)
+	var refs: Dictionary = {
+		"state": weakref(state), "handlers": weakref(state._handlers), "trigger_manager": weakref(state.trigger_manager),
+		"combat_manager": weakref(state.combat_manager), "hardcoded": weakref(state._hardcoded),
+		"relic_effects": weakref(state.relic_effects),
+	}
+	state.teardown()
+	state.teardown()  # idempotent: tests and the drivers may both call it
+	state = null
+	var alive: Array[String] = []
+	for k: String in refs:
+		if (refs[k] as WeakRef).get_ref() != null:
+			alive.append(k)
+	TestHarness.assert_eq(alive, [] as Array[String], "nothing outlives teardown")
+
+## What a driver adds (CombatSim._build): a growth hook and a signal lambda, both
+## capturing the state. Built here, not in the probe: the VM keeps a running
+## function's temporaries alive until it returns, so a lambda made in the probe
+## itself would hold the state regardless of teardown.
+static func _add_driver_lambdas(state: CombatState) -> void:
+	state.growth_hooks["player"] = func(side: String, turn: int) -> void: state.set_mana(side, turn)
+	state.turn_ended.connect(func(_side: String) -> void: state.digest_text())
+
+static func _sim_run_frees_the_fight() -> void:
+	if not TestHarness.begin_test("lifecycle / CombatSim.run frees its state (growth hooks, profile swap, snapshots, diagnostics)", null):
+		return
+	var refs: Array = []
+	var sim := CombatSim.new()
+	sim.state_observer = func(st: CombatState) -> void: refs.append(weakref(st))
+	sim.turn_snapshot_callback = func(_st: CombatState, _turn: int) -> void: pass
+	var deck: Array[String] = PresetDecks.get_cards("swarm")
+	var result: Dictionary = await sim.run(deck, "feral_pack", [] as Array[String], 3000, 2000, [], "swarm",
+			[], [], {}, true, false, [], "lord_vael", 4242)
+	TestHarness.assert_false(str(result.get("winner", "")).is_empty(), "the fight finished")
+	TestHarness.assert_false((result["dmg_log"] as Array).is_empty(), "the result is read before teardown (dmg_log kept)")
+	TestHarness.assert_eq(refs.size(), 1, "observer saw the state")
+	TestHarness.assert_true(refs.size() == 1 and (refs[0] as WeakRef).get_ref() == null, "the state is freed once run returns")

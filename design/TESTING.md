@@ -147,6 +147,10 @@ fights through the live scene's input handlers.
 This is the project's correctness gate. It runs five layers of probes against
 `CombatState` (built by `TestHarness.build_state` → `setup_combat`) / `EffectResolver` / `TriggerManager` / commands /
 `CombatSim`, and exits with the count of failed assertions (0 = green).
+TestHarness tears down every `build_state` state once the test after the one
+that built it begins (never the state passed to `begin_test`), and the rest at
+the end of the suite, so a probe that skips `teardown()` can't leak its fight
+or leave it listening on the BuffSystem bus.
 
 ### Layers
 
@@ -155,7 +159,7 @@ This is the project's correctness gate. It runs five layers of probes against
 | Damage type | [DamageTypeTests.gd](../echoofabyss/debug/tests/DamageTypeTests.gd) | Phase invariants of the source+school damage system | 33 |
 | L1 Card effects | [CardEffectTests.gd](../echoofabyss/debug/tests/CardEffectTests.gd) | Per-card `effect_steps` via `EffectResolver.run()` | 53 |
 | L2 Trigger handlers | [TriggerHandlerTests.gd](../echoofabyss/debug/tests/TriggerHandlerTests.gd) | One probe per handler registered by CombatSetup; trap routes; the handler-order snapshot (`snapshots/handler_order.txt` — delete it to regenerate after an intended reorder) | 110 |
-| L5 Commands | [CommandTests.gd](../echoofabyss/debug/tests/CommandTests.gd) | `CombatState.cmd_*` refusals (no mutation) and happy paths, the turn engine, resource-growth curves, agents paying once, EncounterTable | 30 |
+| L5 Commands | [CommandTests.gd](../echoofabyss/debug/tests/CommandTests.gd) | `CombatState.cmd_*` refusals (no mutation) and happy paths, the turn engine, resource-growth curves, agents paying once, EncounterTable; `lifecycle /`: `teardown()` and `CombatSim.run` free the fight (weakref probes, task 049) | 32 |
 | L3 Scenarios | [ScenarioTests.gd](../echoofabyss/debug/tests/ScenarioTests.gd) | Full `CombatSim.run()` matches with structural invariants | 37 |
 
 Each test function fires multiple `assert_*` calls — total assertion count is

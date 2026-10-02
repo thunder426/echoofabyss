@@ -47,7 +47,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 
 **Goal.** Commit the enemy decks so every later balance delta can be reproduced. Delete dead code and docs that later fixes would otherwise have to edit, and correct the sim's player bots before any gameplay delta is measured.
 
-**Tickets:** 080 → 047 → 079 → 081 → 054 → 055 → 073
+**Tickets:** 080 → 049 (pulled forward from P6) → 047 → 079 → 081 → 054 → 055 → 073
 
 1. [x] **[080](../../tasks/080-delete-unreachable-mapscene-dead-gamemanager-resource.md)** Delete the unreachable MapScene and the dead GameManager resource fields; fix ARCHITECTURE.md's scene flow · *normal, S*  
    It goes first because it removes two of 047's EncounterDecks readers (MapScene.gd:63/:136) and drops MapScene's ACT_SIZES/BOSS_INDICES reads from 124's site list. Keep last_boss_unlocks, which 078 reads.
@@ -64,7 +64,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 7. [ ] **[073](../../tasks/073-player-sim-bots-side-blind-reserved.md)** Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has · *normal, S*  
    Two commits. Commit 1, the Void Execution tag fix, is neutral. Commit 2, the side-blind reserved slot, moves the swarm, voidbolt_burst and death_circle rows in every act; record that delta.
 
-> **Notes.** Everything except 073 is behaviour-neutral. 047's step 5 changes the variants that live play, Parity and LiveSmoke pick; BalanceSimBatch is unaffected because it runs every variant. Record which variants they now pick so a later Parity failure isn't misread. The fingerprint taken after 073 is the baseline for P2. Until 047 lands, keep a manual copy of the user:// deck file, because it is the only copy.
+> **Notes.** 049 was pulled in after 080 (2026-10-02). Every sim fight leaked its CombatState: one `--act 2 --runs 200` reached 19 GB in 87 s, and four acts in parallel ran the dev Mac out of memory. After 049 an act peaks at ~78 MB. 049's fingerprint is identical except a corrected S.Corr `Clog` extra in Act 1, so the P1 chain starts from the post-049 runs. Everything except 073 is behaviour-neutral. 047's step 5 changes the variants that live play, Parity and LiveSmoke pick; BalanceSimBatch is unaffected because it runs every variant. Record which variants they now pick so a later Parity failure isn't misread. The fingerprint taken after 073 is the baseline for P2. Until 047 lands, keep a manual copy of the user:// deck file, because it is the only copy.
 
 
 ### P2 — Combat bugs every run hits (attack, death, champions)
@@ -166,8 +166,8 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 
 36. [ ] **[132](../../tasks/132-delete-dead-signals-buses-14-unheard.md)** Delete dead signals and buses (14 unheard CombatState signals, BuffSystem buff_applied, SacrificeSystem bus, attack_resolved) · *low, S*  
    Shrinks 049's disconnect loop.
-37. [ ] **[049](../../tasks/049-combatstate-refcount-cycles.md)** Break CombatState reference cycles so each fight is freed · *high, M*  
-   Starts the look-ahead path 049 → 130.
+37. [x] **[049](../../tasks/049-combatstate-refcount-cycles.md)** Break CombatState reference cycles so each fight is freed · *high, M*  
+   Starts the look-ahead path 049 → 130. **Landed early, in P1 (2026-10-02), right after 080:** the leak made the full-size fingerprints impossible on the 16 GB dev machine (see P1 notes).
 38. [ ] **[137](../../tasks/137-tests-registration-lint-l15-split-triggerhandlertests.md)** Tests: registration lint (L15) and split TriggerHandlerTests by subsystem; refresh TESTING.md · *normal, M*  
    Before the ~80 later tasks add probes; it registers the MetaTests layer 052 created.
 39. [ ] **[141](../../tasks/141-retire-stale-debug-sims-combatsim-run.md)** Retire the stale debug sims; CombatSim.run takes a config · *low, M*  
@@ -220,7 +220,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 53. [ ] **[111](../../tasks/111-lint-l17-presentation-reads-journal-ratcheted.md)** Lint L17: presentation reads the journal (ratcheted engine-read count in UI files) · *low, S*  
    Baseline after 069-071; 109 and 110 lower it.
 
-> **Notes.** All neutral. Before landing 104 and 106, check whether Godot 4.6 prints push_error as 'ERROR:' or 'SCRIPT ERROR:'. run_checks.sh greps 'SCRIPT ERROR', so with 'ERROR:' their fail-loud checks would pass silently.
+> **Notes.** All neutral. Godot 4.6 prints push_error as 'ERROR:', not 'SCRIPT ERROR:' (checked 2026-10-02, task 047). run_checks.sh greps 'SCRIPT ERROR', so 104's and 106's fail-loud checks need a test that asserts on them, or the gate must grep 'ERROR:' too.
 
 
 ### P9 — Look-ahead engine core (F1, F2, I6, I2, I1, I3)
@@ -402,7 +402,7 @@ Each task records a default; confirm or override it before its phase.
 
 - **Weak cover.** There is no Korrath preset, and no sim deck holds Matron or Energy Conversion. For 143, 059, 065 and 057's Korrath half, the new probes are the only real check; an empty fingerprint proves little.
 - **Tooling assumptions:**
-  - Before P8, check whether Godot 4.6 prints `push_error` as `ERROR:`. If it does, run_checks.sh's `SCRIPT ERROR` grep misses the negative probes of 104 and 106.
+  - Godot 4.6 prints `push_error` as `ERROR:` (checked 2026-10-02), so run_checks.sh's `SCRIPT ERROR` grep misses the negative probes of 104 and 106 unless a test asserts on them.
   - 048's step 3 may split out as 048b; 115 then waits for it or carries its guards.
   - 053 needs the 4.6 export templates installed. Pull it earlier if any build will be shared.
 - **Fragile order points:**
@@ -438,3 +438,4 @@ PvP readiness arrives at ticket 87, because roadmap §11 puts presentation (P10)
 | Date | Change |
 |---|---|
 | 2026-10-01 | First version, from the post-grooming ordering analysis (three lenses, merged and checked by script). |
+| 2026-10-02 | 049 pulled forward from P6 into P1 (after 080): the sim leak made the full-size fingerprints impossible. Checked: `push_error` prints `ERROR:`, not `SCRIPT ERROR:` (the P8 / Risks question), so run_checks.sh's grep misses it; a test must assert it. |

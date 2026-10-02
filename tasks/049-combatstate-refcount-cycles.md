@@ -1,11 +1,11 @@
 ---
 id: "049"
 title: Break CombatState reference cycles so each fight is freed
-status: backlog
+status: done
 area: combat
 priority: high
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -95,3 +95,11 @@ The drivers already call `teardown()`:
   - Dropped clearing `journal` / `command_log`.
   - Corrected the test counts and the claim about the statics.
   - Weakref demoted to optional.
+- 2026-10-02: pulled forward into P1. A seeded `BalanceSimBatch -- --act 2 --runs 200 --seed 7` reached a 19 GB footprint in 87 s, and four acts in parallel ran the 16 GB dev Mac out of memory, so the plan's full-size fingerprints couldn't run until this landed. Owner: "find why it leaks and fix it".
+  - Probes first (CommandTests `lifecycle /`): both failed before the fix (state + all five helpers alive after teardown; every sim fight alive after `run`).
+  - Fix: steps 1–3 and 5 as proposed. Step 4 (weakref back-refs) skipped. Added `MinionInstance.flags_owner_id` so a late teardown of an older state can't clear a newer fight's flags, which is what makes harness auto-teardown safe.
+  - Harness: `_teardown_finished` at each `begin_test` tears down states built before the previous `begin_test` (a test builds its state just before or just after its `begin_test`), never the state passed in; `teardown_all` at the end of RunAllTests. Tracked by weakref.
+  - Test gotcha: a lambda built inside the probe function keeps its capture alive until the function returns (VM stack temporaries), so the probe builds its driver lambdas in a helper, as CombatSim.`_build` does.
+  - Results: BalanceSimBatch peak footprint 77–78 MB per act (Act 4: 349 s); RunAllTests' "15 resources still in use at exit" error is gone. Gate green: lint 0, 197 scripts, 1117 tests, LiveSmoke OK (same seeded fight: enemy wins, turn 8, 551 events), Parity 24/24.
+  - Fingerprint (`--runs 200 --seed 7`) vs `989a9cd`: Act 1 byte-identical except the `Clog:` extra on the nine S.Corr rows, which drops below the 0.1 print threshold. Cause: `run` used to call `teardown()` before building its result, so `_count_clogged_slots` ran after the Corrupt Flesh flag was reset and counted corrupted friendly Demons as 0 ATK. Proof: the old code with the count moved before teardown matches the new output exactly. Acts 2–4: every row the cut-off old runs completed matches (57 / 79 / 90 rows), Clog included.
+- 2026-10-02: closed.

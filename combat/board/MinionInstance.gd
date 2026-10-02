@@ -18,6 +18,11 @@ static var corruption_inverts_on_friendly_demons: bool = false
 ## Same flip-it-in-CombatSetup pattern as the Seris flag above.
 static var iron_resolve_active: bool = false
 
+## Instance id of the CombatState whose CombatSetup last set the two flags above.
+## Only that state's teardown resets them, so tearing down an older state that
+## is still alive (tests build several) can't clear a newer fight's flags.
+static var flags_owner_id: int = 0
+
 # Who owns this minion
 var owner: String = "player"  # "player" or "enemy"
 

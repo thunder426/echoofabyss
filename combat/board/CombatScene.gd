@@ -766,8 +766,9 @@ func _register_buff_preludes() -> void:
 	BuffVfxRegistry.register_palette("dark_command",
 			DarkCommandPreludeVFX.PALETTE)
 
-## The BuffSystem bus subscription is the state's (CombatSetup.setup);
-## teardown drops it and resets the per-fight MinionInstance globals.
+## teardown breaks the fight's reference cycles so it is freed, drops the
+## BuffSystem bus subscription (CombatSetup.setup) and resets the per-fight
+## MinionInstance globals.
 func _exit_tree() -> void:
 	state.teardown()
 
