@@ -37,6 +37,7 @@ static func run_all() -> void:
 	_encounter_table_is_the_one_source()
 	await _profile_play_pays_once()
 	await _agent_spark_fuel_is_credited()
+	_default_bot_void_execution_needs_a_human()
 	_teardown_frees_the_fight()
 	await _sim_run_frees_the_fight()
 
@@ -754,6 +755,23 @@ static func _encounter_table_is_the_one_source() -> void:
 			"F%d sim passives = live passives" % e["index"])
 	TestHarness.assert_true("champion_abyss_sovereign" in EncounterTable.passives_for_profile("abyss_sovereign"),
 		"F15 sim now has the Sovereign champion passive")
+
+## The default player bot casts Void Execution only with a friendly Human
+## (its 700-damage bonus). The rule used to test a "human" minion tag no card
+## has, so the bot never cast it (task 073).
+static func _default_bot_void_execution_needs_a_human() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("agents / default bot: Void Execution only with a friendly Human", state):
+		return
+	var prof: CombatProfile = ProfileRegistry.make("player", "default")
+	prof.setup(TestHarness.agent_for(state, "player"))
+	var ve := CardDatabase.get_card("void_execution") as SpellCardData
+	TestHarness.assert_false(prof.can_cast_spell(ve), "held on an empty board")
+	TestHarness.spawn_friendly(state, "void_imp")
+	TestHarness.assert_false(prof.can_cast_spell(ve), "held with only a Demon")
+	TestHarness.spawn_friendly(state, "abyss_cultist")
+	TestHarness.assert_true(prof.can_cast_spell(ve), "cast with a friendly Human")
+	state.teardown()
 
 # ---------------------------------------------------------------------------
 # Lifecycle (task 049) — Godot frees a RefCounted by its count alone, so any

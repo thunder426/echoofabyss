@@ -1,10 +1,10 @@
 ---
 id: "073"
 title: Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has
-status: backlog
+status: active
 area: ai
 priority: normal
-started:
+started: 2026-10-02
 finished:
 ---
 
@@ -106,6 +106,7 @@ Gate:
   - Re-check: the Void Execution fix doesn't move BalanceSimBatch (no preset runs `default`). Only bug 1 skews its baselines.
   - Swarm is hit only partly (imps and hounds bypass the reservation).
   - The fix keeps the reservation for a side's own champion instead of exempting the player side (owner Q1/Q2).
+- 2026-10-02: commit 1 (bug 2). `DefaultPlayerProfile`'s Void Execution rule is `has_friendly_type` / `HUMAN`. New probe `agents / default bot: Void Execution only with a friendly Human` (held on an empty board and with only a Demon, cast with Abyss Cultist); the Human case fails with the old rule. No preset profile extends DefaultPlayerProfile. Gate green (1124 tests); BalanceSimBatch `--act 1` identical to `364370d`.
 
 ## Summary
 

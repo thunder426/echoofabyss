@@ -27,7 +27,7 @@ func play_phase() -> void:
 
 func _get_spell_rules() -> Dictionary:
 	return {
-		"void_execution": {"cast_if": "has_friendly_tag", "tag": "human"},
+		"void_execution": {"cast_if": "has_friendly_type", "type": "HUMAN"},
 		"void_screech":   {"cast_if": "board_full_or_no_minions_in_hand"},
 		"cyclone":        {"cast_if": "opponent_has_rune_or_env"},
 	}

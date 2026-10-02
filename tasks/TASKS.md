@@ -3,6 +3,7 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
+- ["073"](073-player-sim-bots-side-blind-reserved.md) — Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has (ai, started 2026-10-02)
 - ["043"](043-live-sim-unification-phase-3.md) — Live/sim unification — Phase 3 (combat, started 2026-09-24)
 
 ## Backlog
@@ -38,7 +39,6 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["070"](070-rune-placement-vfx-trap-panels-follow.md) — Rune placement VFX and trap panels follow the journal (payload slot + trap snapshot) (ui)
 - ["071"](071-enemy-hero-panel-renders-view-never.md) — Enemy hero panel renders the view, never live state (HP, Void Marks, essence, mana, hand) (ui)
 - ["072"](072-f14-f15-boss-ai-aoe-spells.md) — F12/F14/F15 AI — spark spells held unless the player has 2+ minions, and F15's lethal check ignores Sovereign's Decree's spark cost (ai)
-- ["073"](073-player-sim-bots-side-blind-reserved.md) — Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has (ai)
 - ["074"](074-shop-buy-buttons-take-last-offers.md) — Shop: Buy buttons take the last offer's state after a purchase; Expand Core Unit at the 6-copy limit takes 3 shards and does nothing (meta)
 - ["075"](075-shop-core-unit-services-give-seris.md) — Shop core-unit services give Seris and Korrath Vael's Void Imp (meta)
 - ["076"](076-talent-undo-last-choice-after-abyss.md) — Talent 'Undo Last Choice' after Abyss Convergence keeps its 2 Echo Runes; re-picking adds 2 more (meta)
