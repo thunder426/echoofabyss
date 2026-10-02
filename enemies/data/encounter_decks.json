@@ -1,0 +1,487 @@
+{
+	"pools": {
+		"1": [
+			"f1_a",
+			"f1_b",
+			"f1_c"
+		],
+		"2": [
+			"f2_a",
+			"f2_b",
+			"f2_c"
+		],
+		"3": [
+			"f3_a",
+			"f3_b",
+			"f3_c"
+		],
+		"4": [
+			"f4_a",
+			"f4_b"
+		],
+		"5": [
+			"f5_a"
+		],
+		"6": [
+			"f6_a"
+		],
+		"7": [
+			"f7_a"
+		],
+		"8": [
+			"f8_a"
+		],
+		"9": [
+			"f9_a"
+		],
+		"10": [
+			"f10_a"
+		],
+		"11": [
+			"f11_a"
+		],
+		"12": [
+			"f12_a"
+		],
+		"13": [
+			"f13_a"
+		],
+		"14": [
+			"f14_a"
+		],
+		"15": [
+			"f15_a"
+		]
+	},
+	"decks": {
+		"f1_a": {
+			"cards": [
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"imp_brawler",
+				"imp_brawler",
+				"imp_brawler",
+				"feral_surge",
+				"feral_surge",
+				"feral_surge",
+				"void_screech",
+				"void_screech"
+			]
+		},
+		"f1_b": {
+			"cards": [
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"imp_brawler",
+				"imp_brawler",
+				"feral_surge",
+				"void_screech",
+				"void_screech",
+				"void_screech",
+				"void_screech"
+			],
+			"ai_profile": "feral_pack_screech"
+		},
+		"f1_c": {
+			"cards": [
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"imp_brawler",
+				"imp_brawler",
+				"imp_brawler",
+				"rogue_imp_elder",
+				"rogue_imp_elder",
+				"feral_surge",
+				"feral_surge"
+			]
+		},
+		"f2_a": {
+			"cards": [
+				"void_touched_imp",
+				"void_touched_imp",
+				"void_touched_imp",
+				"brood_imp",
+				"brood_imp",
+				"brood_imp",
+				"frenzied_imp",
+				"frenzied_imp",
+				"matriarchs_broodling",
+				"shadow_hound",
+				"shadow_hound",
+				"void_screech",
+				"void_screech",
+				"feral_surge"
+			]
+		},
+		"f2_b": {
+			"cards": [
+				"void_touched_imp",
+				"void_touched_imp",
+				"void_touched_imp",
+				"void_touched_imp",
+				"brood_imp",
+				"brood_imp",
+				"frenzied_imp",
+				"frenzied_imp",
+				"feral_surge",
+				"feral_surge",
+				"void_screech",
+				"tactical_planning"
+			],
+			"ai_profile": "corrupted_brood_aggro"
+		},
+		"f2_c": {
+			"cards": [
+				"void_touched_imp",
+				"void_touched_imp",
+				"void_touched_imp",
+				"void_touched_imp",
+				"brood_imp",
+				"brood_imp",
+				"matriarchs_broodling",
+				"matriarchs_broodling",
+				"dominion_rune",
+				"blood_rune",
+				"flux_siphon",
+				"abyssal_sacrifice",
+				"feral_surge",
+				"feral_surge",
+				"dark_empowerment",
+				"dark_empowerment"
+			],
+			"ai_profile": "corrupted_brood_rune"
+		},
+		"f3_a": {
+			"cards": [
+				"brood_call",
+				"brood_call",
+				"brood_call",
+				"brood_call",
+				"brood_call",
+				"brood_call",
+				"pack_frenzy",
+				"pack_frenzy",
+				"feral_surge",
+				"feral_surge",
+				"void_screech",
+				"void_screech"
+			]
+		},
+		"f3_b": {
+			"cards": [
+				"rabid_imp",
+				"rabid_imp",
+				"brood_imp",
+				"brood_imp",
+				"frenzied_imp",
+				"rogue_imp_elder",
+				"matriarchs_broodling",
+				"void_netter",
+				"void_netter",
+				"void_devourer",
+				"abyssal_tide",
+				"pack_frenzy",
+				"pack_frenzy",
+				"arcane_strike"
+			],
+			"ai_profile": "matriarch_aggro"
+		},
+		"f3_c": {
+			"cards": [
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"rabid_imp",
+				"brood_imp",
+				"brood_imp",
+				"rogue_imp_elder",
+				"rogue_imp_elder",
+				"frenzied_imp",
+				"frenzied_imp",
+				"pack_frenzy",
+				"pack_frenzy",
+				"abyssal_sacrifice",
+				"abyssal_sacrifice"
+			],
+			"ai_profile": "matriarch_sac"
+		},
+		"f4_a": {
+			"cards": [
+				"abyss_cultist",
+				"abyss_cultist",
+				"abyss_cultist",
+				"abyss_cultist",
+				"abyss_cultist",
+				"corruption_weaver",
+				"corruption_weaver",
+				"spell_taxer",
+				"spell_taxer",
+				"freelance_sellsword",
+				"freelance_sellsword",
+				"void_screech",
+				"void_screech",
+				"void_screech",
+				"void_screech",
+				"dark_command",
+				"dark_command"
+			]
+		},
+		"f4_b": {
+			"cards": [
+				"abyss_cultist",
+				"abyss_cultist",
+				"abyss_cultist",
+				"void_netter",
+				"void_netter",
+				"void_netter",
+				"corruption_weaver",
+				"corruption_weaver",
+				"soul_collector",
+				"soul_collector",
+				"dark_command",
+				"dark_command",
+				"shadow_rune",
+				"void_summoning",
+				"void_execution"
+			],
+			"ai_profile": "cultist_patrol_tempo"
+		},
+		"f5_a": {
+			"cards": [
+				"cult_fanatic",
+				"cult_fanatic",
+				"cult_fanatic",
+				"cult_fanatic",
+				"cult_fanatic",
+				"dominion_rune",
+				"dominion_rune",
+				"blood_rune",
+				"blood_rune",
+				"dark_command",
+				"dark_command",
+				"rune_seeker"
+			]
+		},
+		"f6_a": {
+			"cards": [
+				"abyss_cultist",
+				"cult_fanatic",
+				"cult_fanatic",
+				"brood_imp",
+				"void_stalker",
+				"void_stalker",
+				"void_spawner",
+				"void_spawner",
+				"dark_command",
+				"void_screech",
+				"void_screech"
+			]
+		},
+		"f7_a": {
+			"cards": [
+				"void_echo",
+				"void_echo",
+				"void_echo",
+				"rift_tender",
+				"rift_tender",
+				"rift_tender",
+				"hollow_sentinel",
+				"void_pulse",
+				"rift_collapse",
+				"phase_stalker",
+				"phase_stalker"
+			]
+		},
+		"f8_a": {
+			"cards": [
+				"void_echo",
+				"void_echo",
+				"rift_tender",
+				"rift_tender",
+				"phase_stalker",
+				"phase_stalker",
+				"phase_disruptor",
+				"void_behemoth",
+				"void_behemoth",
+				"void_pulse",
+				"void_wind",
+				"void_wind"
+			],
+			"limited": [
+				"void_wind"
+			]
+		},
+		"f9_a": {
+			"cards": [
+				"void_echo",
+				"void_echo",
+				"rift_tender",
+				"rift_tender",
+				"phase_stalker",
+				"phase_stalker",
+				"phase_stalker",
+				"void_behemoth",
+				"void_behemoth",
+				"void_rift_lord",
+				"void_rift_lord",
+				"void_pulse",
+				"void_pulse",
+				"rift_collapse",
+				"spirit_surge",
+				"void_wind"
+			],
+			"limited": [
+				"void_wind"
+			]
+		},
+		"f10_a": {
+			"cards": [
+				"void_wisp",
+				"void_wisp",
+				"void_wisp",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"void_echo",
+				"void_echo",
+				"void_shade",
+				"void_shade",
+				"phase_disruptor",
+				"void_wraith",
+				"rift_collapse",
+				"void_wind"
+			],
+			"limited": [
+				"void_wind"
+			]
+		},
+		"f11_a": {
+			"cards": [
+				"void_wisp",
+				"void_wisp",
+				"void_wisp",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"void_echo",
+				"void_shade",
+				"void_shade",
+				"void_behemoth",
+				"bastion_colossus",
+				"spirit_surge",
+				"void_lance",
+				"void_wind",
+				"void_wind"
+			],
+			"limited": [
+				"void_wind"
+			]
+		},
+		"f12_a": {
+			"cards": [
+				"void_wisp",
+				"void_wisp",
+				"void_shade",
+				"void_shade",
+				"void_wraith",
+				"rift_warden",
+				"rift_warden",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"void_pulse",
+				"void_pulse",
+				"rift_collapse",
+				"thrones_command",
+				"thrones_command",
+				"bastion_colossus"
+			]
+		},
+		"f13_a": {
+			"cards": [
+				"void_wisp",
+				"void_wisp",
+				"void_shade",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"rift_tender",
+				"rift_tender",
+				"void_bolt",
+				"void_bolt",
+				"arcane_strike",
+				"arcane_strike",
+				"void_lance",
+				"void_shatter",
+				"rift_collapse",
+				"sovereigns_decree",
+				"void_pulse",
+				"void_pulse"
+			]
+		},
+		"f14_a": {
+			"cards": [
+				"void_wisp",
+				"void_wisp",
+				"void_shade",
+				"void_shade",
+				"void_architect",
+				"void_architect",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"void_pulse",
+				"void_pulse",
+				"dimensional_breach",
+				"phase_stalker",
+				"thrones_command",
+				"void_behemoth",
+				"bastion_colossus"
+			]
+		},
+		"f15_a": {
+			"cards": [
+				"void_wisp",
+				"void_wisp",
+				"void_shade",
+				"void_shade",
+				"void_wraith",
+				"void_revenant",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"void_pulse",
+				"void_pulse",
+				"phase_stalker",
+				"phase_stalker",
+				"sovereigns_decree",
+				"void_bolt",
+				"bastion_colossus"
+			]
+		},
+		"f15_p2": {
+			"cards": [
+				"void_wisp",
+				"void_wisp",
+				"void_shade",
+				"void_shade",
+				"void_wraith",
+				"void_revenant",
+				"sovereigns_herald",
+				"sovereigns_herald",
+				"void_pulse",
+				"void_pulse",
+				"phase_stalker",
+				"phase_stalker",
+				"sovereigns_decree",
+				"void_bolt",
+				"bastion_colossus"
+			],
+			"ai_profile": "abyss_sovereign_p2"
+		}
+	}
+}

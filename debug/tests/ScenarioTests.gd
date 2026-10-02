@@ -17,6 +17,9 @@ extends RefCounted
 
 static func run_all() -> void:
 	print("\n=== Layer 3: Scenario Tests ===")
+	_encounter_decks_content()
+	_encounter_deck_pick_is_seeded()
+	_encounter_deck_edit_keeps_limited()
 	_baseline_swarm_vs_feral_pack()
 	_corrupted_brood_chain_safe()
 	_seris_soul_forge_fires_over_match()
@@ -98,6 +101,70 @@ static func _deck(preset_id: String) -> Array[String]:
 				ids.append(str(c))
 			return ids
 	return [] as Array[String]
+
+# ---------------------------------------------------------------------------
+# Enemy decks (task 047) — res://enemies/data/encounter_decks.json is the only
+# source, so a broken id fails here rather than silently in a fight.
+# ---------------------------------------------------------------------------
+
+static func _encounter_decks_content() -> void:
+	if not TestHarness.begin_test("content / every encounter deck resolves (pools, cards, profiles, f15_p2)", null):
+		return
+	var card_ids: Array[String] = CardDatabase.get_all_card_ids()
+	var decks: Dictionary = EncounterDecks.load_data()["decks"]
+	var bad: Array[String] = []
+	for e: Dictionary in EncounterTable.ENCOUNTERS:
+		var idx: int = e["index"]
+		var pool: Array[String] = EncounterDecks.get_pool(idx)
+		if pool.is_empty():
+			bad.append("F%d: empty pool" % idx)
+		for deck_id: String in pool:
+			if not decks.has(deck_id):
+				bad.append("F%d: pool names unknown deck %s" % [idx, deck_id])
+				continue
+			# The sim derives passives from the profile, so a deck's override
+			# must be one the encounter lists (CombatConfig.from_dict).
+			var profile: String = EncounterDecks.get_deck_profile(deck_id)
+			if not profile.is_empty() and profile != e["ai_profile"] and not profile in (e.get("variant_profiles", []) as Array):
+				bad.append("%s: ai_profile %s isn't F%d's profile or a listed variant" % [deck_id, profile, idx])
+	for deck_id: String in EncounterDecks.get_all_deck_ids():
+		var cards: Array[String] = EncounterDecks.get_deck(deck_id)
+		if cards.is_empty():
+			bad.append("%s: no cards" % deck_id)
+		for id: String in cards + EncounterDecks.get_deck_limited(deck_id):
+			if not id in card_ids:
+				bad.append("%s: unknown card %s" % [deck_id, id])
+		var profile: String = EncounterDecks.get_deck_profile(deck_id)
+		if not profile.is_empty() and not ProfileRegistry.has_profile("enemy", profile):
+			bad.append("%s: unknown ai_profile %s" % [deck_id, profile])
+	TestHarness.assert_eq(bad, [] as Array[String], "every pool, deck, card id and profile resolves")
+	TestHarness.assert_false(EncounterDecks.get_deck(PhaseTransition.SOVEREIGN_P2_DECK_ID).is_empty(),
+		"the Sovereign's phase-2 deck (%s) has cards" % PhaseTransition.SOVEREIGN_P2_DECK_ID)
+
+static func _encounter_deck_pick_is_seeded() -> void:
+	if not TestHarness.begin_test("content / a fight's deck is picked from the run seed alone", null):
+		return
+	var pool: Array[String] = EncounterDecks.get_pool(1)
+	var first: String = EncounterDecks.pick_for_run(1, 42)["id"]
+	seed(1)
+	var again: String = EncounterDecks.pick_for_run(1, 42)["id"]
+	seed(987654)
+	TestHarness.assert_eq(EncounterDecks.pick_for_run(1, 42)["id"], again, "same run seed → same deck, whatever the global RNG")
+	TestHarness.assert_eq(again, first, "asking again doesn't move the pick")
+	TestHarness.assert_true(first in pool, "the pick is in F1's pool")
+	var seen: Dictionary = {}
+	for run_seed in 64:
+		seen[EncounterDecks.pick_for_run(1, run_seed)["id"]] = true
+	TestHarness.assert_eq(seen.size(), pool.size(), "64 run seeds reach every F1 variant")
+
+static func _encounter_deck_edit_keeps_limited() -> void:
+	if not TestHarness.begin_test("content / editing a deck keeps its limited cards (EnemyDeckBuilder)", null):
+		return
+	var existing: Dictionary = {"cards": ["void_imp"], "ai_profile": "p", "limited": ["void_wind"]}
+	var saved: Dictionary = EncounterDecks._entry_with(existing, ["shadow_hound"], "p")
+	TestHarness.assert_eq(saved, {"cards": ["shadow_hound"], "ai_profile": "p", "limited": ["void_wind"]}, "new cards, same profile and limited")
+	var cleared: Dictionary = EncounterDecks._entry_with(existing, ["void_imp"], "")
+	TestHarness.assert_eq(cleared, {"cards": ["void_imp"], "limited": ["void_wind"]}, "profile cleared, limited kept")
 
 # ---------------------------------------------------------------------------
 # S1 — Baseline smoke: swarm vs feral_pack runs to completion without crashing.

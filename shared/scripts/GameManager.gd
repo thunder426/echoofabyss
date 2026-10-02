@@ -41,6 +41,9 @@ var last_boss_unlocks: Array[String] = []   # cards unlocked by the most recent 
 
 # --- Progression ---
 var run_node_index: int = 1           # which encounter the player is on (1-based)
+## Picks each fight's enemy deck (EncounterDecks.pick_for_run). Rolled by
+## start_new_run; tests set it to replay a run's deck picks.
+var run_seed: int = 0
 var current_enemy: EnemyData = null   # set before entering CombatScene
 ## Engine RNG seed for the next combat. -1 = roll a fresh one; tests and replays
 ## set it to reproduce a fight. CombatScene consumes it (resets to -1).
@@ -76,6 +79,7 @@ func start_new_run() -> void:
 	player_hp = player_hp_max
 	core_unit_limit = 4
 	has_revive = false
+	run_seed = randi()
 	current_enemy = get_encounter(1)
 	talent_points = 1       # initial point — spend before first fight
 	unlocked_talents = []
@@ -229,15 +233,14 @@ func has_talent(id: String) -> bool:
 # decks come from EncounterDecks.
 # ---------------------------------------------------------------------------
 
-## The deck ID that was picked for the current encounter (for logging/display).
-var current_deck_id: String = ""
-
+## Encounter `index` with its deck for this run (EncounterDecks.pick_for_run);
+## `deck_id` names the deck. No side effects, so it is safe to call for display.
 func get_encounter(index: int) -> EnemyData:
 	var e: EnemyData = _build_encounter(index)
 	if e == null:
 		return null
-	var result := EncounterDecks.pick_random_with_id(index)
-	current_deck_id = result.id as String
+	var result := EncounterDecks.pick_for_run(index, run_seed)
+	e.deck_id = result.id as String
 	var cards: Array[String] = []
 	for id in (result.cards as Array):
 		cards.append(id as String)
@@ -247,7 +250,7 @@ func get_encounter(index: int) -> EnemyData:
 	if not deck_profile.is_empty():
 		e.ai_profile = deck_profile
 	# Per-deck limited cards
-	e.limited_cards = EncounterDecks.get_deck_limited(current_deck_id)
+	e.limited_cards = EncounterDecks.get_deck_limited(e.deck_id)
 	return e
 
 ## Encounter data (HP, passives, default AI profile, story) lives in

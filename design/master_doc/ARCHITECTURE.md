@@ -29,7 +29,8 @@ All paths in this doc are relative to `echoofabyss/` (the Godot project root).
 | Headless simulator | `sim/CombatSim.gd` (+ `CombatDiagnostics.gd`, `SimRelicPolicy.gd`) |
 | Live enemy turn | `combat/board/EnemyTurnRunner.gd` |
 | Enemy decision logic | `enemies/ai/profiles/*.gd` |
-| Encounter definitions (HP, deck, AI) | `enemies/data/EncounterDecks.gd` |
+| Encounter definitions (HP, passives, AI) | `enemies/data/EncounterTable.gd` |
+| Enemy decks (pools, per-deck AI profile, limited cards) | `enemies/data/encounter_decks.json`, read by `enemies/data/EncounterDecks.gd` |
 | Hero definitions / starter decks | `heroes/HeroDatabase.gd` |
 | Talent definitions | `talents/TalentDatabase.gd` |
 | Relic definitions | `relics/RelicDatabase.gd` |
@@ -245,7 +246,7 @@ Per-copy runtime wrapper:
 | Player sim profiles | `enemies/ai/profiles/*PlayerProfile.gd` | Player decks for balance sims (Default, Fleshcraft, Seris, SpellBurn, Swarm, RuneTempo). |
 | Encounter profiles | `enemies/ai/profiles/*Profile.gd` | One per encounter family: Feral Pack, Matriarch, Corrupted Brood, Void faction (Aberration, Captain, Champion, Herald, Ritualist, Scout, Warband), Cultist Patrol, Rift Stalker, Corrupted Handler, etc. |
 
-Encounter definitions: `enemies/data/EncounterTable.gd` — the one table of the 15 encounters (HP, passives, default AI profile + the variant profiles that share its passives, story text); `GameManager.get_encounter(i)` builds `EnemyData` from it and picks a deck from `enemies/data/EncounterDecks.gd`; the sim reads HP / passives from it (`passives_for_profile`). `EnemyData.gd` resource fields: `enemy_name`, `hp`, `deck`, `ai_profile`, `passives`, `limited_cards`, `portrait_path`, story/background.
+Encounter definitions: `enemies/data/EncounterTable.gd` — the one table of the 15 encounters (HP, passives, default AI profile + the variant profiles that share its passives, story text); `GameManager.get_encounter(i)` builds `EnemyData` from it and picks a deck with `EncounterDecks.pick_for_run(i, GameManager.run_seed)` — a stateless hash of the run seed and the fight, so the same run always gets the same deck and nothing draws from the global RNG. The decks live in `enemies/data/encounter_decks.json`, committed and the only source (a missing or broken file is a `push_error`; ScenarioTests' `content /` probes check every pool, card id and profile); the sim reads HP / passives from it (`passives_for_profile`). `EnemyData.gd` resource fields: `enemy_name`, `hp`, `deck`, `ai_profile`, `passives`, `limited_cards`, `portrait_path`, story/background.
 
 ## Headless simulation (`sim/`)
 

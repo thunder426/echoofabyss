@@ -88,9 +88,9 @@ func _parse_args() -> void:
 # ---------------------------------------------------------------------------
 
 func _run_case(c: Dictionary, rng_seed: int) -> bool:
-	var label: String = "%s seed %d" % [c["name"], rng_seed]
 	var t_start: int = Time.get_ticks_msec()
 	_setup_run(c, rng_seed)
+	var label: String = "%s seed %d [%s]" % [c["name"], rng_seed, GameManager.current_enemy.deck_id]
 	var enemy: EnemyData = GameManager.current_enemy
 
 	# 1. Engine run.
@@ -182,10 +182,12 @@ func _run_case(c: Dictionary, rng_seed: int) -> bool:
 	return false
 
 ## The run state the live scene reads (CombatConfig.from_game_manager). The
-## global RNG picks the encounter's deck variant, so seed it first.
+## run seed picks the encounter's deck variant (EncounterDecks.pick_for_run);
+## it is chosen so a case's seeds walk the pool (SEEDS[i] plays variant
+## i mod pool size) and every variant's deck and AI profile gets replayed.
 func _setup_run(c: Dictionary, rng_seed: int) -> void:
-	seed(rng_seed)
 	GameManager.start_new_run()
+	GameManager.run_seed = _run_seed_for_variant(c["encounter"], SEEDS.find(rng_seed))
 	GameManager.current_hero = c["hero"]
 	GameManager.player_deck = PresetDecks.get_cards(c["deck"])
 	GameManager.unlocked_talents.assign(c["talents"])
@@ -193,6 +195,18 @@ func _setup_run(c: Dictionary, rng_seed: int) -> void:
 	GameManager.relic_bonus_charges = {}
 	GameManager.player_hp_max = 3000
 	GameManager.current_enemy = GameManager.get_encounter(c["encounter"])
+
+## The first run seed whose pick for `encounter` is its pool's variant `i` (mod
+## the pool size).
+static func _run_seed_for_variant(encounter: int, i: int) -> int:
+	var pool: Array[String] = EncounterDecks.get_pool(encounter)
+	if pool.is_empty():
+		return 0
+	var want: String = pool[i % pool.size()]
+	for run_seed in 10000:
+		if EncounterDecks.pick_for_run(encounter, run_seed)["id"] == want:
+			return run_seed
+	return 0
 
 static func _hero_passives(hero_id: String) -> Array[String]:
 	var out: Array[String] = []

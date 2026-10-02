@@ -109,6 +109,7 @@ QN6: "**Act bosses too.** Every act boss (fights 3, 6, 9 and 15) shows the BOSS 
 ## Work log
 
 - 2026-10-01: filed by task 056 (grooming pass 1) from roadmap item H2 and owner decision QN6. Re-checked at `404b51c`: four constants, not three; added the BalanceSimBatch, BalanceSim and EncounterLoadingScene copies; `is_boss_fight()` keeps its name and covers every boss index. Flagged the "12" in the QN6 wording for the owner.
+- 2026-10-02: task 047 replaced `GameManager.current_deck_id` with `EnemyData.deck_id`; the walk probe saves / restores `current_enemy` (and `run_seed`) instead. `get_encounter` no longer has a side effect.
 
 ## Summary
 

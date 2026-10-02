@@ -82,6 +82,9 @@ func load_profile() -> bool:
 		GameManager.player_deck.assign(run.get("player_deck", []))
 		GameManager.player_relics.assign(run.get("player_relics", []))
 		GameManager.unlocked_talents.assign(run.get("unlocked_talents", []))
+		# The run seed isn't saved yet, so a resumed run re-rolls its deck picks
+		# as it always has (task 052 decides whether resume keeps them).
+		GameManager.run_seed        = randi()
 		GameManager.current_enemy   = GameManager.get_encounter(GameManager.run_node_index)
 
 	return true

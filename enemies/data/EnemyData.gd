@@ -7,6 +7,8 @@ extends Resource
 @export var hp: int = 20
 ## Card IDs that form the enemy's deck. Shuffled once at combat start; drawn without replacement (reshuffles when empty).
 @export var deck: Array[String] = []
+## The EncounterDecks deck id `deck` came from (e.g. "f1_b"); "" if none.
+@export var deck_id: String = ""
 ## Short title shown on the encounter loading screen (e.g. "ENCOUNTER I").
 @export var title: String = ""
 ## Flavour text / story shown on the left panel of the encounter loading screen.

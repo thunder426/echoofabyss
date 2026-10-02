@@ -1,7 +1,8 @@
 ## EnemyDeckBuilder.gd
 ## Debug tool for building and managing enemy encounter deck variants.
-## Each encounter has a pool of deck IDs; one is randomly picked at combat start.
-## Navigate here from BalanceSim; Back returns to BalanceSim.
+## Each encounter has a pool of deck IDs; the run seed picks one per fight.
+## Edits write res://enemies/data/encounter_decks.json (EncounterDecks) in
+## place — editor runs only. Navigate here from BalanceSim; Back returns to BalanceSim.
 extends Control
 
 const _ENCOUNTER_NAMES: Array = [

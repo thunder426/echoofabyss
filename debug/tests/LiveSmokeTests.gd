@@ -197,11 +197,10 @@ func _hp_labels_lag_the_engine() -> void:
 ## runs with `instant` so nothing animates. Ends with a winner, the presenter
 ## idle and the journal fully played.
 func _ai_vs_ai_fight() -> void:
-	# A reproducible fight: the global RNG picks the encounter's deck variant,
+	# A reproducible fight: the run seed picks the encounter's deck variant,
 	# the combat seed does the rest.
-	seed(7)
 	GameManager.next_combat_seed = 7
-	var scene: Node = await _launch(1, "swarm")
+	var scene: Node = await _launch(1, "swarm", 7)
 	var st: CombatState = scene.state
 	scene.presenter.instant = true
 	var agent := StateAgent.new()
@@ -228,11 +227,14 @@ func _ai_vs_ai_fight() -> void:
 	await scene.presenter.pump_and_wait_idle()
 	_check(scene.presenter.is_idle() and scene.presenter.cursor == st.journal.size(),
 		"fight: presenter idle with the journal fully played (%d / %d)" % [scene.presenter.cursor, st.journal.size()])
-	print("LiveSmoke: AI-vs-AI fight completed (%s wins, turn %d, %d events)" % [st.winner, st.turn_number, st.journal.size()])
+	print("LiveSmoke: AI-vs-AI fight completed (%s, %s wins, turn %d, %d events)" % [GameManager.current_enemy.deck_id, st.winner, st.turn_number, st.journal.size()])
 	await _teardown(scene)
 
-func _launch(encounter: int, deck_preset: String) -> Node:
+## `run_seed` >= 0 pins the deck variant (EncounterDecks.pick_for_run).
+func _launch(encounter: int, deck_preset: String, run_seed: int = -1) -> Node:
 	GameManager.start_new_run()
+	if run_seed >= 0:
+		GameManager.run_seed = run_seed
 	GameManager.current_hero = "lord_vael"
 	GameManager.current_enemy = GameManager.get_encounter(encounter)
 	GameManager.player_deck = _preset(deck_preset)

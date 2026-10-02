@@ -104,3 +104,5 @@ On a parse error `load_all()` returns `{}` (:17-18). `save_deck()` (:32-35) then
   - Added the SavedDecks wipe-on-parse-error bug, the immediate New Run save, the missed `reset_all` fields, the float casts and the const `SAVE_PATH`.
   - The deck id is saved alongside 047's run seed.
 - 2026-09-30: owner decision: no HP carry-over. The design docs are updated; step 8 deletes `player_hp`.
+- 2026-10-02: task 047 landed. `GameManager.current_deck_id` is gone; the picked deck is `current_enemy.deck_id` (EnemyData). `GameManager.run_seed` exists but isn't saved: UserProfile's load rolls a fresh one, so resume still re-rolls the deck (the owner question in the implementation order, P4). Saving `run_seed` alone restores the same deck, because the pick is a stateless hash of the run seed and the fight.
+

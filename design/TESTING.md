@@ -62,7 +62,7 @@ step of that refactor must leave it green.
 | Rule | Fails on |
 |---|---|
 | L1 | Rules code (`CombatState`, `CombatSetup`, `CombatHandlers`, `HardcodedEffects`, `RelicEffects`, `EffectResolver`, `ConditionResolver`, `TargetResolver`, `EffectContext`, `CombatManager`, `MinionInstance`, `PhaseTransition`) holding a combat shell at all: `_scene`, `ctx.scene`, `_fx` or `scene.` (plan 4.4 — the B1 class of "a name the live shell lacks" can no longer arise). Also: `CombatSetup` registry stat keys must exist on `CombatState`. |
-| L2 | Global `randi/randf/shuffle/pick_random` in engine, rules, sim or AI code. Gameplay randomness goes through `state.rng_pick / rng_shuffle / rng_range / rng_index` so a seed reproduces a fight. Opt out per line with `# lint: allow-rng (<reason>)` (only the two seed rolls do). |
+| L2 | Global `randi/randf/shuffle/pick_random` in engine, rules, sim or AI code, and in the enemy deck pick (`EncounterDecks.gd`). Gameplay randomness goes through `state.rng_pick / rng_shuffle / rng_range / rng_index` so a seed reproduces a fight. Opt out per line with `# lint: allow-rng (<reason>)` (only the two seed rolls do). |
 | L3 | Presentation from rules code: any `presenter` / `ctx.presenter` in the rules files. Anything the screen must show is a journal event (`state.emit_event`) the presenter plays (plan 4.4). |
 | L4 | Duck typing in rules files: `has_method(`, and `.get("x")` / `.set("x", …)` / `"x" in obj` on an object handle. Dictionary `.get("key")` is fine. |
 | L5 | Anything that `extends CombatState` — the engine has one body per method (SimState, the last subclass, was deleted in 4.2). `lint_engine.py --report-pairs` separately lists funcs defined on both CombatScene and CombatState (should be 0). |
@@ -94,7 +94,10 @@ godot --headless --path . res://debug/tests/Parity.tscn [-- --filter F15]
 
 Plan 5.1 / 5.2. For each of 8 cases (F1–F3 on the three Vael decks, Seris
 Corrupt Flesh and Soul Forge, Korrath, F13, F15; four carry relic pairs) × 3
-seeds:
+seeds. The seeds also walk the encounter's deck pool (seed *i* plays variant
+*i* mod pool size, via a run seed that picks it), so every F1–F4 variant and its
+AI profile is replayed; each case line names the deck it played (e.g.
+`F1 swarm seed 11 [f1_a]`):
 
 1. **Engine run:** `CombatSim.run` on a bare `CombatState`; every accepted
    command's record and `digest_text()` are captured through
@@ -394,9 +397,13 @@ This is the **only** test path that exercises the full `CombatScene`
 **Path:** [debug/EnemyDeckBuilder.gd](../echoofabyss/debug/EnemyDeckBuilder.gd)
 **Scene:** `res://debug/EnemyDeckBuilder.tscn`
 
-Editor UI for building/editing the per-encounter deck variants stored in
-`EncounterDecks`. Each encounter has a pool of deck IDs; one is picked at
-combat start. Navigate from `BalanceSim`.
+Editor UI for building/editing the per-encounter deck variants in
+`res://enemies/data/encounter_decks.json` (through `EncounterDecks`). Each
+encounter has a pool of deck IDs; the run seed picks one per fight
+(`EncounterDecks.pick_for_run`). Navigate from `BalanceSim`. It writes the
+committed file in place, so an edit shows up in `git diff` and moves the
+balance fingerprint — commit it like any content change. Saving works in
+editor runs only (res:// is read-only in an export).
 
 ### Run
 

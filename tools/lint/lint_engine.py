@@ -145,6 +145,7 @@ RNG_FILES = [
     "combat/effects/TargetResolver.gd",
     "combat/effects/HardcodedEffects.gd",
     "relics/RelicEffects.gd",
+    "enemies/data/EncounterDecks.gd",
 ]
 RNG_RE = re.compile(r"(?<![\w.])(randi|randf|randi_range|randf_range|pick_random|shuffle)\(|\.(pick_random|shuffle)\(")
 RNG_ALLOW = "lint: allow-rng"

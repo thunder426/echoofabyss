@@ -600,7 +600,8 @@ func _on_run_pressed() -> void:
 		enemy_deck = EncounterDecks.get_deck(deck_id)
 	if enemy_deck.is_empty():
 		var enc_idx: int = (fight as Dictionary).get("encounter", _fight_idx) as int
-		enemy_deck = EncounterDecks.pick_random(enc_idx)
+		var picked: Dictionary = EncounterDecks.pick_for_run(enc_idx, randi())
+		enemy_deck.assign(picked["cards"])
 
 	var sim   := CombatSim.new()
 	var stats: Dictionary = await sim.run_many(

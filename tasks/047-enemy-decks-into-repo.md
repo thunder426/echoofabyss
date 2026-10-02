@@ -1,11 +1,11 @@
 ---
 id: "047"
 title: Move enemy decks from user:// into the repo
-status: backlog
+status: done
 area: content
 priority: high
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -92,3 +92,19 @@ Existing data-loss bug: `save_deck` (:160-174) and `set_deck_profile` (:177-186)
   - Extended the test to `limited` ids and f15_p2.
 - 2026-09-30: owner decision: the Mac copy is canonical. Backed it up outside user://.
 - 2026-10-01: task 080 deleted MapScene, so its two readers (MapScene.gd:63, :136) are gone. Scope unchanged.
+- 2026-10-02: implemented, then parked on a WIP branch while task 049 landed (the sim leak made the full-size fingerprints impossible), then finished on top of it.
+  - Steps 1–8 done. `res://enemies/data/encounter_decks.json` is the Mac copy with LF endings and a trailing newline (same data; `diff` against the CRLF original is empty after stripping `\r`). The user:// copy is deleted; the 2026-09-30 backup stays.
+  - `save_data` writes `JSON.stringify(data, "\t", false)`: unsorted keys round-trip the file byte-for-byte, so a builder edit diffs only the entries it touched (Godot's default sort would move `decks` above `pools` and sort pool keys as strings). The parsed file is cached (step 7); mutators edit a deep copy.
+  - Missing / unreadable / unparseable file → `push_error`. Godot 4.6 prints that as `ERROR:`, not `SCRIPT ERROR:`, so run_checks.sh's grep doesn't see it; the content probe does (checked by moving the file away: 4 failures).
+  - Pick: `EncounterDecks.pick_for_run(index, run_seed)` = `pool[posmod(hash([run_seed, index]), size)]`. `pick_random` / `pick_random_with_id` are gone; `GameManager.run_seed` is rolled in `start_new_run`; UserProfile's load rolls a fresh one, so resume re-rolls the deck as before (052 decides). EncounterDecks.gd is in L2's scope.
+  - `GameManager.current_deck_id` replaced by `EnemyData.deck_id`: the live CheatPanel calls `get_encounter(1..15)` for its dropdown, which overwrote the global.
+  - Content probes (ScenarioTests `content /`): pools F1–F15, every deck / card / `limited` id, every `ai_profile` registered **and** listed by its encounter (the sim derives passives from the profile), f15_p2, a stable seeded pick reaching every F1 variant, and `_entry_with` keeping `limited` (the builder data-loss bug).
+  - Variants: before, Parity's seeds played F1–F3 `_b`/`_c` only and F4 `a,a,b`; LiveSmoke `f1_b`. The hash pick alone would have dropped Parity to F3 `a,a,a` and F2 without `f2_b`, so Parity now chooses run seeds that walk each pool: F1–F3 `a,b,c`, F4 `a,b,a`, F5+ `_a`, covering all six variant AI profiles. Case labels name the deck. LiveSmoke's AI-vs-AI fight now plays `f1_c` (enemy wins, turn 8, 706 events).
+  - Gate green: lint 0, 197 scripts, 1125 tests, LiveSmoke OK, Parity 24/24, all with no user:// deck file.
+  - Fingerprint `--runs 200 --seed 7`, Acts 1–4: byte-identical to the post-049 runs. These are P1's reference fingerprint.
+- 2026-10-02: closed.
+
+## Summary
+
+Enemy decks now live in `res://enemies/data/encounter_decks.json` (the Mac copy, LF), the only source: no user:// layer, loud on a missing or broken file, cached, and the deck builder writes it in place without losing `limited`. A fight's deck is a stateless hash of `GameManager.run_seed` and the fight, so runs, Parity and LiveSmoke are reproducible without touching the global RNG; Parity now walks every F1–F4 variant. Content probes cover every pool, id and profile. Behaviour-neutral: BalanceSimBatch Acts 1–4 byte-identical.
+Follow-ups: the first export must check the JSON is packed (no preset yet; task 053). Task 052 decides whether a resumed run keeps its run seed and deck.
