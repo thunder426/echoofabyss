@@ -3,7 +3,6 @@
 Index of project tasks. View with `tasks/tasks.html` (open in browser).
 
 ## Active
-- ["057"](057-minion-that-dies-mid-attack-dies.md) — A minion that dies mid-attack dies twice (on-death effects and death triggers run again) (combat, started 2026-10-02)
 - ["043"](043-live-sim-unification-phase-3.md) — Live/sim unification — Phase 3 (combat, started 2026-09-24)
 
 ## Backlog
@@ -24,15 +23,10 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["052"](052-save-robustness.md) — Make saves versioned, atomic and complete (meta)
 - ["053"](053-gate-debug-tools-in-release.md) — Gate the cheat panel and test config out of release builds (meta)
 - ["058"](058-imp-talisman-three-latent-sites-bypass.md) — Imp Talisman (and three latent sites) bypass _card_for: Vael gets an un-boosted Void Imp (combat)
-- ["059"](059-matron-flesh-gains-flesh-own-death.md) — Matron of Flesh gains Flesh for its own death and for friendly deaths during its attack (combat)
-- ["060"](060-attacks-crit-flag-leaks-onto-damage.md) — An attack's crit flag leaks onto every damage event nested inside it (crit popups on non-crit hits) (combat)
-- ["061"](061-deathless-save-leaves-minions-hp-label.md) — Deathless save leaves the minion's HP label at ≤0 (ui)
 - ["062"](062-enemy-void-spawner-abyssal-tide-passives.md) — Enemy Void Spawner and Abyssal Tide passives never fire (legacy on-death board passives are player-only) (combat)
 - ["063"](063-enemy-flux-siphon-does-nothing-convert.md) — Enemy Flux Siphon does nothing: CONVERT_RESOURCE runs only for the player (combat)
 - ["064"](064-runic-attunement-player-talent-also-doubles.md) — Runic Attunement (player talent) also doubles the enemy's rune auras (combat)
 - ["065"](065-energy-conversion-converts-essence-instead-up.md) — Energy Conversion converts all Essence instead of 'up to 3'; its hover preview shows no gain (combat)
-- ["066"](066-champion-auras-keep-working-after-champion.md) — Champion auras keep working after the champion dies (F1 Rogue Imp Pack, F3 Imp Matriarch, F4 Abyss Cultist Patrol) (combat)
-- ["067"](067-f15-avatar-abyss-card-counter-resets.md) — F15 Avatar of the Abyss: its card counter resets to 0 at the phase 1 → 2 transition, against its documented intent (combat)
 - ["068"](068-champion-card-text-tooltips-match-code.md) — Champion card text and tooltips match the code; drop the Void Ritualist aura; add the missing Act 3–4 tooltips (content)
 - ["069"](069-max-mana-max-essence-growth-outside.md) — Max-mana / max-essence growth outside the turn flow is not journaled (pip bar, resource labels and end-turn buttons keep the old maximum) (ui)
 - ["070"](070-rune-placement-vfx-trap-panels-follow.md) — Rune placement VFX and trap panels follow the journal (payload slot + trap snapshot) (ui)
@@ -111,6 +105,12 @@ Index of project tasks. View with `tasks/tasks.html` (open in browser).
 - ["049"](049-combatstate-refcount-cycles.md) — Break CombatState reference cycles so each fight is freed (combat, 2026-10-02 → 2026-10-02)
 - ["054"](054-handler-log-type-constants.md) — Fix CombatHandlers log-type constants (off by one vs CombatLog.LogType) (combat, 2026-10-02 → 2026-10-02)
 - ["055"](055-rules-code-gamemanager-leak-stale-comments.md) — Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments (combat, 2026-10-02 → 2026-10-02)
+- ["057"](057-minion-that-dies-mid-attack-dies.md) — A minion that dies mid-attack dies twice (on-death effects and death triggers run again) (combat, 2026-10-02 → 2026-10-02)
+- ["059"](059-matron-flesh-gains-flesh-own-death.md) — Matron of Flesh gains Flesh for its own death and for friendly deaths during its attack (combat, 2026-10-02 → 2026-10-02)
+- ["060"](060-attacks-crit-flag-leaks-onto-damage.md) — An attack's crit flag leaks onto every damage event nested inside it (crit popups on non-crit hits) (combat, 2026-10-02 → 2026-10-02)
+- ["061"](061-deathless-save-leaves-minions-hp-label.md) — Deathless save leaves the minion's HP label at ≤0 (ui, 2026-10-02 → 2026-10-02)
+- ["066"](066-champion-auras-keep-working-after-champion.md) — Champion auras keep working after the champion dies (F1 Rogue Imp Pack, F3 Imp Matriarch, F4 Abyss Cultist Patrol) (combat, 2026-10-02 → 2026-10-02)
+- ["067"](067-f15-avatar-abyss-card-counter-resets.md) — F15 Avatar of the Abyss: its card counter resets to 0 at the phase 1 → 2 transition, against its documented intent (combat, 2026-10-02 → 2026-10-02)
 - ["073"](073-player-sim-bots-side-blind-reserved.md) — Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has (ai, 2026-10-02 → 2026-10-02)
 - ["079"](079-delete-card-library-md-carddatabase-gd.md) — Delete CARD_LIBRARY.md; CardDatabase.gd is the card source of truth (content, 2026-10-02 → 2026-10-02)
 - ["081"](081-delete-unreachable-passive-content-spirit-conscription.md) — Delete unreachable passive content (spirit_conscription, champion_duel, dead passive arm, stale AI hardcoded-id check) (content, 2026-10-02 → 2026-10-02)

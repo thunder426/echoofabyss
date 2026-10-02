@@ -98,12 +98,20 @@ static func _clear_combat_state(st: CombatState) -> void:
 	# Void marks on enemy hero (cosmetic but resets cleanly)
 	st.enemy_void_marks = 0
 
+## Swap only the passives that change: unregister those not in the P2 list,
+## register those not already active. A passive in both lists (void_might,
+## champion_abyss_sovereign) keeps its registrations and its state; apply_passive
+## would reset its registry stats, and the Avatar's card counter carries over
+## into phase 2 (task 067).
 static func _swap_passives(st: CombatState) -> void:
 	if st.trigger_manager == null or st._handlers == null:
 		push_warning("PhaseTransition: missing trigger_manager or handlers — cannot swap passives")
 		return
-	for p in SOVEREIGN_P1_PASSIVES:
-		CombatSetup.unapply_passive(p, st.trigger_manager, st._handlers)
+	var current: Array[String] = st.enemy_passives.duplicate()  # the P1 list here
+	for p in current:
+		if not p in SOVEREIGN_P2_PASSIVES:
+			CombatSetup.unapply_passive(p, st.trigger_manager, st._handlers)
 	for p in SOVEREIGN_P2_PASSIVES:
-		CombatSetup.apply_passive(p, st)
+		if not p in current:
+			CombatSetup.apply_passive(p, st)
 	st.enemy_passives.assign(SOVEREIGN_P2_PASSIVES)

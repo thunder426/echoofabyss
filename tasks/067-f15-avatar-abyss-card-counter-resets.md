@@ -1,11 +1,11 @@
 ---
 id: "067"
 title: F15 Avatar of the Abyss: its card counter resets to 0 at the phase 1 → 2 transition, against its documented intent
-status: backlog
+status: done
 area: combat
 priority: normal
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -77,7 +77,7 @@ The AS probes at TriggerHandlerTests.gd:1771-1807 set `state._sovereign_phase = 
     - `on_enemy_turn_abyss_awakened` is present;
     - `on_enemy_turn_start_abyssal_mandate` and `on_enemy_spell_dark_channeling` are gone.
   - Three more plays: not summoned. The 4th: the champion is on the board with 2 Critical Strike stacks.
-  - The probe doesn't need the `f15_p2` deck; an empty deck from a missing `user://encounter_decks.json` is fine.
+  - The probe doesn't need the `f15_p2` deck (in the repo since task 047).
 - Second probe: play 13 cards in phase 1 and transition. The first card in phase 2 summons the Avatar.
 - The existing AS probes (:1771-1807) still pass. The handler-order snapshot (`debug/tests/snapshots/handler_order.txt`) is built at setup and doesn't cover the swap, so it stays unchanged.
 - `tools/run_checks.sh` green.
@@ -96,7 +96,19 @@ The AS probes at TriggerHandlerTests.gd:1771-1807 set `state._sovereign_phase = 
 ## Work log
 
 - 2026-10-01: filed by task 056 (grooming pass 1) from unit B's straight-to-task bug B-bug2 (roadmap §B). Re-checked at `404b51c`. The reset has existed since `1f1364b` (v0.596). Handler line ranges corrected (`_swap_passives` is :101-109).
+- 2026-10-02: started (P2 ticket 6). Owner confirmed the grooming ruling: the counter carries over.
+  - Fix as proposed: `_swap_passives` diffs against `st.enemy_passives` (F15's EncounterTable passives are exactly `SOVEREIGN_P1_PASSIVES`): unapply only `abyssal_mandate` / `dark_channeling`, apply only `abyss_awakened`; `void_might` and `champion_abyss_sovereign` keep their registrations and stats. Summon gate unchanged. Stale tuning comment at CombatState `_champion_as_cards_played` rewritten.
+  - Handler order (step 2): dumped `trigger_manager.dump_order()` after the transition for Vael, Seris and Korrath on the old and new code (a temporary probe, removed): byte-identical. No order change.
+  - Probes: `_as_counter_carries_over_phase_transition` (8 cards kept; registrations; summon at the 12th card with 2 crit stacks) and `_as_threshold_met_in_phase_1_summons_on_first_p2_card` (13 in P1; not summoned by the transition; summoned on the first P2 card). On the old code: counter 8 → 0, no summon (3 assertions fail).
+  - Gate: run_checks green (lint 0, 197 scripts, 1185 tests, LiveSmoke OK, Parity 24/24). The handler-order snapshot is built at setup and is unchanged.
+  - Fingerprint (`--runs 200 --seed 7`) vs `ff7818c`, saved in `.fingerprints/`: Acts 1–3 byte-identical; in Act 4 only the F15 rows (and their extras lines) move, F10–F14 don't.
+    - F15, 36 rows: win mean −10.4 pts (range −34.0 to 0.0); Avatar summons (Champ) 0.01 → 0.46 per fight.
+    - Per preset (mean of 6 rows): Swarm 39.5 → 12.9% (Champ 0.09 → 0.71); Voidbolt 18.3 → 3.5% (0.00 → 0.85); S.Flesh 30.6 → 15.1% (0.00 → 0.67); S.Corr 5.8 → 2.5%; S.Forge 2.1 → 0.2%; DeathCircle 16.3 → 16.2% (it rarely reaches 12 cards).
+    - Biggest: Swarm MS+BC 51.5 → 17.5%. Card-heavy decks now reach 12 cards over both phases, so the Avatar arrives in most of their fights.
+    - Not retuned here (step 4). Input for the post-P3 retune: `_AS_THRESHOLD` (12) was effectively a phase-2-only count before.
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+The F15 Avatar of the Abyss card counter now carries over the phase 1 → 2 transition, as its comments and card text intend: `PhaseTransition._swap_passives` only swaps the passives that change, so `champion_abyss_sovereign` and `void_might` keep their registrations and state (handler order verified identical). Big F15 shift: player win rate −10.4 pts on average (Swarm 39.5 → 12.9%, Voidbolt 18.3 → 3.5%, S.Flesh 30.6 → 15.1%), Avatar summons 0.01 → 0.46 per fight; F10–F14 and Acts 1–3 unchanged.
+Follow-ups: the post-P3 retune should revisit `_AS_THRESHOLD` (12); task 095 makes champion state reset only at setup; task 125 moves the phase-2 spec into EncounterTable (update these probes' setup).

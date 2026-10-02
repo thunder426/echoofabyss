@@ -74,20 +74,22 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
 
 **Tickets:** 057 → 059 → 060 → 061 → 066 → 067
 
-8. [ ] **[057](../../tasks/057-minion-that-dies-mid-attack-dies.md)** A minion that dies mid-attack dies twice (on-death effects and death triggers run again) · *high, S*  
+8. [x] **[057](../../tasks/057-minion-that-dies-mid-attack-dies.md)** A minion that dies mid-attack dies twice (on-death effects and death triggers run again) · *high, S*  
    Delta Acts 1-4, mostly the F2 Seris rows. It adds the is_on_board guard that 110 and 131 build on, and settles the lines 114 later wraps.
-9. [ ] **[059](../../tasks/059-matron-flesh-gains-flesh-own-death.md)** Matron of Flesh gains Flesh for its own death and for friendly deaths during its attack · *normal, S*  
+9. [x] **[059](../../tasks/059-matron-flesh-gains-flesh-own-death.md)** Matron of Flesh gains Flesh for its own death and for friendly deaths during its attack · *normal, S*  
    Same VTI trace as 057. Hard prerequisite of 129. Expect an empty fingerprint, since no sim deck holds Matron.
-10. [ ] **[060](../../tasks/060-attacks-crit-flag-leaks-onto-damage.md)** An attack's crit flag leaks onto every damage event nested inside it (crit popups on non-crit hits) · *normal, S*  
+10. [x] **[060](../../tasks/060-attacks-crit-flag-leaks-onto-damage.md)** An attack's crit flag leaks onto every damage event nested inside it (crit popups on non-crit hits) · *normal, S*  
    Journal payloads only, so neutral. Hard prerequisite of 129; it lands before 115 so the popups are right when 115 arrives.
-11. [ ] **[061](../../tasks/061-deathless-save-leaves-minions-hp-label.md)** Deathless save leaves the minion's HP label at ≤0 · *normal, S*  
+11. [x] **[061](../../tasks/061-deathless-save-leaves-minions-hp-label.md)** Deathless save leaves the minion's HP label at ≤0 · *normal, S*  
    Neutral. Hard prerequisite of 135 and 136; it lands before 097 moves _try_save_from_death.
-12. [ ] **[066](../../tasks/066-champion-auras-keep-working-after-champion.md)** Champion auras keep working after the champion dies (F1 Rogue Imp Pack, F3 Imp Matriarch, F4 Abyss Cultist Patrol) · *high, S*  
+12. [x] **[066](../../tasks/066-champion-auras-keep-working-after-champion.md)** Champion auras keep working after the champion dies (F1 Rogue Imp Pack, F3 Imp Matriarch, F4 Abyss Cultist Patrol) · *high, S*  
    Delta Acts 1-2 (F1, F3, F4); the player's win rate rises. Hard prerequisite of 095.
-13. [ ] **[067](../../tasks/067-f15-avatar-abyss-card-counter-resets.md)** F15 Avatar of the Abyss: its card counter resets to 0 at the phase 1 → 2 transition, against its documented intent · *normal, S*  
+13. [x] **[067](../../tasks/067-f15-avatar-abyss-card-counter-resets.md)** F15 Avatar of the Abyss: its card counter resets to 0 at the phase 1 → 2 transition, against its documented intent · *normal, S*  
    Delta --act 4. Hard prerequisite of 095; it lands before 125, whose probe it feeds, and before 068's Avatar tooltip.
 
 > **Notes.** Chain the seeded runs: one commit's 'after' run is the next commit's 'before' run. Owner rulings, confirmed 2026-10-02: for 057, a defender or attacker that leaves the board during PRE means the attack is spent (no strike, no counter); for 067, the counter carries over into phase 2.
+
+> **Done 2026-10-02.** One commit per ticket, each with run_checks green; deltas are in the task files and the runs in `.fingerprints/<sha>/`. 059, 060 and 061 left Acts 1–4 byte-identical. 057: ≤ 1.5 pts, mostly F4 and Act 4 S.Corr rows. 066: only F1, F3 and F4 move, player win rate up (up to +2 pts in Act 1, F4 mean +0.3). **067 is the big one:** F15 player win rate −10.4 pts on average (Swarm 39.5 → 12.9%, Voidbolt 18.3 → 3.5%), Avatar summons 0.01 → 0.46 per fight; flag `_AS_THRESHOLD` for the post-P3 retune. Also landed: a LiveSmoke flake fix (`ScreenShakeEffect` awaited past its freed scene, `5498c48`). **P3's baseline** is the seeded Acts 1–4 run at the "Task 067" commit.
 
 
 ### P3 — Rules-path bugs, Act 4 boss AI, symmetry audit
@@ -441,4 +443,5 @@ PvP readiness arrives at ticket 87, because roadmap §11 puts presentation (P10)
 | 2026-10-01 | First version, from the post-grooming ordering analysis (three lenses, merged and checked by script). |
 | 2026-10-02 | P1 done (8 tickets incl. 049). |
 | 2026-10-02 | 049 pulled forward from P6 into P1 (after 080): the sim leak made the full-size fingerprints impossible. Checked: `push_error` prints `ERROR:`, not `SCRIPT ERROR:` (the P8 / Risks question), so run_checks.sh's grep misses it; a test must assert it. |
+| 2026-10-02 | P2 done (6 tickets). |
 | 2026-10-02 | Review before P2: dropped the stale 047 backup and duplicate baseline text, listed 049 under P1 in the table, recorded the confirmed 057 / 067 rulings, added rule 7 (keep the fingerprints). |

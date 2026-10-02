@@ -1945,8 +1945,8 @@ var _champion_vch_crit_kills: int = 0
 var _champion_vch_summoned: bool = false
 var _champion_vrp_spells_cast: int = 0
 var _champion_vrp_summoned: bool = false
-# F15 Abyss Sovereign — counts player cards played; threshold tuned so the
-# champion lands in Phase 2 in the average run.
+# F15 Abyss Sovereign — counts player cards played over the whole fight (it carries
+# over the phase change, task 067); the Avatar is summoned only in Phase 2.
 var _champion_as_cards_played: int = 0
 var _champion_as_summoned: bool = false
 # Sim-only Act 3/4 counters

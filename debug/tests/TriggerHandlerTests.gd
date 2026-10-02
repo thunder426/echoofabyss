@@ -111,6 +111,8 @@ static func run_all() -> void:
 	_as_summons_when_threshold_met_in_phase_2()
 	_as_aura_doubles_abyss_awakened()
 	_as_aura_inactive_when_dead()
+	_as_counter_carries_over_phase_transition()
+	_as_threshold_met_in_phase_1_summons_on_first_p2_card()
 	_void_empowerment_normalizes_spark()
 	_void_detonation_passive_base_100()
 	_void_detonation_passive_va_alive_200()
@@ -3712,4 +3714,60 @@ static func _acp_aura_inactive_after_death() -> void:
 	_fire_enemy_summon(state, TestHarness.spawn_enemy(state, "rabid_imp"))
 	TestHarness.assert_eq(victim.current_health, 1000, "no detonation damage")
 	TestHarness.assert_eq(BuffSystem.count_type(victim, Enums.BuffType.CORRUPTION), 2, "both corruption stacks stay")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Avatar of the Abyss across the F15 phase change (task 067): the card counter
+# carries over; only the passives that change are swapped.
+# ---------------------------------------------------------------------------
+
+## An F15 fight in phase 1 with `cards` player cards already played.
+static func _f15_phase_1_state(cards: int) -> CombatState:
+	var state := TestHarness.build_state({"enemy_passives": PhaseTransition.SOVEREIGN_P1_PASSIVES})
+	state.enemy_profile_id = "abyss_sovereign"
+	for i in cards:
+		_fire_player_played(state, TestHarness.spawn_friendly(state, "void_imp"))
+	return state
+
+## How often `method` is registered on `event` in `state`'s trigger manager.
+static func _registered_count(state: CombatState, event: String, method: String) -> int:
+	for line: String in state.trigger_manager.dump_order().split("\n"):
+		if line.begins_with(event + ": "):
+			var n: int = 0
+			for part: String in line.substr(event.length() + 2).split(", "):
+				if part.get_slice(":", 1) == method:
+					n += 1
+			return n
+	return 0
+
+static func _as_counter_carries_over_phase_transition() -> void:
+	var state := _f15_phase_1_state(8)
+	if not TestHarness.begin_test("champion_as / the card counter carries over the phase change", state):
+		return
+	TestHarness.assert_true(PhaseTransition.attempt(state), "the transition fired")
+	TestHarness.assert_eq(state._champion_as_cards_played, 8, "8 phase-1 cards kept")
+	TestHarness.assert_eq(_registered_count(state, "ON_PLAYER_MINION_PLAYED", "on_player_card_champion_as"), 1, "AS card counter registered once")
+	TestHarness.assert_eq(_registered_count(state, "ON_ENEMY_TURN_START", "on_enemy_turn_void_might"), 1, "void_might registered once")
+	TestHarness.assert_eq(_registered_count(state, "ON_ENEMY_TURN_START", "on_enemy_turn_abyss_awakened"), 1, "abyss_awakened added")
+	TestHarness.assert_eq(_registered_count(state, "ON_ENEMY_TURN_START", "on_enemy_turn_start_abyssal_mandate"), 0, "abyssal_mandate removed")
+	TestHarness.assert_eq(_registered_count(state, "ON_ENEMY_SPELL_CAST", "on_enemy_spell_dark_channeling"), 0, "dark_channeling removed")
+	TestHarness.assert_eq(state.enemy_passives, PhaseTransition.SOVEREIGN_P2_PASSIVES, "enemy_passives is the P2 list")
+	for i in 3:
+		_fire_player_played(state, TestHarness.spawn_friendly(state, "void_imp"))
+	TestHarness.assert_false(TestHarness.has_on_board(state, "enemy", "champion_abyss_sovereign"), "not summoned at 11 cards")
+	_fire_player_played(state, TestHarness.spawn_friendly(state, "void_imp"))
+	var champion := TestHarness.find_on_board(state, "enemy", "champion_abyss_sovereign")
+	TestHarness.assert_true(champion != null, "summoned at the 12th card of the fight")
+	if champion != null:
+		TestHarness.assert_eq(BuffSystem.sum_type(champion, Enums.BuffType.CRITICAL_STRIKE), 2, "2 crit stacks on summon")
+	state.teardown()
+
+static func _as_threshold_met_in_phase_1_summons_on_first_p2_card() -> void:
+	var state := _f15_phase_1_state(13)
+	if not TestHarness.begin_test("champion_as / 13 cards in phase 1: the first phase-2 card summons", state):
+		return
+	TestHarness.assert_true(PhaseTransition.attempt(state), "the transition fired")
+	TestHarness.assert_false(TestHarness.has_on_board(state, "enemy", "champion_abyss_sovereign"), "not summoned by the transition itself")
+	_fire_player_played(state, TestHarness.spawn_friendly(state, "void_imp"))
+	TestHarness.assert_true(TestHarness.has_on_board(state, "enemy", "champion_abyss_sovereign"), "summoned on the first phase-2 card")
 	state.teardown()
