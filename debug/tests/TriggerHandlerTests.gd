@@ -210,6 +210,9 @@ static func run_all() -> void:
 	_pre_kills_defender_attack_spent()
 	_pre_removes_attacker_hero_attack_spent()
 	_dead_minion_takes_no_damage_dies_once()
+	# Matron of Flesh kill credit (task 059)
+	_matron_no_flesh_for_own_death()
+	_matron_no_flesh_for_friendly_deaths()
 
 # ---------------------------------------------------------------------------
 # Fleshbind passive — +1 Flesh on Demon death
@@ -3541,4 +3544,38 @@ static func _dead_minion_takes_no_damage_dies_once() -> void:
 	TestHarness.assert_eq(_events_for(state, start, CombatEvent.Kind.DAMAGE_DEALT, imp).size(), 0, "no damage on the corpse")
 	TestHarness.assert_eq(_events_for(state, start, CombatEvent.Kind.MINION_DIED, imp).size(), 0, "no second MINION_DIED")
 	TestHarness.assert_eq(died.count(imp), 1, "ON_ENEMY_MINION_DIED fired once")
+	state.teardown()
+
+# ---------------------------------------------------------------------------
+# Matron of Flesh — "Whenever this minion kills an enemy minion, gain 1 Flesh." (task 059)
+# No hero passives, so Fleshbind adds no Flesh.
+# ---------------------------------------------------------------------------
+
+## Matron dies to the counter: she didn't kill anything, so no Flesh.
+static func _matron_no_flesh_for_own_death() -> void:
+	var state := TestHarness.build_state({"hero_id": "seris"})
+	if not TestHarness.begin_test("matron_of_flesh / no Flesh for her own death to the counter", state):
+		return
+	var matron := TestHarness.spawn_friendly(state, "matron_of_flesh")
+	matron.current_health = 100
+	var colossus := TestHarness.spawn_enemy(state, "bastion_colossus")  # Ethereal: takes 200, survives
+	state.combat_manager.resolve_minion_attack(matron, colossus)
+	TestHarness.assert_false(state.is_on_board(matron), "the counter killed Matron")
+	TestHarness.assert_true(state.is_on_board(colossus), "the Colossus survived")
+	TestHarness.assert_eq(state.player_flesh, 0, "no Flesh")
+	state.teardown()
+
+## Matron kills a Void-Touched Imp; its on-death AoE kills a friendly spark. +1 for
+## the kill, nothing for the spark.
+static func _matron_no_flesh_for_friendly_deaths() -> void:
+	var state := TestHarness.build_state({"hero_id": "seris"})
+	if not TestHarness.begin_test("matron_of_flesh / +1 Flesh for the kill, none for friendly deaths", state):
+		return
+	var matron := TestHarness.spawn_friendly(state, "matron_of_flesh")
+	var spark := TestHarness.spawn_friendly(state, "void_spark")
+	var vti := TestHarness.spawn_enemy(state, "void_touched_imp")
+	state.combat_manager.resolve_minion_attack(matron, vti)
+	TestHarness.assert_false(state.is_on_board(vti), "Matron killed the VTI")
+	TestHarness.assert_false(state.is_on_board(spark), "the VTI's AoE killed the spark")
+	TestHarness.assert_eq(state.player_flesh, 1, "+1 Flesh for the kill only")
 	state.teardown()

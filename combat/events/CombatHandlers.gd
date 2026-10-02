@@ -724,13 +724,19 @@ func _resolve_on_death(minion: MinionInstance) -> void:
 
 ## Shared handler — fires the killer's on_kill_effect_steps (declarative primitive on
 ## MinionCardData). Runs on both ON_ENEMY_MINION_DIED and ON_PLAYER_MINION_DIED; ctx.attacker
-## is populated by CombatScene during attack resolution. The attacker's owner drives ctx.owner
-## so effects like GAIN_FLESH resolve to the correct side.
+## is CombatState._last_attacker, set by CombatState._on_minion_vanished for every death
+## during an attack. The attacker's owner drives ctx.owner so effects like GAIN_FLESH
+## resolve to the correct side.
 func on_minion_killed_on_kill_steps(ctx: EventContext) -> void:
 	var attacker: MinionInstance = ctx.attacker
 	if attacker == null or attacker.card_data == null:
 		return
 	if not (attacker.card_data is MinionCardData):
+		return
+	# Only an opposing minion's death is a kill: not the attacker's own death (the
+	# counter) and not friendly deaths during its attack (task 059). Kill credit for
+	# nested effects and counter-kills is task 129's.
+	if ctx.minion == null or ctx.minion.owner == attacker.owner:
 		return
 	var steps: Array = (attacker.card_data as MinionCardData).on_kill_effect_steps
 	if steps.is_empty():

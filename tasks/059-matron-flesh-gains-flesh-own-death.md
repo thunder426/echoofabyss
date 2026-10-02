@@ -1,11 +1,11 @@
 ---
 id: "059"
 title: Matron of Flesh gains Flesh for its own death and for friendly deaths during its attack
-status: backlog
+status: done
 area: combat
 priority: normal
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -73,7 +73,14 @@ New probes in `debug/tests/TriggerHandlerTests.gd`. Use `TestHarness.build_state
 ## Work log
 
 - 2026-10-01: filed by task 056 (grooming pass 1); merges unit F bug 4 and unit I bug 3. Re-checked at `404b51c`: `_last_attacker` lives for the whole attack, and the handler has no owner check. Confirmed that no sim deck holds Matron, so no balance delta is expected.
+- 2026-10-02: started (P2 ticket 2), on top of task 057.
+  - Fix as proposed: `on_minion_killed_on_kill_steps` returns when `ctx.minion` is null or shares the attacker's owner (no side literal); the stale "populated by CombatScene" doc comment now names `CombatState._on_minion_vanished` / `_last_attacker`.
+  - Probes: TriggerHandlerTests `matron_of_flesh /` ×2 (her own death to a Bastion Colossus counter → 0 Flesh; VTI kill + spark killed by the VTI's AoE → 1 Flesh). On the old handler they fail with exactly the task's "today" values (1 and 2).
+  - Gate: the first run_checks (under the parallel BalanceSimBatch load) failed on a LiveSmoke SCRIPT ERROR, `ScreenShakeEffect.shake` calling `is_inside_tree` on a node freed during its timer await. Unrelated to this task; fixed in its own commit (`5498c48`). Re-run green: lint 0, 197 scripts, 1152 tests, LiveSmoke OK, Parity 24/24.
+  - Fingerprint (`--runs 200 --seed 7`, Acts 1–4) vs `cf58558`: byte-identical, as expected (no sim deck holds Matron). The probes are the only cover.
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Matron of Flesh's on-kill Flesh now needs an opposing minion's death: `on_minion_killed_on_kill_steps` skips deaths on the attacker's own side, so her own death to the counter and friendly deaths during her attack no longer give Flesh. Two probes cover it; the seeded fingerprint is byte-identical (no sim deck holds her).
+Follow-ups: task 129 takes kill credit from the killing damage (nested effects, counter-kills).
