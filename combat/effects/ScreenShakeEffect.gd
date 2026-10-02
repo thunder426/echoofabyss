@@ -30,7 +30,9 @@ static func shake(target: Node, scene: Node, amplitude: float, ticks: int, inter
 		target.set_meta("_shake_base_pos", base_pos)
 	target.set_meta("_shake_active", int(target.get_meta("_shake_active", 0)) + 1)
 	for i in ticks:
-		if not target.is_inside_tree() or not scene.is_inside_tree():
+		# Each tick awaits a timer; the scene (and the target) may be freed meanwhile.
+		if not is_instance_valid(target) or not is_instance_valid(scene) \
+				or not target.is_inside_tree() or not scene.is_inside_tree():
 			_end_shake(target, base_pos)
 			return
 		var decay: float = 1.0 - (float(i) / float(ticks))
