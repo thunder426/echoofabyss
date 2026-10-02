@@ -2031,14 +2031,18 @@ func on_enemy_died_champion_rip(ctx: EventContext) -> void:
 	if _has_tag(minion, "feral_imp") and minion.card_data.id != "champion_rogue_imp_pack":
 		_refresh_champion_rip_aura()
 		return
-	# Champion died — deal 20% max HP to enemy hero
+	# Champion died — its aura ends (the refresh strips it: the champion is off the board)
 	if minion.card_data.id == "champion_rogue_imp_pack":
+		_refresh_champion_rip_aura()
 		_on_enemy_champion_killed()
 
+## Strip the +100 ATK aura from every enemy minion, then re-apply it to the feral
+## imps only while the champion is on the board (task 066).
 func _refresh_champion_rip_aura() -> void:
+	var active: bool = _enemy_champion_on_board("champion_rogue_imp_pack")
 	for m in state.enemy_board:
 		BuffSystem.remove_source(m, "champion_rip_aura")
-		if _has_tag(m, "feral_imp") and m.card_data.id != "champion_rogue_imp_pack":
+		if active and _has_tag(m, "feral_imp") and m.card_data.id != "champion_rogue_imp_pack":
 			BuffSystem.apply(m, Enums.BuffType.ATK_BONUS, 100, "champion_rip_aura", false, false)
 		state._refresh_slot_for(m)
 
@@ -2074,13 +2078,15 @@ func on_enemy_died_champion_cb(ctx: EventContext) -> void:
 func on_enemy_spell_champion_im(ctx: EventContext) -> void:
 	if ctx.card == null or ctx.card.id != "pack_frenzy":
 		return
-	# If champion is alive, apply +200 HP to all feral imps
+	# Once summoned, casts no longer count; while the champion is on the board,
+	# its aura gives +200 HP to all feral imps (task 066: not after it dies).
 	if state._champion_im_summoned:
-		for m in state.enemy_board:
-			if _has_tag(m, "feral_imp"):
-				m.current_health += 200
-				state._refresh_slot_for(m)
-		_log("  Imp Matriarch champion aura: Pack Frenzy grants +200 HP to all feral imps!", _LOG_ENEMY)
+		if _enemy_champion_on_board("champion_imp_matriarch"):
+			for m in state.enemy_board:
+				if _has_tag(m, "feral_imp"):
+					m.current_health += 200
+					state._refresh_slot_for(m)
+			_log("  Imp Matriarch champion aura: Pack Frenzy grants +200 HP to all feral imps!", _LOG_ENEMY)
 		return
 	# Track Pack Frenzy casts toward summon threshold
 	var count: int = state._champion_im_frenzy_count + 1
@@ -2119,8 +2125,8 @@ func on_champion_acp_track_stacks(stacks: int) -> void:
 ## Hooks into ON_ENEMY_MINION_SUMMONED at high priority to run after corrupt_authority_human
 ## applies corruption. Checks for any corruption on player minions and detonates immediately.
 func on_enemy_summon_champion_acp_corrupt(_ctx: EventContext) -> void:
-	if not state._champion_acp_summoned:
-		return
+	if not state._champion_acp_summoned or not _enemy_champion_on_board("champion_abyss_cultist_patrol"):
+		return  # the aura lasts while the champion is on the board (task 066)
 	# Instantly detonate all corruption stacks on player minions
 	var targets: Array = []
 	# Prepare targets first so we only pulse the aura when something will actually
@@ -2254,6 +2260,15 @@ func _on_enemy_champion_killed() -> void:
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+## True while the enemy champion `card_id` is on the enemy board. An aura lasts
+## while its source is alive; the `_champion_<x>_summoned` flags stay set after
+## it dies (task 066). Task 095 folds the per-champion `_is_alive` copies into this.
+func _enemy_champion_on_board(card_id: String) -> bool:
+	for m: MinionInstance in state.enemy_board:
+		if m.card_data.id == card_id:
+			return true
+	return false
 
 func _champion_ch_is_alive() -> bool:
 	for m in state.enemy_board:

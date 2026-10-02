@@ -59,15 +59,18 @@ static func run_all() -> void:
 	_rip_summon_requires_distinct_attackers()
 	_rip_aura_grants_100_atk()
 	_rip_aura_refreshes_on_death()
+	_rip_aura_removed_on_champion_death()
 	_rip_no_resummon_after_summoned()
 	_cb_summon_at_3_deaths()
 	_cb_death_summons_void_touched_imp()
 	_cb_no_resummon_after_summoned()
 	_im_summon_at_2_frenzy()
 	_im_aura_adds_200hp_on_frenzy()
+	_im_aura_inactive_after_death()
 	_im_frenzy_count_ignored_after_summon()
 	_acp_summon_at_5_stacks_consumed()
 	_acp_aura_instant_detonate()
+	_acp_aura_inactive_after_death()
 	_acp_stacks_capped_at_5_in_progress()
 	_vr_summon_on_first_ritual_sacrifice()
 	_ch_summon_at_3_sparks()
@@ -1309,6 +1312,36 @@ static func _im_summon_at_2_frenzy() -> void:
 	TestHarness.assert_true(TestHarness.has_on_board(state, "enemy", "champion_imp_matriarch"), "champion on board")
 	state.teardown()
 
+## Task 066: the aura ends with the champion. Its imps lose the +100 and a new
+## imp summoned afterwards doesn't get it.
+static func _rip_aura_removed_on_champion_death() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_rogue_imp_pack"]})
+	if not TestHarness.begin_test("champion_rip / aura ends when the champion dies", state):
+		return
+	var imps: Array = []
+	for i in 4:
+		imps.append(TestHarness.spawn_enemy(state, "rabid_imp"))
+	for imp in imps:
+		_fire_enemy_attack(state, imp)
+	var champion := TestHarness.find_on_board(state, "enemy", "champion_rogue_imp_pack")
+	TestHarness.assert_true(champion != null, "champion summoned")
+	if champion == null:
+		state.teardown()
+		return
+	state.combat_manager.kill_minion(imps[0])  # free two slots
+	state.combat_manager.kill_minion(imps[1])
+	var extra := TestHarness.spawn_enemy(state, "rabid_imp")
+	var base_atk: int = extra.effective_atk()
+	_fire_enemy_summon(state, extra)
+	TestHarness.assert_eq(extra.effective_atk(), base_atk + 100, "+100 while the champion lives")
+	state.combat_manager.kill_minion(champion)
+	TestHarness.assert_eq(extra.effective_atk(), base_atk, "back to base once the champion dies")
+	var late := TestHarness.spawn_enemy(state, "rabid_imp")
+	var late_atk: int = late.effective_atk()
+	_fire_enemy_summon(state, late)
+	TestHarness.assert_eq(late.effective_atk(), late_atk, "an imp summoned after its death gets no +100")
+	state.teardown()
+
 static func _im_aura_adds_200hp_on_frenzy() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["champion_imp_matriarch"]})
 	if not TestHarness.begin_test("champion_im / aura: post-summon pack_frenzy grants +200 HP to feral imps", state):
@@ -1364,12 +1397,34 @@ static func _acp_summon_at_5_stacks_consumed() -> void:
 	TestHarness.assert_true(state.get("_champion_acp_summoned") == true, "champion summoned")
 	state.teardown()
 
+## Task 066: Pack Frenzy gives no +200 HP once the Matriarch is dead, and the
+## cast doesn't restart the summon count.
+static func _im_aura_inactive_after_death() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_imp_matriarch"]})
+	if not TestHarness.begin_test("champion_im / aura ends when the Matriarch dies", state):
+		return
+	var pf := CardDatabase.get_card("pack_frenzy")
+	_fire_enemy_spell_cast(state, pf)
+	_fire_enemy_spell_cast(state, pf)  # champion summoned
+	var matriarch := TestHarness.find_on_board(state, "enemy", "champion_imp_matriarch")
+	TestHarness.assert_true(matriarch != null, "Matriarch summoned")
+	var imp := TestHarness.spawn_enemy(state, "rabid_imp")
+	if matriarch != null:
+		state.combat_manager.kill_minion(matriarch)
+	var hp_before: int = imp.current_health
+	_fire_enemy_spell_cast(state, pf)
+	TestHarness.assert_eq(imp.current_health, hp_before, "no +200 HP after her death")
+	TestHarness.assert_eq(state._champion_im_frenzy_count, 2, "the count doesn't restart")
+	state.teardown()
+
 static func _acp_aura_instant_detonate() -> void:
 	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_cultist_patrol"]})
 	if not TestHarness.begin_test("champion_acp / aura: any enemy summon with player corruption = instant detonate", state):
 		return
-	# Force-summon the champion (bypass the threshold) so we can test the aura cleanly.
-	state.set("_champion_acp_summoned", true)
+	# Put the champion on the board (bypassing the threshold): the aura needs both
+	# the summoned flag and the champion on the board (task 066).
+	state._champion_acp_summoned = true
+	TestHarness.spawn_enemy(state, "champion_abyss_cultist_patrol")
 	var victim := TestHarness.spawn_friendly(state, "void_imp")
 	victim.current_health = 1000
 	BuffSystem.apply(victim, Enums.BuffType.CORRUPTION, 100, "test", false, false)
@@ -3639,4 +3694,22 @@ static func _crit_on_hero_strike_only_with_stack() -> void:
 			if ev.kind == CombatEvent.Kind.DAMAGE_DEALT and ev.payload.get("kind", "") == "hero":
 				flags.append(ev.payload.get("is_crit", false))
 	TestHarness.assert_eq(flags, [true, false], "crit with the stack, not without")
+	state.teardown()
+
+## Task 066: once the Patrol is dead, an enemy summon no longer detonates
+## corruption on player minions.
+static func _acp_aura_inactive_after_death() -> void:
+	var state := TestHarness.build_state({"enemy_passives": ["champion_abyss_cultist_patrol"]})
+	if not TestHarness.begin_test("champion_acp / aura ends when the champion dies", state):
+		return
+	state._champion_acp_summoned = true
+	var champion := TestHarness.spawn_enemy(state, "champion_abyss_cultist_patrol")
+	var victim := TestHarness.spawn_friendly(state, "void_imp")
+	victim.current_health = 1000
+	BuffSystem.apply(victim, Enums.BuffType.CORRUPTION, 100, "test", false, false)
+	BuffSystem.apply(victim, Enums.BuffType.CORRUPTION, 100, "test", false, false)
+	state.combat_manager.kill_minion(champion)
+	_fire_enemy_summon(state, TestHarness.spawn_enemy(state, "rabid_imp"))
+	TestHarness.assert_eq(victim.current_health, 1000, "no detonation damage")
+	TestHarness.assert_eq(BuffSystem.count_type(victim, Enums.BuffType.CORRUPTION), 2, "both corruption stacks stay")
 	state.teardown()

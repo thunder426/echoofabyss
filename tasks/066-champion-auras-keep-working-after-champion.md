@@ -1,11 +1,11 @@
 ---
 id: "066"
 title: Champion auras keep working after the champion dies (F1 Rogue Imp Pack, F3 Imp Matriarch, F4 Abyss Cultist Patrol)
-status: backlog
+status: done
 area: combat
 priority: high
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -45,7 +45,7 @@ Three champions check `_champion_<x>_summoned` instead. That flag is set once at
    - `on_enemy_summon_champion_acp_corrupt` (:2158-2160) starts with `if not state._champion_acp_summoned: return`, then detonates every corruption stack on the player's board for 100 damage per stack, on every enemy summon.
    - F4's `corrupt_authority` corrupts a random player minion whenever a Human is summoned (`on_enemy_summon_corrupt_authority_human`, :1157-1165). Both F4 decks run 3-5 `abyss_cultist` and 2 `corruption_weaver`, which corrupt on play (CardDatabase.gd:1925, :1963). So after the Patrol dies, every Human summon still corrupts and detonates at once instead of waiting for a feral imp.
 
-(The deck contents come from `user://encounter_decks.json`; task 047 moves them into the repo.)
+(Deck contents: `EncounterDecks` in the repo since task 047.)
 
 ### Every other champion already checks the board
 
@@ -106,7 +106,17 @@ Latent, not in scope: a champion that leaves the board without dying (sacrifice,
 ## Work log
 
 - 2026-10-01: filed by task 056 (grooming pass 1) from unit B's straight-to-task bug B-bug1 (roadmap §B). Re-checked the trace end to end at `404b51c`. Also found that `_acp_aura_instant_detonate` (:1351) fakes the summon and must be updated with the fix.
+- 2026-10-02: started (P2 ticket 5), on top of 057–061. Handler lines had moved ~-43 since grooming (P1 deletions); structure unchanged.
+  - Fix as proposed: `CombatHandlers._enemy_champion_on_board(card_id)`. RIP: `_refresh_champion_rip_aura` always strips and re-applies only while the champion is on the board (it keeps re-journaling every enemy slot as before; task 136 owns that noise), and the champion's own death now refreshes before `_on_enemy_champion_killed`. IM: the +200 HP needs the Matriarch on the board; still returns once summoned, so the count doesn't restart. ACP: the instant detonation needs the Patrol on the board. Fixed the stale "deal 20% max HP" comment in the RIP death branch (task 068 sweeps the block headers).
+  - Probes: `_rip_aura_removed_on_champion_death`, `_im_aura_inactive_after_death`, `_acp_aura_inactive_after_death`; `_acp_aura_instant_detonate` now puts the Patrol on the board and sets the flag as a typed field (was a duck-typed `state.set`). The three new probes fail on the old handlers (imp keeps 300 ATK; +200 HP after death; 200 detonation damage and 0 stacks left).
+  - Gate: run_checks green (lint 0, 197 scripts, 1171 tests, LiveSmoke OK, Parity 24/24).
+  - Fingerprint (`--runs 200 --seed 7`) vs `8f10753`, saved in `.fingerprints/`:
+    - Act 1: only F1 and F3 rows move; F2 unchanged. Player win rate up to +2.0 pts (Swarm f1_a 60.5 → 62.5%, S.Flesh f1_b 71.5 → 73.5%, S.Flesh f1_c +1.5, S.Forge f1_c +1.5, S.Forge f3_c +1.5); the rest within ±0.5 or HP-only.
+    - Act 2: only F4 rows move (48 rows, mean +0.29 pts, range −1.0 to +4.0; S.Corr BS f4_b +4.0, S.Corr MS f4_b +2.0, S.Forge SL f4_b +2.0) and their Det counters; F5 and F6 unchanged.
+    - Acts 3–4: byte-identical.
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+The F1 Rogue Imp Pack, F3 Imp Matriarch and F4 Abyss Cultist Patrol auras now last only while the champion is on the board (`_enemy_champion_on_board`), not for the rest of the fight after it dies: RIP's +100 ATK is stripped on its death and not re-applied, Pack Frenzy's +200 HP and the Patrol's instant detonation stop. Behaviour change as expected: F1/F3/F4 player win rates rise a little (up to +2 pts in Act 1, F4 mean +0.3 with one +4 row); F2, F5, F6 and Acts 3–4 don't move.
+Follow-ups: task 095 folds the per-champion `_is_alive` copies into this helper and should key RIP's aura on "left the board" (a champion removed without dying keeps the +100 until the next refresh).
