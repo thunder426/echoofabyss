@@ -2,7 +2,7 @@
 ## Tracks relic state during a single combat: charges remaining, cooldown timers,
 ## and activation constraints (1 relic per turn).
 ##
-## Created at combat start from GameManager.player_relics.
+## Created by CombatState.setup_combat from CombatConfig.relic_ids.
 ## Each relic entry stores its RelicData + mutable combat state.
 class_name RelicRuntime
 extends RefCounted

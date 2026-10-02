@@ -212,9 +212,8 @@ func _card_has_tag(card: CardData, tag: String) -> bool:
 		return tag in (card as MinionCardData).minion_tags
 	return false
 
-## Returns whether the player has the named talent active.
-## Sim sets `talents` directly via CombatSim. Live combat populates `talents`
-## from GameManager.unlocked_talents in CombatScene._ready.
+## Returns whether the player has the named talent active. `talents` comes
+## from the CombatConfig (setup_combat) on every shell.
 func _has_talent(id: String) -> bool:
 	return id in talents
 
@@ -1641,17 +1640,16 @@ var enemy_void_marks: int:
 # Talent / hero state
 # ---------------------------------------------------------------------------
 
-## Active player talent IDs. Sim sets directly; live populates from
-## GameManager.player_talents in Phase 4 (currently CombatScene reads
-## GameManager directly inside `_has_talent`).
+## Active player talent IDs, from CombatConfig.talents (setup_combat).
 var talents: Array[String] = []
 
-## Hero passive IDs for the current hero (e.g. dark_channeling_seris).
-## Sim sets directly; live populates from GameManager.current_hero in Phase 4.
+## Hero passive IDs for the current hero (e.g. dark_channeling_seris), from
+## CombatConfig.hero_passives (setup_combat).
 var hero_passives: Array[String] = []
 
-## Hero id ("lord_vael", "seris"). Used by profiles to branch on hero-specific
-## activated abilities (Seris's Forge / Corrupt buttons). Sim-only today.
+## The player's hero id ("lord_vael", "seris", "korrath"), from
+## CombatConfig.player_hero_id (setup_combat). Profiles branch on it for hero
+## skills; handlers read it for the hero's name.
 var player_hero_id: String = "lord_vael"
 
 ## Seris — Flesh counter. Gains 1 per friendly Demon death (Fleshbind passive),

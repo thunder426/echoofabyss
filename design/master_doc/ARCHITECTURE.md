@@ -18,7 +18,7 @@ All paths in this doc are relative to `echoofabyss/` (the Godot project root).
 | Per-minion runtime state | `combat/board/MinionInstance.gd` |
 | Buffs / debuffs (apply, tick, query) | `combat/board/BuffSystem.gd` |
 | Player input (clicks, target prompts) | `combat/board/CombatInputHandler.gd` |
-| "Signal X → refresh UI Y" wiring | `combat/board/CombatUI.gd` |
+| "Journal event X → refresh UI Y" wiring (the presenter calls it) | `combat/board/CombatUI.gd` |
 | Compound VFX (deaths, summons, projectiles) | `combat/effects/vfx/CombatVFXBridge.gd` |
 | Spell/buff VFX dispatch | `combat/effects/vfx/VfxController.gd` |
 | Declarative effect engine | `combat/effects/EffectResolver.gd` + `EffectStep.gd` + `EffectContext.gd` |
@@ -323,7 +323,7 @@ Talents implement effects by registering handlers in `CombatSetup`. Per the dama
 | `debug/tests/RunAllTests.gd` | Aggregate test runner. |
 | `debug/tests/{CardEffect,DamageType,TriggerHandler,Scenario}Tests.gd` | Test suites. |
 | `debug/tests/LiveSmokeTests.gd` + `LiveSmoke.tscn` | Headless boot of the live `CombatScene` (the only live-shell test). |
-| `tools/run_checks.sh` | The gate: import → `tools/lint/lint_engine.py` (L1–L9; `--report-pairs` lists scene/state func pairs) → `tools/lint/load_all_scripts.gd` (every script compiles) → RunAllTests → LiveSmoke; fails on any `SCRIPT ERROR`; per-run timeout `RUN_CHECKS_TIMEOUT` (300 s). |
+| `tools/run_checks.sh` | The gate: import → `tools/lint/lint_engine.py` (L1–L11; `--report-pairs` lists scene/state func pairs) → `tools/lint/load_all_scripts.gd` (every script compiles) → RunAllTests → LiveSmoke → Parity; fails on any `SCRIPT ERROR`; per-run timeout `RUN_CHECKS_TIMEOUT` (300 s). |
 
 ## Key enums
 

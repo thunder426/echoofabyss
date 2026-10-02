@@ -30,14 +30,12 @@ func setup(p_scene: Node, p_state: CombatState) -> void:
 	state = p_state
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CombatState signal subscribers — the "X mutated → refresh Y" wiring.
+# Journal event handlers — CombatPresenter calls these as it plays each event,
+# so the UI follows the journal, not live state: the "X changed → refresh Y"
+# wiring.
 # ─────────────────────────────────────────────────────────────────────────────
 
-## Subscriber to CombatState.hp_changed — refreshes the appropriate hero panel
-## whenever HP mutates. Lets us drop scattered `_hero_panel.update(...)` calls
-## sprinkled through damage/heal paths; the signal does it for free.
-## Note: enemy_void_marks and enemy_ai aren't HP-related, so the existing
-## `_enemy_hero_panel.update(...)` calls on void-mark / AI-state paths stay.
+## HERO_HP_CHANGED — refreshes that side's hero panel.
 func on_state_hp_changed(side: String, new_hp: int, mx: int, _delta: int) -> void:
 	if _scene == null:
 		return
@@ -48,9 +46,7 @@ func on_state_hp_changed(side: String, new_hp: int, mx: int, _delta: int) -> voi
 		if _scene._enemy_hero_panel:
 			_scene._enemy_hero_panel.update(new_hp, mx, _scene.state, _scene.state.enemy_void_marks)
 
-## Subscriber to CombatState.void_marks_changed — refreshes the enemy hero
-## panel so the stack count visual stays current without scattered manual
-## `_enemy_hero_panel.update(...)` calls at every void mark mutation.
+## VOID_MARKS_CHANGED — refreshes the enemy hero panel's stack count.
 func on_state_void_marks_changed(side: String, _value: int) -> void:
 	if _scene == null:
 		return
@@ -82,15 +78,14 @@ func on_state_hero_armour_changed(side: String, _value: int) -> void:
 func on_state_hero_buff_changed(side: String) -> void:
 	_refresh_hero_korrath_badges(side)
 
-## Subscriber to CombatState.combat_log — forwards to the on-screen CombatLog.
-## Lets handlers and effects log via state without holding a scene reference.
+## LOG — forwards the line to the on-screen CombatLog (rules code logs with
+## state._log, which journals it).
 func on_state_combat_log(msg: String, log_type: int) -> void:
 	if _scene == null or _scene.combat_log == null:
 		return
 	_scene.combat_log.write(msg, log_type)
 
-## Subscriber to CombatState.flesh_changed — refreshes Seris's resource bar.
-## Replaces the old Flesh.on_changed() callback chain.
+## FLESH_CHANGED — refreshes Seris's resource bar.
 func on_state_flesh_changed(_value: int, _max_value: int) -> void:
 	if _scene == null:
 		return
@@ -99,8 +94,8 @@ func on_state_flesh_changed(_value: int, _max_value: int) -> void:
 	if _scene._player_hero_panel != null and _scene._player_hero_panel.resource_bar != null:
 		_scene._player_hero_panel.resource_bar.refresh()
 
-## Subscriber to CombatState.forge_changed — refreshes the forge widget on
-## PipBar and the Soul Forge skill button on SerisResourceBar.
+## FORGE_CHANGED — refreshes the forge widget on PipBar and the Soul Forge
+## skill button on SerisResourceBar.
 func on_state_forge_changed(_value: int, _threshold: int) -> void:
 	if _scene == null:
 		return
@@ -109,20 +104,18 @@ func on_state_forge_changed(_value: int, _threshold: int) -> void:
 	if _scene._player_hero_panel != null and _scene._player_hero_panel.resource_bar != null:
 		_scene._player_hero_panel.resource_bar.refresh()
 
-## Subscriber to CombatState.traps_changed — refreshes the trap/rune slot
-## panel for the affected side.
+## TRAPS_CHANGED — refreshes the trap/rune slot panel for the affected side.
 func on_state_traps_changed(side: String) -> void:
 	if _scene != null and _scene.trap_env_display != null:
 		_scene.trap_env_display.update_traps_for(side)
 
-## Subscriber to CombatState.environment_changed — refreshes the env card
-## display.
+## ENVIRONMENT_CHANGED — refreshes the env card display.
 func on_state_environment_changed(_env: EnvironmentCardData) -> void:
 	if _scene != null and _scene.trap_env_display != null:
 		_scene.trap_env_display.update_environment()
 
-## Subscriber to CombatState.minion_stats_changed — finds the minion's slot
-## and triggers a visual re-render.
+## Re-renders the minion's slot. Nothing calls it: board slots follow the
+## journal's stat snapshots (task 046).
 func on_state_minion_stats_changed(minion: MinionInstance) -> void:
 	if _scene == null:
 		return

@@ -167,12 +167,6 @@ var counter_warning: CounterWarning = null
 var _hovered_hand_visual: CardVisual = null
 
 # ---------------------------------------------------------------------------
-# Enemy passive state — populated from GameManager.current_enemy.passives
-# ---------------------------------------------------------------------------
-
-# Act 2 champion state
-
-# ---------------------------------------------------------------------------
 # Godot lifecycle
 # ---------------------------------------------------------------------------
 

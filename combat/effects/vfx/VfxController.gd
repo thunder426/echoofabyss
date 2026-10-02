@@ -142,12 +142,13 @@ func _play_void_screech(caster_side: String, _target: Variant, resolve_damage: C
 	await vfx.finished
 
 func _play_abyssal_plague(caster_side: String, _target: Variant, _resolve_damage: Callable) -> void:
-	# P4B: scene's wrapper mutates state (corrupt + damage all enemies via
-	# EffectResolver running plague's effect_steps) BEFORE this VFX spawns,
-	# queueing one damage popup per touched minion. The wave plays visually
-	# and per_minion_cb fires when the wave-front reaches each minion — at
-	# that moment we drain that minion's queued popup so the floating number
-	# appears in sync with the wave touching the slot (not all at the end).
+	# The engine has already resolved the plague (its effect_steps corrupt and
+	# damage every enemy minion); the presenter holds the spell's journaled
+	# events back until SPELL_RESOLVED. The wave plays visually and
+	# per_minion_cb fires when the wave-front reaches each minion — at that
+	# moment we play that minion's captured events (presenter
+	# .play_captured_for_slot), so its popup appears in sync with the wave
+	# touching the slot (not all at the end).
 	var all_slots: Array = _combat.enemy_slots if caster_side == "player" else _combat.player_slots
 	var occupied: Array = []
 	for s in all_slots:

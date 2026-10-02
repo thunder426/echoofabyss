@@ -15,7 +15,7 @@ enum EffectType {
 	HEAL_HERO,         # Restore amount HP to own hero
 	BUFF_ATK,          # Grant amount ATK to target(s); permanent flag controls temp vs perm
 	BUFF_HP,           # Grant amount max/current HP to target(s)
-	BUFF_ARMOUR,       # Korrath — grant amount Armour to target(s) via MinionInstance.add_armour (routes through scene._armour_doubled_on_knight gate)
+	BUFF_ARMOUR,       # Korrath — grant amount Armour to target(s) via MinionInstance.add_armour (routes through the state._armour_doubled_on_knight gate)
 	CORRUPTION,        # Apply amount stacks of Corruption to target(s)
 	SUMMON,            # Summon token minion (card_id) for owner
 	DRAW,              # Draw amount cards
@@ -41,13 +41,13 @@ enum EffectType {
 	SPEND_FLESH_UP_TO, # Seris — spends min(current, amount). Partial allowed. Accumulates into ctx.flesh_spent_this_cast
 	HEAL_MINION,       # Heal resolved minion target(s) by amount HP
 	HEAL_MINION_FULL,  # Heal resolved minion target(s) to their effective max HP (ignores amount)
-	GRANT_KILL_STACKS, # Seris — add amount kill_stacks to target(s). Routes through scene._add_kill_stacks so flesh_infusion and predatory_surge talents react uniformly.
+	GRANT_KILL_STACKS, # Seris — add amount kill_stacks to target(s). Routes through state._add_kill_stacks so flesh_infusion and predatory_surge talents react uniformly.
 	GAIN_FORGE_COUNTER, # Seris — owner's Forge Counter += amount (Demon Forge branch). Player-only.
 	COPY_LAST_TURN_SPELLS_FROM_GRAVEYARD, # Seris (Recursive Hex) — copy each spell the owner cast last turn into hand (excluding step.exclude_card_id). Damages opponent hero by amount × copies stamped (regardless of hand-cap burn).
-	CANCEL_OPPONENT_SPELL,    # Silence Trap — set scene._spell_cancelled so the in-flight opponent spell short-circuits. No fields used.
+	CANCEL_OPPONENT_SPELL,    # Silence Trap — set state._spell_cancelled so the in-flight opponent spell short-circuits. No fields used.
 	BLOCK_OPPONENT_TRAPS_THIS_TURN,  # Saboteur Adept — set the per-turn flag that gates opponent traps from firing. No fields used.
 	TAX_OPPONENT_SPELLS_NEXT_TURN,   # Spell Taxer — increment opponent's spell-tax counter so spells next turn cost +1 mana per stack. No fields used.
-	QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN,  # Void Rift Lord — set scene._void_mana_drain_pending so the opponent's next turn starts at 0 Mana. Player-only by design (matches existing asymmetric behavior).
+	QUEUE_OPPONENT_MANA_DRAIN_NEXT_TURN,  # Void Rift Lord — set the opponent's pending flag (state._void_mana_drain_pending / _enemy_void_mana_drain_pending) so their next turn starts at 0 Mana. Either side.
 	COPY_OWNER_RUNES_TO_HAND,  # Runic Echo — adds a copy of every rune currently in the owner's active_traps to the owner's hand. No fields used.
 	PLACE_RUNE_ON_OPPONENT,    # Voidshaped Acolyte — places a rune (card_id) on the opponent's traps with aura handlers registered on the opponent side.
 	MOD_LAST_ADDED_COST,       # Adjust the per-resource cost delta on ctx.last_added_instance (set by the previous TUTOR / ADD_CARD step). `amount` is the delta (negative = discount), `resource` selects "mana" / "essence". No-ops if no instance was added in this run.

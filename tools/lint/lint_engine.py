@@ -7,7 +7,9 @@ rule set and the phase that introduces each rule.
   L1  (plan 0.3; 4.4) Rules code (RULES_FILES: CombatState, CombatSetup, the
       handlers, effects, resolvers, EffectContext, CombatManager, MinionInstance,
       PhaseTransition) holds no combat shell: no `_scene`, `ctx.scene`, `_fx` or
-      `scene.`. CombatSetup registry "stats" keys must exist on CombatState
+      `scene.`. Nor does it read run state from an autoload (`GameManager.`,
+      `UserProfile.`, `TestConfig.`): a fight's inputs come from its
+      CombatConfig. CombatSetup registry "stats" keys must exist on CombatState
       (they are written with `state.set`).
 
   L2  Gameplay randomness goes through the engine RNG (`state.rng_pick`,
@@ -124,6 +126,9 @@ NODE_MEMBERS = {
     "to_global", "to_local", "get_canvas_transform", "state",
 }
 
+# L1: autoloads holding run state, which rules code never reads (task 055).
+RUN_STATE_RE = re.compile(r"(?<![\w.])(?:GameManager|UserProfile|TestConfig)\.")
+
 # L1 / L3: handles that would resolve to the combat shell, and to the presenter.
 SHELL_HANDLES = ["ctx.scene", "_scene", "scene", "_fx"]
 PRESENTER_HANDLES = ["ctx.presenter", "presenter"]
@@ -218,9 +223,13 @@ class Linter:
         `scene.` anywhere (the B1 class: a name the live shell lacks)."""
         shell_re = re.compile(r"(?<![\w.])(?:ctx\.scene|_scene|_fx)\b|(?<![\w.])scene\.")
         for i, raw in enumerate(read(rel), start=1):
-            m = shell_re.search(strip_comment(raw))
+            line = strip_comment(raw)
+            m = shell_re.search(line)
             if m:
                 self.err("L1", rel, i, f"`{m.group(0)}` — rules code has no combat shell; use the typed state")
+            m = RUN_STATE_RE.search(line)
+            if m:
+                self.err("L1", rel, i, f"`{m.group(0)}` — rules code doesn't read run state; the fight's inputs come from its CombatConfig")
 
     def scan_setup_stats(self) -> None:
         in_stats = False

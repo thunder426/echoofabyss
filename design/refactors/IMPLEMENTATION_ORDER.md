@@ -59,7 +59,7 @@ The high-priority combat bugs land in P2–P3, and the high-priority meta and di
    Hard prerequisite of 104. It removes the dead arm, tooltip entries and header that 062, 068 and 072 would otherwise edit, and four probes 137 would otherwise move.
 5. [x] **[054](../../tasks/054-handler-log-type-constants.md)** Fix CombatHandlers log-type constants (off by one vs CombatLog.LogType) · *normal, S*  
    Same session as 055.
-6. [ ] **[055](../../tasks/055-rules-code-gamemanager-leak-stale-comments.md)** Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments · *normal, S*  
+6. [x] **[055](../../tasks/055-rules-code-gamemanager-leak-stale-comments.md)** Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments · *normal, S*  
    Hard prerequisite of 086, 089 and 103.
 7. [ ] **[073](../../tasks/073-player-sim-bots-side-blind-reserved.md)** Player sim bots — side-blind reserved champion slot, and a Void Execution rule that checks a tag no card has · *normal, S*  
    Two commits. Commit 1, the Void Execution tag fix, is neutral. Commit 2, the side-blind reserved slot, moves the swarm, voidbolt_burst and death_circle rows in every act; record that delta.

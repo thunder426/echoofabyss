@@ -156,7 +156,7 @@ func on_player_turn_start_void_echo(_ctx: EventContext) -> void:
 func on_summon_passive_void_imp_boost(ctx: EventContext) -> void:
 	if not _is_void_imp(ctx.minion):
 		return
-	var hero := HeroDatabase.get_hero(GameManager.current_hero)
+	var hero := HeroDatabase.get_hero(state.player_hero_id)
 	_log("  %s: %s summoned with passive +100/+100." % [(hero.hero_name if hero else "Hero"), ctx.card.card_name], _LOG_PLAYER)
 
 ## Old passive relic summon handlers removed — relics are now activated abilities.
@@ -169,8 +169,8 @@ func on_summon_swarm_discipline(ctx: EventContext) -> void:
 		return
 	_log("  Swarm Discipline: %s +100 HP (passive)." % ctx.card.card_name, _LOG_PLAYER)
 
-func on_ritual_fired_ritual_surge(_ctx: EventContext) -> void:
-	state._summon_token("void_imp", "player")
+func on_ritual_fired_ritual_surge(ctx: EventContext) -> void:
+	state._summon_token("void_imp", ctx.owner)
 	_log("  Ritual Surge: Void Imp summoned!", _LOG_PLAYER)
 
 ## piercing_void retag retired — Void Imp's on_play_effect_steps now declares

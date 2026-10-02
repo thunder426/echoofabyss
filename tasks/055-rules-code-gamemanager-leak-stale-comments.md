@@ -1,11 +1,11 @@
 ---
 id: "055"
 title: Remove the GameManager read from CombatHandlers; fix stale Phase-4 comments
-status: backlog
+status: done
 area: combat
 priority: normal
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -68,3 +68,17 @@ In normal play they show the same values, so they are left out of this task. The
   - Listed the other UI GameManager readers as an open scope decision.
   - Bundled with 054.
 - 2026-09-30: owner decision: the UI readers are out of scope, moved to roadmap C5.
+- 2026-10-02: implemented, steps 1–4.
+  - `on_summon_passive_void_imp_boost` names the hero from `state.player_hero_id`; `on_ritual_fired_ritual_surge(ctx)` summons for `ctx.owner`.
+  - Comments rewritten to the current flow: CombatState `_has_talent` / `talents` / `hero_passives` / `player_hero_id` (CombatConfig → setup_combat); VfxController's Abyssal Plague note (the engine has resolved it; the presenter plays each minion's captured events as the wave reaches it); EffectStep :18, :44, :47, :50 (`scene.` → `state.`; the mana-drain step is no longer "player-only", EffectResolver sets either side's flag); RelicRuntime header; CombatUI's section header and every handler header (each named by the journal event the presenter plays; nothing subscribes); ARCHITECTURE.md's wiring row and the gate line (L1–L11, plus Parity). Also fixed: CardDatabase.gd:443 (`scene._armour_doubled_on_knight`), and deleted CombatScene's empty "Enemy passive state — populated from GameManager…" section.
+  - Found: `CombatUI.on_state_minion_stats_changed` has no caller (slots follow the journal's stat snapshots since task 046). Its header now says so; deleting it fits task 132's dead-code sweep.
+  - Lint: L1 now also flags `GameManager.` / `UserProfile.` / `TestConfig.` in RULES_FILES (comments stripped). 0 hits; restoring the old read gives exactly one L1 error at CombatHandlers.gd:159. TESTING.md's L1 row updated.
+  - Gate green: lint 0, 1121 tests, LiveSmoke OK, Parity 24/24; handler-order snapshot unchanged.
+  - Fingerprint Acts 1–4 identical to `af5c599`.
+- 2026-10-02: closed.
+
+## Summary
+
+Rules code no longer reads an autoload: the Void Imp boost log names the hero from `state.player_hero_id`, Ritual Surge summons for `ctx.owner`, and lint L1 now fails on `GameManager.` / `UserProfile.` / `TestConfig.` in rules code. The stale pre-Phase-4 comments (CombatState, EffectStep, VfxController, CombatUI, RelicRuntime, CombatScene, CardDatabase, ARCHITECTURE.md) describe the current CombatConfig → setup_combat and presenter → CombatUI flow. Behaviour-neutral: BalanceSimBatch Acts 1–4 identical.
+Follow-ups: `CombatUI.on_state_minion_stats_changed` has no caller (task 132's dead-code sweep). The UI `GameManager` readers stay with roadmap C5 / task 103.
+

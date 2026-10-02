@@ -440,7 +440,7 @@ func _register_wanderer_cards() -> void:
 		# T0 Iron Formation: knight becomes Human and gains FORMATION; first adjacent
 		# Human pair grants permanent +200 Armour and +200 HP via formation_effect_steps.
 		# The +200 Armour is doubled to +400 when T3 unbreakable is also active because
-		# MinionInstance.add_armour reads scene._armour_doubled_on_knight.
+		# MinionInstance.add_armour reads state._armour_doubled_on_knight.
 		{
 			"talent_id":   "iron_formation",
 			"minion_type": Enums.MinionType.HUMAN,
