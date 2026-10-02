@@ -314,6 +314,12 @@ func _deal_damage(minion: MinionInstance, info: Dictionary) -> void:
 			if minion.has_deathless():
 				BuffSystem.remove_type(minion, Enums.BuffType.GRANT_DEATHLESS)
 				minion.current_health = 50
+				if state != null:
+					# DAMAGE_DEALT went out with hp_after <= 0; journal the saved HP so
+					# the slot doesn't keep showing it (task 061).
+					state._refresh_slot_for(minion)
+					state._log("  %s survives (Deathless)." % minion.card_data.card_name,
+							Enums.LogType.PLAYER if minion.owner == "player" else Enums.LogType.ENEMY)
 				return
 			# Pre-death save hook — talents like Seris's deathless_flesh consume a
 			# resource to prevent death. Scene returns true if the minion was saved

@@ -24,6 +24,7 @@ func _ready() -> void:
 	await _f13_vrp_champion_progress()
 	await _live_rules_paths()
 	await _hp_labels_lag_the_engine()
+	await _deathless_save_label()
 	await _ai_vs_ai_fight()
 	print("LiveSmoke: %s (%d failed)" % ["OK" if _fails == 0 else "FAILED", _fails])
 	get_tree().quit(_fails)
@@ -186,6 +187,24 @@ func _hp_labels_lag_the_engine() -> void:
 	var shown: String = hound_node._hp_label.text if hound_node != null else "?"
 	_check(shown == str(hound.current_health),
 		"labels: the hound shows %d HP once the attack played (got %s)" % [hound.current_health, shown])
+	await _teardown(scene)
+
+## A DEATHLESS save (Bulwark Automaton: 500 → -100 → 50) journals the saved HP, so
+## the slot ends on 50 once the attack played, not on the strike's -100 (task 061).
+func _deathless_save_label() -> void:
+	var scene: Node = await _launch(1, "swarm")
+	var st: CombatState = scene.state
+	var automaton: MinionInstance = st._summon_token("bulwark_automaton", "player")
+	var colossus: MinionInstance = st._summon_token("bastion_colossus", "enemy")
+	st.combat_manager.resolve_minion_attack(colossus, automaton)
+	_check(automaton.current_health == 50, "deathless: the engine saved the Automaton at 50 (got %d)" % automaton.current_health)
+	await _drain(scene)
+	await get_tree().create_timer(0.3).timeout  # the HP tween's tail
+	var node: BoardSlot = scene._find_slot_for(automaton)
+	var shown: String = str(node.shown_hp) if node != null else "?"
+	var label: String = node._hp_label.text if node != null else "?"
+	_check(shown == "50" and label == "50",
+		"deathless: the Automaton's slot shows 50 HP once the attack played (shown %s, label %s)" % [shown, label])
 	await _teardown(scene)
 
 # ---------------------------------------------------------------------------

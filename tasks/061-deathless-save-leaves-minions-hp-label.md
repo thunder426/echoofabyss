@@ -1,11 +1,11 @@
 ---
 id: "061"
 title: Deathless save leaves the minion's HP label at ≤0
-status: backlog
+status: done
 area: ui
 priority: normal
-started:
-finished:
+started: 2026-10-02
+finished: 2026-10-02
 ---
 
 ## Description
@@ -77,7 +77,14 @@ Not taken: resolving the save before journaling and sending DAMAGE_DEALT with `h
 ## Work log
 
 - 2026-10-01: filed by task 056 (grooming pass 1) from roadmap item I7 (unit I candidate I7a / straight-to-task bug 1). Re-checked at `404b51c`: neither save journals the new HP, labels render `shown_hp`, and TURN_STARTED doesn't correct it. Followed the plan's fix (a stats event after the save), put in `_try_save_from_death` so the `kill_minion` path is covered too.
+- 2026-10-02: started (P2 ticket 4), on top of 057 / 059 / 060.
+  - Fix as proposed: `_refresh_slot_for(minion)` after the HP-50 save in `_deal_damage`'s DEATHLESS branch (with `state != null`) and in `CombatState._try_save_from_death` (covers `kill_minion` too). Took the optional step 3: the keyword save logs "<name> survives (Deathless)." on the minion's side. Nothing connects to `minion_stats_changed` (CombatUI's handler is unused), so only the journal moves.
+  - Probes: CardEffectTests `_bulwark_automaton_deathless_journals_saved_hp`; `_deathless_flesh` extended; LiveSmoke `_deathless_save_label` (slot `shown_hp` and label "50"). New helper `TestHarness.last_journal_hp`. All three fail on the old engine: the journal ends on -100 and the live slot shows "-100".
+  - Gate: run_checks green (lint 0, 197 scripts, 1162 tests, LiveSmoke OK, Parity 24/24).
+  - Fingerprint (`--runs 200 --seed 7`, Acts 1–4) vs `8393948`: byte-identical (neutral: journal events and a LOG line only).
+- 2026-10-02: closed.
 
 ## Summary
 
-_(filled in at /task-done)_
+Both death saves (the DEATHLESS keyword and Seris's Deathless Flesh) now journal MINION_STATS_CHANGED after setting HP 50, so the slot label moves from the strike's ≤ 0 to 50 instead of waiting for the next board re-journal; the keyword save also logs "<name> survives (Deathless)". Covered by a card probe, the extended `_deathless_flesh` probe and a LiveSmoke label probe (new `TestHarness.last_journal_hp`). Neutral: fingerprint byte-identical.
+Follow-ups: task 135's idle-consistency probe generalises the LiveSmoke check; task 097 moves `_try_save_from_death` into the per-side Seris module.

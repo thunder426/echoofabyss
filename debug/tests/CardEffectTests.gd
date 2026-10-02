@@ -117,6 +117,7 @@ static func run_all() -> void:
 	_oath_of_iron_fills_every_empty_slot()
 	_oath_of_iron_skips_occupied_slots()
 	_oath_of_iron_summons_trigger_formation_on_neighbors()
+	_bulwark_automaton_deathless_journals_saved_hp()
 
 # ---------------------------------------------------------------------------
 # Voidbolt (kept from scaffold phase)
@@ -1612,3 +1613,24 @@ static func _oath_of_iron_summons_trigger_formation_on_neighbors() -> void:
 	EffectResolver.run(spell.effect_steps, TestHarness.make_ctx(state, "player"))
 	TestHarness.assert_true(bearer.formation_fired, "shield_bearer formation consumed by Oath spawn")
 	TestHarness.assert_eq(anchor.armour - anchor_armour_before, 200, "anchor gained +200 Armour from bearer's outward FORMATION")
+
+# ---------------------------------------------------------------------------
+# Bulwark Automaton — DEATHLESS save journals the saved HP (task 061)
+# ---------------------------------------------------------------------------
+
+## A Bastion Colossus (600) hits the Automaton (500): DAMAGE_DEALT says -100, then
+## the save sets 50. The journal's last HP for it must say 50, or the slot label
+## stays at -100 until something else re-journals the slot.
+static func _bulwark_automaton_deathless_journals_saved_hp() -> void:
+	var state := TestHarness.build_state({})
+	if not TestHarness.begin_test("bulwark_automaton / DEATHLESS save: the journal's last HP is 50", state):
+		return
+	var auto := TestHarness.spawn_friendly(state, "bulwark_automaton")
+	var col := TestHarness.spawn_enemy(state, "bastion_colossus")
+	var start: int = state.journal.size()
+	state.combat_manager.resolve_minion_attack(col, auto)
+	TestHarness.assert_eq(auto.current_health, 50, "saved at 50 HP")
+	TestHarness.assert_true(state.is_on_board(auto), "still on the board")
+	TestHarness.assert_false(auto.has_deathless(), "DEATHLESS spent")
+	TestHarness.assert_eq(TestHarness.last_journal_hp(state, start, auto), 50, "the journal's last HP for it is 50")
+	state.teardown()

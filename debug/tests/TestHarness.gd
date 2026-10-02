@@ -264,6 +264,23 @@ static func count_on_board(state: CombatState, side: String, card_id: String) ->
 static func has_on_board(state: CombatState, side: String, card_id: String) -> bool:
 	return find_on_board(state, side, card_id) != null
 
+## The HP the journal last showed for `m` from index `start` on: the last
+## DAMAGE_DEALT / MINION_HEALED `hp_after` or MINION_STATS_CHANGED `hp` about it.
+## What its slot label ends on once the presenter has played the journal (task 046).
+## `missing` when no event carries its HP.
+static func last_journal_hp(state: CombatState, start: int, m: MinionInstance, missing: int = -99999) -> int:
+	var hp: int = missing
+	for i in range(start, state.journal.size()):
+		var ev: CombatEvent = state.journal[i]
+		if ev.payload.get("minion") != m:
+			continue
+		match ev.kind:
+			CombatEvent.Kind.DAMAGE_DEALT, CombatEvent.Kind.MINION_HEALED:
+				hp = int(ev.payload.get("hp_after", hp))
+			CombatEvent.Kind.MINION_STATS_CHANGED:
+				hp = int(ev.payload.get("hp", hp))
+	return hp
+
 # ---------------------------------------------------------------------------
 # Synthetic spell builder for tests that need a CardData with a specific shape
 # (e.g. a damage-dealing spell to trigger _spell_deals_damage gating).

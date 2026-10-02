@@ -307,10 +307,12 @@ static func _deathless_flesh() -> void:
 		return
 	state.player_flesh = 5
 	var fiend := TestHarness.spawn_friendly(state, "grafted_fiend")
+	var start: int = state.journal.size()
 	state.combat_manager._deal_damage(fiend,
 			CombatManager.make_damage_info(fiend.current_health + 100, Enums.DamageSource.MINION, Enums.DamageSchool.PHYSICAL))
 	TestHarness.assert_eq(fiend.current_health, 50, "HP clamped to 50")
 	TestHarness.assert_eq(state.player_flesh, 3, "Flesh spent: 5 → 3")
+	TestHarness.assert_eq(TestHarness.last_journal_hp(state, start, fiend), 50, "the journal's last HP for it is 50 (task 061)")
 	state.teardown()
 
 # ---------------------------------------------------------------------------

@@ -1116,6 +1116,7 @@ func _try_save_from_death(minion: MinionInstance) -> bool:
 			and player_flesh >= 2:
 		player_flesh -= 2
 		minion.current_health = 50
+		_refresh_slot_for(minion)  # journal the saved HP for the slot label (task 061)
 		_log("  Deathless Flesh: %s saved (2 Flesh spent)." % minion.card_data.card_name, Enums.LogType.PLAYER)
 		return true
 	return false
